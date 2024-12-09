@@ -1,0 +1,6 @@
+[submodule "server"]
+	path = server
+	url = git@github.com:Jannchie/pictoria-server.git
+[submodule "web"]
+	path = web
+	url = git@github.com:Jannchie/pictoria-web.git
