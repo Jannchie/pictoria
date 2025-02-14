@@ -1,0 +1,49 @@
+{
+  "name": "pictoria",
+  "type": "module",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "dev": "vite",
+    "build": "vue-tsc && vite build",
+    "preview": "vite preview",
+    "test": "vitest",
+    "lint": "eslint . --fix",
+    "genapi": "openapi-ts --input http://127.0.0.1:4777/openapi.json -c @hey-api/client-axios --output src/api && eslint src/api --fix"
+  },
+  "dependencies": {
+    "@hey-api/client-fetch": "^0.7.2",
+    "@roku-ui/vue": "^0.20.0",
+    "@tanstack/vue-query": "^5.65.0",
+    "@vitejs/plugin-vue-jsx": "^4.1.1",
+    "@vueuse/core": "^12.5.0",
+    "@vueuse/math": "^12.5.0",
+    "filesize": "^10.1.6",
+    "splitpanes": "^3.1.8",
+    "tinycolor2": "^1.6.0",
+    "vue": "^3.5.13",
+    "vue-router": "^4.5.0"
+  },
+  "devDependencies": {
+    "@hey-api/client-axios": "^0.5.2",
+    "@hey-api/openapi-ts": "^0.63.0",
+    "@iconify/json": "^2.2.300",
+    "@jannchie/eslint-config": "^3.4.3",
+    "@roku-ui/preset": "^0.20.0",
+    "@types/node": "^22.12.0",
+    "@types/splitpanes": "^2.2.6",
+    "@types/tinycolor2": "^1.4.6",
+    "@unocss/eslint-plugin": "^65.4.3",
+    "@unocss/preset-icons": "^65.4.3",
+    "@unocss/reset": "^65.4.3",
+    "@vitejs/plugin-vue": "^5.2.1",
+    "eslint": "^9.19.0",
+    "typescript": "^5.7.3",
+    "unocss": "^65.4.3",
+    "unplugin-auto-import": "^19.0.0",
+    "unplugin-vue-components": "^28.0.0",
+    "vite": "^6.0.11",
+    "vitest": "^3.0.4",
+    "vue-tsc": "^2.2.0"
+  }
+}
