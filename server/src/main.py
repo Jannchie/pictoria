@@ -638,7 +638,7 @@ def v1_upload_file(
     session.refresh(post)
     with abs_path.open("wb") as f:
         shutil.copyfileobj(file_io, f)
-    process_post(abs_path, post)
+    process_post(abs_path)
     return ORJSONResponse(content={"filename": path})
 
 

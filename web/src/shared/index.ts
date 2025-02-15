@@ -66,11 +66,11 @@ export function useInfinityPostsQuery() {
 
 export function usePosts() {
   const postsQuery = useInfinityPostsQuery()
-  watchEffect(() => {
-    if (postsQuery.hasNextPage.value && !postsQuery.isFetchingNextPage.value) {
-      postsQuery.fetchNextPage()
-    }
-  })
+  // watchEffect(() => {
+  //   if (postsQuery.hasNextPage.value && !postsQuery.isFetchingNextPage.value) {
+  //     postsQuery.fetchNextPage()
+  //   }
+  // })
   return computed<Array<PostPublic>>(() => {
     return postsQuery.data.value?.pages.flatMap(page => page).filter(post => post !== undefined) ?? []
   })
@@ -128,5 +128,3 @@ export function useFoldersQuery() {
     staleTime: 1000 * 60 * 60,
   })
 }
-
-
