@@ -148,7 +148,7 @@ class ListPostBody(BaseModel):
     tags: list[str] | None = []
     extension: list[str] | None = []
     folder: str | None = None
-    order_by: Literal["id", "score", "rating", "created_at", "file_name"] = "id"
+    order_by: Literal["id", "score", "rating", "created_at", "file_name"] | None = None
     order: Literal["asc", "desc"] = "desc"
 
 
@@ -329,7 +329,11 @@ def v1_get_similar_posts(post_id: int, session: Annotated[Session, Depends(get_s
     post = get_post_by_id(post_id, session)
     vec = get_img_vec(post)
     resp = find_similar_posts(vec)
-    return [get_post_by_id(row.post_id, session) for row in resp]
+    id_list = [row.post_id for row in resp]
+    stmt = select(Post).filter(Post.id.in_(id_list)).order_by(func.array_position(id_list, Post.id))
+    posts = session.scalars(stmt).all()
+    session.commit()
+    return posts
 
 
 @app.post("/v1/cmd/posts/features", tags=["Command"])
