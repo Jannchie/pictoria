@@ -2,7 +2,6 @@
 import type LazyWaterfall from './LazyWaterfall.vue'
 import type { Area } from './SelectArea.vue'
 import { v1DeletePost } from '@/api'
-import ScrollArea from '@/components/ScrollArea.vue'
 import { useRotateImageMutation } from '@/composables/mutations/useRotateImageMutation'
 import { selectedPostIdSet, selectingPostIdSet, unselectedPostIdSet as unselectingPostId, useInfinityPostsQuery, usePosts, waterfallItemWidth } from '@/shared'
 import { Menu } from '@roku-ui/vue'
