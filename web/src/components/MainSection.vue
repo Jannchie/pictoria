@@ -215,7 +215,7 @@ const mainSectionRef = ref<HTMLElement>()
 </script>
 
 <template>
-  <ScrollArea
+  <div
     ref="mainSectionRef"
     class="relative flex flex-grow flex-col overflow-auto"
   >
@@ -252,6 +252,7 @@ const mainSectionRef = ref<HTMLElement>()
       <LazyWaterfall
         ref="waterfallRef"
         class="waterfall-wrapper select-none"
+        :scroll-element="mainSectionRef"
         :items="items"
         :item-width="waterfallItemWidth"
         :cols="cols"
@@ -269,5 +270,5 @@ const mainSectionRef = ref<HTMLElement>()
         />
       </LazyWaterfall>
     </Menu>
-  </ScrollArea>
+  </div>
 </template>

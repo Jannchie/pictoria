@@ -2,7 +2,7 @@
 import type { ComputedRef, MaybeRef } from 'vue'
 import { useScroll } from '@vueuse/core'
 import { computed, ref, unref } from 'vue'
-import { useClientHeight, useClientWidth } from '../composables/useClientHeight'
+import { useClientWidth } from '../composables/useClientHeight'
 
 const props = defineProps<{
   gap?: MaybeRef<number>
@@ -15,6 +15,7 @@ const props = defineProps<{
   is?: MaybeRef<any>
   yGap?: MaybeRef<number>
   rangeExpand?: MaybeRef<number>
+  scrollElement?: MaybeRef<HTMLElement>
 }>()
 const slots = defineSlots<{
   default: (props?: any) => any
@@ -26,6 +27,7 @@ const paddingY = computed(() => unref(props.paddingY) ?? 0)
 const yGap = computed(() => unref(props.yGap) ?? 0)
 const wrapper = ref<HTMLElement | null>(null)
 const parent = useParentElement(wrapper)
+const scrollElement = computed(() => unref(props.scrollElement) ?? parent.value)
 const cols = computed(() => {
   return unref(props.cols) ?? 3
 })
@@ -124,24 +126,51 @@ function getItemStyle(i: number) {
     maxWidth: `${itemWidth.value}px`,
   }
 }
-const clientHeight = useClientHeight(wrapper)
+// const clientHeight = useClientHeight(wrapper)
 const _smooth = ref(false)
 const behavior = computed(() => _smooth.value ? 'smooth' : 'auto')
-const scroll = useScroll(wrapper, {
-  behavior,
+const scroll = useScroll(scrollElement, { behavior })
+
+// const yRange = computed(() => {
+//   const yRange = [
+//     scroll.y.value - rangeExpand.value,
+//     scroll.y.value + clientHeight.value + rangeExpand.value,
+//   ]
+//   return yRange
+// })
+
+// const inRange = computed(() => {
+//   return layoutData.value.map((it) => {
+//     const top = it.y
+//     const bottom = it.y + it.height
+//     return (top >= yRange.value[0] && top <= yRange.value[1]) || (bottom >= yRange.value[0] && bottom <= yRange.value[1]) || (top <= yRange.value[0] && bottom >= yRange.value[1])
+//   })
+// })
+
+const scrollBounds = useElementBounding(scrollElement)
+const scrollVal = useScroll(scrollElement)
+const wrapperBounds = useElementBounding(wrapper)
+const relativeCoords = computed(() => {
+  const relativeX = wrapperBounds.left.value - scrollBounds.left.value + scrollVal.x.value
+  const relativeY = wrapperBounds.top.value - scrollBounds.top.value + scrollVal.y.value
+  return {
+    x: relativeX,
+    y: relativeY,
+  }
 })
+
 const yRange = computed(() => {
   const yRange = [
     scroll.y.value - rangeExpand.value,
-    scroll.y.value + clientHeight.value + rangeExpand.value,
+    scroll.y.value + scrollBounds.height.value + rangeExpand.value,
   ]
   return yRange
 })
 
 const inRange = computed(() => {
   return layoutData.value.map((it) => {
-    const top = it.y
-    const bottom = it.y + it.height
+    const top = it.y + relativeCoords.value.y
+    const bottom = it.y + it.height + relativeCoords.value.y
     return (top >= yRange.value[0] && top <= yRange.value[1]) || (bottom >= yRange.value[0] && bottom <= yRange.value[1]) || (top <= yRange.value[0] && bottom >= yRange.value[1])
   })
 })
