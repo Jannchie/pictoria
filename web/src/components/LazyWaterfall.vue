@@ -2,7 +2,7 @@
 import type { ComputedRef, MaybeRef } from 'vue'
 import { useScroll } from '@vueuse/core'
 import { computed, ref, unref } from 'vue'
-import { useClientWidth } from '../composables/useClientHeight'
+import { useClientWidth } from '../composables/useClientWidth'
 
 const props = defineProps<{
   gap?: MaybeRef<number>
