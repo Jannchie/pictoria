@@ -24,15 +24,10 @@ const gap = computed(() => unref(props.gap) ?? 16)
 const paddingX = computed(() => unref(props.paddingX) ?? 0)
 const paddingY = computed(() => unref(props.paddingY) ?? 0)
 const yGap = computed(() => unref(props.yGap) ?? 0)
-const wrapper = ref<any>()
+const wrapper = ref<HTMLElement | null>(null)
+const parent = useParentElement(wrapper)
 const cols = computed(() => {
   return unref(props.cols) ?? 3
-})
-const wrapperDom = computed<HTMLElement>(() => {
-  if (wrapper.value && wrapper.value.$el) {
-    return wrapper.value.$el
-  }
-  return wrapper.value
 })
 
 function isArray<T>(val: any): val is T[] {
@@ -46,7 +41,7 @@ const contentWidth = computed(() => {
   if (props.wrapperWidth) {
     return unref(props.wrapperWidth)
   }
-  return wrapperDom.value?.parentElement?.clientWidth ?? 0
+  return wrapper.value?.parentElement?.clientWidth ?? 0
 })
 
 const itemWidth = computed(() => {
@@ -74,7 +69,7 @@ const boundings = computed(() => {
   })
 })
 
-const clientWidth = useClientWidth(wrapperDom)
+const clientWidth = useClientWidth(wrapper)
 const paddingInner = computed(() => {
   return (clientWidth.value - contentWidth.value) / 2
 })
@@ -129,10 +124,10 @@ function getItemStyle(i: number) {
     maxWidth: `${itemWidth.value}px`,
   }
 }
-const clientHeight = useClientHeight(wrapperDom)
+const clientHeight = useClientHeight(wrapper)
 const _smooth = ref(false)
 const behavior = computed(() => _smooth.value ? 'smooth' : 'auto')
-const scroll = useScroll(wrapperDom, {
+const scroll = useScroll(wrapper, {
   behavior,
 })
 const yRange = computed(() => {
@@ -180,16 +175,14 @@ defineExpose({
     scroll.y.value = top
     _smooth.value = prev
   },
-  wrapperDom,
+  wrapper,
   contentDom,
   layoutData,
 })
-const wrapperIs = computed(() => props.is ?? 'div')
 </script>
 
 <template>
-  <component
-    :is="wrapperIs"
+  <div
     ref="wrapper"
     :style="{
       position: 'relative',
@@ -217,5 +210,5 @@ const wrapperIs = computed(() => props.is ?? 'div')
         />
       </div>
     </div>
-  </component>
+  </div>
 </template>

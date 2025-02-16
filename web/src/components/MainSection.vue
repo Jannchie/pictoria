@@ -19,8 +19,7 @@ const items = computed(() => posts.value.map(post => ({
 })))
 
 const waterfallRef = ref<InstanceType<typeof LazyWaterfall> | null>(null)
-const waterfallContentDom = computed(() => waterfallRef.value?.contentDom)
-const waterfallWrapperDom = computed(() => waterfallRef.value?.wrapperDom)
+const waterfallWrapperDom = computed(() => waterfallRef.value?.wrapper)
 const waterfallWrapperBounds = useElementBounding(waterfallWrapperDom)
 const infinityPostsQuery = useInfinityPostsQuery()
 const cols = computed(() => Math.floor((waterfallWrapperBounds.width.value + 20 - 8 * 2) / (waterfallItemWidth.value + 20)))
@@ -212,42 +211,45 @@ function onMenuSelect(value: string | number | symbol) {
     }
   }
 }
+const mainSectionRef = ref<HTMLElement>()
 </script>
 
 <template>
-  <section
-    class="relative flex flex-grow flex-col"
+  <ScrollArea
+    ref="mainSectionRef"
+    class="relative flex flex-grow flex-col overflow-auto"
   >
-    <FolderSection />
-    <div v-if="infinityPostsQuery.isLoading.value && posts.length === 0">
-      <div class="flex flex-col items-center p-16 op-50">
-        <i class="i-tabler-loader animate-spin text-2xl" />
-        <div class="text-sm">
-          Loading posts...
-        </div>
-      </div>
-    </div>
-    <div v-else-if="posts.length === 0">
-      <div class="flex flex-col items-center p-16 op-50">
-        <i class="i-tabler-alert-triangle text-2xl" />
-        <div class="text-sm">
-          No posts found
-        </div>
-      </div>
-    </div>
     <SelectArea
-      :target="waterfallContentDom"
+      :target="mainSectionRef"
       @select-change="onSelectChange"
       @select-end="onSelectEnd"
     />
+
     <Menu
       :data="menuData"
       trigger="contextmenu"
       class="h-full w-full shrink-0 grow-1 basis-0"
       @select="onMenuSelect"
     >
+      <FolderSection />
+      <div v-if="infinityPostsQuery.isLoading.value && posts.length === 0">
+        <div class="flex flex-col items-center p-16 op-50">
+          <i class="i-tabler-loader animate-spin text-2xl" />
+          <div class="text-sm">
+            Loading posts...
+          </div>
+        </div>
+      </div>
+      <div v-else-if="posts.length === 0">
+        <div class="flex flex-col items-center p-16 op-50">
+          <i class="i-tabler-alert-triangle text-2xl" />
+          <div class="text-sm">
+            No posts found
+          </div>
+        </div>
+      </div>
+
       <LazyWaterfall
-        :is="ScrollArea"
         ref="waterfallRef"
         class="waterfall-wrapper select-none"
         :items="items"
@@ -267,5 +269,5 @@ function onMenuSelect(value: string | number | symbol) {
         />
       </LazyWaterfall>
     </Menu>
-  </section>
+  </ScrollArea>
 </template>

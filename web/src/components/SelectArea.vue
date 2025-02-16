@@ -3,7 +3,7 @@ import { useElementBounding, useEventListener, useMouse } from '@vueuse/core'
 import { computed, ref } from 'vue'
 
 const props = defineProps<{
-  target?: HTMLElement
+  target?: HTMLElement | null
 }>()
 const emit = defineEmits<{
   selectStart: [{ target: EventTarget | null, shift: boolean, ctrl: boolean }]

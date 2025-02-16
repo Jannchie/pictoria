@@ -28,7 +28,7 @@ const subFolders = computed(() => {
 <template>
   <div
     v-if="subFolders.length > 0"
-    class="max-h-200px flex flex-wrap gap-2 overflow-y-auto py-2"
+    class="max-h-200px flex shrink-0 flex-wrap gap-2 overflow-y-auto py-2"
   >
     <RouterLink
       v-for="f in subFolders"

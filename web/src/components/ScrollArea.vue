@@ -130,7 +130,8 @@ const hover = useElementHover(() => scrollBarIndicatorRef.value)
     :style="{
       height: `${height}px`,
     }"
-    style="overflow: hidden; max-height: fit-content; position: relative;"
+    class="relative overflow-hidden"
+    style="max-height: fit-content;"
   >
     <div
       v-if="scrollBarData"
