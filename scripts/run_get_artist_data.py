@@ -16,6 +16,7 @@ async def download_from_danbooru(tag):
 
 async def main():
     tags = [
+        "kuchisode",
         "ask_(askzy)",
         "ciloranko",
         "zhibuji_loom",
@@ -37,7 +38,7 @@ async def main():
         "oriti4",
         "kasakai_hikaru",
         "kita_(kitairoha)",
-        "sky_cappuccino ",
+        "sky_cappuccino",
         "samo_cha",
         "toosaka_asagi",
         "zeradok",
