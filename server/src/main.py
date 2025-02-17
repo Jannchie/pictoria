@@ -19,7 +19,7 @@ from pydantic import BaseModel, Field
 from rich import get_console
 from rich.progress import track
 from sqlalchemy import Select, func, select
-from sqlalchemy.dialects.sqlite import insert
+from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.orm import Session, joinedload
 from starlette.convertors import Convertor, register_url_convertor
 from starlette.middleware.gzip import GZipMiddleware

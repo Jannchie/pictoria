@@ -300,7 +300,7 @@ wheels = [
 
 [[package]]
 name = "datasets"
-version = "3.3.0"
+version = "3.3.1"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "aiohttp" },
@@ -318,9 +318,9 @@ dependencies = [
     { name = "tqdm" },
     { name = "xxhash" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/a2/e5/1af665c7ddd2b5dc5e913baa93d0857c7722fd302d01cf2892d2e18cd7f9/datasets-3.3.0.tar.gz", hash = "sha256:54c607b06f6eaa1572e21e200d2870d89d50e3bcc622dc2021a53a6ce4f684c2", size = 563769 }
+sdist = { url = "https://files.pythonhosted.org/packages/b3/f7/635b6ecdf27d2b0d25421656ce08d096841f7e338cc0b24a13a04ebe76bf/datasets-3.3.1.tar.gz", hash = "sha256:7dfb7bb345513bce194cf612cebd6f78e46f7d981342b89364b5ab813c7049a9", size = 563838 }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/eb/9a/5448306807367232a7209fb6881890244b374c87d74e1e229abcb133e115/datasets-3.3.0-py3-none-any.whl", hash = "sha256:22312d09626f8fc3aa0a237b0c164997f5903bddd4c4c9e27dbaf563754c681b", size = 484866 },
+    { url = "https://files.pythonhosted.org/packages/30/b7/2622230d4b3540f9c7907664daf9ae6319519f36731a1a39f5ad541efff2/datasets-3.3.1-py3-none-any.whl", hash = "sha256:85182cbfa18faed0fb9dfc202f2668f1fed130fb88f8b3651b3cd8c4b3e61b1b", size = 484932 },
 ]
 
 [[package]]
@@ -1161,7 +1161,7 @@ wheels = [
 
 [[package]]
 name = "openai"
-version = "1.63.0"
+version = "1.63.2"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "anyio" },
@@ -1173,9 +1173,9 @@ dependencies = [
     { name = "tqdm" },
     { name = "typing-extensions" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/4f/32/2049e973a646801df425aecdf88c6504ca878bdb3951fe12076fc30f2977/openai-1.63.0.tar.gz", hash = "sha256:597d7a1b35b113e5a09fcb953bdb1eef44f404a39985f3d7573b3ab09221fd66", size = 356710 }
+sdist = { url = "https://files.pythonhosted.org/packages/e6/1c/11b520deb71f9ea54ced3c52cd6a5f7131215deba63ad07f23982e328141/openai-1.63.2.tar.gz", hash = "sha256:aeabeec984a7d2957b4928ceaa339e2ead19c61cfcf35ae62b7c363368d26360", size = 356902 }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/67/a0/e1fe4e87218639fc0a0927da5266c2978eaa0e2eb5437479ee64a11535bb/openai-1.63.0-py3-none-any.whl", hash = "sha256:a664dfc78f0a05ca46c3e21f344f840cf6bf7174f13cfa9de214ed28bfca1dda", size = 472282 },
+    { url = "https://files.pythonhosted.org/packages/15/64/db3462b358072387b8e93e6e6a38d3c741a17b4a84171ef01d6c85c63f25/openai-1.63.2-py3-none-any.whl", hash = "sha256:1f38b27b5a40814c2b7d8759ec78110df58c4a614c25f182809ca52b080ff4d4", size = 472282 },
 ]
 
 [[package]]
@@ -1342,12 +1342,12 @@ requires-dist = [
     { name = "orjson", specifier = ">=3.10.12" },
     { name = "pillow-avif-plugin", specifier = ">=1.4.6" },
     { name = "protobuf", specifier = ">=5.28.3" },
-    { name = "psycopg", extras = ["binary"], specifier = ">=3.2.3" },
+    { name = "psycopg", extras = ["binary"], specifier = ">=3.2.4" },
     { name = "python-dotenv", specifier = ">=1.0.1" },
     { name = "python-multipart", specifier = ">=0.0.17" },
     { name = "rich", specifier = ">=13.9.4" },
     { name = "sentencepiece", specifier = ">=0.2.0" },
-    { name = "sqlalchemy", specifier = ">=2.0.36" },
+    { name = "sqlalchemy", specifier = ">=2.0.38" },
     { name = "sqlite-vec", specifier = ">=0.1.6" },
     { name = "sqlmodel", specifier = ">=0.0.22" },
     { name = "torch", specifier = "==2.5.1+cu124", index = "https://download.pytorch.org/whl/cu124" },
@@ -2154,7 +2154,7 @@ wheels = [
 
 [[package]]
 name = "transformers"
-version = "4.48.3"
+version = "4.49.0"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "filelock" },
@@ -2168,9 +2168,9 @@ dependencies = [
     { name = "tokenizers" },
     { name = "tqdm" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/e3/82/cebeb7af5e64440f1638f18c4ed0f89156d0eeaa6290d98da8ca93ac3872/transformers-4.48.3.tar.gz", hash = "sha256:a5e8f1e9a6430aa78215836be70cecd3f872d99eeda300f41ad6cc841724afdb", size = 8373458 }
+sdist = { url = "https://files.pythonhosted.org/packages/79/50/46573150944f46df8ec968eda854023165a84470b42f69f67c7d475dabc5/transformers-4.49.0.tar.gz", hash = "sha256:7e40e640b5b8dc3f48743f5f5adbdce3660c82baafbd3afdfc04143cdbd2089e", size = 8610952 }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/b6/1a/efeecb8d83705f2f4beac98d46f2148c95ecd7babfb31b5c0f1e7017e83d/transformers-4.48.3-py3-none-any.whl", hash = "sha256:78697f990f5ef350c23b46bf86d5081ce96b49479ab180b2de7687267de8fd36", size = 9669412 },
+    { url = "https://files.pythonhosted.org/packages/20/37/1f29af63e9c30156a3ed6ebc2754077016577c094f31de7b2631e5d379eb/transformers-4.49.0-py3-none-any.whl", hash = "sha256:6b4fded1c5fee04d384b1014495b4235a2b53c87503d7d592423c06128cbbe03", size = 9970275 },
 ]
 
 [[package]]

@@ -21,8 +21,7 @@ import shared
 class Base(
     DeclarativeBase,
     MappedAsDataclass,
-):
-    pass
+): ...
 
 
 class TagGroup(Base):
