@@ -1,12 +1,12 @@
 <script setup lang="ts">
-import type { PostWithTagPublic } from '@/api'
+import type { PostPublic } from '@/api'
 import { baseURL, showPost } from '@/shared'
 import { Btn, Paper } from '@roku-ui/vue'
 import { useElementBounding, useMouse } from '@vueuse/core'
 import { computed, ref, watchEffect } from 'vue'
 
 const props = defineProps<{
-  post: PostWithTagPublic
+  post: PostPublic
 }>()
 const post = computed(() => props.post)
 const imgSrc = computed(() => `${baseURL}/v1/images/${post.value.file_path}/${post.value.file_name}.${post.value.extension}`)

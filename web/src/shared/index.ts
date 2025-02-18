@@ -1,5 +1,4 @@
-import type { DirectorySummary, PostPublic, PostWithTagPublic } from '@/api'
-import type { TreeListItemData } from '@/roku/TreeList.vue'
+import type { PostPublic } from '@/api'
 import { v1GetFolders, v1GetTagGroups, v1ListPosts } from '@/api'
 import { useInfiniteQuery, useQuery } from '@tanstack/vue-query'
 import { useStorage } from '@vueuse/core'
@@ -93,7 +92,7 @@ export function openTagSelectorWindow() {
   tagSelectorWindowRef.value?.toggle()
 }
 
-export const showPost = ref<PostWithTagPublic | null>(null)
+export const showPost = ref<PostPublic | null>(null)
 
 export const menuData = ref<any | null>(null)
 export const showMenu = computed({ get: () => !!menuData.value, set: (val) => {
