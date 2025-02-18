@@ -170,7 +170,6 @@ function TreeListCollapse({ data, level }: { data: TreeListCollapseData, level: 
   const self = ref<HTMLButtonElement | null>(null)
   return (
     <li
-      class="transition-height"
       ref={dom}
     >
       <button
@@ -207,26 +206,19 @@ function TreeListCollapse({ data, level }: { data: TreeListCollapseData, level: 
           isOpen.value ? 'rotate-0' : '-rotate-90',
         ]}
         />
-        {
-          slots.title
-            ? slots.title({ data, level })
-            : (
-                <>
-                  {data.icon && (
-                    <i
-                      class={[
-                        'h-4 w-4 py-1',
-                        data.icon,
-                      ]}
-                    />
-                  )}
-                  <span class="truncate">
-                    {data.title}
-                  </span>
-                </>
-              )
-        }
-
+        <>
+          {data.icon && (
+            <i
+              class={[
+                'h-4 w-4 py-1',
+                data.icon,
+              ]}
+            />
+          )}
+          <span class="truncate">
+            {data.title}
+          </span>
+        </>
       </button>
       <AutoHeightTransition>
         {

@@ -105,6 +105,27 @@ const numberFormater = new Intl.NumberFormat('en-US')
               :model-value="currentFolder"
               :items="folderTree"
             >
+              <template #title="{ data }">
+                <RouterLink
+                  :to="`/dir/${data.value}`"
+                >
+                  <span class="w-full truncate">
+                    {{ data.title }}
+                  </span>
+                  <div class="hover-target">
+                    <Btn
+                      icon
+                      size="sm"
+                      rounded="full"
+                      variant="transparent"
+                      hover-variant="light"
+                      color="surface"
+                    >
+                      <i class="i-tabler-dots-vertical" />
+                    </Btn>
+                  </div>
+                </RouterLink>  
+              </template> 
               <template #link="{ data, level }">
                 <RouterLink
                   class="hover-source relative h-8 w-full flex flex cursor-pointer items-center gap-2 rounded-full focus-visible:bg-surface-variant-1 py-1 pr-1 focus-visible:outline-none"
