@@ -24,13 +24,14 @@ const startPoint = ref({ x: 0, y: 0 })
 const endPoint = ref({ x: 0, y: 0 })
 const dragging = ref(false)
 const targetBounds = useElementBounding(target)
+const targetScroll = useScroll(target)
 useEventListener(target, 'pointerdown', (e) => {
   // if not left click, return
   if (e.button !== 0) {
     return
   }
-  const offsetX = e.pageX - targetBounds.left.value
-  const offsetY = e.pageY - targetBounds.top.value
+  const offsetX = e.pageX - targetBounds.left.value + targetScroll.x.value
+  const offsetY = e.pageY - targetBounds.top.value + targetScroll.y.value
   // 获取相对于 target 的坐标
   startPoint.value = {
     x: offsetX,
@@ -55,8 +56,8 @@ useEventListener(window, 'pointerup', (e) => {
 })
 
 useEventListener(target, 'pointermove', (e) => {
-  const offsetX = e.pageX - targetBounds.left.value
-  const offsetY = e.pageY - targetBounds.top.value
+  const offsetX = e.pageX - targetBounds.left.value + targetScroll.x.value
+  const offsetY = e.pageY - targetBounds.top.value + targetScroll.y.value
   if (!dragging.value) {
     return
   }
@@ -82,8 +83,8 @@ useEventListener(parent, 'scroll', (e) => {
     return
   }
   endPoint.value = {
-    x: mouse.x.value - targetBounds.left.value,
-    y: mouse.y.value - targetBounds.top.value,
+    x: mouse.x.value - targetBounds.left.value + targetScroll.x.value,
+    y: mouse.y.value - targetBounds.top.value + targetScroll.y.value,
   }
   emit('selectChange', {
     left: Math.min(startPoint.value.x, endPoint.value.x),
