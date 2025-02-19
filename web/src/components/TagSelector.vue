@@ -256,7 +256,19 @@ const searchingInitCurrentTags = computed(() => {
 
 <template>
   <div
-    class="text-surface-on-high max-w-96 min-h-96 w-96 flex flex-col rounded bg-surface-base text-sm shadow-md"
+    v-if="!postQuery.data.value"
+    class="text-surface-on-high max-w-96 min-h-96 w-96 flex flex-col border rounded bg-surface-base text-sm shadow-md"
+  >
+    <div class="h-full w-full flex flex-grow flex-col items-center justify-center text-surface-dimmed">
+      <i class="i-tabler-tag p-4 text-2xl" />
+      <span class="mt-2 text-xs">
+        No Post Selected
+      </span>
+    </div>
+  </div>
+  <div
+    v-else
+    class="text-surface-on-high max-w-96 min-h-96 w-96 flex flex-col border rounded bg-surface-base text-sm shadow-md"
   >
     <div class="flex gap-2 border-b border-surface p-2">
       <TextField

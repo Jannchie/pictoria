@@ -9,7 +9,7 @@ export function usePostQuery(id: MaybeRef<number | undefined>) {
       queryFn: async () => {
         const post_id = unref(id)
         if (post_id === undefined) {
-          return undefined
+          return null
         }
         const resp = await v1GetPost({ path: { post_id } })
         return resp.data
