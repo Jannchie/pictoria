@@ -14,6 +14,7 @@ const props = withDefaults(
     tickNum?: number
     color?: 'primary' | 'secondary' | 'tertiary' | 'error'
     minWidth?: number
+    reverse?: boolean
   }>(),
   {
     size: 'md',
@@ -23,6 +24,7 @@ const props = withDefaults(
     step: 1,
     color: 'primary',
     minWidth: 12,
+    reverse: false,
   },
 )
 
@@ -156,7 +158,10 @@ function pointEventCallback(event: PointerEvent) {
   const left = rect.left.value
   const right = rect.right.value
   const width = right - left
-  const index = Math.round(((clientX - left) / width) * (length.value - 1))
+  let index = Math.round(((clientX - left) / width) * (length.value - 1))
+  if (props.reverse) {
+    index = length.value - 1 - index
+  }
   if (index < 0) {
     currentIndex.value = 0
     return
@@ -256,7 +261,7 @@ const animateCls = computed(() => props.animate
             v-for="option in ticks"
             :key="option"
             :style="{
-              left: `${(optionToIndex(option) / (length - 1)) * 100}%`,
+              left: `${props.reverse ? 100 - (optionToIndex(option) / (length - 1)) * 100 : (optionToIndex(option) / (length - 1)) * 100}%`,
             }"
             class="absolute top-50% rounded-full bg-surface-0"
             :class="sizeCls.tick"
@@ -267,7 +272,7 @@ const animateCls = computed(() => props.animate
             class="absolute top-50% cursor-pointer rounded-full transition-background-color,border-color,color"
             :class="[sizeCls.indicator, animateCls.indicator, indicatorOuterCls]"
             :style="{
-              left: `${(currentIndex / (length - 1)) * 100}%`,
+              left: `${props.reverse ? 100 - (currentIndex / (length - 1)) * 100 : (currentIndex / (length - 1)) * 100}%`,
             }"
           >
             <div
@@ -279,7 +284,7 @@ const animateCls = computed(() => props.animate
             class="pointer-events-none h-full rounded-full"
             :class="[sizeCls.progress, animateCls.progress, colorCls]"
             :style="{
-              width: `${(currentIndex / (length - 1)) * 100}%`,
+              width: `${props.reverse ? 100 - (currentIndex / (length - 1)) * 100 : (currentIndex / (length - 1)) * 100}%`,
             }"
           />
         </div>
@@ -296,7 +301,7 @@ const animateCls = computed(() => props.animate
         v-for="option, i in ticks"
         :key="i"
         :style="{
-          left: `${(optionToIndex(option) / (length - 1)) * 100}%`,
+          left: `${props.reverse ? 100 - (optionToIndex(option) / (length - 1)) * 100 : (optionToIndex(option) / (length - 1)) * 100}%`,
         }"
         class="absolute w-auto flex rounded-full -translate-x-50%"
         :class="sizeCls.tick"
