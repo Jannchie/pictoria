@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { v1DeletePost } from '@/api'
-import { selectedPostIdSet, showPost, waterfallItemWidth } from '@/shared'
+import { selectedPostIdSet, showPost, waterfallRowCount } from '@/shared'
 import { useQueryClient } from '@tanstack/vue-query'
 import PostDetail from '../components/PostDetail.vue'
 import 'splitpanes/dist/splitpanes.css'
@@ -29,10 +29,10 @@ useEventListener('wheel', (event) => {
   if (event.ctrlKey) {
     event.preventDefault()
     if (event.deltaY < 0) {
-      waterfallItemWidth.value = Math.min(waterfallItemWidth.value + 50, 800)
+      waterfallRowCount.value = Math.min(waterfallRowCount.value + 1, 16)
     }
     else {
-      waterfallItemWidth.value = Math.max(waterfallItemWidth.value - 50, 50)
+      waterfallRowCount.value = Math.max(waterfallRowCount.value - 1, 1)
     }
   }
 }, { passive: false })
@@ -49,12 +49,13 @@ useEventListener('wheel', (event) => {
     >
       <div class="w-32 flex flex-grow items-center justify-center">
         <Slider
-          v-model="waterfallItemWidth"
+          v-model="waterfallRowCount"
           size="sm"
-          :min="50"
-          :max="800"
+          :min="1"
+          :max="16"
           :min-width="0"
           :tick-num="0"
+          reverse
         />
       </div>
       <FilterRow />

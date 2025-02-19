@@ -105,27 +105,37 @@ const numberFormater = new Intl.NumberFormat('en-US')
               :model-value="currentFolder"
               :items="folderTree"
             >
-              <template #title="{ data }">
+              <template #collapse="{ data, level }">
                 <RouterLink
                   :to="`/dir/${data.value}`"
+                  class="relative h-8 w-full flex cursor-pointer items-center gap-2 rounded-full focus-visible:bg-surface-variant-1 py-1 pr-1 focus-visible:outline-none"
+                  :class="[{
+                    'hover:bg-surface-variant-1 hover:text-surface text-surface-dimmed': currentFolder !== data.value,
+                    'text-primary bg-surface-variant-2': currentFolder === data.value,
+                  }]"
+                  :style="{
+                    paddingLeft: `${32 + level * 8}px`,
+                  }"
+                  @click="data.open = true"
                 >
-                  <span class="w-full truncate">
+                  <i
+                    class="i-tabler-chevron-down absolute left-2 h-4 w-4 py-1 transition-transform"
+                    :class="[
+                      data.open ? 'rotate-0' : '-rotate-90',
+                    ]"
+                  />
+                  <i
+                    v-if="data.icon"
+                    class="h-4 w-4 py-1"
+                    :class="[
+                      data.icon,
+                    ]"
+                  />
+                  <span class="truncate">
                     {{ data.title }}
                   </span>
-                  <div class="hover-target">
-                    <Btn
-                      icon
-                      size="sm"
-                      rounded="full"
-                      variant="transparent"
-                      hover-variant="light"
-                      color="surface"
-                    >
-                      <i class="i-tabler-dots-vertical" />
-                    </Btn>
-                  </div>
-                </RouterLink>  
-              </template> 
+                </RouterLink>
+              </template>
               <template #link="{ data, level }">
                 <RouterLink
                   class="hover-source relative h-8 w-full flex flex cursor-pointer items-center gap-2 rounded-full focus-visible:bg-surface-variant-1 py-1 pr-1 focus-visible:outline-none"

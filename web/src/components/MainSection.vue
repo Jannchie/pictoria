@@ -3,7 +3,7 @@ import type LazyWaterfall from './LazyWaterfall.vue'
 import type { Area } from './SelectArea.vue'
 import { v1DeletePost } from '@/api'
 import { useRotateImageMutation } from '@/composables/mutations/useRotateImageMutation'
-import { selectedPostIdSet, selectingPostIdSet, unselectedPostIdSet as unselectingPostId, useInfinityPostsQuery, usePosts, waterfallItemWidth } from '@/shared'
+import { selectedPostIdSet, selectingPostIdSet, unselectedPostIdSet as unselectingPostId, useInfinityPostsQuery, usePosts, waterfallRowCount } from '@/shared'
 import { Menu } from '@roku-ui/vue'
 import { useQueryClient } from '@tanstack/vue-query'
 import { logicAnd } from '@vueuse/math'
@@ -21,6 +21,9 @@ const waterfallRef = ref<InstanceType<typeof LazyWaterfall> | null>(null)
 const waterfallWrapperDom = computed(() => waterfallRef.value?.wrapper)
 const waterfallWrapperBounds = useElementBounding(waterfallWrapperDom)
 const infinityPostsQuery = useInfinityPostsQuery()
+const waterfallItemWidth = computed(() => {
+  return Math.floor((waterfallWrapperBounds.width.value - 8 * 2 - 24 * (waterfallRowCount.value - 1)) / waterfallRowCount.value)
+})
 const cols = computed(() => Math.floor((waterfallWrapperBounds.width.value + 20 - 8 * 2) / (waterfallItemWidth.value + 20)))
 const layoutData = computed(() => {
   return waterfallRef.value?.layoutData

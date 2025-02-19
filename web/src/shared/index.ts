@@ -28,7 +28,7 @@ export const postFilter = ref<PostFilter>({
   tags: [],
   extension: [],
 })
-export const waterfallItemWidth = useStorage('pictoria.waterfallItemWidth', 400)
+export const waterfallRowCount = useStorage('pictoria.waterfallRowCount', 4)
 export const selectedPostIdSet = ref<Set<number | undefined>>(new Set())
 export const selectingPostIdSet = ref<Set<number | undefined>>(new Set())
 export const unselectedPostIdSet = ref<Set<number | undefined>>(new Set())
