@@ -105,6 +105,9 @@ const contentHeight = computed(() => {
   if (!isArray(layoutData.value)) {
     return 0
   }
+  if (layoutData.value.length === 0) {
+    return 0
+  }
   return Math.max(...layoutData.value.map(it => it.y + it.height)) + paddingY.value * 2
 })
 
