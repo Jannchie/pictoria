@@ -9,13 +9,12 @@ export function usePostQuery(id: MaybeRef<number | undefined>) {
       queryFn: async () => {
         const post_id = unref(id)
         if (post_id === undefined) {
-          return {}
+          return undefined
         }
         const resp = await v1GetPost({ path: { post_id } })
         return resp.data
       },
       enabled: id !== undefined,
-      staleTime: Infinity,
     },
   )
 }

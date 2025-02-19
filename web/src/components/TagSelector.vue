@@ -12,7 +12,6 @@ const props = defineProps<{
 const postId = computed(() => props.postId)
 const search = ref('')
 const postQuery = usePostQuery(postId)
-
 const tagGroupsQuery = useQuery({
   queryKey: ['tagGroups', postId],
   queryFn: async () => {
@@ -59,7 +58,7 @@ const currentGroupTags = computed(() => {
   if (currentGroupId.value === undefined) {
     return tags.value?.filter(tag => !initCurrentTagNames.value.includes(tag.tag_info.name)) ?? []
   }
-  return tags.value?.filter(tag => tag.tag_info.group_id === currentGroupId.value).filter(tag => !initCurrentTagNames.value.includes(tag.tag_info.name)) ?? []
+  return tags.value?.filter(tag => tag.tag_info.group?.id === currentGroupId.value).filter(tag => !initCurrentTagNames.value.includes(tag.tag_info.name)) ?? []
 })
 const displayCurrentGroupTags = computed(() => {
   // only top 100
