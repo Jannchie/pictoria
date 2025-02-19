@@ -37,7 +37,7 @@ const props = withDefaults(defineProps<{
 
 const slots = defineSlots<{
   link?: (props: { data: TreeListLeafData, level: number }) => any
-  title?: (props: { data: TreeListCollapseData, level: number }) => any
+  collapse?: (props: { data: TreeListCollapseData, level: number }) => any
   header?: (props: { data: TreeListHeaderData, level: number }) => any
 }>()
 
@@ -167,59 +167,63 @@ function TreeListHeader({ data, level }: { data: TreeListHeaderData, level: numb
 function TreeListCollapse({ data, level }: { data: TreeListCollapseData, level: number }) {
   const isOpen = computed(() => status.value.get(data))
   const dom = ref<HTMLLIElement | null>(null)
-  const self = ref<HTMLButtonElement | null>(null)
   return (
     <li
       ref={dom}
     >
-      <button
-        ref={self}
-        onClick={() => {
-          if (data.value) {
-            if (model.value === data.value && isOpen.value) {
-              status.value.set(data, false)
-            }
-            else {
-              model.value = data.value
-              status.value.set(data, true)
-            }
-          }
-          else {
-            status.value.set(data, !status.value.get(data))
-          }
-        }}
-        class={[
-          rounded.value.class,
-          model.value === data.value ? titleActiveItemClass.value : titleNormalItemClass.value,
-        ]}
-        style={
-          [
-            {
-              paddingLeft: `${32 + level * 8}px`,
-            },
-            rounded.value.style,
-          ]
-        }
-      >
-        <i class={[
-          'i-tabler-chevron-down absolute left-2 h-4 w-4 py-1 transition-transform',
-          isOpen.value ? 'rotate-0' : '-rotate-90',
-        ]}
-        />
-        <>
-          {data.icon && (
-            <i
-              class={[
-                'h-4 w-4 py-1',
-                data.icon,
-              ]}
-            />
-          )}
-          <span class="truncate">
-            {data.title}
-          </span>
-        </>
-      </button>
+      {
+        slots.collapse
+          ? slots.collapse({ data, level })
+          : (
+              <button
+                onClick={() => {
+                  if (data.value) {
+                    if (model.value === data.value && isOpen.value) {
+                      status.value.set(data, false)
+                    }
+                    else {
+                      model.value = data.value
+                      status.value.set(data, true)
+                    }
+                  }
+                  else {
+                    status.value.set(data, !status.value.get(data))
+                  }
+                }}
+                class={[
+                  rounded.value.class,
+                  model.value === data.value ? titleActiveItemClass.value : titleNormalItemClass.value,
+                ]}
+                style={
+                  [
+                    {
+                      paddingLeft: `${32 + level * 8}px`,
+                    },
+                    rounded.value.style,
+                  ]
+                }
+              >
+                <i class={[
+                  'i-tabler-chevron-down absolute left-2 h-4 w-4 py-1 transition-transform',
+                  isOpen.value ? 'rotate-0' : '-rotate-90',
+                ]}
+                />
+                <>
+                  {data.icon && (
+                    <i
+                      class={[
+                        'h-4 w-4 py-1',
+                        data.icon,
+                      ]}
+                    />
+                  )}
+                  <span class="truncate">
+                    {data.title}
+                  </span>
+                </>
+              </button>
+            )
+      }
       <AutoHeightTransition>
         {
           status.value.get(data)
