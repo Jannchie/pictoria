@@ -131,15 +131,16 @@ watchEffect(async () => {
   }
 })
 
+// FIXME: 滚动到指定元素，但是有 Bug，会导致无法通过前进后退变更路由
 // 如果 selectedPostIdSet 只有一个元素，则变更路由，但是不要滚动
-watchEffect(() => {
-  if (selectedPostIdSet.value.size === 1) {
-    const postId = selectedPostIdSet.value.values().next().value
-    if (postId) {
-      router.push({ query: { post_id: postId } })
-    }
-  }
-})
+// watchEffect(() => {
+//   if (selectedPostIdSet.value.size === 1) {
+//     const postId = selectedPostIdSet.value.values().next().value
+//     if (postId) {
+//       router.push({ query: { post_id: postId } })
+//     }
+//   }
+// })
 
 const menuData = computed(() => {
   if (selectedPostIdSet.value.size > 0) {
