@@ -218,7 +218,7 @@ const mainSectionRef = ref<HTMLElement>()
 </script>
 
 <template>
-  <div
+  <ScrollArea
     ref="mainSectionRef"
     class="relative flex flex-grow flex-col overflow-auto"
   >
@@ -273,5 +273,5 @@ const mainSectionRef = ref<HTMLElement>()
         />
       </LazyWaterfall>
     </Menu>
-  </div>
+  </ScrollArea>
 </template>

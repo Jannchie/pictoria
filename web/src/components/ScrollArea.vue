@@ -143,11 +143,8 @@ const hover = useElementHover(() => scrollBarIndicatorRef.value)
       <div
         v-show="scrollBarData.barHeight < clientHeight"
         ref="scrollBarIndicatorRef"
-        :class="{
-          'bg-surface-variant-2': hover || dragging,
-          'bg-surface-variant-1': !hover && !dragging,
-        }"
-        class="absolute right-0 rounded-full"
+
+        class="absolute right-0 rounded-full bg-[--r-surface-border-variant-color]"
         :style="{
           right: '0px',
           width: `${barWidth}px`,
