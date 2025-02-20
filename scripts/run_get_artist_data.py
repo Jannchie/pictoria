@@ -16,6 +16,14 @@ async def download_from_danbooru(tag):
 
 async def main():
     tags = [
+        "zakimpo",
+        "mahoro_(minase_mahoro)",
+        "null_maru",
+        "smilesmile1312",
+        "honkibooty",
+        "fanteam",
+        "46_coffee",
+        "milkshakework",
         "kuchisode",
         "ask_(askzy)",
         "ciloranko",
