@@ -214,26 +214,19 @@ function onMenuSelect(value: string | number | symbol) {
     }
   }
 }
-const mainSectionRef = ref<{ $el: HTMLElement }>()
-const selectStartPoint = ref<HTMLElement | null>(null)
+const mainSectionRef = ref<HTMLElement>()
 </script>
 
 <template>
   <ScrollArea
     ref="mainSectionRef"
-    class="relative flex flex-grow flex-col overflow-auto"
+    class="relative flex flex-grow basis-0 flex-col"
   >
     <SelectArea
-      :target="mainSectionRef?.$el"
-      :render-target="selectStartPoint"
+      :target="mainSectionRef"
       @select-change="onSelectChange"
       @select-end="onSelectEnd"
     />
-    <div
-      ref="selectStartPoint"
-      class="relative"
-    />
-
     <Menu
       :data="menuData"
       trigger="contextmenu"

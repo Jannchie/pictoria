@@ -4,7 +4,6 @@ import { computed, ref } from 'vue'
 
 const props = defineProps<{
   target?: HTMLElement | null
-  renderTarget?: HTMLElement | null
 }>()
 const emit = defineEmits<{
   selectStart: [{ target: EventTarget | null, shift: boolean, ctrl: boolean }]
@@ -20,7 +19,6 @@ export interface Area {
 }
 
 const target = computed(() => props.target ?? document.documentElement)
-const renderTarget = computed(() => props.renderTarget ?? (target.value ?? document.documentElement))
 const mouse = useMouse()
 const startPoint = ref({ x: 0, y: 0 })
 const endPoint = ref({ x: 0, y: 0 })
@@ -103,7 +101,7 @@ useEventListener(window, 'dragend', () => {
 </script>
 
 <template>
-  <Teleport :to="renderTarget">
+  <div class="relative">
     <div
       v-if="dragging"
       class="absolute z-10000 h-1 border-primary-8/75 bg-primary-8/25"
@@ -114,5 +112,5 @@ useEventListener(window, 'dragend', () => {
         height: `${Math.abs(startPoint.y - endPoint.y)}px`,
       }"
     />
-  </Teleport>
+  </div>
 </template>

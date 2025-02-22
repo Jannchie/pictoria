@@ -130,7 +130,6 @@ defineExpose({
       height: `${height}px`,
     }"
     class="relative overflow-hidden"
-    style="max-height: fit-content;"
   >
     <div
       v-if="scrollBarData"
