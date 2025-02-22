@@ -20,6 +20,7 @@ const routes: RouteRecordRaw[] = [
   { path: '/random', component: () => import('./views/Home.vue') },
   { path: '/tags', component: () => import('./views/Tags.vue'), name: 'tags' },
   { path: '/test', component: () => import('./views/Test.vue'), name: 'test' },
+  { path: '/post/:postId', component: () => import('./views/Post.vue'), name: 'post' },
 ]
 
 const router = createRouter({

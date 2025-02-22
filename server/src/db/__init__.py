@@ -15,6 +15,7 @@ INIT_SQL = """CREATE VIRTUAL TABLE IF NOT EXISTS post_vecs USING vec0(
 
 def get_vec_db():
     import sqlite_vec
+
     db = sqlite3.connect(shared.vec_path)
     db.enable_load_extension(True)  # noqa: FBT003
     sqlite_vec.load(db)
@@ -61,7 +62,7 @@ class SimilarImageResult(BaseModel):
     distance: float
 
 
-def find_similar_posts(vec: np.ndarray, *, limit: int = 10) -> list[SimilarImageResult]:
+def find_similar_posts(vec: np.ndarray, *, limit: int = 1000) -> list[SimilarImageResult]:
     query = """
         SELECT post_id, distance
         FROM post_vecs

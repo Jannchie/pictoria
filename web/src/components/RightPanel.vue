@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import type { PostWithTagPublic } from '@/api'
 
-import { selectedPostIdSet, showPost } from '@/shared'
+import { selectedPostIdSet, showPostDetail } from '@/shared'
 import { computed } from 'vue'
 
 function isPost(datum: any): datum is PostWithTagPublic {
@@ -12,8 +12,8 @@ const id = computed<number | undefined>(() => {
   if (selected) {
     return selected
   }
-  else if (showPost.value) {
-    return showPost.value.id
+  else if (showPostDetail.value) {
+    return showPostDetail.value.id
   }
   return undefined
 })

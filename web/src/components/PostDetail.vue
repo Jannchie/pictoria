@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import type { PostPublic } from '@/api'
-import { baseURL, showPost } from '@/shared'
+import { showPostDetail } from '@/shared'
+import { getPostImageURL } from '@/utils'
 import { Btn, Paper } from '@roku-ui/vue'
 import { useElementBounding, useMouse } from '@vueuse/core'
 import { computed, ref, watchEffect } from 'vue'
@@ -9,7 +10,7 @@ const props = defineProps<{
   post: PostPublic
 }>()
 const post = computed(() => props.post)
-const imgSrc = computed(() => `${baseURL}/v1/images/${post.value.file_path}/${post.value.file_name}.${post.value.extension}`)
+const imgSrc = computed(() => getPostImageURL(post.value))
 const imgWrapperRef = ref<HTMLDivElement | null>(null)
 const { width: imgWrapperWidth, height: imgWrapperHeight, left: imgWrapperLeft, top: imgWrapperTop } = useElementBounding(imgWrapperRef)
 const imgContentWidth = computed(() => {
@@ -202,7 +203,7 @@ function toggleFlipVertical() {
 }
 
 onKeyStroke('Escape', () => {
-  showPost.value = null
+  showPostDetail.value = null
 })
 </script>
 
@@ -221,7 +222,7 @@ onKeyStroke('Escape', () => {
             size="sm"
             variant="transparent"
             color="surface"
-            @click="showPost = null"
+            @click="showPostDetail = null"
           >
             <i class="i-tabler-arrow-left" />
           </Btn>

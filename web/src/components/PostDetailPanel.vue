@@ -1,12 +1,12 @@
 <script setup lang="ts">
 import type { PostWithTagPublic } from '@/api'
 import { v1UpdatePostCaption, v1UpdatePostRating, v1UpdatePostScore, v1UpdatePostSource } from '@/api'
-import { baseURL, hideNSFW, openTagSelectorWindow, showPost } from '@/shared'
+import { hideNSFW, openTagSelectorWindow, showPostDetail } from '@/shared'
+import { getPostThumbnailURL } from '@/utils'
 import { colorNumToHex } from '@/utils/color'
 import { Btn, ColorSwatch, TextField } from '@roku-ui/vue'
 import { useQueryClient } from '@tanstack/vue-query'
 import { filesize } from 'filesize'
-import SimilarPosts from './SimilarPosts.vue'
 
 const props = defineProps<{
   post: PostWithTagPublic
@@ -107,7 +107,7 @@ const updateSource = useDebounceFn(async (source: any) => {
     >
       <div class="overflow-hidden rounded">
         <img
-          :src="`${baseURL}/v1/thumbnails/${post.file_path}/${post.file_name}.${post.extension}?md5=${post.md5}`"
+          :src="getPostThumbnailURL(post)"
           class="h-40 overflow-hidden rounded object-contain"
           :class="{
             blur: (post?.rating ?? 0) >= 3 && hideNSFW,
@@ -214,7 +214,7 @@ const updateSource = useDebounceFn(async (source: any) => {
           v-for="folder in folders"
           :key="folder.path"
           size="sm"
-          @pointerup="$router.push(`/dir/${folder.path}?post_id=${post.id}`); showPost = null"
+          @pointerup="$router.push(`/dir/${folder.path}?post_id=${post.id}`); showPostDetail = null"
         >
           {{ folder.name }}
         </Btn>
@@ -301,7 +301,6 @@ const updateSource = useDebounceFn(async (source: any) => {
         <AutoGenerateTagBtn :post-id="post.id" />
         <AutoGenerateCaptionBtn :post-id="post.id" />
       </div>
-      <SimilarPosts :post-id="post.id" />
     </div>
   </div>
 </template>

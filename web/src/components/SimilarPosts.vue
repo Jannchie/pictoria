@@ -1,11 +1,12 @@
 <script setup lang="ts">
 import { v1GetSimilarPosts } from '@/api'
-import { baseURL } from '@/shared'
 import { useQuery } from '@tanstack/vue-query'
 
 const props = defineProps<{
   postId: number
+  scrollElement: MaybeRef<HTMLElement>
 }>()
+const scrollElement = computed(() => props.scrollElement ?? document.documentElement)
 const postId = computed(() => props.postId)
 const query = useQuery({
   queryKey: ['similarPosts', { postId }],
@@ -19,27 +20,27 @@ const query = useQuery({
     return resp.data
   },
 })
+
 const data = computed(() => query.data.value ?? [])
+const width = useClientWidth(scrollElement as any)
+const cols = computed(() => Math.floor(width.value / 300))
 </script>
 
 <template>
-  <div>
-    <div v-if="query.isLoading.value">
-      Loading...
-    </div>
-    <div v-else-if="query.isError.value">
-      Error: {{ query.error }}
-    </div>
-    <div v-else-if="query.data">
-      <div
-        v-for="post in data"
-        :key="post.id"
-      >
-        <img
-          :src="`${baseURL}/v1/thumbnails/${post.file_path}/${post.file_name}.${post.extension}?md5=${post.md5}`"
-          alt="thumbnail"
-        >
-      </div>
-    </div>
-  </div>
+  <LazyWaterfall
+    :scroll-element="scrollElement"
+    :items="data.map(p => ({ width: p.width ?? 1, height: p.height ?? 1 }))"
+    :cols="cols"
+    :gap="24"
+    :padding-x="8"
+    :padding-y="8"
+    :y-gap="36"
+  >
+    <PostItem
+      v-for="p in data"
+      :id="`post-item-${p.id}`"
+      :key="p.id"
+      :post="p"
+    />
+  </LazyWaterfall>
 </template>

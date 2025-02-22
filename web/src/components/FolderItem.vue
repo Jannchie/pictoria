@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import type { DirectorySummary } from '@/api'
-import { menuData, postFilter, selectedPostIdSet, showPost } from '@/shared'
+import { menuData, postFilter, selectedPostIdSet, showPostDetail } from '@/shared'
 import { ref } from 'vue'
 
 const props = defineProps<{
@@ -44,7 +44,7 @@ useEventListener(folderItemRef, 'drop', (e: DragEvent) => {
         :icon="collapsed || postFilter.folder === folder.path ? 'i-tabler-folder-open' : 'i-tabler-folder'"
         :title="folder.name "
         :extra-info="folder.file_count"
-        @click="$router.push(`/dir/${folder.path === '.' ? '@' : folder.path}`); showPost = null"
+        @click="$router.push(`/dir/${folder.path === '.' ? '@' : folder.path}`); showPostDetail = null"
         @dblclick="collapsed = !collapsed"
       />
     </div>

@@ -153,11 +153,10 @@ defineExpose({
     </div>
     <div
       ref="scrollDomRef"
-      class="scroll-area"
+      class="scroll-area h-full w-full overflow-auto"
+      v-bind="$attrs"
       :style="{
         scrollbarWidth: 'none',
-        height: '100%',
-        overflowY: 'scroll',
       }"
     >
       <slot />

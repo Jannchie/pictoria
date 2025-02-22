@@ -92,7 +92,7 @@ export function openTagSelectorWindow() {
   tagSelectorWindowRef.value?.toggle()
 }
 
-export const showPost = ref<PostPublic | null>(null)
+export const showPostDetail = ref<PostPublic | null>(null)
 
 export const menuData = ref<any | null>(null)
 export const showMenu = computed({ get: () => !!menuData.value, set: (val) => {

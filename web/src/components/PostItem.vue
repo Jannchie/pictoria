@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import type { PostPublic } from '@/api'
-import { baseURL, hideNSFW, selectedPostIdSet, selectingPostIdSet, showPost, unselectedPostIdSet } from '@/shared'
+import { hideNSFW, selectedPostIdSet, selectingPostIdSet, unselectedPostIdSet } from '@/shared'
+import { getPostThumbnailURL } from '@/utils'
 import { colorNumToHex } from '@/utils/color'
 import { AspectRatio } from '@roku-ui/vue'
 import { computed } from 'vue'
@@ -145,7 +146,7 @@ function onContextmenu(e: MouseEvent) {
     @dragstart.stop
     @pointerdown.stop="onPointerDown"
     @pointerup="onPointerUp"
-    @dblclick="showPost = post"
+    @dblclick="$router.push(`/post/${post.id}`)"
     @contextmenu.capture="onContextmenu"
   >
     <AspectRatio
@@ -162,7 +163,7 @@ function onContextmenu(e: MouseEvent) {
         >
           <img
             v-show="imageLoaded"
-            :src="`${baseURL}/v1/thumbnails/${post.file_path}/${post.file_name}.${post.extension}?md5=${post.md5}`"
+            :src="getPostThumbnailURL(post)"
             class="w-inherit rounded-lg"
             draggable="true"
             :class="{ blur: ((post.rating ?? 0) >= 3) && hideNSFW }"
