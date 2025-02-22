@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { useElementBounding, useElementHover, useEventListener, useMouse, useParentElement, useScroll } from '@vueuse/core'
+import { useElementBounding, useEventListener, useMouse, useParentElement, useScroll } from '@vueuse/core'
 import { computed, ref } from 'vue'
 import { useClientHeight } from '../composables/useClientHeight'
 
@@ -122,7 +122,6 @@ useEventListener(() => document, 'pointerup', (e) => {
 defineExpose({
   $el: scrollDomRef,
 })
-const hover = useElementHover(() => scrollBarIndicatorRef.value)
 </script>
 
 <template>

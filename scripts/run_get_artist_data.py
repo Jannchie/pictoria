@@ -16,6 +16,10 @@ async def download_from_danbooru(tag):
 
 async def main():
     tags = [
+        "uwosa_kana",
+        "alllisso",
+        "kazumiya_yayoi",
+        "pistacho0101",
         "zakimpo",
         "mahoro_(minase_mahoro)",
         "null_maru",

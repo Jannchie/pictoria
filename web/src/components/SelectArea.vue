@@ -4,6 +4,7 @@ import { computed, ref } from 'vue'
 
 const props = defineProps<{
   target?: HTMLElement | null
+  renderTarget?: HTMLElement | null
 }>()
 const emit = defineEmits<{
   selectStart: [{ target: EventTarget | null, shift: boolean, ctrl: boolean }]
@@ -19,6 +20,7 @@ export interface Area {
 }
 
 const target = computed(() => props.target ?? document.documentElement)
+const renderTarget = computed(() => props.renderTarget ?? (target.value ?? document.documentElement))
 const mouse = useMouse()
 const startPoint = ref({ x: 0, y: 0 })
 const endPoint = ref({ x: 0, y: 0 })
@@ -44,6 +46,7 @@ useEventListener(target, 'pointerdown', (e) => {
   dragging.value = true
   emit('selectStart', { target: e.target, shift: shift.value, ctrl: ctrl.value })
 })
+
 // 捕获任意元素的 mouseup 事件
 useEventListener(window, 'pointerup', (e) => {
   dragging.value = false
@@ -100,7 +103,7 @@ useEventListener(window, 'dragend', () => {
 </script>
 
 <template>
-  <Teleport :to="target">
+  <Teleport :to="renderTarget">
     <div
       v-if="dragging"
       class="absolute z-10000 h-1 border-primary-8/75 bg-primary-8/25"
