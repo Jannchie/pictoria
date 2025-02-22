@@ -189,7 +189,7 @@ def apply_body_query(filter: ListPostBody, stmt: Select) -> Select:  # noqa: A00
     if filter.extension:
         stmt = stmt.filter(Post.extension.in_(filter.extension))
     if filter.folder and filter.folder != ".":
-        stmt = stmt.filter(Post.file_path == filter.folder)
+        stmt = stmt.filter(Post.file_path.like(f"{filter.folder}%"))
     if filter.order_by:
         stmt = stmt.order_by(getattr(Post, filter.order_by).asc()) if filter.order == "asc" else stmt.order_by(getattr(Post, filter.order_by).desc())
     return stmt

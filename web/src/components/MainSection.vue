@@ -3,6 +3,7 @@ import type LazyWaterfall from './LazyWaterfall.vue'
 import type { Area } from './SelectArea.vue'
 import { v1DeletePost } from '@/api'
 import { useRotateImageMutation } from '@/composables/mutations/useRotateImageMutation'
+import { useElementOffset } from '@/composables/useElementOffset'
 import { selectedPostIdSet, selectingPostIdSet, unselectedPostIdSet as unselectingPostId, useInfinityPostsQuery, usePosts, waterfallRowCount } from '@/shared'
 import { Menu } from '@roku-ui/vue'
 import { useQueryClient } from '@tanstack/vue-query'
@@ -28,7 +29,7 @@ const cols = computed(() => Math.floor((waterfallWrapperBounds.width.value + 20 
 const layoutData = computed(() => {
   return waterfallRef.value?.layoutData
 })
-
+const waterfallOffset = useElementOffset(waterfallWrapperDom)
 async function onSelectChange(selectArea: Area, { shift, ctrl }: { target: EventTarget | null, shift: boolean, ctrl: boolean }) {
   // 如果 selectArea 的面积小于 100px，则无视后续
   if ((selectArea.right - selectArea.left) < 10 || (selectArea.bottom - selectArea.top) < 10) {
@@ -40,10 +41,10 @@ async function onSelectChange(selectArea: Area, { shift, ctrl }: { target: Event
   const currentSelectingId: Set<number | undefined> = new Set()
 
   layoutData.value?.forEach((element, index) => {
-    const elementLeft = element.x
-    const elementRight = element.x + element.width
-    const elementTop = element.y
-    const elementBottom = element.y + element.height
+    const elementLeft = element.x + waterfallOffset.offsetLeft.value
+    const elementRight = element.x + element.width + waterfallOffset.offsetLeft.value
+    const elementTop = element.y + waterfallOffset.offsetTop.value
+    const elementBottom = element.y + element.height + waterfallOffset.offsetTop.value
 
     // Check if there is an intersection between the element and the selectArea
     const isIntersecting
