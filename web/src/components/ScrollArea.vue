@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { useElementBounding, useEventListener, useMouse, useParentElement, useScroll } from '@vueuse/core'
+import { useElementBounding, useEventListener, useMouse, useScroll } from '@vueuse/core'
 import { computed, ref } from 'vue'
 import { useClientHeight } from '../composables/useClientHeight'
 
@@ -20,19 +20,9 @@ const props = withDefaults(
     minBarHeight: 20,
   },
 )
-const parentElement = useParentElement()
-const parentBounds = useElementBounding(parentElement)
 const scrollBarIndicatorRef = ref<HTMLElement | null>()
 const scrollBarIndicatorBounds = useElementBounding(() => scrollBarIndicatorRef.value)
 
-const height = computed(() => {
-  if (props.height) {
-    return props.height
-  }
-  const parentPaddingY = parentElement.value ? Number.parseFloat(getComputedStyle(parentElement.value).paddingTop) + Number.parseFloat(getComputedStyle(parentElement.value).paddingBottom) : 0
-  const parentMarginY = parentElement.value ? Number.parseFloat(getComputedStyle(parentElement.value).marginTop) + Number.parseFloat(getComputedStyle(parentElement.value).marginBottom) : 0
-  return parentBounds.height.value - parentPaddingY - parentMarginY
-})
 const scrollDomRef = ref<HTMLElement | null>()
 
 const clientHeight = useClientHeight(() => scrollDomRef.value)
@@ -126,9 +116,6 @@ defineExpose({
 
 <template>
   <div
-    :style="{
-      height: `${height}px`,
-    }"
     class="relative overflow-hidden"
   >
     <div
