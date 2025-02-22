@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import type { PostPublic } from '@/api'
-import { baseURL, selectedPostIdSet, selectingPostIdSet, showNSFW, showPost, unselectedPostIdSet } from '@/shared'
+import { baseURL, hideNSFW, selectedPostIdSet, selectingPostIdSet, showPost, unselectedPostIdSet } from '@/shared'
 import { colorNumToHex } from '@/utils/color'
 import { AspectRatio } from '@roku-ui/vue'
 import { computed } from 'vue'
@@ -165,7 +165,7 @@ function onContextmenu(e: MouseEvent) {
             :src="`${baseURL}/v1/thumbnails/${post.file_path}/${post.file_name}.${post.extension}?md5=${post.md5}`"
             class="w-inherit rounded-lg"
             draggable="true"
-            :class="{ blur: ((post.rating ?? 0) >= 3) && !showNSFW }"
+            :class="{ blur: ((post.rating ?? 0) >= 3) && hideNSFW }"
             @load="onImageLoad"
           >
         </Transition>

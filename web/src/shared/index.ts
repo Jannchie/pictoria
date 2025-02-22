@@ -33,7 +33,7 @@ export const selectedPostIdSet = ref<Set<number | undefined>>(new Set())
 export const selectingPostIdSet = ref<Set<number | undefined>>(new Set())
 export const unselectedPostIdSet = ref<Set<number | undefined>>(new Set())
 export const currentPath = ref<string | symbol>('')
-export const showNSFW = ref(false)
+export const hideNSFW = useStorage('pictoria.hideNSFW', false)
 
 export const postSort = useLocalStorage<'id' | 'score' | 'rating' | 'created_at' | 'file_name'>('pictoria.posts.sort', 'id')
 export const postSortOrder = useLocalStorage<'asc' | 'desc'>('pictoria.posts.sortOrder', 'desc')

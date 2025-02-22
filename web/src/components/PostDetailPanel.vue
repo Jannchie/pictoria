@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import type { PostWithTagPublic } from '@/api'
 import { v1UpdatePostCaption, v1UpdatePostRating, v1UpdatePostScore, v1UpdatePostSource } from '@/api'
-import { baseURL, openTagSelectorWindow, showNSFW, showPost } from '@/shared'
+import { baseURL, hideNSFW, openTagSelectorWindow, showPost } from '@/shared'
 import { colorNumToHex } from '@/utils/color'
 import { Btn, ColorSwatch, TextField } from '@roku-ui/vue'
 import { useQueryClient } from '@tanstack/vue-query'
@@ -110,7 +110,7 @@ const updateSource = useDebounceFn(async (source: any) => {
           :src="`${baseURL}/v1/thumbnails/${post.file_path}/${post.file_name}.${post.extension}?md5=${post.md5}`"
           class="h-40 overflow-hidden rounded object-contain"
           :class="{
-            blur: (post?.rating ?? 0) >= 3 && !showNSFW,
+            blur: (post?.rating ?? 0) >= 3 && hideNSFW,
           }"
         >
       </div>
