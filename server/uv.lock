@@ -2270,16 +2270,16 @@ wheels = [
 
 [[package]]
 name = "wdtagger"
-version = "0.13.2"
+version = "0.14.0"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "huggingface-hub" },
     { name = "pandas" },
     { name = "pillow" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/0e/eb/1c28f7d0c41fec71da154af2b01b4c477d2668388763d2894a056f600f44/wdtagger-0.13.2.tar.gz", hash = "sha256:5ab11a89a56d200ad1dc28f9ff99885af1cbf756e6c0838b2c28b45db9fc990b", size = 291946 }
+sdist = { url = "https://files.pythonhosted.org/packages/b7/ef/962e4a0128b72604497ef828804750cd3b1bb189cea665458f5e5c78828c/wdtagger-0.14.0.tar.gz", hash = "sha256:68e053ae66b641d4295fd1fade2df3a5ab2fc3fb6983a48be098b9c703181109", size = 1013295 }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/24/1d/6284036885fa01ca5a45984414044d22f5ae4c21eda4ec08cfba6199e2ff/wdtagger-0.13.2-py3-none-any.whl", hash = "sha256:3064c8c047e8c002c3d5fea153f1a7f10eeb25366eef69e4574e36df6bb23191", size = 142489 },
+    { url = "https://files.pythonhosted.org/packages/ae/cc/b565f7febd38f3635a58411d6e498ef6ad9b118bd86481749e3d19ede11c/wdtagger-0.14.0-py3-none-any.whl", hash = "sha256:5367269ea0ff63862c6f2279882eee4acd31b728ff83b43fcf5466eb2e03b27f", size = 142475 },
 ]
 
 [package.optional-dependencies]

@@ -623,7 +623,7 @@ def v1_upload_file(
     else:
         file_io = file.file
 
-    if path is None and file is not None and file.filename:
+    if not path and file is not None and file.filename:
         path = file.filename
     elif path and file is not None and file.filename:
         path = f"{path}/{file.filename}"
