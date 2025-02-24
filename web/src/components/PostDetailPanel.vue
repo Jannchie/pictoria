@@ -98,7 +98,7 @@ const updateSource = useDebounceFn(async (source: any) => {
 </script>
 
 <template>
-  <div
+  <ScrollArea
     class="h-full flex flex-col gap-2 overflow-x-hidden overflow-y-auto text-xs"
   >
     <div
@@ -302,5 +302,5 @@ const updateSource = useDebounceFn(async (source: any) => {
         <AutoGenerateCaptionBtn :post-id="post.id" />
       </div>
     </div>
-  </div>
+  </ScrollArea>
 </template>

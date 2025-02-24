@@ -1,18 +1,23 @@
 <script setup lang="ts">
+import type { PostPublic } from '@/api'
 import type LazyWaterfall from './LazyWaterfall.vue'
 import type { Area } from './SelectArea.vue'
 import { v1DeletePost } from '@/api'
 import { useRotateImageMutation } from '@/composables/mutations/useRotateImageMutation'
 import { useElementOffset } from '@/composables/useElementOffset'
-import { selectedPostIdSet, selectingPostIdSet, unselectedPostIdSet as unselectingPostId, useInfinityPostsQuery, usePosts, waterfallRowCount } from '@/shared'
-import { Menu } from '@roku-ui/vue'
+import { selectedPostIdSet, selectingPostIdSet, unselectedPostIdSet as unselectingPostId, useInfinityPostsQuery, waterfallRowCount } from '@/shared'
+import { Btn, Menu } from '@roku-ui/vue'
 import { useQueryClient } from '@tanstack/vue-query'
 import { logicAnd } from '@vueuse/math'
 import { useRoute, useRouter } from 'vue-router'
 
 const route = useRoute()
 const router = useRouter()
-const posts = usePosts()
+const postsQuery = useInfinityPostsQuery()
+
+const posts = computed<Array<PostPublic>>(() => {
+  return postsQuery.data.value?.pages.flatMap(page => page).filter(post => post !== undefined) ?? []
+})
 const items = computed(() => posts.value.map(post => ({
   width: post.width ?? 1,
   height: post.height ?? 1,
@@ -272,6 +277,18 @@ const mainSectionRef = ref<HTMLElement>()
           :post="post"
         />
       </LazyWaterfall>
+      <div
+        v-if="posts.length > 0"
+        class="flex justify-center p-4"
+      >
+        <Btn
+
+          :loading="postsQuery.isLoading.value"
+          @click="postsQuery.fetchNextPage()"
+        >
+          Load More
+        </Btn>
+      </div>
     </Menu>
   </ScrollArea>
 </template>
