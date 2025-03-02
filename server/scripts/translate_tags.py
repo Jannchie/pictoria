@@ -49,7 +49,7 @@ def translate_chunk(chunk: list[str]) -> dict[str, str]:
                 "content": [
                     {
                         "type": "text",
-                        "text": "将这些标签翻译成中文。这些标签可能包含某些游戏、漫画、动画等作品的人物、组织、实体名称，请尽量识别并使用正式翻译名称",  # noqa: E501, RUF001
+                        "text": "将这些标签翻译成中文。这些标签可能包含某些游戏、漫画、动画等作品的人物、组织、实体名称，请尽量识别并使用正式翻译名称",  # noqa: RUF001
                     },
                 ],
             },
@@ -65,9 +65,7 @@ def translate_chunk(chunk: list[str]) -> dict[str, str]:
 
 
 with concurrent.futures.ThreadPoolExecutor(max_workers=8) as executor:
-    futures = [
-        executor.submit(translate_chunk, tag_list[i : i + chunk_size]) for i in range(0, len(tag_list), chunk_size)
-    ]
+    futures = [executor.submit(translate_chunk, tag_list[i : i + chunk_size]) for i in range(0, len(tag_list), chunk_size)]
     for future in track(concurrent.futures.as_completed(futures), total=len(futures)):
         zh_data.update(future.result())
 
