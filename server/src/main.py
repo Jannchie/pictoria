@@ -501,21 +501,33 @@ def v1_cmd_auto_tags(post_id: int, session: Annotated[Session, Depends(get_sessi
     return get_post_by_id(post_id, session)
 
 
+def is_image(file_path: os.PathLike) -> bool:
+    return str(file_path).lower().endswith((".jpg", ".jpeg", ".png", ".gif", ".webp", ".avif", ".bmp", ".tiff", ".tif", ".svg"))
+
+
 @app.get("/v1/cmd/auto-tags", tags=["Command"])
 def v1_cmd_auto_tags_all(session: Annotated[Session, Depends(get_session)]):
     posts = session.query(Post).all()
     tagger = get_tagger()
-
-    # 使用 rich 进度条
-    for post in track(posts, description="Processing posts...", console=console):
+    posts = [post for post in posts if is_image(post.absolute_path)]
+    batch_size = 8
+    for i in track(range(0, len(posts), batch_size), description="Auto-tagging posts...", console=console):
+        batch = posts[i : i + batch_size]
+        abs_paths = [post.absolute_path for post in batch]
         try:
-            abs_path = post.absolute_path
-            resp = tagger.tag(abs_path)
-            post.rating = from_rating_to_int(resp.rating)
-            attach_tags_to_post(session, post, resp, is_auto=True)
+            responses = tagger.tag(abs_paths)
+            for post, resp in zip(batch, responses, strict=True):
+                post.rating = from_rating_to_int(resp.rating)
+                attach_tags_to_post(session, post, resp, is_auto=True)
         except Exception as e:
-            shared.logger.error(f"Error processing post {post.id}: {e}")
-            continue
+            shared.logger.error(f"Error processing batch starting with post {batch[0].id}: {e}")
+            for post in batch:
+                try:
+                    response = tagger.tag([post.absolute_path])[0]
+                    post.rating = from_rating_to_int(response.rating)
+                    attach_tags_to_post(session, post, response, is_auto=True)
+                except Exception as single_e:
+                    shared.logger.error(f"Error processing post {post.id}: {single_e}")
     session.commit()
     return {"status": "ok"}
 

@@ -13,6 +13,7 @@ INIT_SQL = """CREATE VIRTUAL TABLE IF NOT EXISTS post_vecs USING vec0(
   embedding FLOAT[768])"""
 
 
+
 def get_vec_db():
     import sqlite_vec
 
