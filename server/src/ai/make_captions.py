@@ -8,8 +8,6 @@ from openai import OpenAI
 from rich import get_console
 from wdtagger import Tagger
 
-from utils import timer
-
 console = get_console()
 
 
@@ -43,7 +41,6 @@ class OpenAIImageAnnotator(BaseAnnotator):
         image.save(buffered, format="JPEG")  # Change format as needed
         return base64.b64encode(buffered.getvalue()).decode("utf-8")
 
-    @timer
     def annotate_image(self, image_path: Path) -> str:
         image = self.load_and_process_image(image_path)
         base64_image = self.get_img_base64(image)
