@@ -1,6 +1,9 @@
 <script setup lang="ts">
+import type { PostPublic } from '@/api'
+import Image from '@/roku/Image.vue'
 import { selectedPostIdSet } from '@/shared'
-import { getPostImageURL } from '@/utils'
+import { getPostImageURL, getPostThumbnailURL } from '@/utils'
+import { colorNumToHex } from '@/utils/color'
 import { Btn } from '@roku-ui/vue'
 import { useRoute } from 'vue-router'
 
@@ -9,6 +12,15 @@ const postId = computed(() => Number.parseInt(route.params.postId as string))
 const postQuery = usePostQuery(postId)
 const post = computed(() => postQuery.data.value)
 const scrollAreaRef = ref<HTMLElement>()
+
+function getPostColor(post: PostPublic) {
+  if (post.colors.length > 0) {
+    return colorNumToHex([...post.colors].sort((a, b) => {
+      return a.order - b.order
+    })[0].color)
+  }
+  return 'primary'
+}
 </script>
 
 <template>
@@ -38,14 +50,15 @@ const scrollAreaRef = ref<HTMLElement>()
       ref="scrollAreaRef"
       class="relative h-full w-full flex flex-grow flex-basis-0 flex-col items-center gap-4"
     >
-      <div class="h-80% w-fit px-2">
-        <img
+      <div class="max-h-80% px-2 pt-3">
+        <Image
           :key="post.id"
           :src="getPostImageURL(post)"
           alt="post"
-          class="h-full w-full overflow-hidden rounded-lg object-contain"
+          :color="getPostColor(post)"
+          rounded="lg"
           @click=" selectedPostIdSet = new Set([post.id])"
-        >
+        />
       </div>
       <SimilarPosts
         v-if="scrollAreaRef"
