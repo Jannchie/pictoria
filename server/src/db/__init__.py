@@ -14,7 +14,7 @@ def insert_img_vec(post_id: int, image_path: Path):
     features = calculate_image_features(image_path)
     features_np = features.cpu().numpy()
     with get_session() as session:
-        session.add(PostVector(post_id=post_id, embedding=features_np))
+        session.add(PostVector(post_id=post_id, embedding=features_np[0]))
         session.commit()
     return features_np
 
