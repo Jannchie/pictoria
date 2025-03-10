@@ -278,11 +278,10 @@ const mainSectionRef = ref<HTMLElement>()
         />
       </LazyWaterfall>
       <div
-        v-if="posts.length > 0"
+        v-if="posts.length > 0 && infinityPostsQuery.hasNextPage.value"
         class="flex justify-center p-4"
       >
         <Btn
-
           :loading="postsQuery.isLoading.value"
           @click="postsQuery.fetchNextPage()"
         >
