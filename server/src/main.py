@@ -27,7 +27,7 @@ from starlette.middleware.gzip import GZipMiddleware
 import shared
 from ai import OpenAIImageAnnotator
 from danbooru import DanbooruClient
-from db import find_similar_posts, get_img_vec, init_vec_db
+from db import find_similar_posts, get_img_vec
 from models import Post, PostHasColor, PostHasTag, Tag, TagGroup
 from processors import process_post, process_posts, set_post_colors, sync_metadata
 from scheme import PostPublic, PostWithTagPublic, TagGroupWithTagsPublic, TagWithGroupPublic
@@ -56,7 +56,6 @@ async def my_lifespan(_: FastAPI):
     load_dotenv()
     initialize(target_dir="demo")
     sync_metadata()
-    init_vec_db()
     # watch_target_dir()
     host = "localhost"
     port = 4777

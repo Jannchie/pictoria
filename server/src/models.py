@@ -3,6 +3,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Optional
 
+from pgvector.sqlalchemy import HALFVEC, HalfVector
 from PIL import Image
 from sqlalchemy import Boolean, Computed, Float, ForeignKey, Index, Integer, String
 from sqlalchemy.dialects.postgresql import TIMESTAMP
@@ -14,7 +15,7 @@ from sqlalchemy.orm import (
     mapped_column,
     relationship,
 )
-from pgvector.sqlalchemy import Vector
+
 import shared
 
 
@@ -56,7 +57,7 @@ class PostVector(Base):
     __tablename__ = "post_vectors"
 
     post_id: Mapped[int] = mapped_column(ForeignKey("posts.id", ondelete="CASCADE"), primary_key=True)
-    embedding: Mapped[Vector] = mapped_column(Vector(768), nullable=False)
+    embedding: Mapped[HalfVector] = mapped_column(HALFVEC(768), nullable=False)
 
 
 class Post(Base):

@@ -1,7 +1,6 @@
 import argparse
 import hashlib
 import os
-import sqlite3
 import sys
 import threading
 import time
@@ -20,7 +19,6 @@ from sqlalchemy.orm import Session, sessionmaker
 import shared
 from alembic import command
 from alembic.config import Config
-from db import get_vec_db
 from models import Post, PostHasTag, Tag, TagGroup
 from shared import logger
 
@@ -62,13 +60,6 @@ def prepare_paths(target_path: Path) -> None:
     shared.target_dir = get_target_dir(target_path)
     shared.pictoria_dir = get_pictoria_directory()
     shared.db_path = get_db_path()
-    shared.vec_path = get_vec_path()
-
-
-def get_vec_path() -> Path:
-    vec_path = shared.pictoria_dir / "vec.db"
-    logger.info(f"Vector Database path: {vec_path}")
-    return vec_path
 
 
 def use_route_names_as_operation_ids(app: FastAPI) -> None:
@@ -178,12 +169,6 @@ def delete_by_file_path_and_ext(session: Session, path_name_and_ext: tuple[str, 
         thumbnails_path.unlink()
     if file_path.exists():
         file_path.unlink()
-    # delete vector data
-    db = get_vec_db()
-    cursor = db.cursor()
-    cursor.execute("DELETE FROM post_vecs WHERE post_id = ?", (path_name_and_ext[0],))
-    db.commit()
-    cursor.close()
 
 
 def add_new_files(
@@ -199,18 +184,6 @@ def add_new_files(
             session.add(image)
         session.commit()
         logger.info("Added new files to database")
-
-
-def load_extension(dbapi_connection: sqlite3.Connection, *args) -> None:  # noqa: ANN002, ARG001
-    # 只有当使用 SQLite 时才可以加载扩展
-    if isinstance(dbapi_connection, sqlite3.Connection):
-        import sqlite_vec
-
-        logger.info("Loading SQLite extensions")
-        dbapi_connection.enable_load_extension(True)  # noqa: FBT003
-        sqlite_vec.load(dbapi_connection)
-        dbapi_connection.enable_load_extension(False)  # noqa: FBT003
-        logger.info("SQLite extensions loaded")
 
 
 @cache
