@@ -17,8 +17,8 @@ const { data: allCount } = useQuery({
       icon="i-tabler-photo"
       title="All"
       :extra-info="allCount"
-      :active="$route.path === '/dir'"
-      @click="$router.push('/dir')"
+      :active="$route.path === '/all'"
+      @click="$router.push('/all')"
     />
     <ListItem
       icon="i-tabler-bookmarks"

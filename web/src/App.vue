@@ -3,7 +3,7 @@ import type { DirectorySummary } from '@/api'
 import type { TreeListItemData } from './roku/TreeList.vue'
 import { Btn, primaryColor, RokuProvider } from '@roku-ui/vue'
 import { Pane, Splitpanes } from 'splitpanes'
-import { RouterLink } from 'vue-router'
+import { RouterLink, useRoute } from 'vue-router'
 import { useWatchRoute } from './composables'
 import TreeList from './roku/TreeList.vue'
 import { showMenu, useCurrentFolder, useFoldersQuery } from './shared'
@@ -68,6 +68,16 @@ const indicatorClass = computed(() => {
   return ['before:absolute before:left-4 before:h-full before:border-r before:content-[""]']
 })
 const numberFormater = new Intl.NumberFormat('en-US')
+const route = useRoute()
+const folderStr = computed(() => {
+  if (!route.params.folder) {
+    return ''
+  }
+  if (Array.isArray(route.params.folder)) {
+    return route.params.folder.join('/')
+  }
+  return route.params.folder
+})
 </script>
 
 <template>
@@ -110,8 +120,8 @@ const numberFormater = new Intl.NumberFormat('en-US')
                   :to="`/dir/${data.value}`"
                   class="relative h-8 w-full flex cursor-pointer items-center gap-2 rounded-full focus-visible:bg-surface-variant-1 py-1 pr-1 focus-visible:outline-none"
                   :class="[{
-                    'hover:bg-surface-variant-1 hover:text-surface text-surface-dimmed': currentFolder !== data.value,
-                    'text-primary bg-surface-variant-2': currentFolder === data.value,
+                    'hover:bg-surface-variant-1 hover:text-surface text-surface-dimmed': folderStr !== data.value,
+                    'text-primary bg-surface-variant-2': folderStr === data.value,
                   }]"
                   :style="{
                     paddingLeft: `${32 + level * 8}px`,
@@ -141,8 +151,8 @@ const numberFormater = new Intl.NumberFormat('en-US')
                   class="hover-source relative h-8 w-full flex flex cursor-pointer items-center gap-2 rounded-full focus-visible:bg-surface-variant-1 py-1 pr-1 focus-visible:outline-none"
                   :class="[
                     {
-                      'hover:bg-surface-variant-1 hover:text-surface text-surface-dimmed': currentFolder !== data.value,
-                      'text-primary bg-surface-variant-2': currentFolder === data.value,
+                      'hover:bg-surface-variant-1 hover:text-surface text-surface-dimmed': folderStr !== data.value,
+                      'text-primary bg-surface-variant-2': folderStr === data.value,
                     },
                     indicatorClass,
                   ]"

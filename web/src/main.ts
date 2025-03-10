@@ -16,6 +16,7 @@ client.setConfig({
 })
 const routes: RouteRecordRaw[] = [
   { path: '/', component: () => import('./views/Home.vue') },
+  { path: '/all', component: () => import('./views/Home.vue'), name: 'all' },
   { path: '/dir/:folder*', component: () => import('./views/Home.vue'), name: 'dir' },
   { path: '/random', component: () => import('./views/Home.vue') },
   { path: '/tags', component: () => import('./views/Tags.vue'), name: 'tags' },

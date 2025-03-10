@@ -2,7 +2,7 @@
 import type { PostPublic } from '@/api'
 import Image from '@/roku/Image.vue'
 import { selectedPostIdSet } from '@/shared'
-import { getPostImageURL, getPostThumbnailURL } from '@/utils'
+import { getPostImageURL } from '@/utils'
 import { colorNumToHex } from '@/utils/color'
 import { Btn } from '@roku-ui/vue'
 import { useRoute } from 'vue-router'
