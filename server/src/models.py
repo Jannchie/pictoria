@@ -14,7 +14,7 @@ from sqlalchemy.orm import (
     mapped_column,
     relationship,
 )
-
+from pgvector.sqlalchemy import Vector
 import shared
 
 
@@ -50,6 +50,13 @@ class PostHasColor(Base):
     order: Mapped[int] = mapped_column(Integer, primary_key=True)
     color: Mapped[int] = mapped_column(Integer, nullable=False)
     post: Mapped["Post"] = relationship(back_populates="colors", init=False)
+
+
+class PostVector(Base):
+    __tablename__ = "post_vectors"
+
+    post_id: Mapped[int] = mapped_column(ForeignKey("posts.id", ondelete="CASCADE"), primary_key=True)
+    embedding: Mapped[Vector] = mapped_column(Vector(768), nullable=False)
 
 
 class Post(Base):
