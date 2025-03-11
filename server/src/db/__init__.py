@@ -1,4 +1,3 @@
-import sqlite3
 from pathlib import Path
 
 import numpy as np
@@ -37,7 +36,7 @@ class SimilarImageResult(BaseModel):
 
 def find_similar_posts(vec: np.ndarray, *, limit: int = 100) -> list[SimilarImageResult]:
     with get_session() as session:
-        distance = PostVector.embedding.l2_distance(vec)
+        distance = PostVector.embedding.cosine_distance(vec)
         query = select(PostVector.post_id, distance.label("distance")).order_by(distance).limit(limit).offset(1)
         result = session.execute(query).all()
     return [SimilarImageResult(post_id=row[0], distance=row[1]) for row in result]
