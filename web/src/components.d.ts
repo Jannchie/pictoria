@@ -29,7 +29,6 @@ declare module 'vue' {
     PostDetail: typeof import('./components/PostDetail.vue')['default']
     PostDetailPanel: typeof import('./components/PostDetailPanel.vue')['default']
     PostItem: typeof import('./components/PostItem.vue')['default']
-    PostMain: typeof import('./components/PostMain.vue')['default']
     PostSorter: typeof import('./components/PostSorter.vue')['default']
     PostTag: typeof import('./components/PostTag.vue')['default']
     Rating: typeof import('./components/Rating.vue')['default']
@@ -40,7 +39,6 @@ declare module 'vue' {
     ScoreFilter: typeof import('./components/ScoreFilter.vue')['default']
     ScrollArea: typeof import('./components/ScrollArea.vue')['default']
     SelectArea: typeof import('./components/SelectArea.vue')['default']
-    SimiarPosts: typeof import('./components/SimilarPosts.vue')['default']
     SimilarPosts: typeof import('./components/SimilarPosts.vue')['default']
     Slider: typeof import('./components/Slider.vue')['default']
     SpecialPathList: typeof import('./components/SpecialPathList.vue')['default']
@@ -51,6 +49,7 @@ declare module 'vue' {
     Toast: typeof import('./components/Toast.vue')['default']
     ToastContainer: typeof import('./components/ToastContainer.vue')['default']
     ToastSystem: typeof import('./components/ToastSystem.vue')['default']
+    TranslatedTagText: typeof import('./components/TranslatedTagText.vue')['default']
     VirtualScroll: typeof import('./components/VirtualScroll.vue')['default']
   }
 }
