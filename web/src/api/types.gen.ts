@@ -33,7 +33,7 @@ export interface ListPostBody {
   tags?: Array<string> | null
   extension?: Array<string> | null
   folder?: string | null
-  order_by?: ('id' | 'score' | 'rating' | 'created_at' | 'file_name') | null
+  order_by?: ('id' | 'score' | 'rating' | 'created_at' | 'published_at' | 'file_name') | null
   order?: 'asc' | 'desc'
 }
 
