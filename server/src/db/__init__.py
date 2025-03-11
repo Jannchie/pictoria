@@ -35,8 +35,9 @@ class SimilarImageResult(BaseModel):
     distance: float
 
 
-def find_similar_posts(vec: np.ndarray, *, limit: int = 1000) -> list[SimilarImageResult]:
+def find_similar_posts(vec: np.ndarray, *, limit: int = 100) -> list[SimilarImageResult]:
     with get_session() as session:
-        query = select(PostVector).where(PostVector.embedding.match(vec, k=limit + 1)).offset(1)
-        result = session.scalars(query)
+        distance = PostVector.embedding.l2_distance(vec)
+        query = select(PostVector.post_id, distance.label("distance")).order_by(distance).limit(limit).offset(1)
+        result = session.execute(query).all()
     return [SimilarImageResult(post_id=row[0], distance=row[1]) for row in result]
