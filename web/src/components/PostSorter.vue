@@ -3,6 +3,33 @@ import { postSort, postSortOrder } from '@/shared'
 import { Btn } from '@roku-ui/vue'
 import { ref } from 'vue'
 
+// Sort options data
+const sortOptions: {
+  id: 'created_at' | 'published_at' | 'score' | 'rating' | 'file_name'
+  label: string
+  icon: string
+}[] = [
+  { id: 'created_at', label: 'Created', icon: 'i-tabler-calendar-event' },
+  { id: 'published_at', label: 'Published', icon: 'i-tabler-calendar-event' },
+  { id: 'score', label: 'Score', icon: 'i-tabler-star' },
+  { id: 'rating', label: 'Rating', icon: 'i-tabler-thumb-up' },
+  { id: 'file_name', label: 'File name', icon: 'i-tabler-file' }
+]
+
+// Order options data
+const orderOptions: {
+  id: 'asc' | 'desc'
+  label: string
+  icon: string
+}[] = [
+  { id: 'asc', label: 'Asc', icon: 'i-tabler-arrow-up' },
+  { id: 'desc', label: 'Desc', icon: 'i-tabler-arrow-down' }
+]
+
+function underlineToSpace(str: string) {
+  return str.replace(/_/g, ' ')
+}
+
 const show = ref(false)
 </script>
 
@@ -17,7 +44,10 @@ const show = ref(false)
       >
         <i class="i-tabler-arrows-sort" />
         <span class="flex-grow">
-          Sort by {{ postSort }}
+          Sort by
+          <span class="font-bold">
+            {{ underlineToSpace(postSort) }}
+          </span>
         </span>
       </Btn>
       <template #content>
@@ -29,66 +59,29 @@ const show = ref(false)
           >
             <div class="flex gap-1">
               <Btn
+                v-for="order in orderOptions"
+                :key="order.id"
                 size="sm"
                 class="w-full"
-                :variant="postSortOrder === 'asc' ? 'filled' : 'default'"
-                @click="postSortOrder = 'asc'; show = false"
+                :variant="postSortOrder === order.id ? 'filled' : 'default'"
+                @click="postSortOrder = order.id; show = false"
               >
-                <i class="i-tabler-arrow-up" />
+                <i :class="order.icon" />
                 <span class="flex-grow">
-                  Asc
-                </span>
-              </Btn>
-              <Btn
-                size="sm"
-                class="w-full"
-                :variant="postSortOrder === 'desc' ? 'filled' : 'default'"
-                @click="postSortOrder = 'desc'; show = false"
-              >
-                <i class="i-tabler-arrow-down" />
-                <span class="flex-grow">
-                  Desc
+                  {{ order.label }}
                 </span>
               </Btn>
             </div>
             <Btn
+              v-for="option in sortOptions"
+              :key="option.id"
               size="sm"
               class="w-full"
-              @click="postSort = 'created_at'; show = false"
+              @click="postSort = option.id; show = false"
             >
-              <i class="i-tabler-calendar-event" />
+              <i :class="option.icon" />
               <span class="flex-grow">
-                Created
-              </span>
-            </Btn>
-            <Btn
-              size="sm"
-              class="w-full"
-              @click="postSort = 'score'; show = false"
-            >
-              <i class="i-tabler-star" />
-              <span class="flex-grow">
-                Score
-              </span>
-            </Btn>
-            <Btn
-              size="sm"
-              class="w-full"
-              @click="postSort = 'rating'; show = false"
-            >
-              <i class="i-tabler-thumb-up" />
-              <span class="flex-grow">
-                Rating
-              </span>
-            </Btn>
-            <Btn
-              size="sm"
-              class="w-full"
-              @click="postSort = 'file_name'; show = false"
-            >
-              <i class="i-tabler-file" />
-              <span class="flex-grow">
-                File name
+                {{ option.label }}
               </span>
             </Btn>
           </div>

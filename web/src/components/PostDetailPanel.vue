@@ -192,6 +192,12 @@ const updateSource = useDebounceFn(async (source: any) => {
         <div v-if="post.created_at">
           {{ formatTimestr(post.created_at) }}
         </div>
+        <div v-if="post.published_at">
+          Published At
+        </div>
+        <div v-if="post.published_at">
+          {{ formatTimestr(post.published_at) }}
+        </div>
       </div>
     </div>
     <div>

@@ -147,7 +147,7 @@ class ListPostBody(BaseModel):
     tags: list[str] | None = []
     extension: list[str] | None = []
     folder: str | None = None
-    order_by: Literal["id", "score", "rating", "created_at", "file_name"] | None = None
+    order_by: Literal["id", "score", "rating", "created_at", "published_at", "file_name"] | None = None
     order: Literal["asc", "desc"] = "desc"
 
 
@@ -190,7 +190,8 @@ def apply_body_query(filter: ListPostBody, stmt: Select) -> Select:  # noqa: A00
     if filter.folder and filter.folder != ".":
         stmt = stmt.filter(Post.file_path.like(f"{filter.folder}%"))
     if filter.order_by:
-        stmt = stmt.order_by(getattr(Post, filter.order_by).asc()) if filter.order == "asc" else stmt.order_by(getattr(Post, filter.order_by).desc())
+        order_column = getattr(Post, filter.order_by)
+        stmt = stmt.order_by(order_column.asc().nullslast() if filter.order == "asc" else order_column.desc().nullslast())
     return stmt
 
 
