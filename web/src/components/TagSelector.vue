@@ -257,7 +257,7 @@ const searchingInitCurrentTags = computed(() => {
 <template>
   <div
     v-if="!postQuery.data.value"
-    class="text-surface-on-high relative h-96 max-h-96 max-w-96 w-96 flex flex-col border rounded bg-surface-base text-sm shadow-md"
+    class="relative h-96 max-h-96 max-w-96 w-96 flex flex-col border rounded bg-surface-base text-sm text-surface shadow-md"
   >
     <div class="h-full w-full flex flex-grow flex-col items-center justify-center text-surface-dimmed">
       <i class="i-tabler-tag p-4 text-2xl" />
@@ -268,7 +268,7 @@ const searchingInitCurrentTags = computed(() => {
   </div>
   <div
     v-else
-    class="text-surface-on-high h-96 max-h-96 max-w-96 w-96 flex flex-col border rounded bg-surface-base text-sm shadow-md"
+    class="h-96 max-h-96 max-w-96 w-96 flex flex-col border rounded bg-surface-base text-sm text-surface shadow-md"
   >
     <div class="flex gap-2 border-b border-surface p-2">
       <TextField
