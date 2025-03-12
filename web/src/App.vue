@@ -110,7 +110,7 @@ const folderStr = computed(() => {
             Pictoria
           </div>
           <SpecialPathList />
-          <ScrollArea>
+          <ScrollArea class="flex-grow py-2">
             <TreeList
               :model-value="currentFolder"
               :items="folderTree"
@@ -185,6 +185,13 @@ const folderStr = computed(() => {
               </template>
             </TreeList>
           </ScrollArea>
+          <ListItem
+            class="text-sm"
+            icon="i-tabler-settings"
+            :active="$route.path === '/settings'"
+            title="Settings"
+            @click="$router.push('/settings')"
+          />
         </Pane>
         <Pane class="relative">
           <RouterView />
