@@ -34,7 +34,7 @@ export interface ListPostBody {
   extension?: Array<string> | null
   folder?: string | null
   order_by?: ('id' | 'score' | 'rating' | 'created_at' | 'published_at' | 'file_name') | null
-  order?: 'asc' | 'desc'
+  order?: 'asc' | 'desc' | 'random'
 }
 
 export interface Post {
@@ -194,7 +194,6 @@ export interface V1ListPostsData {
   query?: {
     limit?: number | null
     offset?: number
-    ascending?: boolean
   }
   url: '/v1/posts'
 }

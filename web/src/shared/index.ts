@@ -40,11 +40,16 @@ export const postSortOrder = useLocalStorage<'asc' | 'desc'>('pictoria.posts.sor
 
 export function useInfinityPostsQuery() {
   const limit = 1000
+  const route = useRoute()
+  const isRandomPage = computed(()=>route.path === '/random')
+  const order = computed(()=>{
+    return isRandomPage.value ? 'random' : postSortOrder.value
+  })
   return useInfiniteQuery({
-    queryKey: ['posts', postFilter, postSort, postSortOrder],
+    queryKey: ['posts', postFilter, postSort, order],
     queryFn: async ({ pageParam = 0 }) => {
       const resp = await v1ListPosts({
-        body: { ...postFilter.value, order_by: postSort.value, order: postSortOrder.value },
+        body: { ...postFilter.value, order_by: postSort.value, order: order.value },
         query: {
           offset: pageParam,
           limit,

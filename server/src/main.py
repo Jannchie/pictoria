@@ -18,7 +18,7 @@ from fastapi.responses import ORJSONResponse
 from pydantic import BaseModel, Field
 from rich import get_console
 from rich.progress import track
-from sqlalchemy import Select, func, select
+from sqlalchemy import Select, func, select, text
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.orm import Session, joinedload
 from starlette.convertors import Convertor, register_url_convertor
@@ -148,7 +148,7 @@ class ListPostBody(BaseModel):
     extension: list[str] | None = []
     folder: str | None = None
     order_by: Literal["id", "score", "rating", "created_at", "published_at", "file_name"] | None = None
-    order: Literal["asc", "desc"] = "desc"
+    order: Literal["asc", "desc", "random"] = "desc"
 
 
 @app.post(
@@ -161,10 +161,10 @@ def v1_list_posts(
     limit: int | None = None,
     offset: int = 0,
     body: ListPostBody = ListPostBody(),
-    ascending: bool = False,
 ):
     session = get_session()
-    stmt = apply_body_query(body, select(Post)).order_by(Post.id.asc() if ascending else Post.id.desc()).limit(limit).offset(offset)
+    session.execute(text(f"SELECT setseed({0.47})"))
+    stmt = apply_body_query(body, select(Post)).limit(limit).offset(offset)
     return session.scalars(stmt)
 
 
@@ -191,7 +191,16 @@ def apply_body_query(filter: ListPostBody, stmt: Select) -> Select:  # noqa: A00
         stmt = stmt.filter(Post.file_path.like(f"{filter.folder}%"))
     if filter.order_by:
         order_column = getattr(Post, filter.order_by)
-        stmt = stmt.order_by(order_column.asc().nullslast() if filter.order == "asc" else order_column.desc().nullslast())
+        if filter.order == "random":
+            stmt = stmt.order_by(func.random())
+        elif filter.order == "asc":
+            stmt = stmt.order_by(order_column.asc().nullslast())
+        elif filter.order == "desc":
+            stmt = stmt.order_by(order_column.desc().nullslast())
+        else:
+            msg = f"Invalid order value: {filter.order}"
+            raise ValueError(msg)
+
     return stmt
 
 
@@ -218,6 +227,8 @@ def v1_count_group_by_rating(
 ):
     stmt = select(Post.rating, func.count()).group_by(Post.rating)
     stmt = apply_body_query(body, stmt)
+    # SELECT setseed(0.5)
+
     resp = session.execute(stmt).all()
     return [RatingCountResponse(rating=row[0], count=row[1]) for row in resp]
 
