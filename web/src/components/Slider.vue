@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { useColors, useContainerFilledCS } from '@roku-ui/vue'
 import { useElementBounding, useEventListener } from '@vueuse/core'
 import { computed, onMounted, ref, watchEffect } from 'vue'
 
@@ -92,39 +93,12 @@ function optionToIndex(option: any) {
   return res
 }
 
-const colorCls = computed(() => {
-  switch (props.color) {
-    case 'primary':
-      return 'bg-primary'
-    case 'secondary':
-      return 'bg-secondary-containerl'
-    case 'tertiary':
-      return 'bg-tertiary-containerl'
-    case 'error':
-      return 'bg-error-containerl'
-    default:
-      return 'bg-error-containerl'
-  }
-})
-
-const indicatorOuterCls = computed(() => {
-  return `dark:bg-white bg-${props.color}-containerl`
-})
-
-const indicatorInnerCls = computed(() => {
-  switch (props.color) {
-    case 'primary':
-      return 'dark:bg-primary bg-white'
-    case 'secondary':
-      return 'dark:bg-secondary-containerl bg-white'
-    case 'tertiary':
-      return 'dark:bg-tertiary-containerl bg-white'
-    case 'error':
-      return 'dark:bg-error-containerl bg-white'
-    default:
-      return 'dark:bg-primary bg-white'
-  }
-})
+const color = computed(() => props.color)
+const colors = useColors(color.value)
+const filledColor = computed(() => colors.value[4])
+const indicatorOuterCls = 'dark:bg-white bg-[var(--i-bg)]'
+const indicatorInnerCls = 'dark:bg-[var(--i-bg)] bg-white'
+const containerFilledCS = useContainerFilledCS(color)
 
 watchEffect(() => {
   if (currentIndex.value < 0) {
@@ -271,21 +245,31 @@ const animateCls = computed(() => props.animate
             ref="indicator"
             class="absolute top-50% cursor-pointer rounded-full transition-background-color,border-color,color"
             :class="[sizeCls.indicator, animateCls.indicator, indicatorOuterCls]"
-            :style="{
-              left: `${props.reverse ? 100 - (currentIndex / (length - 1)) * 100 : (currentIndex / (length - 1)) * 100}%`,
-            }"
+            :style="[
+              `--i-bg: ${filledColor}`,
+              {
+                left: `${props.reverse ? 100 - (currentIndex / (length - 1)) * 100 : (currentIndex / (length - 1)) * 100}%`,
+              },
+            ]"
           >
             <div
-              class="pointer-events-none absolute left-50% top-50% rounded-full transition-background-color,border-color,color"
+              class="pointer-events-none absolute left-50% top-50% rounded-full"
               :class="[sizeCls.indicatorInner, indicatorInnerCls]"
             />
           </div>
           <div
             class="pointer-events-none h-full rounded-full"
-            :class="[sizeCls.progress, animateCls.progress, colorCls]"
-            :style="{
-              width: `${props.reverse ? 100 - (currentIndex / (length - 1)) * 100 : (currentIndex / (length - 1)) * 100}%`,
-            }"
+            :class="[
+              containerFilledCS.class,
+              sizeCls.progress,
+              animateCls.progress,
+            ]"
+            :style="[
+              containerFilledCS.style,
+              {
+                width: `${props.reverse ? 100 - (currentIndex / (length - 1)) * 100 : (currentIndex / (length - 1)) * 100}%`,
+              },
+            ]"
           />
         </div>
       </div>
@@ -301,7 +285,7 @@ const animateCls = computed(() => props.animate
         v-for="option, i in ticks"
         :key="i"
         :style="{
-          left: `${props.reverse ? 100 - (optionToIndex(option) / (length - 1)) * 100 : (optionToIndex(option) / (length - 1)) * 100}%`,
+          left: `${(optionToIndex(option) / (length - 1)) * 100}%`,
         }"
         class="absolute w-auto flex rounded-full -translate-x-50%"
         :class="sizeCls.tick"
