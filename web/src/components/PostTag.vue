@@ -1,6 +1,7 @@
 <script setup lang="tsx">
 import type { PostHasTagPublic, TagWithCountPublic } from '@/api'
 import { useTagGroup } from '@/shared'
+import { Tag } from '@roku-ui/vue'
 
 const props = defineProps<{
   data: TagWithCountPublic | PostHasTagPublic
@@ -15,7 +16,8 @@ function getGroupColor(group_id: number | undefined) {
 
 <template>
   <Tag
-    class="user-select-auto cursor-pointer"
+    variant="light"
+    size="sm"
     rounded="lg"
     :color="getGroupColor(data.tag_info.group?.id)"
   >

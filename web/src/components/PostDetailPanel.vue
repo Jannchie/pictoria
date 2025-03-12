@@ -4,7 +4,7 @@ import { v1UpdatePostCaption, v1UpdatePostRating, v1UpdatePostScore, v1UpdatePos
 import { hideNSFW, openTagSelectorWindow, showPostDetail } from '@/shared'
 import { getPostThumbnailURL } from '@/utils'
 import { colorNumToHex } from '@/utils/color'
-import { Btn, ColorSwatch, TextField } from '@roku-ui/vue'
+import { Btn, ColorSwatch, Tag, TextField } from '@roku-ui/vue'
 import { useQueryClient } from '@tanstack/vue-query'
 import { filesize } from 'filesize'
 
@@ -248,8 +248,8 @@ const updateSource = useDebounceFn(async (source: any) => {
           {{ tag.tag_info.name }}
         </PostTag>
         <Tag
-          class="bg-surface-high cursor-pointer rounded px-1 py-0.5"
           rounded="lg"
+          variant="light"
           @pointerup="openTagSelectorWindow()"
         >
           <i class="i-tabler-plus" />
