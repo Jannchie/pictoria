@@ -1,6 +1,7 @@
 <script setup lang="ts" generic="T">
+import type { Component } from 'vue'
 import { controlledComputed, debouncedWatch, useElementBounding, useScroll } from '@vueuse/core'
-import { type Component, computed, ref } from 'vue'
+import { computed, ref } from 'vue'
 
 const props = withDefaults(defineProps<{
   is?: Component | string

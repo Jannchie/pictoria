@@ -13,7 +13,7 @@ const sortOptions: {
   { id: 'published_at', label: 'Published', icon: 'i-tabler-calendar-event' },
   { id: 'score', label: 'Score', icon: 'i-tabler-star' },
   { id: 'rating', label: 'Rating', icon: 'i-tabler-thumb-up' },
-  { id: 'file_name', label: 'File name', icon: 'i-tabler-file' }
+  { id: 'file_name', label: 'File name', icon: 'i-tabler-file' },
 ]
 
 // Order options data
@@ -23,7 +23,7 @@ const orderOptions: {
   icon: string
 }[] = [
   { id: 'asc', label: 'Asc', icon: 'i-tabler-arrow-up' },
-  { id: 'desc', label: 'Desc', icon: 'i-tabler-arrow-down' }
+  { id: 'desc', label: 'Desc', icon: 'i-tabler-arrow-down' },
 ]
 
 function underlineToSpace(str: string) {

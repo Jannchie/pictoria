@@ -41,8 +41,8 @@ export const postSortOrder = useLocalStorage<'asc' | 'desc'>('pictoria.posts.sor
 export function useInfinityPostsQuery() {
   const limit = 1000
   const route = useRoute()
-  const isRandomPage = computed(()=>route.path === '/random')
-  const order = computed(()=>{
+  const isRandomPage = computed(() => route.path === '/random')
+  const order = computed(() => {
     return isRandomPage.value ? 'random' : postSortOrder.value
   })
   return useInfiniteQuery({

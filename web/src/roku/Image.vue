@@ -1,6 +1,7 @@
 <script setup lang="ts">
+import type { Component } from 'vue'
 import { useRounded } from '@roku-ui/vue'
-import { type Component, onMounted, ref } from 'vue'
+import { onMounted, ref } from 'vue'
 
 const props = withDefaults(
   defineProps<{
@@ -76,7 +77,6 @@ const rounded = useRounded(props)
           style,
         ]"
       />
-
     </template>
   </div>
 </template>
