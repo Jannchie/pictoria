@@ -22,6 +22,7 @@ const routes: RouteRecordRaw[] = [
   { path: '/tags', component: () => import('./views/Tags.vue'), name: 'tags' },
   { path: '/test', component: () => import('./views/Test.vue'), name: 'test' },
   { path: '/post/:postId', component: () => import('./views/Post.vue'), name: 'post' },
+  { path: '/settings', component: () => import('./views/Settings.vue'), name: 'settings' },
 ]
 
 const router = createRouter({
