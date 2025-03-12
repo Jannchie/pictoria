@@ -32,7 +32,9 @@ const { data: allCount } = useQuery({
     />
     <ListItem
       icon="i-tabler-arrows-cross"
+      :active="$route.path === '/random'"
       title="Random"
+      @click="$router.push('/random')"
     />
   </div>
 </template>
