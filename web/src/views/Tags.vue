@@ -33,59 +33,81 @@ const tagGroupByFirstChar = computed(() => {
     if (index === -1) {
       resp.push([firstChar, [d]])
     }
-    else {
+    else if (resp[index][1].length < 21) {
       resp[index][1].push(d)
     }
   })
+
+  // Sort each group by count in descending order
+  resp.forEach((group) => {
+    group[1].sort((a, b) => b.count - a.count)
+  })
+
+  // Sort the groups by first character in ascending order
+  resp.sort((a, b) => a[0].localeCompare(b[0]))
+
   return resp
 })
 </script>
 
 <template>
   <div class="h-full flex flex-col">
-    <div class="mt-2 px-1">
+    <div class="sticky top-0 z-10 px-4 py-3 shadow-sm">
       <TextField
         v-model="search"
-        placeholder="Search"
+        placeholder="Search tags"
+        class="w-full"
       />
     </div>
-    <VirtualScroll
-      :items="tagGroupByFirstChar"
-    >
-      <template #default="{ item }">
-        <div
-          class="border-b-surface-high border-b py-2"
-        >
+    <div class="flex-1 overflow-hidden">
+      <VirtualScroll
+        :items="tagGroupByFirstChar"
+        class="h-full"
+      >
+        <template #default="{ item }">
           <div
-            class="flex flex-col text-sm"
+            class="border-b py-3"
           >
-            <div class="mb-2 mt-3 px-2 text-3xl">
-              {{ item[0] }}
-              <span class="text-xl">
-                ({{ item[1].length }})
-              </span>
-            </div>
-            <div class="flex flex-wrap gap-3 px-2 text-xs">
-              <div
-                v-for="tag of item[1]"
-                :key="tag.tag_info.name"
-                class="flex items-end gap-1"
-              >
-                <PostTag
-                  class="cursor-pointer"
-                  rounded="lg"
-                  :data="tag"
-                >
-                  {{ tag.tag_info.name }}
-                </PostTag>
-                <span class="op-75">
-                  ({{ tag.count }})
+            <div class="flex flex-col">
+              <div class="mb-3 flex items-baseline px-4">
+                <span class="text-3xl font-bold">
+                  {{ item[0] }}
                 </span>
+                <span class="ml-2 text-lg">
+                  ({{ item[1].length }})
+                </span>
+              </div>
+              <div class="flex flex-wrap gap-3 px-4">
+                <div
+                  v-for="tag, i of item[1]"
+                  :key="tag.tag_info.name"
+                  class="mb-2 flex items-center gap-2"
+                >
+                  <template v-if="i === 20">
+                    <div class="px-2 text-surface-dimmed italic">
+                      ...
+                    </div>
+                  </template>
+                  <template v-else>
+                    <div class="flex items-end gap-2">
+                      <PostTag
+                        class="cursor-pointer"
+                        rounded="lg"
+                        :data="tag"
+                      >
+                        {{ tag.tag_info.name }}
+                      </PostTag>
+                      <span class="text-xs text-surface-dimmed">
+                        ({{ tag.count }})
+                      </span>
+                    </div>
+                  </template>
+                </div>
               </div>
             </div>
           </div>
-        </div>
-      </template>
-    </VirtualScroll>
+        </template>
+      </VirtualScroll>
+    </div>
   </div>
 </template>
