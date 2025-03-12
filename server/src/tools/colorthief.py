@@ -180,10 +180,7 @@ class MMCQ:
                 vbox2 = vbox.copy
                 left = i - dim1_val
                 right = dim2_val - i
-                if left <= right:
-                    d2 = min([dim2_val - 1, int(i + right / 2)])
-                else:
-                    d2 = max([dim1_val, int(i - 1 - left / 2)])
+                d2 = min([dim2_val - 1, int(i + right / 2)]) if left <= right else max([dim1_val, int(i - 1 - left / 2)])
                 # avoid 0-count boxes
                 while not partialsum.get(d2, False):
                     d2 += 1
@@ -371,9 +368,7 @@ class CMap:
         for i in range(self.vboxes.size()):
             vbox = self.vboxes.peek(i)
             d2 = math.sqrt(
-                math.pow(color[0] - vbox["color"][0], 2)
-                + math.pow(color[1] - vbox["color"][1], 2)
-                + math.pow(color[2] - vbox["color"][2], 2),
+                math.pow(color[0] - vbox["color"][0], 2) + math.pow(color[1] - vbox["color"][1], 2) + math.pow(color[2] - vbox["color"][2], 2),
             )
             if d1 is None or d2 < d1:
                 d1 = d2
