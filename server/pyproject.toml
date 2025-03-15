@@ -30,6 +30,7 @@ dependencies = [
     "python-dotenv>=1.0.1",
     "psycopg[binary]>=3.2.4",
     "pgvector>=0.3.6",
+    "apscheduler[psycopg,sqlalchemy]>=3.11.0",
 ]
 
 requires-python = ">=3.11"
