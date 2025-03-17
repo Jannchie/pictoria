@@ -1,9 +1,8 @@
-import os
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Optional
 
-from pgvector.sqlalchemy import HALFVEC, HalfVector
+from pgvector.sqlalchemy import HALFVEC, HalfVector, Vector
 from PIL import Image
 from sqlalchemy import Boolean, Computed, Float, ForeignKey, Index, Integer, String
 from sqlalchemy.dialects.postgresql import TIMESTAMP
@@ -103,6 +102,8 @@ class Post(Base):
     size: Mapped[int] = mapped_column(Integer, nullable=False, default=0, server_default="0", index=True)
     source: Mapped[str] = mapped_column(String, nullable=False, default="", server_default="", index=True)
     caption: Mapped[str] = mapped_column(String, nullable=False, default="", server_default="")
+
+    dominant_color: Mapped[Vector] = mapped_column(Vector(3), nullable=True, default=None)
     tags: Mapped[list["PostHasTag"]] = relationship(back_populates="post", default_factory=list, lazy="select")
     colors: Mapped[list["PostHasColor"]] = relationship(back_populates="post", default_factory=list, lazy="select")
 
@@ -133,7 +134,7 @@ class Post(Base):
                     dst.mkdir(parents=True, exist_ok=True)
 
                 # Iterate over all files and directories in the source directory
-                for item in os.listdir(src):
+                for item in src.iterdir():
                     s = src / item
                     d = dst / item
                     # Recursively call move_file for subdirectories and files

@@ -2,7 +2,7 @@
 import type { PostPublic } from '@/api'
 import { hideNSFW, selectedPostIdSet, selectingPostIdSet, unselectedPostIdSet } from '@/shared'
 import { getPostThumbnailURL } from '@/utils'
-import { colorNumToHex } from '@/utils/color'
+import { colorNumToHex, labToRgbaString } from '@/utils/color'
 import { AspectRatio } from '@roku-ui/vue'
 import { computed } from 'vue'
 
@@ -118,7 +118,10 @@ function onImageLoad(e: Event) {
 
 const primaryColor = computed(() => {
   if (post.value.colors.length > 0) {
-    // TODO: Don't sort here
+    const dominantColor = post.value.dominant_color
+    if (dominantColor) {
+      return labToRgbaString(dominantColor[0], dominantColor[1], dominantColor[2])
+    }
     return colorNumToHex([...post.value.colors].sort((a, b) => {
       return a.order - b.order
     })[0].color)

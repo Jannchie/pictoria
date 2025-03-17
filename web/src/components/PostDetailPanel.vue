@@ -3,7 +3,7 @@ import type { PostWithTagPublic } from '@/api'
 import { v1UpdatePostCaption, v1UpdatePostRating, v1UpdatePostScore, v1UpdatePostSource } from '@/api'
 import { hideNSFW, openTagSelectorWindow, showPostDetail } from '@/shared'
 import { getPostThumbnailURL } from '@/utils'
-import { colorNumToHex } from '@/utils/color'
+import { colorNumToHex, labToRgbaString } from '@/utils/color'
 import { Btn, ColorSwatch, Tag, TextField } from '@roku-ui/vue'
 import { useQueryClient } from '@tanstack/vue-query'
 import { filesize } from 'filesize'
@@ -11,6 +11,7 @@ import { filesize } from 'filesize'
 const props = defineProps<{
   post: PostWithTagPublic
 }>()
+
 const queryClient = useQueryClient()
 
 function formatTimestr(t: number | string) {
@@ -116,6 +117,12 @@ const updateSource = useDebounceFn(async (source: any) => {
       </div>
     </div>
     <div class="flex items-center justify-center gap-1">
+      <ColorSwatch
+        v-if="post.dominant_color"
+        class="mr-2 h-8 w-8"
+        with-border
+        :color="labToRgbaString(post.dominant_color[0], post.dominant_color[1], post.dominant_color[2])"
+      />
       <ColorSwatch
         v-for="color in post.colors"
         :key="color.color"

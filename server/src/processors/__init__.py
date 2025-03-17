@@ -2,14 +2,16 @@ import threading
 from io import BufferedReader
 from pathlib import Path
 
+import numpy as np
 from PIL import Image
 from rich.progress import Progress
+from skimage import color  # 使用 scikit-image 库
 
 import shared
 from db import get_img_vec
 from models import Post, PostHasColor
 from shared import logger
-from tools.colors import get_palette_ints
+from tools.colors import get_dominant_color, get_palette_ints
 from utils import (
     add_new_files,
     attach_tags_to_post,
@@ -130,8 +132,16 @@ def _process_post(file_abs_path: Path | None = None) -> None:
         session.commit()
 
 
+def rgb_to_lab_skimage(rgb_tuple: tuple[int, int, int]):
+    rgb_normalized = np.array(rgb_tuple, dtype=np.float64) / 255.0
+    return color.rgb2lab(rgb_normalized.reshape(1, 1, 3)).reshape(3)
+
+
 def set_post_colors(post: Post, file: None | BufferedReader = None):
     if post.colors:
         return
-    colors = get_palette_ints(post.absolute_path.as_posix()) if file is None else get_palette_ints(file)
+    arg = post.absolute_path.as_posix() if file is None else file
+    colors = get_palette_ints(arg)
+    rgb_dominant_color = get_dominant_color(arg)
+    post.dominant_color = rgb_to_lab_skimage(rgb_dominant_color)
     post.colors.extend(PostHasColor(post_id=post.id, order=i, color=color) for i, color in enumerate(colors))

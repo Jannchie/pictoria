@@ -61,6 +61,7 @@ class PostPublic(BaseModel):
     caption: str
     colors: list[PostHasColorPublic]
     published_at: datetime | None
+    dominant_color: list[float] | None
 
     class Config:
         from_attributes = True

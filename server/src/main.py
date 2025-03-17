@@ -30,7 +30,7 @@ from danbooru import DanbooruClient
 from db import find_similar_posts, get_img_vec
 from models import Post, PostHasColor, PostHasTag, Tag, TagGroup
 from processors import process_post, process_posts, set_post_colors, sync_metadata
-from scheme import PostPublic, PostWithTagPublic, TagGroupWithTagsPublic, TagWithGroupPublic
+from scheme import PostPublic, PostWithTagPublic, TagGroupWithTagsPublic, TagPublic, TagWithGroupPublic
 from utils import (
     attach_tags_to_post,
     create_thumbnail,
@@ -163,7 +163,7 @@ def v1_list_posts(
     body: ListPostBody = ListPostBody(),
 ):
     session = get_session()
-    session.execute(text(f"SELECT setseed({0.47})"))
+    session.execute(text("SELECT setseed(0.47)"))
     stmt = apply_body_query(body, select(Post)).limit(limit).offset(offset)
     return session.scalars(stmt)
 
@@ -403,7 +403,7 @@ def v1_get_tags(language: str = "en"):
     return result
 
 
-@app.post("/v1/tag/{tag_name}", response_model=Tag, tags=["Tag"])
+@app.post("/v1/tag/{tag_name}", response_model=TagPublic, tags=["Tag"])
 def v1_create_tag(tag_name: str):
     session = get_session()
     tag = Tag(name=tag_name)
@@ -412,7 +412,7 @@ def v1_create_tag(tag_name: str):
     return tag
 
 
-@app.delete("/v1/tag/{tag_name}", response_model=Tag, tags=["Tag"])
+@app.delete("/v1/tag/{tag_name}", response_model=TagPublic, tags=["Tag"])
 def v1_delete_tag(tag_name: str):
     session = get_session()
     tag = session.query(Tag).filter(Tag.name == tag_name).first()
@@ -421,13 +421,13 @@ def v1_delete_tag(tag_name: str):
     return tag
 
 
-@app.get("/v1/tags/{tag_name}", response_model=Tag, tags=["Tag"])
+@app.get("/v1/tags/{tag_name}", response_model=TagPublic, tags=["Tag"])
 def v1_get_tag(tag_name: str):
     session = get_session()
     return session.query(Tag).filter(Tag.name == tag_name).first()
 
 
-@app.put("/v1/tags/{tag_name}", response_model=Tag, tags=["Tag"])
+@app.put("/v1/tags/{tag_name}", response_model=TagPublic, tags=["Tag"])
 def v1_update_tag(tag_name: str, new_tag_name: str):
     session = get_session()
     tag = session.query(Tag).filter(Tag.name == tag_name).first()

@@ -37,46 +37,13 @@ export interface ListPostBody {
   order?: 'asc' | 'desc' | 'random'
 }
 
-export interface Post {
-  file_path?: string
-  file_name?: string
-  extension?: string
-  width?: number | null
-  height?: number | null
-  updated_at?: string
-  created_at?: string
-  published_at?: string | null
-  score?: number
-  rating?: number
-  description?: string
-  meta?: string
-  md5?: string
-  size?: number
-  source?: string
-  caption?: string
-  tags?: Array<PostHasTag>
-  colors?: Array<PostHasColor>
-}
-
 export interface PostCountResponse {
   count: number
-}
-
-export interface PostHasColor {
-  post_id: number
-  order: number
-  color: number
 }
 
 export interface PostHasColorPublic {
   order: number
   color: number
-}
-
-export interface PostHasTag {
-  post: Post
-  tag_info: Tag
-  is_auto?: boolean
 }
 
 export interface PostHasTagPublic {
@@ -105,6 +72,7 @@ export interface PostPublic {
   caption: string
   colors: Array<PostHasColorPublic>
   published_at: string | null
+  dominant_color: Array<number> | null
 }
 
 export interface PostWithTagPublic {
@@ -128,6 +96,7 @@ export interface PostWithTagPublic {
   caption: string
   colors: Array<PostHasColorPublic>
   published_at: string | null
+  dominant_color: Array<number> | null
   tags: Array<PostHasTagPublic>
 }
 
@@ -147,12 +116,6 @@ export interface ScoreCountResponse {
 
 export interface ScoreUpdate {
   score: number
-}
-
-export interface Tag {
-  name: string
-  group_id?: number | null
-  posts?: Array<PostHasTag>
 }
 
 export interface TagGroupPublic {
@@ -640,7 +603,7 @@ export interface V1DeleteTagResponses {
   /**
    * Successful Response
    */
-  200: Tag
+  200: TagPublic
 }
 
 export type V1DeleteTagResponse = V1DeleteTagResponses[keyof V1DeleteTagResponses]
@@ -667,7 +630,7 @@ export interface V1CreateTagResponses {
   /**
    * Successful Response
    */
-  200: Tag
+  200: TagPublic
 }
 
 export type V1CreateTagResponse = V1CreateTagResponses[keyof V1CreateTagResponses]
@@ -694,7 +657,7 @@ export interface V1GetTagResponses {
   /**
    * Successful Response
    */
-  200: Tag
+  200: TagPublic
 }
 
 export type V1GetTagResponse = V1GetTagResponses[keyof V1GetTagResponses]
@@ -723,7 +686,7 @@ export interface V1UpdateTagResponses {
   /**
    * Successful Response
    */
-  200: Tag
+  200: TagPublic
 }
 
 export type V1UpdateTagResponse = V1UpdateTagResponses[keyof V1UpdateTagResponses]
