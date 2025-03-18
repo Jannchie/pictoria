@@ -18,7 +18,7 @@ from fastapi.responses import ORJSONResponse
 from pydantic import BaseModel, Field
 from rich import get_console
 from rich.progress import track
-from sqlalchemy import Select, func, select, text
+from sqlalchemy import Select, func, nulls_last, select, text
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.orm import Session, joinedload
 from starlette.convertors import Convertor, register_url_convertor
@@ -149,6 +149,7 @@ class ListPostBody(BaseModel):
     folder: str | None = None
     order_by: Literal["id", "score", "rating", "created_at", "published_at", "file_name"] | None = None
     order: Literal["asc", "desc", "random"] = "desc"
+    lab: list[float] | None = None  # 包含l, a, b的数组
 
 
 @app.post(
@@ -158,12 +159,22 @@ class ListPostBody(BaseModel):
 )
 def v1_list_posts(
     *,
-    limit: int | None = None,
+    limit: int = 100,
     offset: int = 0,
     body: ListPostBody = ListPostBody(),
+    session: Annotated[Session, Depends(get_session)],
 ):
-    session = get_session()
     session.execute(text("SELECT setseed(0.47)"))
+
+    # 检查是否提供了颜色参数
+    if body.lab and len(body.lab) == 3:  # noqa: PLR2004
+        l, a, b = body.lab  # noqa: E741
+        lab_vec = [l, a, b]
+        distance = Post.dominant_color.l2_distance(lab_vec)
+        stmt = apply_body_query(body, select(Post)).order_by(nulls_last(distance)).limit(limit).offset(offset)
+        return session.scalars(stmt).all()
+
+    # 否则运行常规查询逻辑
     stmt = apply_body_query(body, select(Post)).limit(limit).offset(offset)
     return session.scalars(stmt)
 

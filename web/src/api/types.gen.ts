@@ -35,6 +35,7 @@ export interface ListPostBody {
   folder?: string | null
   order_by?: ('id' | 'score' | 'rating' | 'created_at' | 'published_at' | 'file_name') | null
   order?: 'asc' | 'desc' | 'random'
+  lab?: Array<number> | null
 }
 
 export interface PostCountResponse {
@@ -155,7 +156,7 @@ export interface V1ListPostsData {
   body?: ListPostBody
   path?: never
   query?: {
-    limit?: number | null
+    limit?: number
     offset?: number
   }
   url: '/v1/posts'

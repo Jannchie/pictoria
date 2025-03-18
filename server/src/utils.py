@@ -17,8 +17,6 @@ from sqlalchemy import create_engine, insert, select
 from sqlalchemy.orm import Session, sessionmaker
 
 import shared
-from alembic import command
-from alembic.config import Config
 from models import Post, PostHasTag, Tag, TagGroup
 from shared import logger
 
@@ -59,7 +57,6 @@ def prepare_openai_api(openai_key: str | None) -> None:
 def prepare_paths(target_path: Path) -> None:
     shared.target_dir = get_target_dir(target_path)
     shared.pictoria_dir = get_pictoria_directory()
-    shared.db_path = get_db_path()
 
 
 def use_route_names_as_operation_ids(app: FastAPI) -> None:
@@ -72,19 +69,6 @@ def use_route_names_as_operation_ids(app: FastAPI) -> None:
     for route in app.routes:
         if isinstance(route, APIRoute):
             route.operation_id = route.name
-
-
-def migrate_db(db_path: Path) -> None:
-    alembic_cfg = Config("alembic.ini")
-    alembic_cfg.set_main_option("sqlalchemy.url", f"sqlite:///{db_path}")
-    try:
-        logger.info("Migrating database...")
-        command.upgrade(alembic_cfg, "head")
-        logger.info("Database migration successful")
-    except Exception as e:
-        logger.error(f"Error while migrating database: {e}")
-        sys.exit(1)
-    logger.info("Database migration successful")
 
 
 def parse_arguments():
@@ -115,20 +99,6 @@ def get_target_dir(target_path: Path) -> Path:
     validate_path(target_dir)
     logger.info(f"Target directory: {target_dir}")
     return target_dir
-
-
-def get_db_path():
-    db_path = shared.pictoria_dir / "metadata.db"
-    logger.info(f"Database path: {db_path}")
-    logger.info(f"Using database file: {db_path}")
-    return db_path
-
-
-def execute_database_migration():
-    # task = multiprocessing.Process(target=migrate_db, args=(shared.db_path,))
-    migrate_db(shared.db_path)
-    # task.start()
-    # task.join()
 
 
 def init_thumbnails_directory():
@@ -189,15 +159,7 @@ def add_new_files(
 @cache
 def get_engine():
     db_url = os.environ.get("DB_URL")
-    if db_url:
-        return create_engine(db_url, echo=False, pool_size=100, max_overflow=200)
-    return create_engine(
-        f"sqlite:///{shared.db_path}",
-        echo=False,
-        pool_size=100,
-        max_overflow=200,
-        connect_args={"timeout": 10},
-    )
+    return create_engine(db_url, echo=False, pool_size=100, max_overflow=200)
 
 
 def get_session():

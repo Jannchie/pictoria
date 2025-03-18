@@ -1,12 +1,10 @@
 from logging.config import fileConfig
 import os
-import sqlite3
 
 from sqlalchemy import engine_from_config, event, pool
 from dotenv import load_dotenv
 from alembic import context
 from models import Base
-import sqlite_vec
 
 load_dotenv()
 
@@ -69,19 +67,6 @@ def run_migrations_online() -> None:
         prefix="sqlalchemy.",
         poolclass=pool.NullPool,
     )
-
-    @event.listens_for(connectable, "connect")
-    def do_connect(dbapi_connection, connection_record):
-        if isinstance(dbapi_connection, sqlite3.Connection):
-            dbapi_connection.enable_load_extension(True)  # noqa: FBT003
-            sqlite_vec.load(dbapi_connection)
-            dbapi_connection.enable_load_extension(False)  # noqa: FBT003
-
-        dbapi_connection.isolation_level = None
-
-    @event.listens_for(connectable, "begin")
-    def do_begin(conn):
-        conn.exec_driver_sql("BEGIN")
 
     with connectable.connect() as connection:
         context.configure(

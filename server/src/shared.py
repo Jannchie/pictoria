@@ -11,7 +11,6 @@ from rich.logging import RichHandler
 if typing.TYPE_CHECKING:
     from ai import OpenAIImageAnnotator
 
-db_path = Path()
 
 target_dir = Path()
 pictoria_dir = Path()

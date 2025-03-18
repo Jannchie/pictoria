@@ -2,6 +2,7 @@ import type { PostPublic } from '@/api'
 import { v1GetFolders, v1GetTagGroups, v1ListPosts } from '@/api'
 import { useInfiniteQuery, useQuery } from '@tanstack/vue-query'
 import { useStorage } from '@vueuse/core'
+import { converter, parse } from 'culori'
 import { computed, ref } from 'vue'
 import { useRoute } from 'vue-router'
 
@@ -36,20 +37,35 @@ export const currentPath = ref<string | symbol>('')
 export const hideNSFW = useStorage('pictoria.hideNSFW', false)
 
 export const postSort = useLocalStorage<'id' | 'score' | 'rating' | 'created_at' | 'file_name' | 'published_at'>('pictoria.posts.sort', 'id')
+export const postSortColor = useLocalStorage<string | undefined>('pictoria.posts.color', undefined)
+const postSortColorDebounce = useDebounce(postSortColor, 1000)
 export const postSortOrder = useLocalStorage<'asc' | 'desc'>('pictoria.posts.sortOrder', 'desc')
+
+const toLab = converter('lab')
 
 export function useInfinityPostsQuery() {
   const limit = 1000
   const route = useRoute()
   const isRandomPage = computed(() => route.path === '/random')
-  const order = computed(() => {
-    return isRandomPage.value ? 'random' : postSortOrder.value
+  const order = computed<'asc' | 'desc' | 'random'>(() => {
+    return isRandomPage.value ? 'random' : postSortOrder.value as 'asc' | 'desc'
+  })
+  const body = computed(() => {
+    if (postSortColorDebounce.value) {
+      const color = parse(postSortColorDebounce.value)
+      const lab = toLab(color)
+      if (lab === undefined) {
+        return { ...postFilter.value, order_by: postSort.value, order: order.value }
+      }
+      return { ...postFilter.value, lab: [lab.l, lab.a, lab.b] }
+    }
+    return { ...postFilter.value, order_by: postSort.value, order: order.value }
   })
   return useInfiniteQuery({
-    queryKey: ['posts', postFilter, postSort, order],
+    queryKey: ['posts', body],
     queryFn: async ({ pageParam = 0 }) => {
       const resp = await v1ListPosts({
-        body: { ...postFilter.value, order_by: postSort.value, order: order.value },
+        body: body.value,
         query: {
           offset: pageParam,
           limit,
