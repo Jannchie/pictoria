@@ -41,6 +41,8 @@ export const postSortColor = useLocalStorage<string | undefined>('pictoria.posts
 const postSortColorDebounce = useDebounce(postSortColor, 1000)
 export const postSortOrder = useLocalStorage<'asc' | 'desc'>('pictoria.posts.sortOrder', 'desc')
 
+export const bottomBarInfo = ref<string>('')
+
 const toLab = converter('lab')
 
 export function useInfinityPostsQuery() {

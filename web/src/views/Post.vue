@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import type { PostPublic } from '@/api'
 import Image from '@/roku/Image.vue'
-import { selectedPostIdSet } from '@/shared'
+import { bottomBarInfo, selectedPostIdSet } from '@/shared'
 import { getPostImageURL } from '@/utils'
 import { colorNumToHex } from '@/utils/color'
 import { Btn } from '@roku-ui/vue'
@@ -21,6 +21,12 @@ function getPostColor(post: PostPublic) {
   }
   return 'primary'
 }
+
+watchEffect(() => {
+  if (postQuery.data.value) {
+    bottomBarInfo.value = `Post ID: ${postQuery.data.value.id}, File Name: ${postQuery.data.value.file_name}`
+  }
+})
 </script>
 
 <template>
