@@ -121,7 +121,7 @@ const updateSource = useDebounceFn(async (source: any) => {
         v-if="post.dominant_color"
         class="mr-2 h-8 w-8"
         with-border
-        :color="labToRgbaString(post.dominant_color[0], post.dominant_color[1], post.dominant_color[2])"
+        :color="labToRgbaString(post.dominant_color[0], post.dominant_color[1], post.dominant_color[2]) ?? '#000000'"
       />
       <ColorSwatch
         v-for="color in post.colors"
