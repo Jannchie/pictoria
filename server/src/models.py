@@ -80,19 +80,19 @@ class Post(Base):
     height: Mapped[int | None] = mapped_column(Integer, nullable=False, index=True, default=0, server_default="0")
 
     updated_at: Mapped[datetime] = mapped_column(
-        TIMESTAMP,
+        TIMESTAMP(timezone=True),
         nullable=False,
         index=True,
         default_factory=lambda: datetime.now(UTC),
         onupdate=datetime.now(UTC),
     )
     created_at: Mapped[datetime] = mapped_column(
-        TIMESTAMP,
+        TIMESTAMP(timezone=True),
         nullable=False,
         index=True,
         default_factory=lambda: datetime.now(UTC),
     )
-    published_at: Mapped[datetime | None] = mapped_column(TIMESTAMP, nullable=True, index=True, default=None)
+    published_at: Mapped[datetime | None] = mapped_column(TIMESTAMP(timezone=True), nullable=True, index=True, default=None)
     score: Mapped[int] = mapped_column(Integer, default=0, index=True, server_default="0")
     rating: Mapped[int] = mapped_column(Integer, default=0, index=True, server_default="0")
 

@@ -128,8 +128,8 @@ class DanbooruClient:
             params = {k: v for k, v in params.items() if v is not None}
 
             response = httpx.get(url, params=params)
-            logger.debug(response.url)
             response.raise_for_status()
+            logger.debug(response.url)
 
             posts: list[dict] = response.json()
             if not posts:

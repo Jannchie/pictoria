@@ -743,7 +743,28 @@ def v1_cmd_download_from_danbooru(*, tags: str, session: Session = Depends(get_s
         if not post.file_url:
             continue
         ext = post.file_ext
-        if ext not in {".jpg", ".jpeg", ".png", ".gif", ".webp", ".avif", ".bmp", ".tiff", ".tif", ".svg"}:
+        if ext not in {
+            ".jpg",
+            ".jpeg",
+            ".png",
+            ".gif",
+            ".webp",
+            ".avif",
+            ".bmp",
+            ".tiff",
+            ".tif",
+            ".svg",
+            "jpg",
+            "jpeg",
+            "png",
+            "gif",
+            "webp",
+            "avif",
+            "bmp",
+            "tiff",
+            "tif",
+            "svg",
+        }:
             continue
         now = datetime.now(UTC)
         file_path = save_dir.relative_to(shared.target_dir).as_posix()
