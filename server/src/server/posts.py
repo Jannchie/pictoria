@@ -50,7 +50,7 @@ class PostController(Controller):
     path = "/posts"
     tags: ClassVar[list[str]] = ["posts"]
 
-    @post("/search", return_dto=PostDTO)
+    @post("/search", return_dto=PostDTO, status_code=200, description="Search for posts by filters.")
     async def search_posts(self, session: AsyncSession, data: ListPostBody, limit: int = 100, offset: int = 0) -> list[Post]:
         await session.execute(text("SELECT setseed(0.47)"))
 
@@ -66,7 +66,7 @@ class PostController(Controller):
         stmt = apply_body_query(data, select(Post)).limit(limit).offset(offset)
         return (await session.scalars(stmt)).all()
 
-    @post("/count")
+    @post("/count", status_code=200, description="Count posts by filters.")
     async def count_posts(self, session: AsyncSession, data: ListPostBody) -> int:
         stmt = apply_body_query(data, select(func.count(Post.id)))
         return (await session.scalar(stmt)) or 0
