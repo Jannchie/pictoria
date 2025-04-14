@@ -170,7 +170,7 @@ def v1_list_posts(
     if body.lab and len(body.lab) == 3:  # noqa: PLR2004
         l, a, b = body.lab  # noqa: E741
         lab_vec = [l, a, b]
-        distance = Post.dominant_color.l2_distance(lab_vec)
+        distance = Post.dominant_color_np.l2_distance(lab_vec)
         stmt = apply_body_query(body, select(Post)).order_by(nulls_last(distance)).limit(limit).offset(offset)
         return session.scalars(stmt).all()
 

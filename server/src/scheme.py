@@ -1,6 +1,12 @@
+from collections.abc import Generator
 from datetime import datetime
 
-from pydantic import BaseModel
+from litestar.dto import DTOConfig, DTOField, DTOFieldDefinition
+from litestar.plugins.sqlalchemy import SQLAlchemyDTO
+from pydantic import BaseModel, ConfigDict
+from sqlalchemy.orm import DeclarativeBase
+
+from models import Post
 
 
 class TagGroupPublic(BaseModel):
@@ -36,11 +42,13 @@ class PostHasTagPublic(BaseModel):
 
 
 class PostHasColorPublic(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
     order: int
     color: int
 
 
 class PostPublic(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
     id: int
     file_path: str
     file_name: str
@@ -63,9 +71,35 @@ class PostPublic(BaseModel):
     published_at: datetime | None
     dominant_color: list[float] | None
 
-    class Config:
-        from_attributes = True
+
+class MixedDTO(SQLAlchemyDTO):
+    @classmethod
+    def generate_field_definitions(cls, model_type: type) -> Generator[DTOFieldDefinition, None, None]:
+        properties = cls.get_property_fields(model_type)
+        yield from super().generate_field_definitions(model_type)
+        for key, property_field in properties.items():
+            if key.startswith("_"):
+                continue
+
+            yield DTOFieldDefinition.from_field_definition(
+                property_field,
+                model_name=model_type.__name__,
+                default_factory=None,
+                dto_field=DTOField(mark="read-only"),
+            )
 
 
-class PostWithTagPublic(PostPublic):
-    tags: list[PostHasTagPublic]
+class Base(DeclarativeBase): ...
+
+
+class PostDTO(MixedDTO[Post]):
+    config = DTOConfig(
+        rename_strategy="camel",
+        max_nested_depth=2,
+        exclude={
+            "dominant_color_np",
+            "tags.0.post_id",
+            "tags.0.tag_name",
+            "colors.0.post_id",
+        },
+    )

@@ -30,8 +30,8 @@ dependencies = [
     "python-dotenv>=1.0.1",
     "psycopg[binary]>=3.2.4",
     "pgvector>=0.3.6",
-    "apscheduler[psycopg,sqlalchemy]>=3.11.0",
     "scikit-image>=0.25.2",
+    "litestar[standard,sqlalchemy]>=2.15.2",
 ]
 
 requires-python = ">=3.11"
@@ -57,13 +57,14 @@ image-gen-aux = { git = "https://github.com/asomoza/image_gen_aux.git" }
 dev = ["matplotlib>=3.9.3"]
 
 [tool.pyright]
-reportAssignmentType = "none"
-reportArgumentType = "none"
+enabled = true
+reportGeneralTypeIssues = true
 
 [tool.ruff]
 select = ["ALL"]
 exclude = ["alembic", ".venv"]
 ignore = [
+    "ANN401",
     "PGH",
     "RUF003",
     "BLE001",

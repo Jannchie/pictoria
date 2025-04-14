@@ -143,5 +143,5 @@ def set_post_colors(post: Post, file: None | BufferedReader = None):
     arg = post.absolute_path.as_posix() if file is None else file
     colors = get_palette_ints(arg)
     rgb_dominant_color = get_dominant_color(arg)
-    post.dominant_color = rgb_to_lab_skimage(rgb_dominant_color)
+    post.dominant_color_np = rgb_to_lab_skimage(rgb_dominant_color)
     post.colors.extend(PostHasColor(post_id=post.id, order=i, color=color) for i, color in enumerate(colors))

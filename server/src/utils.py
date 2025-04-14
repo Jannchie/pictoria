@@ -26,7 +26,7 @@ R = TypeVar("R")
 
 def timer(func: Callable[..., R]) -> Callable[..., R]:
     @wraps(func)
-    def wrapper(*args: Any, **kwargs: Any) -> R:  # noqa: ANN401
+    def wrapper(*args: Any, **kwargs: Any) -> R:
         start_time = time.time()
         result = func(*args, **kwargs)
         end_time = time.time()
