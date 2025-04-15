@@ -1,5 +1,6 @@
 import os
 import pathlib
+import re
 import tomllib
 from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
@@ -9,9 +10,12 @@ from dotenv import load_dotenv
 from litestar import Litestar, Router
 from litestar.datastructures import State
 from litestar.exceptions import ClientException
+from litestar.handlers.http_handlers import HTTPRouteHandler
 from litestar.openapi import OpenAPIConfig
 from litestar.openapi.plugins import ScalarRenderPlugin
 from litestar.status_codes import HTTP_409_CONFLICT
+from litestar.types import Method
+from litestar.types.internal_types import PathParameterDefinition
 from psycopg import IntegrityError
 from rich import get_console
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
@@ -67,22 +71,45 @@ async def db_connection(app: Litestar) -> AsyncGenerator[None, None]:
         await engine.dispose()
 
 
-v1 = Router(
-    path="/v1",
+v2 = Router(
+    path="/v2",
     route_handlers=[PostController],
 )
 
+SEPARATORS_CLEANUP_PATTERN = re.compile(r"[!#$%&'*+\-.^_`|~:]+")
+
+
+def default_operation_id_creator(
+    route_handler: HTTPRouteHandler,
+    http_method: Method,
+    path_components: list[str | PathParameterDefinition],
+) -> str:
+    """Create a unique 'operationId' for an OpenAPI PathItem entry.
+
+    Args:
+        route_handler: The HTTP Route Handler instance.
+        http_method: The HTTP method for the given PathItem.
+        path_components: A list of path components.
+
+    Returns:
+        A camelCased operationId created from the handler function name,
+        http method and path components.
+    """
+    handler_namespace = http_method.title() + route_handler.handler_name.title() if len(route_handler.http_methods) > 1 else route_handler.handler_name.title()
+    return SEPARATORS_CLEANUP_PATTERN.sub("", f"{path_components[0]}{handler_namespace}")
+
 
 app = Litestar(
-    [v1],
+    [v2],
     dependencies={"session": provide_async_transaction},
     lifespan=[my_lifespan, db_connection],
     debug=True,
     logging_config=None,
     openapi_config=OpenAPIConfig(
         render_plugins=[ScalarRenderPlugin()],
-        title="My API",
-        version="1.0.0",
+        title="Pictoria",
+        version="0.1.0",
+        operation_id_creator=default_operation_id_creator,
     ),
     type_encoders={np.ndarray: lambda v: v.tolist()},
 )

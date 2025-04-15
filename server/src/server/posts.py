@@ -142,21 +142,21 @@ class PostController(Controller):
         return (await session.scalars(stmt)).all()
 
     @litestar.post("/count", status_code=200, description="Count posts by filters.")
-    async def count_posts(self, session: AsyncSession, data: ListPostBody) -> CountPostsResponse:
+    async def get_posts_count(self, session: AsyncSession, data: ListPostBody) -> CountPostsResponse:
         stmt = apply_body_query(data, select(func.count(Post.id)))
         count = (await session.scalar(stmt)) or 0
         return CountPostsResponse(count=count)
 
     @litestar.post("/count/rating")
-    async def count_rating(self, session: AsyncSession, data: ListPostBody) -> list[RatingCountItem]:
+    async def get_tags_count(self, session: AsyncSession, data: ListPostBody) -> list[RatingCountItem]:
         return await self._count_by_column(session, data, Post.rating, RatingCountItem)
 
     @litestar.post("/count/score")
-    async def count_score(self, session: AsyncSession, data: ListPostBody) -> list[ScoreCountItem]:
+    async def get_score_count(self, session: AsyncSession, data: ListPostBody) -> list[ScoreCountItem]:
         return await self._count_by_column(session, data, Post.score, ScoreCountItem)
 
     @litestar.post("/count/extension")
-    async def count_extension(self, session: AsyncSession, data: ListPostBody) -> list[ExtensionCountItem]:
+    async def get_extension_count(self, session: AsyncSession, data: ListPostBody) -> list[ExtensionCountItem]:
         return await self._count_by_column(session, data, Post.extension, ExtensionCountItem)
 
     @litestar.put("/{post_id:int}/score", description="Update post score by id.")
