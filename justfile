@@ -9,3 +9,6 @@ web-dev:
 
 web-genapi:
     cd web && pnpm genapi
+    
+web-genapi2:
+    cd web && pnpm genapi2
