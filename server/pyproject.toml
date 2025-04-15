@@ -32,6 +32,7 @@ dependencies = [
     "pgvector>=0.3.6",
     "scikit-image>=0.25.2",
     "litestar[standard,sqlalchemy]>=2.15.2",
+    "boto3>=1.37.34",
 ]
 
 requires-python = ">=3.11"
