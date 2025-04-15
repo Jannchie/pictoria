@@ -1,8 +1,10 @@
 from dataclasses import dataclass, field
-from typing import ClassVar, Literal
+from typing import Annotated, ClassVar, Literal
 
-from litestar import Controller, post
-from sqlalchemy import Select, func, nulls_last, select, text
+import litestar
+from litestar import Controller
+from msgspec import Meta, Struct
+from sqlalchemy import Select, delete, func, nulls_last, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from models import Post, PostHasTag
@@ -46,11 +48,38 @@ def apply_body_query(filter: ListPostBody, stmt: Select) -> Select:  # noqa: A00
     return stmt
 
 
+@dataclass
+class CountPostsResponse:
+    count: int
+
+
+@dataclass
+class RatingCountItem:
+    rating: int
+    count: int
+
+
+@dataclass
+class ScoreCountItem:
+    score: int
+    count: int
+
+
+@dataclass
+class ExtensionCountItem:
+    extension: str
+    count: int
+
+
+class ScoreUpdate(Struct):
+    score: Annotated[int, Meta(ge=0, le=5, description="Score from 0 to 5.")]
+
+
 class PostController(Controller):
     path = "/posts"
     tags: ClassVar[list[str]] = ["posts"]
 
-    @post("/search", return_dto=PostDTO, status_code=200, description="Search for posts by filters.")
+    @litestar.post("/search", return_dto=PostDTO, status_code=200, description="Search for posts by filters.")
     async def search_posts(self, session: AsyncSession, data: ListPostBody, limit: int = 100, offset: int = 0) -> list[Post]:
         await session.execute(text("SELECT setseed(0.47)"))
 
@@ -66,7 +95,40 @@ class PostController(Controller):
         stmt = apply_body_query(data, select(Post)).limit(limit).offset(offset)
         return (await session.scalars(stmt)).all()
 
-    @post("/count", status_code=200, description="Count posts by filters.")
-    async def count_posts(self, session: AsyncSession, data: ListPostBody) -> int:
+    @litestar.post("/count", status_code=200, description="Count posts by filters.")
+    async def count_posts(self, session: AsyncSession, data: ListPostBody) -> CountPostsResponse:
         stmt = apply_body_query(data, select(func.count(Post.id)))
-        return (await session.scalar(stmt)) or 0
+        count = (await session.scalar(stmt)) or 0
+        return CountPostsResponse(count=count)
+
+    @litestar.post("/count/rating")
+    async def count_rating(self, session: AsyncSession, data: ListPostBody) -> list[RatingCountItem]:
+        return await self._count_by_column(session, data, Post.rating, RatingCountItem)
+
+    @litestar.post("/count/score")
+    async def count_score(self, session: AsyncSession, data: ListPostBody) -> list[ScoreCountItem]:
+        return await self._count_by_column(session, data, Post.score, ScoreCountItem)
+
+    @litestar.post("/count/extension")
+    async def count_extension(self, session: AsyncSession, data: ListPostBody) -> list[ExtensionCountItem]:
+        return await self._count_by_column(session, data, Post.extension, ExtensionCountItem)
+
+    @litestar.put("/{post_id:int}", description="Update post by id.")
+    async def update_post(self, session: AsyncSession, post_id: int, data: ScoreUpdate) -> Post:
+        p = (await session.execute(select(Post).filter(Post.id == post_id))).scalars().first()
+        if not p:
+            msg = f"Post with id {post_id} not found."
+            raise ValueError(msg)
+        p.score = data.score
+        await session.flush()
+        return p
+
+    @litestar.delete("/delete", description="Delete posts by ids.")
+    async def delete_posts(self, session: AsyncSession, ids: list[int]) -> None:
+        await session.execute(delete(Post).where(Post.id.in_(ids)))
+
+    async def _count_by_column(self, session: AsyncSession, data: ListPostBody, column: Post, result_class: type) -> list:
+        stmt = select(column, func.count()).group_by(column)
+        stmt = apply_body_query(data, stmt)
+        resp = await session.execute(stmt)
+        return [result_class(**{column.name: item[0], "count": item[1]}) for item in resp]

@@ -14,8 +14,7 @@ from litestar.openapi.plugins import ScalarRenderPlugin
 from litestar.status_codes import HTTP_409_CONFLICT
 from psycopg import IntegrityError
 from rich import get_console
-from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
-from sqlalchemy.orm import Session
+from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
 from server.posts import PostController
 from utils import logger
@@ -43,7 +42,7 @@ async def my_lifespan(_: Litestar):
 MySession = async_sessionmaker(expire_on_commit=False)
 
 
-async def provide_async_session(state: State) -> AsyncGenerator[Session, None]:
+async def provide_async_transaction(state: State) -> AsyncGenerator[AsyncSession, None]:
     async with MySession(bind=state.engine) as session:
         try:
             async with session.begin():
@@ -65,19 +64,18 @@ async def db_connection(app: Litestar) -> AsyncGenerator[None, None]:
     try:
         yield
     finally:
-        engine.dispose()
+        await engine.dispose()
 
 
 v1 = Router(
     path="/v1",
-    tags=["v1"],
     route_handlers=[PostController],
 )
 
 
 app = Litestar(
     [v1],
-    dependencies={"session": provide_async_session},
+    dependencies={"session": provide_async_transaction},
     lifespan=[my_lifespan, db_connection],
     debug=True,
     logging_config=None,
