@@ -1,13 +1,17 @@
 from dataclasses import dataclass, field
+from pathlib import Path
 from typing import Annotated, ClassVar, Literal
 
 import litestar
+import numpy as np
 from litestar import Controller
 from msgspec import Meta, Struct
 from sqlalchemy import Select, delete, func, nulls_last, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from models import Post, PostHasTag
+from ai.clip import calculate_image_features
+from db import SimilarImageResult
+from models import Post, PostHasTag, PostVector
 from scheme import PostDTO
 
 
@@ -75,6 +79,31 @@ class ScoreUpdate(Struct):
     score: Annotated[int, Meta(ge=0, le=5, description="Score from 0 to 5.")]
 
 
+async def find_similar_posts(session: AsyncSession, vec: np.ndarray, *, limit: int = 100) -> list[SimilarImageResult]:
+    distance = PostVector.embedding.cosine_distance(vec)
+    stmt = select(PostVector.post_id, distance.label("distance")).order_by(distance).limit(limit).offset(1)
+    result = (await session.execute(stmt)).all()
+    return [SimilarImageResult(post_id=row[0], distance=row[1]) for row in result]
+
+
+async def insert_img_vec(session: AsyncSession, post_id: int, image_path: Path):
+    features = calculate_image_features(image_path)
+    features_np = features.cpu().numpy()
+    session.add(PostVector(post_id=post_id, embedding=features_np[0]))
+    await session.flush()
+    return features_np
+
+
+async def get_img_vec(session: AsyncSession, post: Post):
+    post_id = post.id
+    post_vector = await session.scalar(
+        select(PostVector).where(PostVector.post_id == post_id),
+    )
+    if post_vector is None:
+        return await insert_img_vec(session, post_id, post.absolute_path)
+    return post_vector.embedding
+
+
 class PostController(Controller):
     path = "/posts"
     tags: ClassVar[list[str]] = ["posts"]
@@ -95,6 +124,23 @@ class PostController(Controller):
         stmt = apply_body_query(data, select(Post)).limit(limit).offset(offset)
         return (await session.scalars(stmt)).all()
 
+    @litestar.get("/{post_id:int}", return_dto=PostDTO, status_code=200, description="Get post by id.")
+    async def get_post(self, session: AsyncSession, post_id: int) -> Post:
+        post = (await session.execute(select(Post).filter(Post.id == post_id))).scalars().first()
+        if not post:
+            msg = f"Post with id {post_id} not found."
+            raise ValueError(msg)
+        return post
+
+    @litestar.get("/{post_id:int}/similar", return_dto=PostDTO, status_code=200, description="Get similar posts by id.")
+    async def get_similar_posts(self, session: AsyncSession, post_id: int, limit: int = 10) -> list[Post]:
+        post = await session.get(Post, post_id)
+        vec = await get_img_vec(session, post)
+        resp = await find_similar_posts(session, vec, limit=limit)
+        id_list = [row.post_id for row in resp]
+        stmt = select(Post).filter(Post.id.in_(id_list)).order_by(func.array_position(id_list, Post.id))
+        return (await session.scalars(stmt)).all()
+
     @litestar.post("/count", status_code=200, description="Count posts by filters.")
     async def count_posts(self, session: AsyncSession, data: ListPostBody) -> CountPostsResponse:
         stmt = apply_body_query(data, select(func.count(Post.id)))
@@ -113,13 +159,33 @@ class PostController(Controller):
     async def count_extension(self, session: AsyncSession, data: ListPostBody) -> list[ExtensionCountItem]:
         return await self._count_by_column(session, data, Post.extension, ExtensionCountItem)
 
-    @litestar.put("/{post_id:int}", description="Update post by id.")
-    async def update_post(self, session: AsyncSession, post_id: int, data: ScoreUpdate) -> Post:
+    @litestar.put("/{post_id:int}/score", description="Update post score by id.")
+    async def update_post_score(self, session: AsyncSession, post_id: int, data: ScoreUpdate) -> Post:
         p = (await session.execute(select(Post).filter(Post.id == post_id))).scalars().first()
         if not p:
             msg = f"Post with id {post_id} not found."
             raise ValueError(msg)
         p.score = data.score
+        await session.flush()
+        return p
+
+    @litestar.put("/{post_id:int}/rating", description="Update post rating by id.")
+    async def update_post_rating(self, session: AsyncSession, post_id: int, rating: int) -> Post:
+        p = (await session.execute(select(Post).filter(Post.id == post_id))).scalars().first()
+        if not p:
+            msg = f"Post with id {post_id} not found."
+            raise ValueError(msg)
+        p.rating = rating
+        await session.flush()
+        return p
+
+    @litestar.put("/{post_id:int}/caption", description="Update post caption by id.")
+    async def update_post_caption(self, session: AsyncSession, post_id: int, caption: str) -> Post:
+        p = (await session.execute(select(Post).filter(Post.id == post_id))).scalars().first()
+        if not p:
+            msg = f"Post with id {post_id} not found."
+            raise ValueError(msg)
+        p.caption = caption
         await session.flush()
         return p
 
