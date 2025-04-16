@@ -20,8 +20,10 @@ from psycopg import IntegrityError
 from rich import get_console
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
+from server.commands import CommandController
+from server.images import ImageController
 from server.posts import PostController
-from utils import logger
+from utils import initialize, logger
 
 console = get_console()
 
@@ -33,7 +35,7 @@ with pathlib.Path("pyproject.toml").open("rb") as f:
 @asynccontextmanager
 async def my_lifespan(_: Litestar):
     load_dotenv()
-    # initialize(target_dir="demo")
+    initialize(target_dir="demo")
     # sync_metadata()
     # watch_target_dir()
     host = "localhost"
@@ -73,7 +75,7 @@ async def db_connection(app: Litestar) -> AsyncGenerator[None, None]:
 
 v2 = Router(
     path="/v2",
-    route_handlers=[PostController],
+    route_handlers=[PostController, CommandController, ImageController],
 )
 
 SEPARATORS_CLEANUP_PATTERN = re.compile(r"[!#$%&'*+\-.^_`|~:]+")
