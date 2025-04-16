@@ -1,4 +1,5 @@
 from collections.abc import Generator
+from dataclasses import dataclass
 from datetime import datetime
 
 from litestar.dto import DTOConfig, DTOField, DTOFieldDefinition
@@ -72,6 +73,10 @@ class PostPublic(BaseModel):
     dominant_color: list[float] | None
 
 
+class PostWithTagPublic(PostPublic):
+    tags: list[PostHasTagPublic]
+
+
 class MixedDTO(SQLAlchemyDTO):
     @classmethod
     def generate_field_definitions(cls, model_type: type) -> Generator[DTOFieldDefinition, None, None]:
@@ -103,3 +108,8 @@ class PostDTO(MixedDTO[Post]):
             "colors.0.post_id",
         },
     )
+
+
+@dataclass
+class Result:
+    msg: str
