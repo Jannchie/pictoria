@@ -112,6 +112,7 @@ app = Litestar(
         title="Pictoria",
         version="0.1.0",
         operation_id_creator=default_operation_id_creator,
+        use_handler_docstrings=True,
     ),
     type_encoders={np.ndarray: lambda v: v.tolist()},
 )

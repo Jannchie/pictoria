@@ -24,21 +24,37 @@ mimetypes.add_type("image/x-icon", ".ico")
 
 
 class ImageController(Controller):
+    """
+    Controller for image-related endpoints.
+    Handles requests for original and thumbnail images.
+    Provides methods to retrieve images based on their paths.
+    """
+
     path = "/images"
     tags: ClassVar[list[str]] = ["images"]
 
     @get("/original/{post_path:path}")
     async def get_original(self, post_path: str) -> File:
+        """
+        Get original image.
+        """
         abs_path = shared.target_dir / post_path[post_path.rfind("/") + 1 :]
         if not abs_path.exists():
-            raise HTTPException(status_code=404, detail="File not found")
+            raise HTTPException(status_code=404, detail="Original image not found")
         media_type, _ = mimetypes.guess_type(abs_path)
         return File(abs_path, media_type=media_type)
 
-    @get("/thumbnails/{post_path:path}", tags=["Image"])
+    @get("/thumbnails/{post_path:path}")
     async def get_thumbnail(self, post_path: str) -> File:
+        """
+        Get thumbnail image.
+        """
         thumbnail_file_path = shared.thumbnails_dir / post_path[post_path.rfind("/") + 1 :]
+        if not thumbnail_file_path.exists():
+            thumbnail_file_path.parent.mkdir(parents=True, exist_ok=True)
         original_file_path = shared.target_dir / post_path[post_path.rfind("/") + 1 :]
+        if not original_file_path.exists():
+            raise HTTPException(status_code=404, detail="Original image not found")
         if not thumbnail_file_path.exists():
             create_thumbnail(original_file_path, thumbnail_file_path)
         media_type, _ = mimetypes.guess_type(thumbnail_file_path)
