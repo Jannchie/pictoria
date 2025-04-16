@@ -1,18 +1,16 @@
 from dataclasses import dataclass, field
-from pathlib import Path
 from typing import Annotated, ClassVar, Literal
 
 import litestar
-import numpy as np
 from litestar import Controller
 from msgspec import Meta, Struct
 from sqlalchemy import Select, delete, func, nulls_last, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from ai.clip import calculate_image_features
-from db import SimilarImageResult
-from models import Post, PostHasTag, PostVector
+from db import get_img_vec
+from models import Post, PostHasTag
 from scheme import PostDTO
+from server.utils.vec import find_similar_posts
 
 
 @dataclass
@@ -77,31 +75,6 @@ class ExtensionCountItem:
 
 class ScoreUpdate(Struct):
     score: Annotated[int, Meta(ge=0, le=5, description="Score from 0 to 5.")]
-
-
-async def find_similar_posts(session: AsyncSession, vec: np.ndarray, *, limit: int = 100) -> list[SimilarImageResult]:
-    distance = PostVector.embedding.cosine_distance(vec)
-    stmt = select(PostVector.post_id, distance.label("distance")).order_by(distance).limit(limit).offset(1)
-    result = (await session.execute(stmt)).all()
-    return [SimilarImageResult(post_id=row[0], distance=row[1]) for row in result]
-
-
-async def insert_img_vec(session: AsyncSession, post_id: int, image_path: Path):
-    features = calculate_image_features(image_path)
-    features_np = features.cpu().numpy()
-    session.add(PostVector(post_id=post_id, embedding=features_np[0]))
-    await session.flush()
-    return features_np
-
-
-async def get_img_vec(session: AsyncSession, post: Post):
-    post_id = post.id
-    post_vector = await session.scalar(
-        select(PostVector).where(PostVector.post_id == post_id),
-    )
-    if post_vector is None:
-        return await insert_img_vec(session, post_id, post.absolute_path)
-    return post_vector.embedding
 
 
 class PostController(Controller):
