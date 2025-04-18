@@ -110,6 +110,19 @@ class PostDTO(MixedDTO[Post]):
     )
 
 
+class PostWithTagDTO(MixedDTO[Post]):
+    config = DTOConfig(
+        rename_strategy="camel",
+        max_nested_depth=2,
+        exclude={
+            "dominant_color_np",
+            "tags.0.post_id",
+            "tags.0.tag_name",
+            "colors.0.post_id",
+        },
+    )
+
+
 @dataclass
 class Result:
     msg: str

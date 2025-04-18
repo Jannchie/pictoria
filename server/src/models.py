@@ -108,7 +108,7 @@ class Post(BaseWithTime):
     def thumbnail_path(self) -> Path:
         return shared.thumbnails_dir / self.full_path
 
-    def rotate(self, session: Session, *, clockwise: bool = True) -> None:
+    def rotate(self, *, clockwise: bool = True) -> None:
         from utils import calculate_md5, create_thumbnail_by_image
 
         image = Image.open(self.absolute_path)
@@ -118,7 +118,6 @@ class Post(BaseWithTime):
         file_data = image.tobytes()
         self.md5 = calculate_md5(file_data)
         self.width, self.height = image.size
-        self.commit(session)
 
     def move(self, session: Session, new_path: str) -> None:
         def move_file(src: Path, dst: Path) -> None:

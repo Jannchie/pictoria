@@ -23,6 +23,7 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_asyn
 from server.commands import CommandController
 from server.images import ImageController
 from server.posts import PostController
+from server.tags import TagsController
 from utils import initialize, logger
 
 console = get_console()
@@ -75,7 +76,7 @@ async def db_connection(app: Litestar) -> AsyncGenerator[None, None]:
 
 v2 = Router(
     path="/v2",
-    route_handlers=[PostController, CommandController, ImageController],
+    route_handlers=[PostController, CommandController, ImageController, TagsController],
 )
 
 SEPARATORS_CLEANUP_PATTERN = re.compile(r"[!#$%&'*+\-.^_`|~:]+")

@@ -31,6 +31,7 @@ from db import find_similar_posts, get_img_vec
 from models import Post, PostHasColor, PostHasTag, Tag, TagGroup
 from processors import process_post, process_posts, set_post_colors, sync_metadata
 from scheme import PostPublic, PostWithTagPublic, TagGroupWithTagsPublic, TagPublic, TagWithGroupPublic
+from server.utils import is_image
 from utils import (
     attach_tags_to_post,
     create_thumbnail,
@@ -389,7 +390,8 @@ def v1_cmd_rotate_image(post_id: int, *, clockwise: bool = True, session: Sessio
     post = session.get(Post, post_id)
     if post is None:
         raise HTTPException(status_code=404, detail="Post not found")
-    post.rotate(session, clockwise=clockwise)
+    post.rotate(clockwise=clockwise)
+    session.commit()
     return post
 
 
@@ -521,10 +523,6 @@ def v1_cmd_auto_tags(post_id: int, session: Annotated[Session, Depends(get_sessi
     session.commit()
 
     return get_post_by_id(post_id, session)
-
-
-def is_image(file_path: os.PathLike) -> bool:
-    return str(file_path).lower().endswith((".jpg", ".jpeg", ".png", ".gif", ".webp", ".avif", ".bmp", ".tiff", ".tif", ".svg"))
 
 
 @app.get("/v1/cmd/auto-tags", tags=["Command"])
