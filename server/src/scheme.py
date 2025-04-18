@@ -109,8 +109,10 @@ class PostDTO(MixedDTO[Post]):
         },
     )
 
+
 class TagDTO(MixedDTO[Tag]):
     config = DTOConfig(rename_strategy="camel")
+
 
 class PostWithTagDTO(MixedDTO[Post]):
     config = DTOConfig(

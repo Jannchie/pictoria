@@ -6,7 +6,7 @@ from litestar.di import Provide
 from litestar.exceptions import HTTPException, NotFoundException
 from litestar.pagination import AbstractAsyncCursorPaginator, CursorPagination
 from litestar.params import Parameter
-from litestar.status_codes import HTTP_409_CONFLICT, HTTP_422_UNPROCESSABLE_ENTITY
+from litestar.status_codes import HTTP_404_NOT_FOUND, HTTP_409_CONFLICT, HTTP_422_UNPROCESSABLE_ENTITY
 from msgspec import Meta, Struct
 from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -19,6 +19,10 @@ MAX_TAG_LENGTH = 200
 
 class TagCreate(Struct):
     name: Annotated[str, Meta(min_length=1, max_length=MAX_TAG_LENGTH)]
+    group_id: int | None = None
+
+
+class TagUpdate(Struct):
     group_id: int | None = None
 
 
@@ -80,12 +84,37 @@ class TagsController(Controller):
         cursor: Annotated[str | None, Parameter(max_length=MAX_TAG_LENGTH)],
         limit: Annotated[int, Parameter(gt=0, le=1000)],
     ) -> CursorPagination[str, Tag]:
+        """
+        List all tags with pagination support.
+        The cursor is used to paginate through the results, and the limit specifies the number of results per page.
+        """
         return await paginator(cursor=cursor, results_per_page=limit)
+
+    @litestar.put("/{name:str}")
+    async def update_tag(self, session: AsyncSession, name: str, data: TagCreate) -> Result:
+        """
+        Update an existing tag with the given name.
+        Users can optionally specify a new group ID to associate the tag with a tag group.
+        """
+        tag = await session.get(Tag, name)
+        if not tag:
+            detail = f"Tag '{name}' does not exist."
+            raise NotFoundException(detail=detail, status_code=HTTP_404_NOT_FOUND)
+
+        tag.name = data.name.strip()
+        tag.group_id = data.group_id
+        return Result(msg=f"Tag '{name}' updated successfully.")
 
     @litestar.delete("/{name:str}")
     async def delete_tag(self, session: AsyncSession, name: str) -> None:
+        """
+        Delete a tag with the given name.
+        """
         await session.execute(delete(Tag).where(Tag.name == name))
 
     @litestar.delete("/")
     async def delete_tags(self, session: AsyncSession, data: TagBatchDelete) -> None:
+        """
+        Delete multiple tags with the given names.
+        """
         await session.execute(delete(Tag).where(Tag.name.in_(data.name_list)))
