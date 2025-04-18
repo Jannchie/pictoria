@@ -1,8 +1,10 @@
+import asyncio
 from dataclasses import dataclass, field
 from typing import Annotated, ClassVar, Literal
 
 import litestar
 from litestar import Controller
+from litestar.exceptions import NotFoundException
 from msgspec import Meta, Struct
 from sqlalchemy import Select, delete, func, nulls_last, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -79,7 +81,7 @@ class ScoreUpdate(Struct):
 
 class PostController(Controller):
     path = "/posts"
-    tags: ClassVar[list[str]] = ["posts"]
+    tags: ClassVar[list[str]] = ["Posts"]
 
     @litestar.post("/search", return_dto=PostDTO, status_code=200, description="Search for posts by filters.")
     async def search_posts(self, session: AsyncSession, data: ListPostBody, limit: int = 100, offset: int = 0) -> list[Post]:
@@ -97,17 +99,22 @@ class PostController(Controller):
         stmt = apply_body_query(data, select(Post)).limit(limit).offset(offset)
         return (await session.scalars(stmt)).all()
 
-    @litestar.get("/{post_id:int}", return_dto=PostDTO, status_code=200, description="Get post by id.")
+    @litestar.get("/{post_id:int}", return_dto=PostDTO, status_code=200)
     async def get_post(self, session: AsyncSession, post_id: int) -> Post:
-        post = (await session.execute(select(Post).filter(Post.id == post_id))).scalars().first()
+        """Get post by id."""
+        post = await session.get(Post, post_id)
         if not post:
             msg = f"Post with id {post_id} not found."
-            raise ValueError(msg)
+            raise NotFoundException(detail=msg)
         return post
 
-    @litestar.get("/{post_id:int}/similar", return_dto=PostDTO, status_code=200, description="Get similar posts by id.")
+    @litestar.get("/{post_id:int}/similar", return_dto=PostDTO, status_code=200)
     async def get_similar_posts(self, session: AsyncSession, post_id: int, limit: int = 10) -> list[Post]:
+        """Get similar posts by id."""
         post = await session.get(Post, post_id)
+        if not post:
+            msg = f"Post with id {post_id} not found."
+            raise NotFoundException(detail=msg)
         vec = await get_img_vec(session, post)
         resp = await find_similar_posts(session, vec, limit=limit)
         id_list = [row.post_id for row in resp]
@@ -116,55 +123,76 @@ class PostController(Controller):
 
     @litestar.post("/count", status_code=200, description="Count posts by filters.")
     async def get_posts_count(self, session: AsyncSession, data: ListPostBody) -> CountPostsResponse:
+        """Count posts by filters."""
         stmt = apply_body_query(data, select(func.count(Post.id)))
         count = (await session.scalar(stmt)) or 0
         return CountPostsResponse(count=count)
 
     @litestar.post("/count/rating")
     async def get_tags_count(self, session: AsyncSession, data: ListPostBody) -> list[RatingCountItem]:
+        """Count posts by rating."""
         return await self._count_by_column(session, data, Post.rating, RatingCountItem)
 
     @litestar.post("/count/score")
     async def get_score_count(self, session: AsyncSession, data: ListPostBody) -> list[ScoreCountItem]:
+        """Count posts by score."""
         return await self._count_by_column(session, data, Post.score, ScoreCountItem)
 
     @litestar.post("/count/extension")
     async def get_extension_count(self, session: AsyncSession, data: ListPostBody) -> list[ExtensionCountItem]:
+        """Count posts by extension."""
         return await self._count_by_column(session, data, Post.extension, ExtensionCountItem)
 
-    @litestar.put("/{post_id:int}/score", description="Update post score by id.")
+    @litestar.put("/{post_id:int}/score")
     async def update_post_score(self, session: AsyncSession, post_id: int, data: ScoreUpdate) -> Post:
-        p = (await session.execute(select(Post).filter(Post.id == post_id))).scalars().first()
+        """Update post score by id."""
+        p = await session.get(Post, post_id)
         if not p:
             msg = f"Post with id {post_id} not found."
-            raise ValueError(msg)
+            raise NotFoundException(detail=msg)
         p.score = data.score
         await session.flush()
         return p
 
-    @litestar.put("/{post_id:int}/rating", description="Update post rating by id.")
+    @litestar.put("/{post_id:int}/rating")
     async def update_post_rating(self, session: AsyncSession, post_id: int, rating: int) -> Post:
-        p = (await session.execute(select(Post).filter(Post.id == post_id))).scalars().first()
+        """Update post rating by id."""
+        p = await session.get(Post, post_id)
         if not p:
             msg = f"Post with id {post_id} not found."
-            raise ValueError(msg)
+            raise NotFoundException(detail=msg)
         p.rating = rating
         await session.flush()
         return p
 
-    @litestar.put("/{post_id:int}/caption", description="Update post caption by id.")
+    @litestar.put("/{post_id:int}/caption")
     async def update_post_caption(self, session: AsyncSession, post_id: int, caption: str) -> Post:
-        p = (await session.execute(select(Post).filter(Post.id == post_id))).scalars().first()
+        """Update post caption by id."""
+        p = await session.get(Post, post_id)
         if not p:
             msg = f"Post with id {post_id} not found."
-            raise ValueError(msg)
+            raise NotFoundException(detail=msg)
         p.caption = caption
         await session.flush()
         return p
 
-    @litestar.delete("/delete", description="Delete posts by ids.")
+    @litestar.delete("/delete")
     async def delete_posts(self, session: AsyncSession, ids: list[int]) -> None:
+        """Delete posts by ids."""
         await session.execute(delete(Post).where(Post.id.in_(ids)))
+
+    @litestar.put("/{post_id:int}/rotate")
+    async def rotate_post_image(self, session: AsyncSession, post_id: int, *, clockwise: bool = True) -> Post:
+        """
+        Rotate post image by id.
+        It will rotate the image and update md5, width and height.
+        """
+        post = await session.get(Post, post_id)
+        if post is None:
+            msg = f"Post with id {post_id} not found."
+            raise NotFoundException(detail=msg)
+        await asyncio.to_thread(post.rotate, clockwise=clockwise)
+        return post
 
     async def _count_by_column(self, session: AsyncSession, data: ListPostBody, column: Post, result_class: type) -> list:
         stmt = select(column, func.count()).group_by(column)
