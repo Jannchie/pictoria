@@ -2,14 +2,17 @@ from typing import Annotated, ClassVar
 
 import litestar
 from litestar import Controller
+from litestar.di import Provide
 from litestar.exceptions import HTTPException, NotFoundException
+from litestar.pagination import AbstractAsyncCursorPaginator, CursorPagination
+from litestar.params import Parameter
 from litestar.status_codes import HTTP_409_CONFLICT, HTTP_422_UNPROCESSABLE_ENTITY
 from msgspec import Meta, Struct
-from sqlalchemy import delete
+from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from models import Tag, TagGroup
-from scheme import Result
+from scheme import Result, TagDTO
 
 MAX_TAG_LENGTH = 200
 
@@ -23,9 +26,31 @@ class TagDelete(Struct):
     name: Annotated[str, Meta(min_length=1, max_length=MAX_TAG_LENGTH)]
 
 
+class TagBatchDelete(Struct):
+    name_list: Annotated[list[Annotated[str, Meta(min_length=1, max_length=MAX_TAG_LENGTH)]], Meta(min_length=1)]
+
+
+class TagCursorPaginator(AbstractAsyncCursorPaginator[str, Tag]):
+    def __init__(self, session: AsyncSession) -> None:  # 'async_session' dependency will be injected here.
+        self.session = session
+
+    async def get_items(
+        self,
+        cursor: Annotated[str | None, Parameter(min_length=1, max_length=MAX_TAG_LENGTH)],
+        results_per_page: Annotated[int, Parameter(gt=0, le=1000)],
+    ) -> tuple[list[Tag], str | None]:
+        tags_query = select(Tag).order_by(Tag.name).where(Tag.name > cursor) if cursor else select(Tag).order_by(Tag.name)
+        tags_query = tags_query.limit(results_per_page + 1)
+        tags = await self.session.scalars(tags_query)
+        tags = list(tags.all())
+        next_cursor = tags[-1].name if len(tags) > results_per_page else None
+        return tags, next_cursor
+
+
 class TagsController(Controller):
     path = "/tags"
     tags: ClassVar[list[str]] = ["Tags"]
+    return_dto = TagDTO
 
     @litestar.post("/")
     async def create_tag(self, session: AsyncSession, data: TagCreate) -> Result:
@@ -48,6 +73,19 @@ class TagsController(Controller):
         session.add(tag)
         return Result(msg=f"Tag '{tag_name}' created successfully.")
 
+    @litestar.get("/", dependencies={"paginator": Provide(TagCursorPaginator)})
+    async def list_tags(
+        self,
+        paginator: TagCursorPaginator,
+        cursor: Annotated[str | None, Parameter(max_length=MAX_TAG_LENGTH)],
+        limit: Annotated[int, Parameter(gt=0, le=1000)],
+    ) -> CursorPagination[str, Tag]:
+        return await paginator(cursor=cursor, results_per_page=limit)
+
     @litestar.delete("/{name:str}")
     async def delete_tag(self, session: AsyncSession, name: str) -> None:
         await session.execute(delete(Tag).where(Tag.name == name))
+
+    @litestar.delete("/")
+    async def delete_tags(self, session: AsyncSession, data: TagBatchDelete) -> None:
+        await session.execute(delete(Tag).where(Tag.name.in_(data.name_list)))

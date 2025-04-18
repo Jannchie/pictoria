@@ -44,7 +44,6 @@ class Tag(BaseWithTime):
     name: Mapped[str] = mapped_column(String(120), primary_key=True, nullable=False)
     group_id: Mapped[int | None] = mapped_column(ForeignKey("tag_groups.id", ondelete="SET NULL"), nullable=True, default=None)
     group: Mapped[Optional["TagGroup"]] = relationship(back_populates="tags", lazy="selectin", init=False)
-    posts: Mapped[list["PostHasTag"]] = relationship(back_populates="tag_info", default_factory=list, lazy="selectin", init=False)
 
 
 class PostHasColor(Base):
@@ -160,4 +159,4 @@ class PostHasTag(Base):
     post_id: Mapped[int] = mapped_column(ForeignKey("posts.id", ondelete="CASCADE"), primary_key=True)
     tag_name: Mapped[str] = mapped_column(ForeignKey("tags.name", ondelete="CASCADE"), primary_key=True)
     is_auto: Mapped[bool] = mapped_column(Boolean, default=False)
-    tag_info: Mapped["Tag"] = relationship(back_populates="posts", lazy="selectin", init=False)
+    tag_info: Mapped["Tag"] = relationship(lazy="selectin", init=False)

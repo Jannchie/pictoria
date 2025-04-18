@@ -7,7 +7,7 @@ from litestar.plugins.sqlalchemy import SQLAlchemyDTO
 from pydantic import BaseModel, ConfigDict
 from sqlalchemy.orm import DeclarativeBase
 
-from models import Post
+from models import Post, Tag
 
 
 class TagGroupPublic(BaseModel):
@@ -109,6 +109,8 @@ class PostDTO(MixedDTO[Post]):
         },
     )
 
+class TagDTO(MixedDTO[Tag]):
+    config = DTOConfig(rename_strategy="camel")
 
 class PostWithTagDTO(MixedDTO[Post]):
     config = DTOConfig(
