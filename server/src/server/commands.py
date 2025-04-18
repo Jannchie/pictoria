@@ -13,7 +13,7 @@ from utils import logger
 
 class CommandController(Controller):
     path = "/cmd"
-    tags: ClassVar[list[str]] = ["commands"]
+    tags: ClassVar[list[str]] = ["Commands"]
 
     @litestar.post("/posts/embedding", description="Calculate embedding for all posts")
     async def cmd_calculate_embedding(self, session: AsyncSession) -> dict:
