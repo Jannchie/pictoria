@@ -118,3 +118,9 @@ class TagsController(Controller):
         Delete multiple tags with the given names.
         """
         await session.execute(delete(Tag).where(Tag.name.in_(data.name_list)))
+
+    @litestar.get("/groups")
+    async def list_tag_group(self, session: AsyncSession) -> list[TagGroup]:
+        """List all tag groups."""
+        stmt = select(TagGroup)
+        return (await session.scalars(stmt)).all()

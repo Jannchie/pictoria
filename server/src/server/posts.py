@@ -4,7 +4,8 @@ from typing import Annotated, ClassVar, Literal
 
 import litestar
 from litestar import Controller
-from litestar.exceptions import NotFoundException
+from litestar.exceptions import HTTPException, NotFoundException
+from litestar.status_codes import HTTP_409_CONFLICT
 from msgspec import Meta, Struct
 from sqlalchemy import Select, delete, func, nulls_last, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -192,6 +193,37 @@ class PostController(Controller):
             msg = f"Post with id {post_id} not found."
             raise NotFoundException(detail=msg)
         await asyncio.to_thread(post.rotate, clockwise=clockwise)
+        return post
+
+    @litestar.put("/{post_id:int}/tags/{tag_name:str}")
+    async def add_tag_to_post(self, session: AsyncSession, post_id: int, tag_name: str) -> Post:
+        """Add tag to post by id."""
+        post = await session.get(Post, post_id)
+        if not post:
+            msg = f"Post with id {post_id} not found."
+            raise NotFoundException(detail=msg)
+        tag = await session.get(PostHasTag, (post_id, tag_name))
+        if not tag:
+            tag = PostHasTag(post_id=post_id, tag_name=tag_name)
+            session.add(tag)
+        else:
+            msg = f"Tag {tag_name} already exists in post {post_id}."
+            raise HTTPException(detail=msg, status_code=HTTP_409_CONFLICT)
+        return post
+
+    @litestar.delete("/{post_id:int}/tags/{tag_name:str}")
+    async def remove_tag_from_post(self, session: AsyncSession, post_id: int, tag_name: str) -> Post:
+        """Remove tag from post by id."""
+        post = await session.get(Post, post_id)
+        if not post:
+            msg = f"Post with id {post_id} not found."
+            raise NotFoundException(detail=msg)
+        tag = await session.get(PostHasTag, (post_id, tag_name))
+        if tag:
+            await session.delete(tag)
+        else:
+            msg = f"Tag {tag_name} does not exist in post {post_id}."
+            raise HTTPException(detail=msg, status_code=HTTP_409_CONFLICT)
         return post
 
     async def _count_by_column(self, session: AsyncSession, data: ListPostBody, column: Post, result_class: type) -> list:
