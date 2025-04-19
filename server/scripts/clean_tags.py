@@ -1,10 +1,10 @@
 from dotenv import load_dotenv
 from sqlalchemy import text
 
-from utils import get_session
+from utils import session
 
 load_dotenv()
-session = get_session()
+session = session()
 
 sql = text("""DELETE FROM tags
 WHERE name LIKE '%\\%';""")
