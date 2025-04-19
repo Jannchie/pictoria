@@ -19,7 +19,10 @@ def get_clip_model() -> AutoModel:
 
 @cache
 def get_processor() -> AutoProcessor:
-    return AutoProcessor.from_pretrained("openai/clip-vit-large-patch14")
+    return AutoProcessor.from_pretrained(
+        "openai/clip-vit-large-patch14",
+        use_fast=True,
+    )
 
 
 def calculate_image_features(image: Image.Image | Path | str) -> torch.Tensor:
