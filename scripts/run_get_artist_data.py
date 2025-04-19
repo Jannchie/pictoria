@@ -4,13 +4,13 @@ import asyncio
 
 async def download_from_danbooru(tag):
     """从 Danbooru 下载指定标签的图片。"""
-    url = "http://localhost:4777/v1/cmd/download-from-danbooru"
+    url = "http://localhost:4777/v2/cmd/download-from-danbooru"
     headers = {"accept": "application/json"}
     params = {"tags": tag}
 
     timeout = httpx.Timeout(30000)
     async with httpx.AsyncClient(timeout=timeout) as client:
-        await client.get(url, headers=headers, params=params)
+        await client.post(url, headers=headers, params=params)
         print(f"Downloaded images for tag: {tag}")
 
 

@@ -35,7 +35,7 @@ class TagBatchDelete(Struct):
 
 
 class TagCursorPaginator(AbstractAsyncCursorPaginator[str, Tag]):
-    def __init__(self, session: AsyncSession) -> None:  # 'async_session' dependency will be injected here.
+    def __init__(self, session: AsyncSession) -> None:
         self.session = session
 
     async def get_items(

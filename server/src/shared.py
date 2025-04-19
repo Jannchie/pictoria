@@ -5,11 +5,15 @@ import typing
 from pathlib import Path
 from typing import Literal, Optional
 
+from PIL import ImageFile
 from rich import get_console
 from rich.logging import RichHandler
 
 if typing.TYPE_CHECKING:
     from ai import OpenAIImageAnnotator
+
+
+ImageFile.LOAD_TRUNCATED_IMAGES = True
 
 console = get_console()
 logging.basicConfig(

@@ -107,6 +107,7 @@ class PostDTO(MixedDTO[Post]):
             "tags.0.tag_name",
             "colors.0.post_id",
         },
+        experimental_codegen_backend=False,
     )
 
 

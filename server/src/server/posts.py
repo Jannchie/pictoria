@@ -83,6 +83,7 @@ class ScoreUpdate(Struct):
 class PostController(Controller):
     path = "/posts"
     tags: ClassVar[list[str]] = ["Posts"]
+    return_dto = PostDTO
 
     @litestar.post("/search", return_dto=PostDTO, status_code=200, description="Search for posts by filters.")
     async def search_posts(self, session: AsyncSession, data: ListPostBody, limit: int = 100, offset: int = 0) -> list[Post]:
@@ -211,7 +212,7 @@ class PostController(Controller):
             raise HTTPException(detail=msg, status_code=HTTP_409_CONFLICT)
         return post
 
-    @litestar.delete("/{post_id:int}/tags/{tag_name:str}")
+    @litestar.delete("/{post_id:int}/tags/{tag_name:str}", status_code=200)
     async def remove_tag_from_post(self, session: AsyncSession, post_id: int, tag_name: str) -> Post:
         """Remove tag from post by id."""
         post = await session.get(Post, post_id)

@@ -91,10 +91,11 @@ class DanbooruClient:
         self.api_key: str = api_key
         self.user_id: str = user_id
         self.base_url: str = base_url
+        self.client = httpx.Client(base_url=base_url, headers={"User-Agent": "curl/8.5.0"})
 
     def get_post(self, post_id: int) -> DanbooruPost:
-        url: str = f"{self.base_url}/posts/{post_id}.json"
-        response = httpx.get(url, params={"api_key": self.api_key, "login": self.user_id})
+        url: str = f"posts/{post_id}.json"
+        response = self.client.get(url, params={"api_key": self.api_key, "login": self.user_id})
         response.raise_for_status()
         return DanbooruPost(**response.json())
 
@@ -107,7 +108,7 @@ class DanbooruClient:
         before_id: int | None = None,
         only: str | list[str] | None = None,
     ) -> list[DanbooruPost]:
-        url: str = f"{self.base_url}/posts.json"
+        url: str = "/posts.json"
         only_str: str | None = ",".join(only) if isinstance(only, list) else only
         all_posts: list[dict] = []
 
@@ -127,7 +128,7 @@ class DanbooruClient:
             }
             params = {k: v for k, v in params.items() if v is not None}
 
-            response = httpx.get(url, params=params)
+            response = self.client.get(url, params=params)
             response.raise_for_status()
             logger.debug(response.url)
 
@@ -161,7 +162,7 @@ class DanbooruClient:
                 if file_path.exists():
                     logger.debug("File %s already exists, skipping", file_path)
                     return
-                with httpx.stream("GET", url) as response:
+                with self.client.stream("GET", url) as response:
                     response.raise_for_status()
                     with file_path.open("wb") as f:
                         for chunk in response.iter_bytes():
@@ -169,6 +170,7 @@ class DanbooruClient:
             except Exception:
                 logger.warning("Failed to download post %s on attempt %d", post_id, attempt + 1)
             else:
+                logger.info("Successfully downloaded post %s", post_id)
                 return
         logger.exception("All attempts to download post %s have failed", post_id)
 
@@ -215,7 +217,7 @@ class Downloader:
 
     def _download_single(self, url: str, target_path: Path) -> None:
         try:
-            response = httpx.get(url)
+            response = httpx.get(url, headers={"User-Agent": "curl/8.5.0"})
             response.raise_for_status()
             with target_path.open("wb") as file:
                 file.write(response.content)
