@@ -18,6 +18,7 @@ from fastapi.responses import ORJSONResponse
 from pydantic import BaseModel, Field
 from rich import get_console
 from rich.progress import track
+from scalar_fastapi import get_scalar_api_reference
 from sqlalchemy import Select, func, nulls_last, select, text
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.orm import Session, joinedload
@@ -56,7 +57,7 @@ with pathlib.Path("pyproject.toml").open("rb") as f:
 async def my_lifespan(_: FastAPI):
     load_dotenv()
     initialize(target_dir="demo")
-    sync_metadata()
+    await sync_metadata()
     # watch_target_dir()
     host = "localhost"
     port = 4777
@@ -86,6 +87,8 @@ app = fastapi.FastAPI(
     title="Pictoria",
     version=pyproject["project"]["version"],
     lifespan=my_lifespan,
+    docs_url=None,
+    redoc_url=None,
 )
 
 app.add_middleware(
@@ -835,6 +838,15 @@ def root():
     }
 
 
+@app.get("/docs", include_in_schema=False)
+async def scalar_html():
+    return get_scalar_api_reference(
+        openapi_url=app.openapi_url,
+        title=app.title,
+        scalar_theme="kepler",
+    )
+
+
 use_route_names_as_operation_ids(app)
 if __name__ == "__main__":
     args = parse_arguments()
@@ -847,4 +859,6 @@ if __name__ == "__main__":
         reload=True,
         log_config=None,
         timeout_graceful_shutdown=5,
+        reload_dirs=["src"],
+        reload_excludes=[".venv"],
     )

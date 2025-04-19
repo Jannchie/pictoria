@@ -5,7 +5,6 @@ import tomllib
 from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
 
-import numpy as np
 from dotenv import load_dotenv
 from litestar import Litestar, Router
 from litestar.datastructures import State
@@ -13,6 +12,7 @@ from litestar.exceptions import ClientException
 from litestar.handlers.http_handlers import HTTPRouteHandler
 from litestar.openapi import OpenAPIConfig
 from litestar.openapi.plugins import ScalarRenderPlugin
+from litestar.plugins.pydantic import PydanticPlugin
 from litestar.status_codes import HTTP_409_CONFLICT
 from litestar.types import Method
 from litestar.types.internal_types import PathParameterDefinition
@@ -115,11 +115,11 @@ app = Litestar(
         operation_id_creator=default_operation_id_creator,
         use_handler_docstrings=True,
     ),
-    type_encoders={np.ndarray: lambda v: v.tolist()},
+    plugins=[PydanticPlugin(prefer_alias=True)],
 )
 
 
 if __name__ == "__main__":
     import uvicorn
 
-    uvicorn.run("app:app", port=4777, reload=True, reload_dirs=["src"], log_config=None)
+    uvicorn.run("app:app", port=4777, reload=True, reload_dirs=["src"], reload_excludes=[".venv"], log_config=None)

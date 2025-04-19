@@ -1,5 +1,4 @@
 import asyncio
-import threading
 from io import BufferedReader
 from pathlib import Path
 
@@ -13,44 +12,47 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 import shared
 from ai.clip import calculate_image_features
-from db import get_img_vec
 from models import Post, PostHasColor, PostVector
 from shared import logger
 from tools.colors import get_dominant_color, get_palette_ints
 from utils import (
     add_new_files,
+    async_session,
     attach_tags_to_post,
     compute_image_properties,
     find_files_in_directory,
     from_rating_to_int,
     get_path_name_and_extension,
-    get_session,
     get_tagger,
     remove_deleted_files,
     update_file_metadata,
 )
 
-
-def sync_metadata():
-    threading.Thread(
-        target=_sync_metadata,
-    ).start()
+# Store task references to prevent garbage collection
+_background_tasks = set()
 
 
-def _sync_metadata() -> None:
+async def sync_metadata():
+    loop = asyncio.get_event_loop()
+    task = loop.create_task(_sync_metadata())
+    _background_tasks.add(task)
+    task.add_done_callback(_background_tasks.discard)
+
+
+async def _sync_metadata() -> None:
     os_tuples = find_files_in_directory(shared.target_dir)
 
-    session = get_session()
-    rows = session.query(Post.file_path, Post.file_name, Post.extension).all()
-    db_tuples = [(row[0], row[1], row[2]) for row in rows]
+    session = await async_session()
+    rows = await session.execute(select(Post.file_path, Post.file_name, Post.extension))
+    db_tuples = rows.fetchall()
     logger.info(f"Found {len(db_tuples)} files in database")
 
     db_tuples_set = set(db_tuples)
     os_tuples_set = set(os_tuples)
 
-    remove_deleted_files(session, os_tuples_set=os_tuples_set, db_tuples_set=db_tuples_set)
-    add_new_files(session, os_tuples_set=os_tuples_set, db_tuples_set=db_tuples_set)
-    process_posts()
+    await remove_deleted_files(session, os_tuples_set=os_tuples_set, db_tuples_set=db_tuples_set)
+    await add_new_files(session, os_tuples_set=os_tuples_set, db_tuples_set=db_tuples_set)
+    await process_posts(session)
 
 
 async def process_posts(session: AsyncSession, *, all_posts: bool = False):

@@ -13,8 +13,9 @@ import wdtagger
 from fastapi import FastAPI
 from fastapi.routing import APIRoute
 from PIL import Image
-from sqlalchemy import create_engine, insert, select
-from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy import create_engine, delete, select
+from sqlalchemy.dialects.postgresql import insert
+from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 from sqlalchemy.orm import Session, sessionmaker
 
 import shared
@@ -110,8 +111,8 @@ def init_thumbnails_directory():
         logger.info(f'Created directory "{shared.thumbnails_dir}"')
 
 
-def remove_deleted_files(
-    session: Session,
+async def remove_deleted_files(
+    session: AsyncSession,
     *,
     os_tuples_set: set[tuple[str, str, str]],
     db_tuples_set: set[tuple[str, str, str]],
@@ -119,17 +120,20 @@ def remove_deleted_files(
     if deleted_files := db_tuples_set - os_tuples_set:
         logger.info(f"Detected {len(deleted_files)} files have been deleted")
         for file_path in deleted_files:
-            delete_by_file_path_and_ext(session, file_path)
-        session.commit()
+            await delete_by_file_path_and_ext(session, file_path)
+        await session.commit()
         logger.info("Deleted files from database")
 
 
-def delete_by_file_path_and_ext(session: Session, path_name_and_ext: tuple[str, str, str]):
-    session.query(Post).filter(
-        Post.file_path == path_name_and_ext[0],
-        Post.file_name == path_name_and_ext[1],
-        Post.extension == path_name_and_ext[2],
-    ).delete()
+async def delete_by_file_path_and_ext(session: AsyncSession, path_name_and_ext: tuple[str, str, str]):
+    await session.execute(
+        delete(Post).where(
+            Post.file_path == path_name_and_ext[0],
+            Post.file_name == path_name_and_ext[1],
+            Post.extension == path_name_and_ext[2],
+        ),
+    )
+    await session.commit()
     if path_name_and_ext[2]:
         relative_path = (Path(path_name_and_ext[0]) / path_name_and_ext[1]).with_suffix(f".{path_name_and_ext[2]}")
     else:
@@ -142,7 +146,7 @@ def delete_by_file_path_and_ext(session: Session, path_name_and_ext: tuple[str, 
         file_path.unlink()
 
 
-def add_new_files(
+async def add_new_files(
     session: Session,
     *,
     os_tuples_set: set[tuple[str, str, str]],
@@ -151,9 +155,9 @@ def add_new_files(
     if new_file_tuples := os_tuples_set - db_tuples_set:
         logger.info(f"Detected {len(new_file_tuples)} new files")
         for file_tuple in new_file_tuples:
-            image = Post(file_path=file_tuple[0], file_name=file_tuple[1], extension=file_tuple[2])
-            session.add(image)
-        session.commit()
+            post = Post(file_path=file_tuple[0], file_name=file_tuple[1], extension=file_tuple[2])
+            session.add(post)
+        await session.commit()
         logger.info("Added new files to database")
 
 
@@ -165,8 +169,15 @@ def get_engine():
 
 def get_session():
     engine = get_engine()
-    my_session = sessionmaker(bind=engine, expire_on_commit=False, autoflush=True)
+    my_session = sessionmaker(bind=engine, expire_on_commit=False, autoflush=False)
     return my_session()
+
+
+async def async_session():
+    db_url = os.environ.get("DB_URL")
+    engine = create_async_engine(db_url, echo=False, pool_size=100, max_overflow=200)
+    async_session = async_sessionmaker(bind=engine, expire_on_commit=False, autoflush=False)
+    return async_session()
 
 
 def get_relative_path(file_path: Path, target_dir: Path) -> str:

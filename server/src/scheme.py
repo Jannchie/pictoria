@@ -5,51 +5,48 @@ from datetime import datetime
 from litestar.dto import DTOConfig, DTOField, DTOFieldDefinition
 from litestar.plugins.sqlalchemy import SQLAlchemyDTO
 from pydantic import BaseModel, ConfigDict
+from pydantic.alias_generators import to_camel
 from sqlalchemy.orm import DeclarativeBase
 
 from models import Post, Tag
 
 
-class TagGroupPublic(BaseModel):
+class DTOBaseModel(BaseModel):
+    model_config = ConfigDict(
+        from_attributes=True,
+        alias_generator=to_camel,
+    )
+
+
+class TagGroupPublic(DTOBaseModel):
     id: int
     name: str
     color: str
 
-    class Config:
-        from_attributes = True
 
-
-class TagPublic(BaseModel):
+class TagPublic(DTOBaseModel):
     name: str
 
-    class Config:
-        from_attributes = True
 
-
-class TagGroupWithTagsPublic(TagGroupPublic):
+class TagGroupWithTagsPublic(DTOBaseModel):
     tags: list["TagPublic"]
 
 
-class TagWithGroupPublic(TagPublic):
+class TagWithGroupPublic(DTOBaseModel):
     group: TagGroupPublic | None
 
 
-class PostHasTagPublic(BaseModel):
+class PostHasTagPublic(DTOBaseModel):
     is_auto: bool
     tag_info: TagWithGroupPublic
 
-    class Config:
-        from_attributes = True
 
-
-class PostHasColorPublic(BaseModel):
-    model_config = ConfigDict(from_attributes=True)
+class PostHasColorPublic(DTOBaseModel):
     order: int
     color: int
 
 
-class PostPublic(BaseModel):
-    model_config = ConfigDict(from_attributes=True)
+class PostPublic(DTOBaseModel):
     id: int
     file_path: str
     file_name: str
