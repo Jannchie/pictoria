@@ -21,6 +21,7 @@ from rich.progress import track
 from scalar_fastapi import get_scalar_api_reference
 from sqlalchemy import Select, func, nulls_last, select, text
 from sqlalchemy.dialects.postgresql import insert
+from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import Session, joinedload
 from starlette.convertors import Convertor, register_url_convertor
 from starlette.middleware.gzip import GZipMiddleware
@@ -34,6 +35,7 @@ from processors import process_post, process_posts, set_post_colors, sync_metada
 from scheme import PostPublic, PostWithTagPublic, TagGroupWithTagsPublic, TagPublic, TagWithGroupPublic
 from server.utils import is_image
 from utils import (
+    async_transaction,
     attach_tags_to_post,
     create_thumbnail,
     delete_by_file_path_and_ext,
@@ -116,9 +118,9 @@ class PathConvertor(Convertor):
 register_url_convertor("pathlike", PathConvertor())
 
 
-def get_post_by_id(post_id: int, session: Session):
+async def get_post_by_id(post_id: int, session: AsyncSession):
     # sourcery skip: assign-if-exp, reintroduce-else
-    post = session.query(Post).options(joinedload(Post.tags).joinedload(PostHasTag.tag_info).joinedload(Tag.group)).filter_by(id=post_id).one_or_none()
+    post = await session.scalar(select(Post).options(joinedload(Post.tags).joinedload(PostHasTag.tag_info).joinedload(Tag.group)).filter_by(id=post_id))
     if not post:
         return None
 
@@ -224,10 +226,10 @@ class PostCountResponse(BaseModel):
 
 
 @app.get("/v1/posts/count", response_model=PostCountResponse, tags=["Post"])
-def v1_total_posts_count():
-    session = get_session()
-    count = session.query(Post).count()
-    return {"count": count}
+async def v1_total_posts_count(session: Annotated[AsyncSession, Depends(async_transaction)]):
+    stmt = select(func.count(Post.id))
+    result = await session.scalar(stmt)
+    return {"count": result}
 
 
 class RatingCountResponse(BaseModel):
@@ -236,15 +238,14 @@ class RatingCountResponse(BaseModel):
 
 
 @app.post("/v1/posts/count/rating", response_model=list[RatingCountResponse], tags=["Post"])
-def v1_count_group_by_rating(
+async def v1_count_group_by_rating(
+    *,
+    session: Annotated[AsyncSession, Depends(async_transaction)],
     body: ListPostBody = Body(...),
-    session: Session = Depends(get_session),
 ):
     stmt = select(Post.rating, func.count()).group_by(Post.rating)
     stmt = apply_body_query(body, stmt)
-    # SELECT setseed(0.5)
-
-    resp = session.execute(stmt).all()
+    resp = await session.execute(stmt).all()
     return [RatingCountResponse(rating=row[0], count=row[1]) for row in resp]
 
 
@@ -342,24 +343,19 @@ def v1_update_post_caption(post_id: Annotated[int, Path(gt=0)], caption: str):
 
 
 @app.get("/v1/posts/{post_id}", response_model=PostWithTagPublic, tags=["Post"])
-def v1_get_post(post_id: int, session: Annotated[Session, Depends(get_session)]):
-    session.begin()
-    post = get_post_by_id(post_id, session)
-    session.commit()
-    return post
+async def v1_get_post(post_id: int, session: Annotated[AsyncSession, Depends(async_transaction)]):
+    return await get_post_by_id(post_id, session)
 
 
 @app.get("/v1/posts/{post_id}/similar", response_model=list[PostPublic], tags=["Post"])
-def v1_get_similar_posts(post_id: int, session: Annotated[Session, Depends(get_session)]):
+async def v1_get_similar_posts(post_id: int, session: Annotated[Session, Depends(get_session)]):
     session.begin()
-    post = get_post_by_id(post_id, session)
+    post = await get_post_by_id(post_id, session)
     vec = get_img_vec(post)
     resp = find_similar_posts(vec)
     id_list = [row.post_id for row in resp]
     stmt = select(Post).filter(Post.id.in_(id_list)).order_by(func.array_position(id_list, Post.id))
-    posts = session.scalars(stmt).all()
-    session.commit()
-    return posts
+    return (await session.scalars(stmt)).all()
 
 
 @app.post("/v1/cmd/posts/features", tags=["Command"])

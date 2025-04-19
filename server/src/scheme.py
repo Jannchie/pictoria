@@ -95,6 +95,7 @@ class Base(DeclarativeBase): ...
 
 
 class PostDTO(MixedDTO[Post]):
+    __schema_name__ = "PostPublic"
     config = DTOConfig(
         rename_strategy="camel",
         max_nested_depth=2,
@@ -109,10 +110,12 @@ class PostDTO(MixedDTO[Post]):
 
 
 class TagDTO(MixedDTO[Tag]):
+    __schema_name__ = "TagPublic"
     config = DTOConfig(rename_strategy="camel")
 
 
 class PostWithTagDTO(MixedDTO[Post]):
+    __schema_name__ = "PostWithTagPublic"
     config = DTOConfig(
         rename_strategy="camel",
         max_nested_depth=2,

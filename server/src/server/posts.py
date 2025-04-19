@@ -1,8 +1,9 @@
 import asyncio
-from dataclasses import dataclass, field
-from typing import Annotated, ClassVar, Literal
+from dataclasses import dataclass
+from typing import Annotated, ClassVar, Literal, Optional
 
 import litestar
+import pydantic
 from litestar import Controller
 from litestar.exceptions import HTTPException, NotFoundException
 from litestar.status_codes import HTTP_409_CONFLICT
@@ -16,16 +17,20 @@ from scheme import PostDTO
 from server.utils.vec import find_similar_posts
 
 
-@dataclass
-class ListPostBody:
-    rating: tuple[int] | None = field(default_factory=tuple)
-    score: tuple[int] | None = field(default_factory=tuple)
-    tags: tuple[str] | None = field(default_factory=tuple)
-    extension: tuple[str] | None = field(default_factory=tuple)
+class ListPostBody(pydantic.BaseModel):
+    rating: tuple[int, ...] | None = pydantic.Field(default_factory=tuple)
+    score: tuple[int, ...] | None = pydantic.Field(default_factory=tuple)
+    tags: tuple[str, ...] | None = pydantic.Field(default_factory=tuple)
+    extension: tuple[str, ...] | None = pydantic.Field(default_factory=tuple)
+
     folder: str | None = None
     order_by: Literal["id", "score", "rating", "created_at", "published_at", "file_name"] | None = None
     order: Literal["asc", "desc", "random"] = "desc"
-    lab: tuple[float, float, float] | None = None
+
+    lab: tuple[float, float, float] | None = pydantic.Field(
+        default=None,
+        json_schema_extra={"example": [0.5, 0.5, 0.5], "min_length": 3, "max_length": 3},
+    )
 
 
 def apply_body_query(filter: ListPostBody, stmt: Select) -> Select:  # noqa: A002
@@ -85,7 +90,7 @@ class PostController(Controller):
     tags: ClassVar[list[str]] = ["Posts"]
     return_dto = PostDTO
 
-    @litestar.post("/search", return_dto=PostDTO, status_code=200, description="Search for posts by filters.")
+    @litestar.post("/search", status_code=200, description="Search for posts by filters.")
     async def search_posts(self, session: AsyncSession, data: ListPostBody, limit: int = 100, offset: int = 0) -> list[Post]:
         await session.execute(text("SELECT setseed(0.47)"))
 
@@ -101,7 +106,7 @@ class PostController(Controller):
         stmt = apply_body_query(data, select(Post)).limit(limit).offset(offset)
         return (await session.scalars(stmt)).all()
 
-    @litestar.get("/{post_id:int}", return_dto=PostDTO, status_code=200)
+    @litestar.get("/{post_id:int}", status_code=200)
     async def get_post(self, session: AsyncSession, post_id: int) -> Post:
         """Get post by id."""
         post = await session.get(Post, post_id)
@@ -110,7 +115,7 @@ class PostController(Controller):
             raise NotFoundException(detail=msg)
         return post
 
-    @litestar.get("/{post_id:int}/similar", return_dto=PostDTO, status_code=200)
+    @litestar.get("/{post_id:int}/similar", status_code=200)
     async def get_similar_posts(self, session: AsyncSession, post_id: int, limit: int = 10) -> list[Post]:
         """Get similar posts by id."""
         post = await session.get(Post, post_id)

@@ -4,7 +4,7 @@ import os
 import sys
 import threading
 import time
-from collections.abc import Callable
+from collections.abc import AsyncGenerator, Callable
 from functools import cache, wraps
 from pathlib import Path
 from typing import Any, TypeVar
@@ -173,11 +173,22 @@ def get_session():
     return my_session()
 
 
-async def async_session():
+@cache
+def get_async_engine():
     db_url = os.environ.get("DB_URL")
-    engine = create_async_engine(db_url, echo=False, pool_size=100, max_overflow=200)
+    return create_async_engine(db_url, echo=False, pool_size=100, max_overflow=200)
+
+
+async def async_session():
+    engine = get_async_engine()
     async_session = async_sessionmaker(bind=engine, expire_on_commit=False, autoflush=False)
     return async_session()
+
+
+async def async_transaction() -> AsyncGenerator[AsyncSession, None]:
+    session = await async_session()
+    async with session.begin():
+        yield session
 
 
 def get_relative_path(file_path: Path, target_dir: Path) -> str:
