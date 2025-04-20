@@ -37,9 +37,28 @@ const tags = computed(() => {
   return tagsQuery.data.value ?? []
 })
 
-const currentGroupId = ref<number | null>()
+const finalTagGroups = computed(() => {
+  return [
+    {
+      name: 'All',
+      id: undefined,
+    },
+    ...(tagGroups.value ?? []),
+    {
+      name: 'not grouped',
+      id: null,
+    },
+  ]
+})
+
+const currentGroupId = ref<number | null | undefined>()
+
 const currentTags = computed(() => {
-  return tags.value.filter(tag => tag.group?.id === currentGroupId.value)
+  const tags = postQuery.data.value?.tags ?? []
+  if (currentGroupId.value === undefined) {
+    return tags
+  }
+  return tags.filter(tag => tag.tagInfo.group?.id === currentGroupId.value)
 })
 
 const initCurrentTags = controlledComputed(() => [currentGroupId.value, postId.value, search.value, postQuery.isFetched.value], () => {
@@ -47,14 +66,14 @@ const initCurrentTags = controlledComputed(() => [currentGroupId.value, postId.v
 })
 
 const initCurrentTagNames = computed(() => {
-  return initCurrentTags.value.map(tag => tag.name)
+  return initCurrentTags.value.map(tag => tag.tagInfo.name)
 })
 
 const currentGroupTags = computed(() => {
   if (currentGroupId.value === undefined) {
-    return tags.value?.filter(tag => !initCurrentTagNames.value.includes(tag.name)) ?? []
+    return tags.value.filter(tag => !initCurrentTagNames.value.includes(tag.name)) ?? []
   }
-  return tags.value?.filter(tag => tag.group?.id === currentGroupId.value).filter(tag => !initCurrentTagNames.value.includes(tag.name)) ?? []
+  return tags.value.filter(tag => tag.group?.id === currentGroupId.value).filter(tag => !initCurrentTagNames.value.includes(tag.name)) ?? []
 })
 const displayCurrentGroupTags = computed(() => {
   // only top 100
@@ -73,7 +92,7 @@ async function onPointerUp(tagName: string) {
   if (!postId.value) {
     return
   }
-  if (currentTags.value.some(tag => tag.name === tagName)) {
+  if (currentTags.value.some(tag => tag.tagInfo.name === tagName)) {
     // remove
     await v2RemoveTagFromPost({
 
@@ -99,20 +118,6 @@ async function onPointerUp(tagName: string) {
 const pinned = inject('pinned', ref(false))
 const addTagText = computed(() => {
   return `Add New Tag "${search.value}"`
-})
-
-const finalTagGroups = computed(() => {
-  return [
-    {
-      name: 'All',
-      id: undefined,
-    },
-    ...(tagGroups.value ?? []),
-    {
-      name: 'not grouped',
-      id: null,
-    },
-  ]
 })
 
 const { tab } = useMagicKeys({
@@ -245,7 +250,7 @@ watchEffect(() => {
   }
 })
 const searchingInitCurrentTags = computed(() => {
-  return initCurrentTags.value.filter(tag => isSearchMatch(tag.name))
+  return initCurrentTags.value.filter(tag => isSearchMatch(tag.tagInfo.name))
 })
 </script>
 
@@ -314,7 +319,7 @@ const searchingInitCurrentTags = computed(() => {
           />
         </div>
         <div
-          v-if="initCurrentTags.filter(tag => isSearchMatch(tag.name)).length"
+          v-if="initCurrentTags.filter(tag => isSearchMatch(tag.tagInfo.name)).length"
           class="border-b border-surface"
         >
           <div class="p-2 text-surface-dimmed">
@@ -325,17 +330,17 @@ const searchingInitCurrentTags = computed(() => {
             :key="i"
           >
             <ListItem
-              v-if="isSearchMatch(tag.name)"
+              v-if="isSearchMatch(tag.tagInfo.name)"
               ref="initCurrentTagsRef"
               v-highlight="search"
               class="cursor-pointer"
-              :title="tag.name"
-              :active="currentTags.some(predicate => predicate.name === tag.name)"
+              :title="tag.tagInfo.name"
+              :active="currentTags.some(predicate => predicate.tagInfo.name === tag.tagInfo.name)"
               type="checkbox"
               :class="{
                 'bg-surface-high': currentHoverIndex === getIndexOfRef('current', i),
               }"
-              @pointerup="onPointerUp(tag.name)"
+              @pointerup="onPointerUp(tag.tagInfo.name)"
               @pointermove="currentHoverIndex = getIndexOfRef('current', i)"
             />
           </template>
@@ -346,14 +351,14 @@ const searchingInitCurrentTags = computed(() => {
           </div>
           <template
             v-for="tag, i in displayCurrentGroupTags"
-            :key="tag.tag_info.name"
+            :key="tag.name"
           >
             <ListItem
               ref="currentGroupTagsRef"
               v-highlight="search"
               class="cursor-pointer"
               :title="tag.name"
-              :active="currentTags.some(predicate => predicate.name === tag.name)"
+              :active="currentTags.some(predicate => predicate.tagInfo.name === tag.name)"
               type="checkbox"
               :class="{
                 'bg-surface-high': currentHoverIndex === getIndexOfRef('group', i),
