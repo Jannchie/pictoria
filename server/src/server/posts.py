@@ -21,7 +21,7 @@ from sqlalchemy.orm import lazyload, load_only
 import shared
 from models import Post, PostHasTag
 from processors import process_post
-from scheme import DTOBaseModel, PostDetailPublic, PostHasColorPublic, PostPublic
+from scheme import DTOBaseModel, PostDetailPublic, PostHasColorPublic
 from server.utils.vec import find_similar_posts, get_img_vec
 from utils import get_path_name_and_extension
 
@@ -144,36 +144,35 @@ class PostController(Controller):
     path = "/posts"
     tags: ClassVar[list[str]] = ["Posts"]
 
+    simple_select_stmt = select(Post).options(
+        load_only(
+            Post.id,
+            Post.file_path,
+            Post.file_name,
+            Post.extension,
+            Post.rating,
+            Post.width,
+            Post.height,
+            Post.aspect_ratio,
+            Post.dominant_color,
+            Post.md5,
+        ),
+        lazyload(Post.tags),
+    )
+
     @litestar.post("/search", status_code=200, description="Search for posts by filters.")
     async def search_posts(self, session: AsyncSession, data: PostFilterWithOrder, limit: int = 100, offset: int = 0) -> list[PostSimplePublic]:
         await session.execute(text("SELECT setseed(0.47)"))
-
-        select_stmt = select(Post).options(
-            load_only(
-                Post.id,
-                Post.file_path,
-                Post.file_name,
-                Post.extension,
-                Post.rating,
-                Post.width,
-                Post.height,
-                Post.aspect_ratio,
-                Post.dominant_color,
-                Post.md5,
-            ),
-            lazyload(Post.tags),
-        )
 
         if data.lab:
             l, a, b = data.lab  # noqa: E741
             lab_vec = [l, a, b]
             distance = Post.dominant_color.l2_distance(lab_vec)
-            stmt = apply_body_filter(data, select_stmt).order_by(nulls_last(distance)).limit(limit).offset(offset)
+            stmt = apply_body_filter(data, self.simple_select_stmt).order_by(nulls_last(distance)).limit(limit).offset(offset)
             return (await session.scalars(stmt)).all()
 
-        stmt = apply_body_filter(data, select_stmt).limit(limit).offset(offset)
+        stmt = apply_body_filter(data, self.simple_select_stmt).limit(limit).offset(offset)
         if data.order_by:
-            print(f"Ordering by {data.order_by} {data.order}")
             order_column: MappedColumn = getattr(Post, data.order_by)
             if data.order == "random":
                 stmt = stmt.order_by(func.random())
@@ -196,7 +195,7 @@ class PostController(Controller):
         return PostDetailPublic.model_validate(post)
 
     @litestar.get("/{post_id:int}/similar", status_code=200)
-    async def get_similar_posts(self, session: AsyncSession, post_id: int, limit: int = 10) -> list[PostPublic]:
+    async def get_similar_posts(self, session: AsyncSession, post_id: int, limit: int = 100) -> list[PostSimplePublic]:
         """Get similar posts by id."""
         post = await session.get(Post, post_id)
         if not post:
@@ -205,8 +204,8 @@ class PostController(Controller):
         vec = await get_img_vec(session, post)
         resp = await find_similar_posts(session, vec, limit=limit)
         id_list = [row.post_id for row in resp]
-        stmt = select(Post).filter(Post.id.in_(id_list)).order_by(func.array_position(id_list, Post.id))
-        return [PostPublic.model_validate(post) for post in (await session.scalars(stmt)).all()]
+        stmt = self.simple_select_stmt.filter(Post.id.in_(id_list)).order_by(func.array_position(id_list, Post.id))
+        return [PostSimplePublic.model_validate(post) for post in (await session.scalars(stmt)).all()]
 
     @litestar.post("/count", status_code=200, description="Count posts by filters.")
     async def get_posts_count(self, session: AsyncSession, data: PostFilter) -> CountPostsResponse:
@@ -238,7 +237,9 @@ class PostController(Controller):
             msg = f"Post with id {post_id} not found."
             raise NotFoundException(detail=msg)
         p.score = data.score
-        await session.flush()
+        session.add(p)
+        await session.commit()
+        await session.refresh(p)
         return PostDetailPublic.model_validate(p)
 
     @litestar.put("/{post_id:int}/rating")
@@ -249,7 +250,9 @@ class PostController(Controller):
             msg = f"Post with id {post_id} not found."
             raise NotFoundException(detail=msg)
         p.rating = rating
-        await session.flush()
+        session.add(p)
+        await session.commit()
+        await session.refresh(p)
         return PostDetailPublic.model_validate(p)
 
     @litestar.put("/{post_id:int}/caption")
@@ -260,7 +263,9 @@ class PostController(Controller):
             msg = f"Post with id {post_id} not found."
             raise NotFoundException(detail=msg)
         p.caption = caption
-        await session.flush()
+        session.add(p)
+        await session.commit()
+        await session.refresh(p)
         return PostDetailPublic.model_validate(p)
 
     @litestar.put("/{post_id:int}/source")
@@ -271,7 +276,9 @@ class PostController(Controller):
             msg = f"Post with id {post_id} not found."
             raise NotFoundException(detail=msg)
         p.source = source
-        await session.flush()
+        session.add(p)
+        await session.commit()
+        await session.refresh(p)
         return PostDetailPublic.model_validate(p)
 
     @litestar.delete("/delete")
@@ -290,6 +297,8 @@ class PostController(Controller):
             msg = f"Post with id {post_id} not found."
             raise NotFoundException(detail=msg)
         await asyncio.to_thread(post.rotate, clockwise=clockwise)
+        await session.commit()
+        await session.refresh(post)
         return PostDetailPublic.model_validate(post)
 
     @litestar.put("/{post_id:int}/tags/{tag_name:str}")
