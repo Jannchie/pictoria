@@ -21,6 +21,7 @@ from rich import get_console
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
 from server.commands import CommandController
+from server.folders import FoldersController
 from server.images import ImageController
 from server.posts import PostController
 from server.tags import TagsController
@@ -90,82 +91,30 @@ async def db_connection(app: Litestar) -> AsyncGenerator[None, None]:
 
 v2 = Router(
     path="/v2",
-    route_handlers=[PostController, CommandController, ImageController, TagsController],
+    route_handlers=[PostController, CommandController, ImageController, TagsController, FoldersController],
 )
 
 SEPARATORS_CLEANUP_PATTERN = re.compile(r"[!#$%&'*+\-.^_`|~:]+")
 
 
-def split_identifier_into_words(identifier: str) -> list[str]:
-    """Splits snake_case and camelCase identifiers into words."""
-    if not identifier:
-        return []
-
-    # Handle path parameters like {user_id} -> user id
-    if identifier.startswith("{") and identifier.endswith("}"):
-        identifier = identifier[1:-1]
-
-    # Replace underscores with spaces
-    s = identifier.replace("_", " ")
-
-    # Insert space before uppercase letters preceded by lowercase,
-    # or before sequences of uppercase letters followed by lowercase (e.g., HTTPRequest -> HTTP Request)
-    s = re.sub(r"(?<=[a-z])(?=[A-Z])", " ", s)
-    s = re.sub(r"(?<=[A-Z])(?=[A-Z][a-z])", " ", s)
-
-    return [word.lower() for word in s.split() if word]
-
-
-def default_operation_id_creator_with_spaces(
+def default_operation_id_creator(
     route_handler: HTTPRouteHandler,
     http_method: Method,
     path_components: list[str | PathParameterDefinition],
 ) -> str:
-    """
-    Create a unique 'operationId' for an OpenAPI PathItem entry,
-    formatted as a title with words separated by spaces.
+    """Create a unique 'operationId' for an OpenAPI PathItem entry.
 
     Args:
         route_handler: The HTTP Route Handler instance.
-        http_method: The HTTP method for the given PathItem (e.g., 'GET').
-        path_components: A list of path components (strings or PathParameterDefinition).
+        http_method: The HTTP method for the given PathItem.
+        path_components: A list of path components.
 
     Returns:
-        A space-separated, Title Cased operationId created from the
-        path components, handler function name, and potentially the http method.
+        A camelCased operationId created from the handler function name,
+        http method and path components.
     """
-    all_words: list[str] = []
-
-    # Add HTTP method first if handler supports multiple methods (for uniqueness)
-    # Use lower case for consistency before final titling
-    if len(route_handler.http_methods) > 1:
-        all_words.append(http_method.lower())
-
-    # Process path components
-    for component in path_components:
-        # Convert component to string - handle PathParameterDefinition
-        comp_str = str(component)
-        # Skip empty strings or root path "/" representation if any
-        if comp_str and comp_str != "/":
-            all_words.extend(split_identifier_into_words(comp_str))
-
-    # Process handler name
-    all_words.extend(split_identifier_into_words(route_handler.handler_name))
-
-    # Remove potential duplicates while preserving order (simple approach)
-    unique_ordered_words = []
-    seen = set()
-    for word in all_words:
-        if word not in seen:
-            unique_ordered_words.append(word)
-            seen.add(word)
-
-    # Join words with spaces
-    result = " ".join(unique_ordered_words)
-
-    # Convert the final string to Title Case
-    # Example: "get users list" -> "Get Users List"
-    return result.title()
+    handler_namespace = http_method.title() + route_handler.handler_name.title() if len(route_handler.http_methods) > 1 else route_handler.handler_name.title()
+    return SEPARATORS_CLEANUP_PATTERN.sub("", f"{path_components[0]}{handler_namespace}")
 
 
 app = Litestar(
@@ -178,7 +127,7 @@ app = Litestar(
         render_plugins=[ScalarRenderPlugin()],
         title="Pictoria",
         version="0.1.0",
-        operation_id_creator=default_operation_id_creator_with_spaces,
+        operation_id_creator=default_operation_id_creator,
         use_handler_docstrings=True,
     ),
     plugins=[PydanticPlugin(prefer_alias=True)],

@@ -24,6 +24,10 @@ class TagPublic(DTOBaseModel):
     group: TagGroupPublic | None
 
 
+class TagWithCountPublic(TagPublic):
+    count: int
+
+
 class TagGroupTagPublic(DTOBaseModel):
     name: str
 
