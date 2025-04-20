@@ -7,6 +7,7 @@ from contextlib import asynccontextmanager
 
 from dotenv import load_dotenv
 from litestar import Litestar, Router
+from litestar.config.compression import CompressionConfig
 from litestar.config.cors import CORSConfig
 from litestar.datastructures import State
 from litestar.exceptions import ClientException
@@ -133,6 +134,7 @@ app = Litestar(
         operation_id_creator=default_operation_id_creator,
         use_handler_docstrings=True,
     ),
+    compression_config=CompressionConfig(backend="gzip"),
     plugins=[PydanticPlugin(prefer_alias=True)],
     cors_config=cors_config,
 )
