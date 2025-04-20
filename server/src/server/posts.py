@@ -11,7 +11,7 @@ from sqlalchemy import Select, delete, func, nulls_last, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from models import Post, PostHasTag
-from scheme import PostDTO
+from scheme import PostDetailPublic, PostPublic
 from server.utils.vec import find_similar_posts, get_img_vec
 
 if TYPE_CHECKING:
@@ -118,10 +118,9 @@ class ScoreUpdate(Struct):
 class PostController(Controller):
     path = "/posts"
     tags: ClassVar[list[str]] = ["Posts"]
-    return_dto = PostDTO
 
     @litestar.post("/search", status_code=200, description="Search for posts by filters.")
-    async def search_posts(self, session: AsyncSession, data: PostFilterWithOrder, limit: int = 100, offset: int = 0) -> list[Post]:
+    async def search_posts(self, session: AsyncSession, data: PostFilterWithOrder, limit: int = 100, offset: int = 0) -> list[PostPublic]:
         await session.execute(text("SELECT setseed(0.47)"))
 
         if data.lab:
@@ -144,19 +143,19 @@ class PostController(Controller):
                 msg = f"Invalid order value: {data.order}"
                 raise HTTPException(detail=msg, status_code=HTTP_409_CONFLICT)
         # Check if order_by is provided and is "random"
-        return (await session.scalars(stmt)).all()
+        return [PostPublic.model_validate(post) for post in (await session.scalars(stmt)).all()]
 
     @litestar.get("/{post_id:int}", status_code=200)
-    async def get_post(self, session: AsyncSession, post_id: int) -> Post:
+    async def get_post(self, session: AsyncSession, post_id: int) -> PostDetailPublic:
         """Get post by id."""
         post = await session.get(Post, post_id)
         if not post:
             msg = f"Post with id {post_id} not found."
             raise NotFoundException(detail=msg)
-        return post
+        return PostDetailPublic.model_validate(post)
 
     @litestar.get("/{post_id:int}/similar", status_code=200)
-    async def get_similar_posts(self, session: AsyncSession, post_id: int, limit: int = 10) -> list[Post]:
+    async def get_similar_posts(self, session: AsyncSession, post_id: int, limit: int = 10) -> list[PostPublic]:
         """Get similar posts by id."""
         post = await session.get(Post, post_id)
         if not post:
@@ -166,7 +165,7 @@ class PostController(Controller):
         resp = await find_similar_posts(session, vec, limit=limit)
         id_list = [row.post_id for row in resp]
         stmt = select(Post).filter(Post.id.in_(id_list)).order_by(func.array_position(id_list, Post.id))
-        return (await session.scalars(stmt)).all()
+        return [PostPublic.model_validate(post) for post in (await session.scalars(stmt)).all()]
 
     @litestar.post("/count", status_code=200, description="Count posts by filters.")
     async def get_posts_count(self, session: AsyncSession, data: PostFilter) -> CountPostsResponse:
@@ -191,7 +190,7 @@ class PostController(Controller):
         return await self._count_by_column(session, data, Post.extension, ExtensionCountItem)
 
     @litestar.put("/{post_id:int}/score")
-    async def update_post_score(self, session: AsyncSession, post_id: int, data: ScoreUpdate) -> Post:
+    async def update_post_score(self, session: AsyncSession, post_id: int, data: ScoreUpdate) -> PostPublic:
         """Update post score by id."""
         p = await session.get(Post, post_id)
         if not p:
@@ -199,10 +198,10 @@ class PostController(Controller):
             raise NotFoundException(detail=msg)
         p.score = data.score
         await session.flush()
-        return p
+        return PostPublic.model_validate(p)
 
     @litestar.put("/{post_id:int}/rating")
-    async def update_post_rating(self, session: AsyncSession, post_id: int, rating: int) -> Post:
+    async def update_post_rating(self, session: AsyncSession, post_id: int, rating: int) -> PostPublic:
         """Update post rating by id."""
         p = await session.get(Post, post_id)
         if not p:
@@ -210,10 +209,10 @@ class PostController(Controller):
             raise NotFoundException(detail=msg)
         p.rating = rating
         await session.flush()
-        return p
+        return PostPublic.model_validate(p)
 
     @litestar.put("/{post_id:int}/caption")
-    async def update_post_caption(self, session: AsyncSession, post_id: int, caption: str) -> Post:
+    async def update_post_caption(self, session: AsyncSession, post_id: int, caption: str) -> PostPublic:
         """Update post caption by id."""
         p = await session.get(Post, post_id)
         if not p:
@@ -221,7 +220,7 @@ class PostController(Controller):
             raise NotFoundException(detail=msg)
         p.caption = caption
         await session.flush()
-        return p
+        return PostPublic.model_validate(p)
 
     @litestar.delete("/delete")
     async def delete_posts(self, session: AsyncSession, ids: list[int]) -> None:
@@ -229,7 +228,7 @@ class PostController(Controller):
         await session.execute(delete(Post).where(Post.id.in_(ids)))
 
     @litestar.put("/{post_id:int}/rotate")
-    async def rotate_post_image(self, session: AsyncSession, post_id: int, *, clockwise: bool = True) -> Post:
+    async def rotate_post_image(self, session: AsyncSession, post_id: int, *, clockwise: bool = True) -> PostPublic:
         """
         Rotate post image by id.
         It will rotate the image and update md5, width and height.
@@ -239,10 +238,10 @@ class PostController(Controller):
             msg = f"Post with id {post_id} not found."
             raise NotFoundException(detail=msg)
         await asyncio.to_thread(post.rotate, clockwise=clockwise)
-        return post
+        return PostPublic.model_validate(post)
 
     @litestar.put("/{post_id:int}/tags/{tag_name:str}")
-    async def add_tag_to_post(self, session: AsyncSession, post_id: int, tag_name: str) -> Post:
+    async def add_tag_to_post(self, session: AsyncSession, post_id: int, tag_name: str) -> PostPublic:
         """Add tag to post by id."""
         post = await session.get(Post, post_id)
         if not post:
@@ -258,7 +257,7 @@ class PostController(Controller):
         return post
 
     @litestar.delete("/{post_id:int}/tags/{tag_name:str}", status_code=200)
-    async def remove_tag_from_post(self, session: AsyncSession, post_id: int, tag_name: str) -> Post:
+    async def remove_tag_from_post(self, session: AsyncSession, post_id: int, tag_name: str) -> PostPublic:
         """Remove tag from post by id."""
         post = await session.get(Post, post_id)
         if not post:
@@ -270,7 +269,7 @@ class PostController(Controller):
         else:
             msg = f"Tag {tag_name} does not exist in post {post_id}."
             raise HTTPException(detail=msg, status_code=HTTP_409_CONFLICT)
-        return post
+        return PostPublic.model_validate(post)
 
     async def _count_by_column(self, session: AsyncSession, data: PostFilter, column: Post, result_class: type) -> list:
         stmt = select(column, func.count()).group_by(column)

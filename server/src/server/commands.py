@@ -5,6 +5,7 @@ from typing import ClassVar
 
 import litestar
 from litestar import Controller
+from litestar.exceptions import NotFoundException
 from sqlalchemy import select
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -13,17 +14,33 @@ import shared
 from danbooru import DanbooruClient
 from models import Post, PostHasTag, PostVector, Tag, TagGroup
 from processors import process_posts
-from scheme import Result
+from scheme import PostDetailPublic, Result
 from server.utils.vec import get_img_vec
-from utils import from_rating_to_int, logger
+from utils import attach_tags_to_post, from_rating_to_int, get_tagger, logger
 
 
 class CommandController(Controller):
     path = "/cmd"
     tags: ClassVar[list[str]] = ["Commands"]
 
+    @litestar.put("/auto-tags/{post_id:int}", description="Auto tag a post")
+    async def v1_cmd_auto_tags(self, post_id: int, session: AsyncSession) -> PostDetailPublic:
+        post = await session.get(Post, post_id)
+        if post is None:
+            msg = f"Post with ID {post_id} not found."
+            raise NotFoundException(msg)
+        abs_path = post.absolute_path
+        tagger = get_tagger()
+        resp = tagger.tag(abs_path)
+        post.rating = from_rating_to_int(resp.rating)
+        await attach_tags_to_post(session, post, resp, is_auto=True)
+        session.add(post)
+        await session.flush()
+        await session.refresh(post)
+        return PostDetailPublic.model_validate(post)
+
     @litestar.post("/posts/embedding", description="Calculate embedding for all posts")
-    async def cmd_calculate_embedding(self, session: AsyncSession) -> dict:
+    async def cmd_calculate_embedding(self, session: AsyncSession) -> Result:
         stmt = select(Post).join(PostVector).where(PostVector.embedding.is_(None))
         posts = (await session.scalars(stmt)).all()
         if not posts:
@@ -37,7 +54,7 @@ class CommandController(Controller):
         return Result(msg=f"Calculated embedding for {len(posts)} posts.")
 
     @litestar.post("/download-from-danbooru", description="Download posts from Danbooru")
-    async def cmd_download_from_danbooru(self, session: AsyncSession, tags: str) -> dict:
+    async def cmd_download_from_danbooru(self, session: AsyncSession, tags: str) -> None:
         """
         Download posts from https://danbooru.donmai.us/ and save them to the database.
         """

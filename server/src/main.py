@@ -32,7 +32,7 @@ from danbooru import DanbooruClient
 from db import find_similar_posts, get_img_vec
 from models import Post, PostHasColor, PostHasTag, Tag, TagGroup
 from processors import process_post, process_posts, set_post_colors, sync_metadata
-from scheme import PostPublic, PostWithTagPublic, TagGroupWithTagsPublic, TagPublic, TagWithGroupPublic
+from scheme import PostPublic, PostDetailPublic, TagGroupWithTagsPublic, TagPublic, TagWithGroupPublic
 from server.utils import is_image
 from utils import (
     async_transaction,
@@ -342,7 +342,7 @@ def v1_update_post_caption(post_id: Annotated[int, Path(gt=0)], caption: str):
     return post
 
 
-@app.get("/v1/posts/{post_id}", response_model=PostWithTagPublic, tags=["Post"])
+@app.get("/v1/posts/{post_id}", response_model=PostDetailPublic, tags=["Post"])
 async def v1_get_post(post_id: int, session: Annotated[AsyncSession, Depends(async_transaction)]):
     return await get_post_by_id(post_id, session)
 
@@ -450,7 +450,7 @@ def v1_update_tag(tag_name: str, new_tag_name: str):
     return tag
 
 
-@app.post("/v1/posts/{post_id}/tags/{tag_name}", response_model=PostWithTagPublic, tags=["Tag"])
+@app.post("/v1/posts/{post_id}/tags/{tag_name}", response_model=PostDetailPublic, tags=["Tag"])
 def v1_add_tag_to_post(post_id: int, tag_name: str):
     session = get_session()
     post = session.get(Post, post_id)
@@ -474,7 +474,7 @@ def v1_add_tag_to_post(post_id: int, tag_name: str):
     return get_post_by_id(post_id, session)
 
 
-@app.delete("/v1/posts/{post_id}/tags/{tag_name}", response_model=PostWithTagPublic, tags=["Tag"])
+@app.delete("/v1/posts/{post_id}/tags/{tag_name}", response_model=PostDetailPublic, tags=["Tag"])
 def v1_remove_tag_from_post(post_id: int, tag_name: str):
     session = get_session()
     post = session.get(Post, post_id)
@@ -493,7 +493,7 @@ def v1_get_tag_groups(session: Annotated[Session, Depends(get_session)]):
     return session.scalars(select(TagGroup))
 
 
-@app.put("/v1/posts/move", response_model=PostWithTagPublic, tags=["Post"])
+@app.put("/v1/posts/move", response_model=PostDetailPublic, tags=["Post"])
 def v1_move_posts(post_ids: list[int], new_path: str, session: Annotated[Session, Depends(get_session)]):
     for post_id in post_ids:
         post = session.get(Post, post_id)
@@ -508,7 +508,7 @@ def v1_cmd_process_posts():
     return {"status": "ok"}
 
 
-@app.get("/v1/cmd/auto-tags/{post_id}", response_model=PostWithTagPublic, tags=["Command"])
+@app.get("/v1/cmd/auto-tags/{post_id}", response_model=PostDetailPublic, tags=["Command"])
 def v1_cmd_auto_tags(post_id: int, session: Annotated[Session, Depends(get_session)]):
     post = session.get(Post, post_id)
     if post is None:

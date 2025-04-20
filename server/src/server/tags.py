@@ -2,7 +2,6 @@ from typing import Annotated, ClassVar
 
 import litestar
 from litestar import Controller
-from litestar.di import Provide
 from litestar.exceptions import HTTPException, NotFoundException
 from litestar.params import Parameter
 from litestar.status_codes import HTTP_404_NOT_FOUND, HTTP_409_CONFLICT, HTTP_422_UNPROCESSABLE_ENTITY
@@ -11,7 +10,7 @@ from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from models import Tag, TagGroup
-from scheme import Result, TagDTO
+from scheme import Result, TagPublic
 
 MAX_TAG_LENGTH = 200
 
@@ -36,7 +35,6 @@ class TagBatchDelete(Struct):
 class TagsController(Controller):
     path = "/tags"
     tags: ClassVar[list[str]] = ["Tags"]
-    return_dto = TagDTO
 
     @litestar.post("/")
     async def create_tag(self, session: AsyncSession, data: TagCreate) -> Result:
@@ -65,7 +63,7 @@ class TagsController(Controller):
         session: AsyncSession,
         prev: Annotated[str | None, Parameter(max_length=MAX_TAG_LENGTH)],
         limit: Annotated[int, Parameter(gt=0, le=1000)] = 100,
-    ) -> list[Tag]:
+    ) -> list[TagPublic]:
         """
         List all tags with pagination support.
         The cursor is used to paginate through the results, and the limit specifies the number of results per page.
@@ -73,10 +71,10 @@ class TagsController(Controller):
         stmt = select(Tag).order_by(Tag.name).limit(limit)
         if prev:
             stmt = stmt.where(Tag.name > prev)
-        return (await session.scalars(stmt)).all()
+        return [TagPublic.model_validate(tag) for tag in (await session.scalars(stmt)).all()]
 
     @litestar.put("/{name:str}")
-    async def update_tag(self, session: AsyncSession, name: str, data: TagCreate) -> Result:
+    async def update_tag(self, session: AsyncSession, name: str, data: TagUpdate) -> Result:
         """
         Update an existing tag with the given name.
         Users can optionally specify a new group ID to associate the tag with a tag group.

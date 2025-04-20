@@ -52,7 +52,6 @@ class PostHasColor(Base):
     post_id: Mapped[int] = mapped_column(ForeignKey("posts.id", ondelete="CASCADE"), primary_key=True)
     order: Mapped[int] = mapped_column(Integer, primary_key=True)
     color: Mapped[int] = mapped_column(Integer, nullable=False)
-    # post: Mapped["Post"] = relationship(back_populates="colors", init=False, lazy="selectin")
 
 
 class PostVector(Base):

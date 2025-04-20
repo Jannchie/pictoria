@@ -9,45 +9,96 @@ export interface ExtensionCountItem {
   count: number
 }
 
-export interface ListPostBody {
+export interface PostFilter {
+  /**
+   * Rating to filter by.
+   */
   rating?: Array<number> | null
+  /**
+   * Score to filter by.
+   */
   score?: Array<number> | null
+  /**
+   * Tags to filter by.
+   */
   tags?: Array<string> | null
+  /**
+   * File extensions to filter by.
+   */
   extension?: Array<string> | null
   folder?: string | null
-  order_by?: 'id' | 'score' | 'rating' | 'created_at' | 'published_at' | 'file_name' | null
-  order?: 'asc' | 'desc' | 'random'
+  /**
+   * Lab color space values for filtering.
+   */
   lab?: number | null
 }
 
-export interface Post {
-  created_at: unknown
-  updated_at: unknown
-  id: unknown
-  file_path?: unknown
-  file_name?: unknown
-  extension?: unknown
-  full_path: unknown
-  aspect_ratio: unknown
-  width?: unknown
-  height?: unknown
-  published_at?: unknown
-  score?: unknown
-  rating?: unknown
-  description?: unknown
-  meta?: unknown
-  md5?: unknown
-  size?: unknown
-  source?: unknown
-  caption?: unknown
-  dominant_color_np?: unknown
-  tags?: unknown
-  colors?: unknown
+export interface PostFilterWithOrder {
+  /**
+   * Rating to filter by.
+   */
+  rating?: Array<number> | null
+  /**
+   * Score to filter by.
+   */
+  score?: Array<number> | null
+  /**
+   * Tags to filter by.
+   */
+  tags?: Array<string> | null
+  /**
+   * File extensions to filter by.
+   */
+  extension?: Array<string> | null
+  folder?: string | null
+  /**
+   * Lab color space values for filtering.
+   */
+  lab?: number | null
+  /**
+   * Field to order by.
+   */
+  order_by?: 'id' | 'score' | 'rating' | 'created_at' | 'published_at' | 'file_name'
+  /**
+   * Order direction.
+   */
+  order?: 'asc' | 'desc' | 'random'
+}
+
+export interface PostPublic {
+  filePath?: string
+  fileName?: string
+  extension?: string
+  width?: number | null
+  height?: number | null
+  publishedAt?: string | null
+  score?: number
+  rating?: number
+  description?: string
+  meta?: string
+  md5?: string
+  size?: number
+  source?: string
+  caption?: string
+  tags: Array<PostPublic>
+  colors: Array<PostPublic>
+  id: number
+  fullPath?: string
+  aspectRatio?: number | null
+  createdAt: string
+  updatedAt: string
+  dominantColor?: Array<number> | null
+  absolutePath: string
+  thumbnailPath: string
 }
 
 export interface RatingCountItem {
   rating: number
   count: number
+}
+
+export interface Result {
+  msg: string
 }
 
 export interface ScoreCountItem {
@@ -62,137 +113,96 @@ export interface ScoreUpdate {
   score: number
 }
 
-export interface ServerPostsPostControllerGetPostPostHasTagTagResponseBody {
+export interface TagBatchDelete {
+  name_list: Array<string>
+}
+
+export interface TagCreate {
+  name: string
+  group_id?: number | null
+}
+
+export interface TagGroup {
+  created_at: unknown
+  updated_at: unknown
+  id: unknown
+  name: unknown
+  parent_id?: unknown
+  color?: unknown
+  tags?: unknown
+}
+
+export interface TagPublic {
   groupId?: number | null
+  group?: TagPublic | null
   name: string
   createdAt: string
   updatedAt: string
 }
 
-export interface ServerPostsPostControllerGetPostPostResponseBody {
-  filePath?: string
-  fileName?: string
-  extension?: string
-  width?: number | null
-  height?: number | null
-  publishedAt?: string | null
-  score?: number
-  rating?: number
-  description?: string
-  meta?: string
-  md5?: string
-  size?: number
-  source?: string
-  caption?: string
-  tags: Array<ServerPostsPostControllerGetPostPost0PostHasTagResponseBody>
-  colors: Array<ServerPostsPostControllerGetPostPost0PostHasColorResponseBody>
-  id: number
-  fullPath?: string
-  aspectRatio?: number | null
-  createdAt: string
-  updatedAt: string
-  dominantColor?: Array<number> | null
-  absolutePath: string
-  thumbnailPath: string
+export interface V2RemoveTagFromPostData {
+  body?: never
+  path: {
+    post_id: number
+    tag_name: string
+  }
+  query?: never
+  url: '/v2/posts/{post_id}/tags/{tag_name}'
 }
 
-export interface ServerPostsPostControllerGetPostPost0PostHasColorResponseBody {
-  order: number
-  color: number
+export interface V2RemoveTagFromPostErrors {
+  /**
+   * Validation Exception
+   */
+  400: {
+    status_code: number
+    detail: string
+    extra?: null | Array<unknown> | Array<unknown>
+  }
 }
 
-export interface ServerPostsPostControllerGetPostPost0PostHasTagResponseBody {
-  isAuto?: boolean
-  tagInfo: ServerPostsPostControllerGetPostPostHasTagTagResponseBody
+export type V2RemoveTagFromPostError = V2RemoveTagFromPostErrors[keyof V2RemoveTagFromPostErrors]
+
+export interface V2RemoveTagFromPostResponses {
+  /**
+   * Request fulfilled, document follows
+   */
+  200: PostPublic
 }
 
-export interface ServerPostsPostControllerGetSimilarPostsPostHasTagTagResponseBody {
-  groupId?: number | null
-  name: string
-  createdAt: string
-  updatedAt: string
+export type V2RemoveTagFromPostResponse = V2RemoveTagFromPostResponses[keyof V2RemoveTagFromPostResponses]
+
+export interface V2AddTagToPostData {
+  body?: never
+  path: {
+    post_id: number
+    tag_name: string
+  }
+  query?: never
+  url: '/v2/posts/{post_id}/tags/{tag_name}'
 }
 
-export interface ServerPostsPostControllerGetSimilarPostsPostResponseBody {
-  filePath?: string
-  fileName?: string
-  extension?: string
-  width?: number | null
-  height?: number | null
-  publishedAt?: string | null
-  score?: number
-  rating?: number
-  description?: string
-  meta?: string
-  md5?: string
-  size?: number
-  source?: string
-  caption?: string
-  tags: Array<ServerPostsPostControllerGetSimilarPostsPost0PostHasTagResponseBody>
-  colors: Array<ServerPostsPostControllerGetSimilarPostsPost0PostHasColorResponseBody>
-  id: number
-  fullPath?: string
-  aspectRatio?: number | null
-  createdAt: string
-  updatedAt: string
-  dominantColor?: Array<number> | null
-  absolutePath: string
-  thumbnailPath: string
+export interface V2AddTagToPostErrors {
+  /**
+   * Validation Exception
+   */
+  400: {
+    status_code: number
+    detail: string
+    extra?: null | Array<unknown> | Array<unknown>
+  }
 }
 
-export interface ServerPostsPostControllerGetSimilarPostsPost0PostHasColorResponseBody {
-  order: number
-  color: number
+export type V2AddTagToPostError = V2AddTagToPostErrors[keyof V2AddTagToPostErrors]
+
+export interface V2AddTagToPostResponses {
+  /**
+   * Request fulfilled, document follows
+   */
+  200: PostPublic
 }
 
-export interface ServerPostsPostControllerGetSimilarPostsPost0PostHasTagResponseBody {
-  isAuto?: boolean
-  tagInfo: ServerPostsPostControllerGetSimilarPostsPostHasTagTagResponseBody
-}
-
-export interface ServerPostsPostControllerSearchPostsPostHasTagTagResponseBody {
-  groupId?: number | null
-  name: string
-  createdAt: string
-  updatedAt: string
-}
-
-export interface ServerPostsPostControllerSearchPostsPostResponseBody {
-  filePath?: string
-  fileName?: string
-  extension?: string
-  width?: number | null
-  height?: number | null
-  publishedAt?: string | null
-  score?: number
-  rating?: number
-  description?: string
-  meta?: string
-  md5?: string
-  size?: number
-  source?: string
-  caption?: string
-  tags: Array<ServerPostsPostControllerSearchPostsPost0PostHasTagResponseBody>
-  colors: Array<ServerPostsPostControllerSearchPostsPost0PostHasColorResponseBody>
-  id: number
-  fullPath?: string
-  aspectRatio?: number | null
-  createdAt: string
-  updatedAt: string
-  dominantColor?: Array<number> | null
-  absolutePath: string
-  thumbnailPath: string
-}
-
-export interface ServerPostsPostControllerSearchPostsPost0PostHasColorResponseBody {
-  order: number
-  color: number
-}
-
-export interface ServerPostsPostControllerSearchPostsPost0PostHasTagResponseBody {
-  isAuto?: boolean
-  tagInfo: ServerPostsPostControllerSearchPostsPostHasTagTagResponseBody
-}
+export type V2AddTagToPostResponse = V2AddTagToPostResponses[keyof V2AddTagToPostResponses]
 
 export interface V2DeletePostsData {
   body?: never
@@ -226,7 +236,7 @@ export interface V2DeletePostsResponses {
 export type V2DeletePostsResponse = V2DeletePostsResponses[keyof V2DeletePostsResponses]
 
 export interface V2GetExtensionCountData {
-  body: ListPostBody
+  body: PostFilter
   path?: never
   query?: never
   url: '/v2/posts/count/extension'
@@ -280,13 +290,13 @@ export interface V2GetPostResponses {
   /**
    * Request fulfilled, document follows
    */
-  200: ServerPostsPostControllerGetPostPostResponseBody
+  200: PostPublic
 }
 
 export type V2GetPostResponse = V2GetPostResponses[keyof V2GetPostResponses]
 
 export interface V2GetPostsCountData {
-  body: ListPostBody
+  body: PostFilter
   path?: never
   query?: never
   url: '/v2/posts/count'
@@ -315,7 +325,7 @@ export interface V2GetPostsCountResponses {
 export type V2GetPostsCountResponse = V2GetPostsCountResponses[keyof V2GetPostsCountResponses]
 
 export interface V2GetScoreCountData {
-  body: ListPostBody
+  body: PostFilter
   path?: never
   query?: never
   url: '/v2/posts/count/score'
@@ -371,13 +381,13 @@ export interface V2GetSimilarPostsResponses {
   /**
    * Request fulfilled, document follows
    */
-  200: Array<ServerPostsPostControllerGetSimilarPostsPostResponseBody>
+  200: Array<PostPublic>
 }
 
 export type V2GetSimilarPostsResponse = V2GetSimilarPostsResponses[keyof V2GetSimilarPostsResponses]
 
 export interface V2GetTagsCountData {
-  body: ListPostBody
+  body: PostFilter
   path?: never
   query?: never
   url: '/v2/posts/count/rating'
@@ -405,8 +415,41 @@ export interface V2GetTagsCountResponses {
 
 export type V2GetTagsCountResponse = V2GetTagsCountResponses[keyof V2GetTagsCountResponses]
 
+export interface V2RotatePostImageData {
+  body?: never
+  path: {
+    post_id: number
+  }
+  query?: {
+    clockwise?: boolean
+  }
+  url: '/v2/posts/{post_id}/rotate'
+}
+
+export interface V2RotatePostImageErrors {
+  /**
+   * Validation Exception
+   */
+  400: {
+    status_code: number
+    detail: string
+    extra?: null | Array<unknown> | Array<unknown>
+  }
+}
+
+export type V2RotatePostImageError = V2RotatePostImageErrors[keyof V2RotatePostImageErrors]
+
+export interface V2RotatePostImageResponses {
+  /**
+   * Request fulfilled, document follows
+   */
+  200: PostPublic
+}
+
+export type V2RotatePostImageResponse = V2RotatePostImageResponses[keyof V2RotatePostImageResponses]
+
 export interface V2SearchPostsData {
-  body: ListPostBody
+  body: PostFilterWithOrder
   path?: never
   query?: {
     limit?: number
@@ -432,7 +475,7 @@ export interface V2SearchPostsResponses {
   /**
    * Request fulfilled, document follows
    */
-  200: Array<ServerPostsPostControllerSearchPostsPostResponseBody>
+  200: Array<PostPublic>
 }
 
 export type V2SearchPostsResponse = V2SearchPostsResponses[keyof V2SearchPostsResponses]
@@ -465,7 +508,7 @@ export interface V2UpdatePostCaptionResponses {
   /**
    * Request fulfilled, document follows
    */
-  200: Post
+  200: PostPublic
 }
 
 export type V2UpdatePostCaptionResponse = V2UpdatePostCaptionResponses[keyof V2UpdatePostCaptionResponses]
@@ -498,7 +541,7 @@ export interface V2UpdatePostRatingResponses {
   /**
    * Request fulfilled, document follows
    */
-  200: Post
+  200: PostPublic
 }
 
 export type V2UpdatePostRatingResponse = V2UpdatePostRatingResponses[keyof V2UpdatePostRatingResponses]
@@ -529,10 +572,301 @@ export interface V2UpdatePostScoreResponses {
   /**
    * Request fulfilled, document follows
    */
-  200: Post
+  200: PostPublic
 }
 
 export type V2UpdatePostScoreResponse = V2UpdatePostScoreResponses[keyof V2UpdatePostScoreResponses]
+
+export interface V2CmdCalculateEmbeddingData {
+  body?: never
+  path?: never
+  query?: never
+  url: '/v2/cmd/posts/embedding'
+}
+
+export interface V2CmdCalculateEmbeddingResponses {
+  /**
+   * Document created, URL follows
+   */
+  201: {
+    [key: string]: unknown
+  }
+}
+
+export type V2CmdCalculateEmbeddingResponse = V2CmdCalculateEmbeddingResponses[keyof V2CmdCalculateEmbeddingResponses]
+
+export interface V2CmdDownloadFromDanbooruData {
+  body?: never
+  path?: never
+  query: {
+    tags: string
+  }
+  url: '/v2/cmd/download-from-danbooru'
+}
+
+export interface V2CmdDownloadFromDanbooruErrors {
+  /**
+   * Validation Exception
+   */
+  400: {
+    status_code: number
+    detail: string
+    extra?: null | Array<unknown> | Array<unknown>
+  }
+}
+
+export type V2CmdDownloadFromDanbooruError = V2CmdDownloadFromDanbooruErrors[keyof V2CmdDownloadFromDanbooruErrors]
+
+export interface V2CmdDownloadFromDanbooruResponses {
+  /**
+   * Document created, URL follows
+   */
+  201: {
+    [key: string]: unknown
+  }
+}
+
+export type V2CmdDownloadFromDanbooruResponse = V2CmdDownloadFromDanbooruResponses[keyof V2CmdDownloadFromDanbooruResponses]
+
+export interface V2GetOriginalData {
+  body?: never
+  path: {
+    post_path: string
+  }
+  query?: never
+  url: '/v2/images/original/{post_path}'
+}
+
+export interface V2GetOriginalErrors {
+  /**
+   * Validation Exception
+   */
+  400: {
+    status_code: number
+    detail: string
+    extra?: null | Array<unknown> | Array<unknown>
+  }
+}
+
+export type V2GetOriginalError = V2GetOriginalErrors[keyof V2GetOriginalErrors]
+
+export interface V2GetOriginalResponses {
+  /**
+   * File Download
+   */
+  200: string
+}
+
+export type V2GetOriginalResponse = V2GetOriginalResponses[keyof V2GetOriginalResponses]
+
+export interface V2GetThumbnailData {
+  body?: never
+  path: {
+    post_path: string
+  }
+  query?: never
+  url: '/v2/images/thumbnails/{post_path}'
+}
+
+export interface V2GetThumbnailErrors {
+  /**
+   * Validation Exception
+   */
+  400: {
+    status_code: number
+    detail: string
+    extra?: null | Array<unknown> | Array<unknown>
+  }
+}
+
+export type V2GetThumbnailError = V2GetThumbnailErrors[keyof V2GetThumbnailErrors]
+
+export interface V2GetThumbnailResponses {
+  /**
+   * File Download
+   */
+  200: string
+}
+
+export type V2GetThumbnailResponse = V2GetThumbnailResponses[keyof V2GetThumbnailResponses]
+
+export interface V2DeleteTagsData {
+  body: TagBatchDelete
+  path?: never
+  query?: never
+  url: '/v2/tags'
+}
+
+export interface V2DeleteTagsErrors {
+  /**
+   * Validation Exception
+   */
+  400: {
+    status_code: number
+    detail: string
+    extra?: null | Array<unknown> | Array<unknown>
+  }
+}
+
+export type V2DeleteTagsError = V2DeleteTagsErrors[keyof V2DeleteTagsErrors]
+
+export interface V2DeleteTagsResponses {
+  /**
+   * Request fulfilled, nothing follows
+   */
+  204: void
+}
+
+export type V2DeleteTagsResponse = V2DeleteTagsResponses[keyof V2DeleteTagsResponses]
+
+export interface V2ListTagsData {
+  body?: never
+  path?: never
+  query: {
+    cursor?: string | null
+    limit: number
+  }
+  url: '/v2/tags'
+}
+
+export interface V2ListTagsErrors {
+  /**
+   * Validation Exception
+   */
+  400: {
+    status_code: number
+    detail: string
+    extra?: null | Array<unknown> | Array<unknown>
+  }
+}
+
+export type V2ListTagsError = V2ListTagsErrors[keyof V2ListTagsErrors]
+
+export interface V2ListTagsResponses {
+  /**
+   * Request fulfilled, document follows
+   */
+  200: {
+    items?: Array<TagPublic>
+    /**
+     * Unique ID, designating the last identifier in the given data set. This value can be used to request the 'next' batch of records.
+     */
+    cursor?: string
+    /**
+     * Maximal number of items to send.
+     */
+    results_per_page?: number
+  }
+}
+
+export type V2ListTagsResponse = V2ListTagsResponses[keyof V2ListTagsResponses]
+
+export interface V2CreateTagData {
+  body: TagCreate
+  path?: never
+  query?: never
+  url: '/v2/tags'
+}
+
+export interface V2CreateTagErrors {
+  /**
+   * Validation Exception
+   */
+  400: {
+    status_code: number
+    detail: string
+    extra?: null | Array<unknown> | Array<unknown>
+  }
+}
+
+export type V2CreateTagError = V2CreateTagErrors[keyof V2CreateTagErrors]
+
+export interface V2CreateTagResponses {
+  /**
+   * Document created, URL follows
+   */
+  201: Result
+}
+
+export type V2CreateTagResponse = V2CreateTagResponses[keyof V2CreateTagResponses]
+
+export interface V2DeleteTagData {
+  body?: never
+  path: {
+    name: string
+  }
+  query?: never
+  url: '/v2/tags/{name}'
+}
+
+export interface V2DeleteTagErrors {
+  /**
+   * Validation Exception
+   */
+  400: {
+    status_code: number
+    detail: string
+    extra?: null | Array<unknown> | Array<unknown>
+  }
+}
+
+export type V2DeleteTagError = V2DeleteTagErrors[keyof V2DeleteTagErrors]
+
+export interface V2DeleteTagResponses {
+  /**
+   * Request fulfilled, nothing follows
+   */
+  204: void
+}
+
+export type V2DeleteTagResponse = V2DeleteTagResponses[keyof V2DeleteTagResponses]
+
+export interface V2UpdateTagData {
+  body: TagCreate
+  path: {
+    name: string
+  }
+  query?: never
+  url: '/v2/tags/{name}'
+}
+
+export interface V2UpdateTagErrors {
+  /**
+   * Validation Exception
+   */
+  400: {
+    status_code: number
+    detail: string
+    extra?: null | Array<unknown> | Array<unknown>
+  }
+}
+
+export type V2UpdateTagError = V2UpdateTagErrors[keyof V2UpdateTagErrors]
+
+export interface V2UpdateTagResponses {
+  /**
+   * Request fulfilled, document follows
+   */
+  200: Result
+}
+
+export type V2UpdateTagResponse = V2UpdateTagResponses[keyof V2UpdateTagResponses]
+
+export interface V2ListTagGroupData {
+  body?: never
+  path?: never
+  query?: never
+  url: '/v2/tags/groups'
+}
+
+export interface V2ListTagGroupResponses {
+  /**
+   * Request fulfilled, document follows
+   */
+  200: Array<TagGroup>
+}
+
+export type V2ListTagGroupResponse = V2ListTagGroupResponses[keyof V2ListTagGroupResponses]
 
 export interface ClientOptions {
   baseURL: `${string}://${string}` | (string & {})

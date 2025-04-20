@@ -364,18 +364,9 @@ async def attach_tags_to_post(session: AsyncSession, post: Post, resp: wdtagger.
                 existing_tag.group_id = tag_group.id
                 session.add(existing_tag)
         if new_tags := set(tag_names) - existing_tag_names:
-            await session.execute(
-                insert(Tag).values(
-                    [
-                        {
-                            "name": tag_name,
-                            "group_id": tag_group.id,
-                        }
-                        for tag_name in new_tags
-                    ],
-                ),
-            )
-
+            for tag_name in new_tags:
+                tag = Tag(name=tag_name, group_id=tag_group.id)
+                session.add(tag)
         post_existing_tags = (
             await session.scalars(
                 select(PostHasTag).where(PostHasTag.tag_name.in_(tag_names) & (PostHasTag.post_id == post.id)),
@@ -383,21 +374,10 @@ async def attach_tags_to_post(session: AsyncSession, post: Post, resp: wdtagger.
         ).all()
         post_existing_tag_names = {tag_record.tag_name for tag_record in post_existing_tags}
         if post_new_tags := set(tag_names) - post_existing_tag_names:
-            await session.execute(
-                insert(PostHasTag).values(
-                    [
-                        {
-                            "post_id": post.id,
-                            "tag_name": tag_name,
-                            "is_auto": is_auto,
-                        }
-                        for tag_name in post_new_tags
-                    ],
-                ),
-            )
-
+            for tag_name in post_new_tags:
+                post_has_tag = PostHasTag(post_id=post.id, tag_name=tag_name, is_auto=is_auto)
+                post.tags.append(post_has_tag)
     session.add(post)
-
 
 @cache
 def _get_tagger() -> wdtagger.Tagger:
