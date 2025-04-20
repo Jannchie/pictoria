@@ -5,12 +5,13 @@ from typing import TYPE_CHECKING, ClassVar
 
 import litestar
 from litestar import Controller
-from litestar.exceptions import NotFoundException
+from litestar.exceptions import HTTPException, NotFoundException
 from sqlalchemy import select
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
 import shared
+from ai.make_captions import OpenAIImageAnnotator
 from danbooru import DanbooruClient
 from models import Post, PostHasTag, PostVector, Tag, TagGroup
 from processors import process_posts
@@ -26,6 +27,21 @@ if TYPE_CHECKING:
 class CommandController(Controller):
     path = "/cmd"
     tags: ClassVar[list[str]] = ["Commands"]
+
+    @litestar.put("/auto-caption/{post_id:int}", tags=["Command"])
+    async def auto_caption(self, session: AsyncSession, post_id: int) -> PostDetailPublic:
+        post: Post = await session.get(Post, post_id)
+        if shared.openai_key is None:
+            raise HTTPException(status_code=400, detail="OpenAI API key is not set")
+
+        if shared.caption_annotator is None:
+            shared.caption_annotator = OpenAIImageAnnotator(shared.openai_key)
+
+        post.caption = shared.caption_annotator.annotate_image(post.absolute_path)
+        session.add(post)
+        await session.commit()
+        await session.refresh(post)
+        return PostDetailPublic.model_validate(post)
 
     @litestar.put("/auto-tags/{post_id:int}", description="Auto tag a post")
     async def cmd_auto_tags(self, post_id: int, session: AsyncSession) -> PostDetailPublic:
