@@ -90,13 +90,9 @@ class Post(BaseWithTime):
     size: Mapped[int] = mapped_column(Integer, nullable=False, default=0, server_default="0", index=True)
     source: Mapped[str] = mapped_column(String, nullable=False, default="", server_default="", index=True)
     caption: Mapped[str] = mapped_column(String, nullable=False, default="", server_default="")
-    dominant_color_np: Mapped[np.ndarray | None] = mapped_column("dominant_color", Vector(3), nullable=True, default=None)
+    dominant_color: Mapped[np.ndarray | None] = mapped_column("dominant_color", Vector(3), nullable=True, default=None)
     tags: Mapped[list["PostHasTag"]] = relationship(default_factory=list, lazy="selectin")
     colors: Mapped[list["PostHasColor"]] = relationship(default_factory=list, lazy="selectin")
-
-    @property
-    def dominant_color(self) -> list[float, float, float] | None:
-        return None if self.dominant_color_np is None else self.dominant_color_np.tolist()
 
     @property
     def absolute_path(self) -> Path:

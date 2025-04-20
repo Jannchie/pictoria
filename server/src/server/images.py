@@ -38,7 +38,7 @@ class ImageController(Controller):
         """
         Get original image.
         """
-        abs_path = shared.target_dir / post_path[post_path.rfind("/") + 1 :]
+        abs_path = shared.target_dir / post_path[1:]
         if not abs_path.exists():
             raise NotFoundException(detail="Original image not found")
         media_type, _ = mimetypes.guess_type(abs_path)
@@ -49,10 +49,10 @@ class ImageController(Controller):
         """
         Get thumbnail image.
         """
-        thumbnail_file_path = shared.thumbnails_dir / post_path[post_path.rfind("/") + 1 :]
+        thumbnail_file_path = shared.thumbnails_dir / post_path[1:]
         if not thumbnail_file_path.exists():
             thumbnail_file_path.parent.mkdir(parents=True, exist_ok=True)
-        original_file_path = shared.target_dir / post_path[post_path.rfind("/") + 1 :]
+        original_file_path = shared.target_dir / post_path[1:]
         if not original_file_path.exists():
             raise NotFoundException(detail="Original image not found")
         if not thumbnail_file_path.exists():

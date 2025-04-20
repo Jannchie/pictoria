@@ -50,7 +50,7 @@ def _update_post_dominant_color(session: Session, post_id: int) -> bool:
         return True
 
     # 检查是否已有dominant_color - 正确处理NumPy数组
-    if post.dominant_color_np is not None and ((isinstance(post.dominant_color_np, np.ndarray) and post.dominant_color_np.size > 0) or post.dominant_color_np):
+    if post.dominant_color is not None and ((isinstance(post.dominant_color, np.ndarray) and post.dominant_color.size > 0) or post.dominant_color):
         return True
 
     path = f"./demo/{post.absolute_path}"
@@ -61,9 +61,9 @@ def _update_post_dominant_color(session: Session, post_id: int) -> bool:
     if isinstance(lab_color, np.ndarray):
         # 转换为列表或字符串，具体取决于你的数据库字段类型
         lab_color_list = lab_color.tolist()
-        post.dominant_color_np = lab_color_list
+        post.dominant_color = lab_color_list
     else:
-        post.dominant_color_np = lab_color
+        post.dominant_color = lab_color
 
     session.commit()
     # 将成功消息放入队列

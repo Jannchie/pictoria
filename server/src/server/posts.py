@@ -16,11 +16,12 @@ from msgspec import Meta, Struct
 from pydantic import BaseModel, ConfigDict
 from sqlalchemy import Select, delete, func, nulls_last, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import lazyload, load_only
 
 import shared
 from models import Post, PostHasTag
 from processors import process_post
-from scheme import PostDetailPublic, PostPublic
+from scheme import DTOBaseModel, PostDetailPublic, PostHasColorPublic, PostPublic
 from server.utils.vec import find_similar_posts, get_img_vec
 from utils import get_path_name_and_extension
 
@@ -125,22 +126,50 @@ class ScoreUpdate(Struct):
     score: Annotated[int, Meta(ge=0, le=5, description="Score from 0 to 5.")]
 
 
+class PostSimplePublic(DTOBaseModel):
+    id: int
+    file_path: str
+    file_name: str
+    extension: str
+    rating: int
+    width: int
+    height: int
+    aspect_ratio: float | None = None
+    dominant_color: list[float] | None = None
+    colors: list[PostHasColorPublic]
+
+
 class PostController(Controller):
     path = "/posts"
     tags: ClassVar[list[str]] = ["Posts"]
 
     @litestar.post("/search", status_code=200, description="Search for posts by filters.")
-    async def search_posts(self, session: AsyncSession, data: PostFilterWithOrder, limit: int = 100, offset: int = 0) -> list[PostPublic]:
+    async def search_posts(self, session: AsyncSession, data: PostFilterWithOrder, limit: int = 100, offset: int = 0) -> list[PostSimplePublic]:
         await session.execute(text("SELECT setseed(0.47)"))
+
+        select_stmt = select(Post).options(
+            load_only(
+                Post.id,
+                Post.file_path,
+                Post.file_name,
+                Post.extension,
+                Post.rating,
+                Post.width,
+                Post.height,
+                Post.aspect_ratio,
+                Post.dominant_color,
+            ),
+            lazyload(Post.tags),
+        )
 
         if data.lab:
             l, a, b = data.lab  # noqa: E741
             lab_vec = [l, a, b]
-            distance = Post.dominant_color_np.l2_distance(lab_vec)
-            stmt = apply_body_filter(data, select(Post)).order_by(nulls_last(distance)).limit(limit).offset(offset)
+            distance = Post.dominant_color.l2_distance(lab_vec)
+            stmt = apply_body_filter(data, select_stmt).order_by(nulls_last(distance)).limit(limit).offset(offset)
             return (await session.scalars(stmt)).all()
 
-        stmt = apply_body_filter(data, select(Post)).limit(limit).offset(offset)
+        stmt = apply_body_filter(data, select_stmt).limit(limit).offset(offset)
         if data.order_by:
             order_column: MappedColumn = getattr(Post, data.order_by)
             if data.order == "random":
@@ -152,8 +181,7 @@ class PostController(Controller):
             else:
                 msg = f"Invalid order value: {data.order}"
                 raise HTTPException(detail=msg, status_code=HTTP_409_CONFLICT)
-        # Check if order_by is provided and is "random"
-        return [PostPublic.model_validate(post) for post in (await session.scalars(stmt)).all()]
+        return [PostSimplePublic.model_validate(post) for post in (await session.scalars(stmt)).all()]
 
     @litestar.get("/{post_id:int}", status_code=200)
     async def get_post(self, session: AsyncSession, post_id: int) -> PostDetailPublic:
@@ -184,17 +212,17 @@ class PostController(Controller):
         count = (await session.scalar(stmt)) or 0
         return CountPostsResponse(count=count)
 
-    @litestar.post("/count/rating")
-    async def get_tags_count(self, session: AsyncSession, data: PostFilter) -> list[RatingCountItem]:
+    @litestar.post("/count/rating", status_code=200, description="Count posts by rating.")
+    async def get_rating_count(self, session: AsyncSession, data: PostFilter) -> list[RatingCountItem]:
         """Count posts by rating."""
         return await self._count_by_column(session, data, Post.rating, RatingCountItem)
 
-    @litestar.post("/count/score")
+    @litestar.post("/count/score", status_code=200, description="Count posts by score.")
     async def get_score_count(self, session: AsyncSession, data: PostFilter) -> list[ScoreCountItem]:
         """Count posts by score."""
         return await self._count_by_column(session, data, Post.score, ScoreCountItem)
 
-    @litestar.post("/count/extension")
+    @litestar.post("/count/extension", status_code=200, description="Count posts by extension.")
     async def get_extension_count(self, session: AsyncSession, data: PostFilter) -> list[ExtensionCountItem]:
         """Count posts by extension."""
         return await self._count_by_column(session, data, Post.extension, ExtensionCountItem)
@@ -229,6 +257,17 @@ class PostController(Controller):
             msg = f"Post with id {post_id} not found."
             raise NotFoundException(detail=msg)
         p.caption = caption
+        await session.flush()
+        return PostDetailPublic.model_validate(p)
+
+    @litestar.put("/{post_id:int}/source")
+    async def update_post_source(self, session: AsyncSession, post_id: int, source: str) -> PostDetailPublic:
+        """Update post source by id."""
+        p = await session.get(Post, post_id)
+        if not p:
+            msg = f"Post with id {post_id} not found."
+            raise NotFoundException(detail=msg)
+        p.source = source
         await session.flush()
         return PostDetailPublic.model_validate(p)
 
@@ -295,7 +334,7 @@ class PostController(Controller):
         file: UploadFile
 
     @litestar.post("/upload", tags=["Upload"])
-    async def v1_upload_file(
+    async def upload_file(
         self,
         data: Annotated[UploadFormData, Body(media_type=RequestEncodingType.MULTI_PART)],
         session: AsyncSession,

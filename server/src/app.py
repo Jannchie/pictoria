@@ -7,6 +7,7 @@ from contextlib import asynccontextmanager
 
 from dotenv import load_dotenv
 from litestar import Litestar, Router
+from litestar.config.cors import CORSConfig
 from litestar.datastructures import State
 from litestar.exceptions import ClientException
 from litestar.handlers.http_handlers import HTTPRouteHandler
@@ -117,6 +118,8 @@ def default_operation_id_creator(
     return SEPARATORS_CLEANUP_PATTERN.sub("", f"{path_components[0]}{handler_namespace}")
 
 
+cors_config = CORSConfig(allow_origins=["*"])
+
 app = Litestar(
     [v2],
     dependencies={"session": provide_async_session, "transaction": provide_async_transaction},
@@ -131,6 +134,7 @@ app = Litestar(
         use_handler_docstrings=True,
     ),
     plugins=[PydanticPlugin(prefer_alias=True)],
+    cors_config=cors_config,
 )
 
 
