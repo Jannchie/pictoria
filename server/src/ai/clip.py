@@ -21,7 +21,7 @@ def get_clip_model() -> AutoModel:
 def get_processor() -> AutoProcessor:
     return AutoProcessor.from_pretrained(
         "openai/clip-vit-large-patch14",
-        use_fast=True,
+        use_fast=False,
     )
 
 
@@ -51,12 +51,3 @@ if __name__ == "__main__":
         print(image_features.shape)
         print(text_features.shape)
         print(model(**inputs))
-
-    # with torch.no_grad():
-    #     outputs = model(**inputs)
-
-    # outputs = model(**inputs)
-    # logits_per_image = outputs.logits_per_image  # this is the image-text similarity score
-    # probs = logits_per_image.softmax(dim=1)  # we can take the softmax to get the label probabilities
-    # for prob, label in zip(probs[0], texts, strict=False):
-    #     print(f"{label}: {prob:.2f}")

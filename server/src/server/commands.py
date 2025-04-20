@@ -28,7 +28,7 @@ class CommandController(Controller):
     path = "/cmd"
     tags: ClassVar[list[str]] = ["Commands"]
 
-    @litestar.put("/auto-caption/{post_id:int}", tags=["Command"])
+    @litestar.put("/auto-caption/{post_id:int}")
     async def auto_caption(self, session: AsyncSession, post_id: int) -> PostDetailPublic:
         post: Post = await session.get(Post, post_id)
         if shared.openai_key is None:

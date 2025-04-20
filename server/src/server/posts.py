@@ -1,18 +1,28 @@
 import asyncio
+import io
+import shutil
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Annotated, ClassVar, Literal
 
+import httpx
 import litestar
 from litestar import Controller
+from litestar.datastructures import UploadFile
+from litestar.enums import RequestEncodingType
 from litestar.exceptions import HTTPException, NotFoundException
+from litestar.params import Body
 from litestar.status_codes import HTTP_409_CONFLICT
 from msgspec import Meta, Struct
+from pydantic import BaseModel, ConfigDict
 from sqlalchemy import Select, delete, func, nulls_last, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
+import shared
 from models import Post, PostHasTag
+from processors import process_post
 from scheme import PostDetailPublic, PostPublic
 from server.utils.vec import find_similar_posts, get_img_vec
+from utils import get_path_name_and_extension
 
 if TYPE_CHECKING:
     from sqlalchemy.orm import MappedColumn
@@ -276,3 +286,54 @@ class PostController(Controller):
         stmt = apply_body_filter(data, stmt)
         resp = await session.execute(stmt)
         return [result_class(**{column.name: item[0], "count": item[1]}) for item in resp]
+
+    class UploadFormData(BaseModel):
+        model_config = ConfigDict(arbitrary_types_allowed=True)
+        url: str | None = None
+        path: str | None = None
+        source: str | None = None
+        file: UploadFile
+
+    @litestar.post("/upload", tags=["Upload"])
+    async def v1_upload_file(
+        self,
+        data: Annotated[UploadFormData, Body(media_type=RequestEncodingType.MULTI_PART)],
+        session: AsyncSession,
+    ) -> None:
+        path = data.path
+        url = data.url
+        file = data.file
+        source = data.source or "unknown"
+        if data.file is None and data.url is None:
+            raise HTTPException(status_code=400, detail="Either file or url must be provided")
+        if data.file is None:
+            headers = {
+                "user-agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/127.0.0.0 Safari/537.36",
+            }
+            if data.url and "pximg.net" in data.url:
+                headers["referer"] = "https://www.pixiv.net/"
+            with httpx.AsyncClient() as client:
+                resp = await client.get(data.url, headers=headers)
+
+            file_io = io.BytesIO(resp.content)
+        else:
+            file_io = file.file
+
+        if not path and file is not None and file.filename:
+            path = file.filename
+        elif path and file is not None and file.filename:
+            path = f"{path}/{file.filename}"
+        else:
+            path = path or (url.split("/")[-1] if url else "")
+        abs_path = shared.target_dir / path
+        abs_path.parent.mkdir(parents=True, exist_ok=True)
+        file_path, file_name, file_ext = get_path_name_and_extension(abs_path)
+        if abs_path.exists():
+            raise HTTPException(status_code=400, detail="File already exists")
+        post = Post(file_path=file_path, file_name=file_name, extension=file_ext, source=source)
+        session.add(post)
+        await session.commit()
+        await session.refresh(post)
+        with abs_path.open("wb") as f:
+            await asyncio.to_thread(shutil.copyfileobj, file_io, f)
+        await process_post(session, abs_path)
