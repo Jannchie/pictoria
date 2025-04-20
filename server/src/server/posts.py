@@ -190,7 +190,7 @@ class PostController(Controller):
         return await self._count_by_column(session, data, Post.extension, ExtensionCountItem)
 
     @litestar.put("/{post_id:int}/score")
-    async def update_post_score(self, session: AsyncSession, post_id: int, data: ScoreUpdate) -> PostPublic:
+    async def update_post_score(self, session: AsyncSession, post_id: int, data: ScoreUpdate) -> PostDetailPublic:
         """Update post score by id."""
         p = await session.get(Post, post_id)
         if not p:
@@ -198,10 +198,10 @@ class PostController(Controller):
             raise NotFoundException(detail=msg)
         p.score = data.score
         await session.flush()
-        return PostPublic.model_validate(p)
+        return PostDetailPublic.model_validate(p)
 
     @litestar.put("/{post_id:int}/rating")
-    async def update_post_rating(self, session: AsyncSession, post_id: int, rating: int) -> PostPublic:
+    async def update_post_rating(self, session: AsyncSession, post_id: int, rating: int) -> PostDetailPublic:
         """Update post rating by id."""
         p = await session.get(Post, post_id)
         if not p:
@@ -209,10 +209,10 @@ class PostController(Controller):
             raise NotFoundException(detail=msg)
         p.rating = rating
         await session.flush()
-        return PostPublic.model_validate(p)
+        return PostDetailPublic.model_validate(p)
 
     @litestar.put("/{post_id:int}/caption")
-    async def update_post_caption(self, session: AsyncSession, post_id: int, caption: str) -> PostPublic:
+    async def update_post_caption(self, session: AsyncSession, post_id: int, caption: str) -> PostDetailPublic:
         """Update post caption by id."""
         p = await session.get(Post, post_id)
         if not p:
@@ -220,7 +220,7 @@ class PostController(Controller):
             raise NotFoundException(detail=msg)
         p.caption = caption
         await session.flush()
-        return PostPublic.model_validate(p)
+        return PostDetailPublic.model_validate(p)
 
     @litestar.delete("/delete")
     async def delete_posts(self, session: AsyncSession, ids: list[int]) -> None:
@@ -228,7 +228,7 @@ class PostController(Controller):
         await session.execute(delete(Post).where(Post.id.in_(ids)))
 
     @litestar.put("/{post_id:int}/rotate")
-    async def rotate_post_image(self, session: AsyncSession, post_id: int, *, clockwise: bool = True) -> PostPublic:
+    async def rotate_post_image(self, session: AsyncSession, post_id: int, *, clockwise: bool = True) -> PostDetailPublic:
         """
         Rotate post image by id.
         It will rotate the image and update md5, width and height.
@@ -238,10 +238,10 @@ class PostController(Controller):
             msg = f"Post with id {post_id} not found."
             raise NotFoundException(detail=msg)
         await asyncio.to_thread(post.rotate, clockwise=clockwise)
-        return PostPublic.model_validate(post)
+        return PostDetailPublic.model_validate(post)
 
     @litestar.put("/{post_id:int}/tags/{tag_name:str}")
-    async def add_tag_to_post(self, session: AsyncSession, post_id: int, tag_name: str) -> PostPublic:
+    async def add_tag_to_post(self, session: AsyncSession, post_id: int, tag_name: str) -> PostDetailPublic:
         """Add tag to post by id."""
         post = await session.get(Post, post_id)
         if not post:
@@ -254,10 +254,10 @@ class PostController(Controller):
         else:
             msg = f"Tag {tag_name} already exists in post {post_id}."
             raise HTTPException(detail=msg, status_code=HTTP_409_CONFLICT)
-        return post
+        return PostDetailPublic.model_validate(post)
 
     @litestar.delete("/{post_id:int}/tags/{tag_name:str}", status_code=200)
-    async def remove_tag_from_post(self, session: AsyncSession, post_id: int, tag_name: str) -> PostPublic:
+    async def remove_tag_from_post(self, session: AsyncSession, post_id: int, tag_name: str) -> PostDetailPublic:
         """Remove tag from post by id."""
         post = await session.get(Post, post_id)
         if not post:
@@ -269,7 +269,7 @@ class PostController(Controller):
         else:
             msg = f"Tag {tag_name} does not exist in post {post_id}."
             raise HTTPException(detail=msg, status_code=HTTP_409_CONFLICT)
-        return PostPublic.model_validate(post)
+        return PostDetailPublic.model_validate(post)
 
     async def _count_by_column(self, session: AsyncSession, data: PostFilter, column: Post, result_class: type) -> list:
         stmt = select(column, func.count()).group_by(column)
