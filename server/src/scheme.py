@@ -111,7 +111,12 @@ class PostDTO(MixedDTO[Post]):
 
 class TagDTO(MixedDTO[Tag]):
     __schema_name__ = "TagPublic"
-    config = DTOConfig(rename_strategy="camel")
+    config = DTOConfig(
+        rename_strategy="camel",
+        exclude={
+            "group_id",
+        },
+    )
 
 
 class PostWithTagDTO(MixedDTO[Post]):
