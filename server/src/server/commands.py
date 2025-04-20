@@ -44,7 +44,7 @@ class CommandController(Controller):
         return PostDetailPublic.model_validate(post)
 
     @litestar.put("/auto-tags/{post_id:int}", description="Auto tag a post")
-    async def cmd_auto_tags(self, post_id: int, session: AsyncSession) -> PostDetailPublic:
+    async def auto_tags(self, post_id: int, session: AsyncSession) -> PostDetailPublic:
         post = await session.get(Post, post_id)
         if post is None:
             msg = f"Post with ID {post_id} not found."
@@ -60,7 +60,7 @@ class CommandController(Controller):
         return PostDetailPublic.model_validate(post)
 
     @litestar.put("/auto-tags")
-    async def cmd_auto_tags_all(self, session: AsyncSession) -> None:
+    async def auto_tags_all(self, session: AsyncSession) -> None:
         posts = await session.stream_scalars(select(Post).where(Post.rating.is_(None)))
         tagger = get_tagger()
         batch_size = 8
@@ -97,7 +97,7 @@ class CommandController(Controller):
         await session.commit()
 
     @litestar.post("/posts/embedding", description="Calculate embedding for all posts")
-    async def cmd_calculate_embedding(self, session: AsyncSession) -> Result:
+    async def calculate_embedding(self, session: AsyncSession) -> Result:
         stmt = select(Post).join(PostVector).where(PostVector.embedding.is_(None))
         posts = (await session.scalars(stmt)).all()
         if not posts:
@@ -111,7 +111,7 @@ class CommandController(Controller):
         return Result(msg=f"Calculated embedding for {len(posts)} posts.")
 
     @litestar.post("/download-from-danbooru", description="Download posts from Danbooru")
-    async def cmd_download_from_danbooru(self, session: AsyncSession, tags: str) -> None:
+    async def download_from_danbooru(self, session: AsyncSession, tags: str) -> None:
         """
         Download posts from https://danbooru.donmai.us/ and save them to the database.
         """

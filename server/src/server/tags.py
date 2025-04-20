@@ -6,11 +6,11 @@ from litestar.exceptions import HTTPException, NotFoundException
 from litestar.params import Parameter
 from litestar.status_codes import HTTP_404_NOT_FOUND, HTTP_409_CONFLICT, HTTP_422_UNPROCESSABLE_ENTITY
 from msgspec import Meta, Struct
-from sqlalchemy import delete, select
+from sqlalchemy import delete, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from models import Tag, TagGroup
-from scheme import Result, TagGroupPublic, TagPublic
+from models import PostHasTag, Tag, TagGroup
+from scheme import Result, TagGroupPublic, TagPublic, TagWithCountPublic
 
 MAX_TAG_LENGTH = 200
 
@@ -61,17 +61,22 @@ class TagsController(Controller):
     async def list_tags(
         self,
         session: AsyncSession,
-        prev: Annotated[str | None, Parameter(max_length=MAX_TAG_LENGTH)],
-        limit: Annotated[int, Parameter(gt=0, le=1000)] = 100,
-    ) -> list[TagPublic]:
+        prev: Annotated[str | None, Parameter(max_length=MAX_TAG_LENGTH)] = None,
+        limit: Annotated[int | None, Parameter(gt=0)] = None,
+    ) -> list[TagWithCountPublic]:
         """
         List all tags with pagination support.
-        The cursor is used to paginate through the results, and the limit specifies the number of results per page.
+        The prev parameter is used to paginate through the results, and the limit specifies the number of results per page.
         """
-        stmt = select(Tag).order_by(Tag.name).limit(limit)
+        stmt = select(Tag, func.count(PostHasTag.tag_name).label("count")).outerjoin(PostHasTag, Tag.name == PostHasTag.tag_name).group_by(Tag.name)
         if prev:
             stmt = stmt.where(Tag.name > prev)
-        return [TagPublic.model_validate(tag) for tag in (await session.scalars(stmt)).all()]
+        stmt = stmt.order_by(Tag.name)
+        if limit:
+            stmt = stmt.limit(limit)
+
+        result = await session.execute(stmt)
+        return [TagWithCountPublic(name=tag.name, group=tag.group, count=count) for tag, count in result.tuples()]
 
     @litestar.put("/{name:str}")
     async def update_tag(self, session: AsyncSession, name: str, data: TagUpdate) -> TagPublic:
