@@ -78,8 +78,8 @@ class Post(BaseWithTime):
     )
     aspect_ratio: Mapped[float | None] = mapped_column(Float, Computed("width * 1.0 / NULLIF(height, 0)"), init=False)
 
-    width: Mapped[int | None] = mapped_column(Integer, nullable=False, index=True, default=0, server_default="0")
-    height: Mapped[int | None] = mapped_column(Integer, nullable=False, index=True, default=0, server_default="0")
+    width: Mapped[int] = mapped_column(Integer, nullable=False, index=True, default=0, server_default="0")
+    height: Mapped[int] = mapped_column(Integer, nullable=False, index=True, default=0, server_default="0")
     published_at: Mapped[datetime | None] = mapped_column(TIMESTAMP(timezone=True), nullable=True, index=True, default=None)
     score: Mapped[int] = mapped_column(Integer, default=0, index=True, server_default="0")
     rating: Mapped[int] = mapped_column(Integer, default=0, index=True, server_default="0")

@@ -137,6 +137,7 @@ class PostSimplePublic(DTOBaseModel):
     aspect_ratio: float | None = None
     dominant_color: list[float] | None = None
     colors: list[PostHasColorPublic]
+    md5: str
 
 
 class PostController(Controller):
@@ -158,6 +159,7 @@ class PostController(Controller):
                 Post.height,
                 Post.aspect_ratio,
                 Post.dominant_color,
+                Post.md5,
             ),
             lazyload(Post.tags),
         )
@@ -171,6 +173,7 @@ class PostController(Controller):
 
         stmt = apply_body_filter(data, select_stmt).limit(limit).offset(offset)
         if data.order_by:
+            print(f"Ordering by {data.order_by} {data.order}")
             order_column: MappedColumn = getattr(Post, data.order_by)
             if data.order == "random":
                 stmt = stmt.order_by(func.random())
