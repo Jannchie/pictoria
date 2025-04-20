@@ -1,9 +1,8 @@
 import asyncio
 from dataclasses import dataclass
-from typing import Annotated, ClassVar, Literal
+from typing import TYPE_CHECKING, Annotated, ClassVar, Literal
 
 import litestar
-import pydantic
 from litestar import Controller
 from litestar.exceptions import HTTPException, NotFoundException
 from litestar.status_codes import HTTP_409_CONFLICT
@@ -15,31 +14,64 @@ from models import Post, PostHasTag
 from scheme import PostDTO
 from server.utils.vec import find_similar_posts, get_img_vec
 
+if TYPE_CHECKING:
+    from sqlalchemy.orm import MappedColumn
 
-class PostFilter(pydantic.BaseModel):
-    rating: tuple[int, ...] | None = pydantic.Field(default_factory=tuple, description="Rating to filter by.", example=[1, 2, 3])
-    score: tuple[int, ...] | None = pydantic.Field(default_factory=tuple, description="Score to filter by.", example=[1, 2, 3])
-    tags: tuple[str, ...] | None = pydantic.Field(default_factory=tuple, description="Tags to filter by.", example=["tag1", "tag2"])
-    extension: tuple[str, ...] | None = pydantic.Field(default_factory=tuple, description="File extensions to filter by.", example=["jpg", "png"])
+
+class PostFilter(Struct):
+    """Filter for searching posts."""
+
+    rating: Annotated[
+        tuple[int, ...] | None,
+        Meta(
+            description="Rating to filter by.",
+            examples=[(1, 2, 3)],  # 注意: examples 需要是一个包含示例值的列表
+        ),
+    ] = ()
+
+    score: Annotated[tuple[int, ...] | None, Meta(description="Score to filter by.", examples=[(1, 2, 3)])] = ()
+    tags: Annotated[tuple[str, ...] | None, Meta(description="Tags to filter by.", examples=[("tag1", "tag2")])] = ()
+    extension: Annotated[tuple[str, ...] | None, Meta(description="File extensions to filter by.", examples=[("jpg", "png")])] = ()
+
     folder: str | None = None
-    lab: tuple[float, float, float] | None = pydantic.Field(
-        default=None,
-        description="Lab color space values for filtering.",
-        json_schema_extra={"example": [0.5, 0.5, 0.5], "min_length": 3, "max_length": 3},
-    )
+
+    lab: Annotated[
+        tuple[float, float, float] | None,
+        Meta(
+            description="Lab color space values for filtering.",
+            examples=[(0.5, 0.5, 0.5)],
+            extra_json_schema={
+                "min_length": 3,
+                "max_length": 3,
+            },
+        ),
+    ] = None
 
 
 class PostFilterWithOrder(PostFilter):
-    order_by: Literal["id", "score", "rating", "created_at", "published_at", "file_name"] | None = pydantic.Field(
-        default=None,
-        description="Field to order by.",
-        json_schema_extra={"example": "id", "enum": ["id", "score", "rating", "created_at", "published_at", "file_name"]},
-    )
-    order: Literal["asc", "desc", "random"] = pydantic.Field(
-        default="desc",
-        description="Order direction.",
-        json_schema_extra={"example": "desc", "enum": ["asc", "desc", "random"]},
-    )
+    """Filter for searching posts with ordering."""
+
+    order_by: Annotated[
+        Literal["id", "score", "rating", "created_at", "published_at", "file_name"] | None,
+        Meta(
+            description="Field to order by.",
+            examples=["id"],
+            extra_json_schema={
+                "enum": ["id", "score", "rating", "created_at", "published_at", "file_name"],
+            },
+        ),
+    ] = None
+
+    order: Annotated[
+        Literal["asc", "desc", "random"],
+        Meta(
+            description="Order direction.",
+            examples=["desc", "asc", "random"],
+            extra_json_schema={
+                "enum": ["asc", "desc", "random"],
+            },
+        ),
+    ] = "desc"
 
 
 def apply_body_filter(filter: PostFilter, stmt: Select) -> Select:  # noqa: A002
@@ -101,7 +133,7 @@ class PostController(Controller):
 
         stmt = apply_body_filter(data, select(Post)).limit(limit).offset(offset)
         if data.order_by:
-            order_column = getattr(Post, filter.order_by)
+            order_column: MappedColumn = getattr(Post, data.order_by)
             if data.order == "random":
                 stmt = stmt.order_by(func.random())
             elif data.order == "asc":
