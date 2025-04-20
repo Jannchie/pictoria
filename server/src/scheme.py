@@ -21,6 +21,11 @@ class TagGroupPublic(DTOBaseModel):
 
 class TagPublic(DTOBaseModel):
     name: str
+    group: TagGroupPublic | None
+
+
+class TagGroupTagPublic(DTOBaseModel):
+    name: str
 
 
 class TagGroupWithTagsPublic(DTOBaseModel):

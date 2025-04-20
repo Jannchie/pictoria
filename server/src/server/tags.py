@@ -10,7 +10,7 @@ from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from models import Tag, TagGroup
-from scheme import Result, TagPublic
+from scheme import Result, TagGroupPublic, TagPublic
 
 MAX_TAG_LENGTH = 200
 
@@ -74,7 +74,7 @@ class TagsController(Controller):
         return [TagPublic.model_validate(tag) for tag in (await session.scalars(stmt)).all()]
 
     @litestar.put("/{name:str}")
-    async def update_tag(self, session: AsyncSession, name: str, data: TagUpdate) -> Result:
+    async def update_tag(self, session: AsyncSession, name: str, data: TagUpdate) -> TagPublic:
         """
         Update an existing tag with the given name.
         Users can optionally specify a new group ID to associate the tag with a tag group.
@@ -83,10 +83,15 @@ class TagsController(Controller):
         if not tag:
             detail = f"Tag '{name}' does not exist."
             raise NotFoundException(detail=detail, status_code=HTTP_404_NOT_FOUND)
-
-        tag.name = data.name.strip()
+        tag_group = await session.get(TagGroup, data.group_id)
+        if data.group_id and not tag_group:
+            detail = f"Tag group with ID {data.group_id} does not exist."
+            raise HTTPException(detail=detail, status_code=HTTP_422_UNPROCESSABLE_ENTITY)
         tag.group_id = data.group_id
-        return Result(msg=f"Tag '{name}' updated successfully.")
+        session.add(tag)
+        await session.flush()
+        await session.refresh(tag)
+        return TagPublic.model_validate(tag)
 
     @litestar.delete("/{name:str}")
     async def delete_tag(self, session: AsyncSession, name: str) -> None:
@@ -103,7 +108,8 @@ class TagsController(Controller):
         await session.execute(delete(Tag).where(Tag.name.in_(data.name_list)))
 
     @litestar.get("/groups")
-    async def list_tag_group(self, session: AsyncSession) -> list[TagGroup]:
+    async def list_tag_group(self, session: AsyncSession) -> list[TagGroupPublic]:
         """List all tag groups."""
         stmt = select(TagGroup)
-        return (await session.scalars(stmt)).all()
+        tag_groups = await session.scalars(stmt)
+        return [TagGroupPublic.model_validate(tag_group) for tag_group in tag_groups.all()]

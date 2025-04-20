@@ -32,7 +32,7 @@ from danbooru import DanbooruClient
 from db import find_similar_posts, get_img_vec
 from models import Post, PostHasColor, PostHasTag, Tag, TagGroup
 from processors import process_post, process_posts, set_post_colors, sync_metadata
-from scheme import PostPublic, PostDetailPublic, TagGroupWithTagsPublic, TagPublic, TagWithGroupPublic
+from scheme import PostDetailPublic, PostPublic, TagGroupWithTagsPublic, TagPublic, TagWithGroupPublic
 from server.utils import is_image
 from utils import (
     async_transaction,

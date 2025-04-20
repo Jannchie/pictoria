@@ -1,7 +1,7 @@
 import asyncio
 import os
 from datetime import UTC, datetime
-from typing import ClassVar
+from typing import TYPE_CHECKING, ClassVar
 
 import litestar
 from litestar import Controller
@@ -15,8 +15,12 @@ from danbooru import DanbooruClient
 from models import Post, PostHasTag, PostVector, Tag, TagGroup
 from processors import process_posts
 from scheme import PostDetailPublic, Result
+from server.utils import is_image
 from server.utils.vec import get_img_vec
 from utils import attach_tags_to_post, from_rating_to_int, get_tagger, logger
+
+if TYPE_CHECKING:
+    from wdtagger import Tagger
 
 
 class CommandController(Controller):
@@ -24,7 +28,7 @@ class CommandController(Controller):
     tags: ClassVar[list[str]] = ["Commands"]
 
     @litestar.put("/auto-tags/{post_id:int}", description="Auto tag a post")
-    async def v1_cmd_auto_tags(self, post_id: int, session: AsyncSession) -> PostDetailPublic:
+    async def cmd_auto_tags(self, post_id: int, session: AsyncSession) -> PostDetailPublic:
         post = await session.get(Post, post_id)
         if post is None:
             msg = f"Post with ID {post_id} not found."
@@ -38,6 +42,43 @@ class CommandController(Controller):
         await session.flush()
         await session.refresh(post)
         return PostDetailPublic.model_validate(post)
+
+    @litestar.put("/auto-tags")
+    async def cmd_auto_tags_all(self, session: AsyncSession) -> None:
+        posts = await session.stream_scalars(select(Post).where(Post.rating.is_(None)))
+        tagger = get_tagger()
+        batch_size = 8
+        batch = []
+        async for post in posts:
+            if not is_image(post.absolute_path):
+                continue
+            batch.append(post)
+            if len(batch) < batch_size:
+                continue
+            await self.process_tag_batch(session, tagger, batch)
+            batch.clear()
+        if batch:
+            await self.process_tag_batch(session, tagger, batch)
+            batch.clear()
+
+    async def process_tag_batch(self, session: AsyncSession, tagger: "Tagger", batch: list[Post]) -> None:
+        abs_paths = [post.absolute_path for post in batch]
+        try:
+            responses = tagger.tag(abs_paths)
+            for post, resp in zip(batch, responses, strict=True):
+                post.rating = from_rating_to_int(resp.rating)
+                await attach_tags_to_post(session, post, resp, is_auto=True)
+        except Exception as e:
+            shared.logger.error(f"Error processing batch starting with post {batch[0].id}: {e}")
+            for post in batch:
+                try:
+                    response = tagger.tag([post.absolute_path])[0]
+                    post.rating = from_rating_to_int(response.rating)
+                    await attach_tags_to_post(session, post, response, is_auto=True)
+                except Exception as single_e:
+                    shared.logger.error(f"Error processing post {post.id}: {single_e}")
+        logger.info("Batch processing complete.")
+        await session.commit()
 
     @litestar.post("/posts/embedding", description="Calculate embedding for all posts")
     async def cmd_calculate_embedding(self, session: AsyncSession) -> Result:
