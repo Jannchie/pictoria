@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { v1DeletePost } from '@/api'
+import { v2DeletePosts } from '@/api'
 import { selectedPostIdSet, showPostDetail, waterfallRowCount } from '@/shared'
 import { useQueryClient } from '@tanstack/vue-query'
 import PostDetail from '../components/PostDetail.vue'
@@ -12,9 +12,9 @@ async function deleteSelectingPosts() {
     if (post_id === undefined) {
       continue
     }
-    await v1DeletePost({
-      path: {
-        post_id,
+    await v2DeletePosts({
+      query: {
+        ids: [post_id],
       },
     })
   }

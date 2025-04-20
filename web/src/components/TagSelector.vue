@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { v1AddTagToPost, v1GetTagGroups, v1GetTags, v1RemoveTagFromPost } from '@/api'
+import { v2AddTagToPost, v2ListTagGroup, v2ListTags, v2RemoveTagFromPost } from '@/api'
 import { Btn, TextField } from '@roku-ui/vue'
 import { useQuery, useQueryClient } from '@tanstack/vue-query'
 import { computed, ref } from 'vue'
@@ -15,7 +15,7 @@ const postQuery = usePostQuery(postId)
 const tagGroupsQuery = useQuery({
   queryKey: ['tagGroups', postId],
   queryFn: async () => {
-    const resp = await v1GetTagGroups({})
+    const resp = await v2ListTagGroup({})
     return resp.data
   },
 })
@@ -27,23 +27,19 @@ const tagGroups = computed(() => {
 const tagsQuery = useQuery({
   queryKey: ['tags'],
   queryFn: async () => {
-    const resp = await v1GetTags({})
-    return resp.data
+    const resp = await v2ListTags({})
+    return resp.data ?? []
   },
   staleTime: Infinity,
 })
 
 const tags = computed(() => {
-  return tagsQuery.data.value
+  return tagsQuery.data.value ?? []
 })
 
 const currentGroupId = ref<number | null>()
 const currentTags = computed(() => {
-  const tags = postQuery.data.value?.tags ?? []
-  if (currentGroupId.value === undefined) {
-    return tags
-  }
-  return tags.filter(tag => tag.tag_info.group?.id === currentGroupId.value)
+  return tags.value.filter(tag => tag.group?.id === currentGroupId.value)
 })
 
 const initCurrentTags = controlledComputed(() => [currentGroupId.value, postId.value, search.value, postQuery.isFetched.value], () => {
@@ -51,18 +47,18 @@ const initCurrentTags = controlledComputed(() => [currentGroupId.value, postId.v
 })
 
 const initCurrentTagNames = computed(() => {
-  return initCurrentTags.value.map(tag => tag.tag_info.name)
+  return initCurrentTags.value.map(tag => tag.name)
 })
 
 const currentGroupTags = computed(() => {
   if (currentGroupId.value === undefined) {
-    return tags.value?.filter(tag => !initCurrentTagNames.value.includes(tag.tag_info.name)) ?? []
+    return tags.value?.filter(tag => !initCurrentTagNames.value.includes(tag.name)) ?? []
   }
-  return tags.value?.filter(tag => tag.tag_info.group?.id === currentGroupId.value).filter(tag => !initCurrentTagNames.value.includes(tag.tag_info.name)) ?? []
+  return tags.value?.filter(tag => tag.group?.id === currentGroupId.value).filter(tag => !initCurrentTagNames.value.includes(tag.name)) ?? []
 })
 const displayCurrentGroupTags = computed(() => {
   // only top 100
-  return currentGroupTags.value.filter(d => isSearchMatch(d.tag_info.name)).slice(0, 100)
+  return currentGroupTags.value.filter(d => isSearchMatch(d.name)).slice(0, 100)
 })
 
 function isSearchMatch(tagName: string) {
@@ -77,9 +73,9 @@ async function onPointerUp(tagName: string) {
   if (!postId.value) {
     return
   }
-  if (currentTags.value.some(tag => tag.tag_info.name === tagName)) {
+  if (currentTags.value.some(tag => tag.name === tagName)) {
     // remove
-    await v1RemoveTagFromPost({
+    await v2RemoveTagFromPost({
 
       path: {
         post_id: postId.value,
@@ -88,7 +84,7 @@ async function onPointerUp(tagName: string) {
     })
   }
   else {
-    await v1AddTagToPost({
+    await v2AddTagToPost({
 
       path: {
         post_id: postId.value,
@@ -139,8 +135,7 @@ async function addTag(tagName: string) {
   if (!postId.value) {
     return
   }
-  await v1AddTagToPost({
-
+  await v2AddTagToPost({
     path: {
       post_id: postId.value,
       tag_name: tagName,
@@ -155,7 +150,7 @@ async function addTag(tagName: string) {
 }
 
 const showAddTag = computed(() => {
-  return search.value !== '' && !tags.value?.some(tag => search.value === tag.tag_info.name)
+  return search.value !== '' && !tags.value?.some(tag => search.value === tag.name)
 })
 
 const currentHoverIndex = ref(-1)
@@ -250,7 +245,7 @@ watchEffect(() => {
   }
 })
 const searchingInitCurrentTags = computed(() => {
-  return initCurrentTags.value.filter(tag => isSearchMatch(tag.tag_info.name))
+  return initCurrentTags.value.filter(tag => isSearchMatch(tag.name))
 })
 </script>
 
@@ -319,7 +314,7 @@ const searchingInitCurrentTags = computed(() => {
           />
         </div>
         <div
-          v-if="initCurrentTags.filter(tag => isSearchMatch(tag.tag_info.name)).length"
+          v-if="initCurrentTags.filter(tag => isSearchMatch(tag.name)).length"
           class="border-b border-surface"
         >
           <div class="p-2 text-surface-dimmed">
@@ -330,24 +325,24 @@ const searchingInitCurrentTags = computed(() => {
             :key="i"
           >
             <ListItem
-              v-if="isSearchMatch(tag.tag_info.name)"
+              v-if="isSearchMatch(tag.name)"
               ref="initCurrentTagsRef"
               v-highlight="search"
               class="cursor-pointer"
-              :title="tag.tag_info.name"
-              :active="currentTags.some(predicate => predicate.tag_info.name === tag.tag_info.name)"
+              :title="tag.name"
+              :active="currentTags.some(predicate => predicate.name === tag.name)"
               type="checkbox"
               :class="{
                 'bg-surface-high': currentHoverIndex === getIndexOfRef('current', i),
               }"
-              @pointerup="onPointerUp(tag.tag_info.name)"
+              @pointerup="onPointerUp(tag.name)"
               @pointermove="currentHoverIndex = getIndexOfRef('current', i)"
             />
           </template>
         </div>
         <div>
           <div class="p-2 text-surface-dimmed">
-            All ({{ currentGroupTags.filter(tag => isSearchMatch(tag.tag_info.name)).length }})
+            All ({{ currentGroupTags.filter(tag => isSearchMatch(tag.name)).length }})
           </div>
           <template
             v-for="tag, i in displayCurrentGroupTags"
@@ -357,13 +352,13 @@ const searchingInitCurrentTags = computed(() => {
               ref="currentGroupTagsRef"
               v-highlight="search"
               class="cursor-pointer"
-              :title="tag.tag_info.name"
-              :active="currentTags.some(predicate => predicate.tag_info.name === tag.tag_info.name)"
+              :title="tag.name"
+              :active="currentTags.some(predicate => predicate.name === tag.name)"
               type="checkbox"
               :class="{
                 'bg-surface-high': currentHoverIndex === getIndexOfRef('group', i),
               }"
-              @pointerup="onPointerUp(tag.tag_info.name)"
+              @pointerup="onPointerUp(tag.name)"
               @pointermove="currentHoverIndex = getIndexOfRef('group', i)"
             />
           </template>

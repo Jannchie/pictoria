@@ -14,6 +14,4 @@ import { createClient, createConfig } from '@hey-api/client-axios'
  */
 export type CreateClientConfig<T extends DefaultClientOptions = ClientOptions> = (override?: Config<DefaultClientOptions & T>) => Config<Required<DefaultClientOptions> & T>
 
-export const client = createClient(createConfig<ClientOptions>({
-  baseURL: 'http://127.0.0.1:4777',
-}))
+export const client = createClient(createConfig<ClientOptions>())

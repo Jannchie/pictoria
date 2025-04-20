@@ -1,13 +1,13 @@
 <script setup lang="ts">
 import type { TagWithCountPublic } from '@/api'
-import { v1GetTags } from '@/api'
+import { v2ListTags } from '@/api'
 import { TextField } from '@roku-ui/vue'
 import { useQuery } from '@tanstack/vue-query'
 
 const tagQuery = useQuery({
   queryKey: ['tags'],
   queryFn: async () => {
-    const resp = await v1GetTags({ })
+    const resp = await v2ListTags({ })
     if (resp.error) {
       throw resp.error
     }
@@ -20,15 +20,15 @@ const tagData = computed(() => {
   return tagQuery.data.value?.map(d => ({ ...d })) ?? []
 })
 const tagDataSearched = computed(() => {
-  return tagData.value.filter(d => d.tag_info.name.toLowerCase().includes(search.value.toLowerCase()))
+  return tagData.value.filter(d => d.name.toLowerCase().includes(search.value.toLowerCase()))
 })
 const tagGroupByFirstChar = computed(() => {
   const resp: [string, TagWithCountPublic[]][] = []
   tagDataSearched.value.forEach((d) => {
-    if (d.tag_info.name.length === 0) {
+    if (d.name.length === 0) {
       return
     }
-    const firstChar = d.tag_info.name[0].toUpperCase()
+    const firstChar = d.name[0].toUpperCase()
     const index = resp.findIndex(r => r[0] === firstChar)
     if (index === -1) {
       resp.push([firstChar, [d]])
@@ -80,7 +80,7 @@ const tagGroupByFirstChar = computed(() => {
               <div class="flex flex-wrap gap-3 px-4">
                 <div
                   v-for="tag, i of item[1]"
-                  :key="tag.tag_info.name"
+                  :key="tag.name"
                   class="mb-2 flex items-center gap-2"
                 >
                   <template v-if="i === 20">
@@ -95,7 +95,7 @@ const tagGroupByFirstChar = computed(() => {
                         rounded="lg"
                         :data="tag"
                       >
-                        {{ tag.tag_info.name }}
+                        {{ tag.name }}
                       </PostTag>
                       <span class="text-xs text-surface-dimmed">
                         ({{ tag.count }})

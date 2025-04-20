@@ -1,5 +1,5 @@
-import type { PostPublic } from '@/api'
-import { v1GetFolders, v1GetTagGroups, v1ListPosts } from '@/api'
+import type { PostSimplePublic } from '@/api'
+import { v2GetFolders, v2SearchPosts } from '@/api'
 import { useInfiniteQuery, useQuery } from '@tanstack/vue-query'
 import { useStorage } from '@vueuse/core'
 import { converter, parse } from 'culori'
@@ -22,7 +22,7 @@ interface PostFilter {
   extension: string[]
   folder?: string
 }
-export type RightPanelDatum = PostPublic | ImageDatum | InputDatum
+export type RightPanelDatum = PostSimplePublic | ImageDatum | InputDatum
 export const postFilter = ref<PostFilter>({
   rating: [],
   score: [],
@@ -52,7 +52,7 @@ export function useInfinityPostsQuery() {
   const order = computed<'asc' | 'desc' | 'random'>(() => {
     return isRandomPage.value ? 'random' : postSortOrder.value as 'asc' | 'desc'
   })
-  const body = computed(() => {
+  const body = computed<PostFilter>(() => {
     if (postSortColorDebounce.value) {
       const color = parse(postSortColorDebounce.value)
       const lab = toLab(color)
@@ -66,7 +66,7 @@ export function useInfinityPostsQuery() {
   return useInfiniteQuery({
     queryKey: ['posts', body],
     queryFn: async ({ pageParam = 0 }) => {
-      const resp = await v1ListPosts({
+      const resp = await v2SearchPosts({
         body: body.value,
         query: {
           offset: pageParam,
@@ -76,6 +76,7 @@ export function useInfinityPostsQuery() {
       return resp.data
     },
     initialPageParam: 0,
+    staleTime: 1000 * 60 * 60,
     getNextPageParam: (lastPage, allPages) => {
       if (lastPage && lastPage.length < limit) {
         return undefined
@@ -88,26 +89,9 @@ export function useInfinityPostsQuery() {
 
 export function usePosts() {
   const postsQuery = useInfinityPostsQuery()
-  // watchEffect(() => {
-  //   if (postsQuery.hasNextPage.value && !postsQuery.isFetchingNextPage.value) {
-  //     postsQuery.fetchNextPage()
-  //   }
-  // })
-  return computed<Array<PostPublic>>(() => {
+  return computed<Array<PostSimplePublic>>(() => {
     return postsQuery.data.value?.pages.flatMap(page => page).filter(post => post !== undefined) ?? []
   })
-}
-
-export function useTagGroup() {
-  const tagGroupResp = useQuery({
-    queryKey: ['tag-groups'],
-    queryFn: async () => {
-      const resp = await v1GetTagGroups({ })
-      return resp.data
-    },
-    staleTime: Infinity,
-  })
-  return computed(() => tagGroupResp.data.value ?? [])
 }
 
 export const tagSelectorWindowRef = ref()
@@ -115,7 +99,7 @@ export function openTagSelectorWindow() {
   tagSelectorWindowRef.value?.toggle()
 }
 
-export const showPostDetail = ref<PostPublic | null>(null)
+export const showPostDetail = ref<PostSimplePublic | null>(null)
 
 export const menuData = ref<any | null>(null)
 export const showMenu = computed({ get: () => !!menuData.value, set: (val) => {
@@ -141,7 +125,7 @@ export function useFoldersQuery() {
   return useQuery({
     queryKey: ['folders'],
     queryFn: async () => {
-      const resp = await v1GetFolders({ })
+      const resp = await v2GetFolders({ })
       if (resp.error) {
         throw resp.error
       }

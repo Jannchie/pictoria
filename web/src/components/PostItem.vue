@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import type { PostPublic } from '@/api'
+import type { PostSimplePublic } from '@/api'
 import { hideNSFW, selectedPostIdSet, selectingPostIdSet, unselectedPostIdSet } from '@/shared'
 import { getPostThumbnailURL } from '@/utils'
 import { colorNumToHex, labToRgbaString } from '@/utils/color'
@@ -7,7 +7,7 @@ import { AspectRatio } from '@roku-ui/vue'
 import { computed } from 'vue'
 
 const props = defineProps<{
-  post: PostPublic
+  post: PostSimplePublic
 }>()
 const post = computed(() => props.post)
 function onPointerUp(e: PointerEvent) {
@@ -118,7 +118,7 @@ function onImageLoad(e: Event) {
 
 const primaryColor = computed(() => {
   if (post.value.colors.length > 0) {
-    const dominantColor = post.value.dominant_color
+    const dominantColor = post.value.dominantColor
     if (dominantColor) {
       return labToRgbaString(dominantColor[0], dominantColor[1], dominantColor[2])
     }
@@ -190,7 +190,7 @@ function onContextmenu(e: MouseEvent) {
     <div class="w-full flex flex-col text-center text-xs text-zinc-4">
       <div class="w-full truncate text-xs">
         <div class="filename-wrapper inline rounded px-1">
-          {{ `${post.file_name}.${post.extension}` }}
+          {{ `${post.fileName}.${post.extension}` }}
         </div>
       </div>
       <div

@@ -1,5 +1,5 @@
 import type { MaybeRef } from 'vue'
-import { v1GetPost } from '@/api'
+import { v2GetPost } from '@/api'
 import { useQuery } from '@tanstack/vue-query'
 
 export function usePostQuery(id: MaybeRef<number | undefined>) {
@@ -11,7 +11,7 @@ export function usePostQuery(id: MaybeRef<number | undefined>) {
         if (post_id === undefined) {
           return null
         }
-        const resp = await v1GetPost({ path: { post_id } })
+        const resp = await v2GetPost({ path: { post_id } })
         return resp.data
       },
       enabled: id !== undefined,

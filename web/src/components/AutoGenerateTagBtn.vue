@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { v1CmdAutoTags } from '@/api'
+import { v2AutoTags } from '@/api'
 import { } from '@/shared'
 import { Btn } from '@roku-ui/vue'
 import { useMutation, useQueryClient } from '@tanstack/vue-query'
@@ -14,7 +14,7 @@ const queryClient = useQueryClient()
 
 const mutation = useMutation({
   mutationFn: () => {
-    return v1CmdAutoTags({ path: { post_id: id.value } })
+    return v2AutoTags({ path: { post_id: id.value } })
   },
   onSuccess: () => {
     queryClient.invalidateQueries({

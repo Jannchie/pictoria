@@ -1,4 +1,4 @@
-import { v1CmdRotateImage } from '@/api'
+import { v2RotatePostImage } from '@/api'
 import { useMutation, useQueryClient } from '@tanstack/vue-query'
 
 export function useRotateImageMutation() {
@@ -6,7 +6,7 @@ export function useRotateImageMutation() {
 
   return useMutation({
     mutationFn: async ({ postId, clockwise }: { postId: number, clockwise: boolean }) => {
-      await v1CmdRotateImage({
+      await v2RotatePostImage({
         path: {
           post_id: postId,
         },

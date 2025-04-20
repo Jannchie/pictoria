@@ -1,11 +1,11 @@
 <script setup lang="ts">
-import type { PostWithTagPublic } from '@/api'
+import type { PostDetailPublic } from '@/api'
 
 import { selectedPostIdSet, showPostDetail } from '@/shared'
 import { computed } from 'vue'
 
-function isPost(datum: any): datum is PostWithTagPublic {
-  return 'file_path' in datum
+function isPost(datum: any): datum is PostDetailPublic {
+  return 'filePath' in datum
 }
 const id = computed<number | undefined>(() => {
   const selected = selectedPostIdSet.value.values().next().value

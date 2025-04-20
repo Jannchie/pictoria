@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { v1UploadFile } from '@/api'
+import { v2UploadFile } from '@/api'
 import { useQueryClient } from '@tanstack/vue-query'
 import { useRoute } from 'vue-router'
 
@@ -10,7 +10,7 @@ const queryClient = useQueryClient()
 
 async function onUploadFile(file: File, path: string | null, source?: string) {
   try {
-    await v1UploadFile({
+    await v2UploadFile({
       body: {
         file,
         path,

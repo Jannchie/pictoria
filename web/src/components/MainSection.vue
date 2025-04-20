@@ -1,8 +1,8 @@
 <script setup lang="ts">
-import type { PostPublic } from '@/api'
+import type { PostSimplePublic } from '@/api'
 import type LazyWaterfall from './LazyWaterfall.vue'
 import type { Area } from './SelectArea.vue'
-import { v1DeletePost } from '@/api'
+import { v2DeletePosts } from '@/api'
 import { useRotateImageMutation } from '@/composables/mutations/useRotateImageMutation'
 import { useElementOffset } from '@/composables/useElementOffset'
 import { selectedPostIdSet, selectingPostIdSet, unselectedPostIdSet as unselectingPostId, useInfinityPostsQuery, waterfallRowCount } from '@/shared'
@@ -13,10 +13,9 @@ import { useRoute, useRouter } from 'vue-router'
 
 const route = useRoute()
 const router = useRouter()
-const postsQuery = useInfinityPostsQuery()
-
-const posts = computed<Array<PostPublic>>(() => {
-  return postsQuery.data.value?.pages.flatMap(page => page).filter(post => post !== undefined) ?? []
+const infinityPostsQuery = useInfinityPostsQuery()
+const posts = computed<Array<PostSimplePublic>>(() => {
+  return infinityPostsQuery.data.value?.pages.flatMap(page => page).filter(post => post !== undefined) ?? []
 })
 const items = computed(() => posts.value.map(post => ({
   width: post.width ?? 1,
@@ -26,7 +25,6 @@ const items = computed(() => posts.value.map(post => ({
 const waterfallRef = ref<InstanceType<typeof LazyWaterfall> | null>(null)
 const waterfallWrapperDom = computed(() => waterfallRef.value?.wrapper)
 const waterfallWrapperBounds = useElementBounding(waterfallWrapperDom)
-const infinityPostsQuery = useInfinityPostsQuery()
 const waterfallItemWidth = computed(() => {
   return Math.floor((waterfallWrapperBounds.width.value - 8 * 2 - 24 * (waterfallRowCount.value - 1)) / waterfallRowCount.value)
 })
@@ -188,9 +186,9 @@ async function deleteSelectingPosts() {
     if (post_id === undefined) {
       continue
     }
-    await v1DeletePost({
-      path: {
-        post_id,
+    await v2DeletePosts({
+      query: {
+        ids: [post_id],
       },
     })
   }
@@ -282,8 +280,8 @@ const mainSectionRef = ref<HTMLElement>()
         class="flex justify-center p-4"
       >
         <Btn
-          :loading="postsQuery.isLoading.value"
-          @click="postsQuery.fetchNextPage()"
+          :loading="infinityPostsQuery.isLoading.value"
+          @click="infinityPostsQuery.fetchNextPage()"
         >
           Load More
         </Btn>

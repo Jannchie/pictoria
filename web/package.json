@@ -9,8 +9,7 @@
     "preview": "vite preview",
     "test": "vitest",
     "lint": "eslint . --fix",
-    "genapi": "openapi-ts --input http://127.0.0.1:4777/openapi.json -c @hey-api/client-axios --output src/api && eslint src/api --fix",
-    "genapi2": "openapi-ts --input http://127.0.0.1:4777/schema/openapi.json -c @hey-api/client-axios --output src/apiv2 && eslint src/apiv2 --fix"
+    "genapi": "openapi-ts --input http://127.0.0.1:4777/schema/openapi.json -c @hey-api/client-axios --output src/api && eslint src/api --fix"
   },
   "dependencies": {
     "@hey-api/client-fetch": "^0.10.0",

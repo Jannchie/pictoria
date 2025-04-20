@@ -1,6 +1,6 @@
 <script setup lang="ts">
-import type { PostWithTagPublic } from '@/api'
-import { v1UpdatePostCaption, v1UpdatePostRating, v1UpdatePostScore, v1UpdatePostSource } from '@/api'
+import type { PostDetailPublic, PostHasTagPublic } from '@/api'
+import { v2UpdatePostCaption, v2UpdatePostRating, v2UpdatePostScore, v2UpdatePostSource } from '@/api'
 import { hideNSFW, openTagSelectorWindow, showPostDetail } from '@/shared'
 import { getPostThumbnailURL } from '@/utils'
 import { colorNumToHex, labToRgbaString } from '@/utils/color'
@@ -9,7 +9,7 @@ import { useQueryClient } from '@tanstack/vue-query'
 import { filesize } from 'filesize'
 
 const props = defineProps<{
-  post: PostWithTagPublic
+  post: PostDetailPublic
 }>()
 
 const queryClient = useQueryClient()
@@ -18,7 +18,7 @@ function formatTimestr(t: number | string) {
   return new Date(t).toLocaleString()
 }
 async function onSelectScore(post_id: number, score: number = 0) {
-  await v1UpdatePostScore({
+  await v2UpdatePostScore({
     path: {
       post_id,
     },
@@ -62,9 +62,9 @@ function isImage(extension: string) {
 }
 
 const folders = computed(() => {
-  const names = post.value.file_path.split('/')
+  const names = post.value.filePath.split('/')
   // 返回一个对象数组，包括 name 和 path 两个字段，name 如上所示，而 path 需要包括父亲目录，使用 / 分隔
-  const paths = post.value.file_path.split('/').map((_, i, arr) => arr.slice(0, i + 1).join('/'))
+  const paths = post.value.filePath.split('/').map((_, i, arr) => arr.slice(0, i + 1).join('/'))
   return names.map((name, i) => ({
     name,
     path: paths[i],
@@ -72,7 +72,7 @@ const folders = computed(() => {
 })
 
 const updateCaption = useDebounceFn(async (caption: any) => {
-  await v1UpdatePostCaption({
+  await v2UpdatePostCaption({
 
     path: {
       post_id: post.value.id,
@@ -85,7 +85,7 @@ const updateCaption = useDebounceFn(async (caption: any) => {
 }, 500)
 
 const updateSource = useDebounceFn(async (source: any) => {
-  await v1UpdatePostSource({
+  await v2UpdatePostSource({
 
     path: {
       post_id: post.value.id,
@@ -96,6 +96,22 @@ const updateSource = useDebounceFn(async (source: any) => {
   })
   queryClient.invalidateQueries({ queryKey: ['post', post.value.id] })
 }, 500)
+const groupNameOrder = ['artist', 'copyright', 'character', 'general', 'meta']
+function sortByGroup(a: PostHasTagPublic, b: PostHasTagPublic) {
+  if (a.tagInfo.group && b.tagInfo.group) {
+    return groupNameOrder.indexOf(a.tagInfo.group.name) - groupNameOrder.indexOf(b.tagInfo.group.name)
+  }
+  if (a.tagInfo.group) {
+    return -1
+  }
+  if (b.tagInfo.group) {
+    return 1
+  }
+  return a.tagInfo.name.localeCompare(b.tagInfo.name)
+}
+const tagSorted = computed(() => {
+  return post.value.tags?.slice().sort(sortByGroup) ?? []
+})
 </script>
 
 <template>
@@ -118,10 +134,10 @@ const updateSource = useDebounceFn(async (source: any) => {
     </div>
     <div class="flex items-center justify-center gap-1">
       <ColorSwatch
-        v-if="post.dominant_color"
+        v-if="post.dominantColor"
         class="mr-2 h-8 w-8"
         with-border
-        :color="labToRgbaString(post.dominant_color[0], post.dominant_color[1], post.dominant_color[2]) ?? '#000000'"
+        :color="labToRgbaString(post.dominantColor[0], post.dominantColor[1], post.dominantColor[2]) ?? '#000000'"
       />
       <ColorSwatch
         v-for="color in post.colors"
@@ -144,12 +160,11 @@ const updateSource = useDebounceFn(async (source: any) => {
             :count="4"
             :colors="['green', 'yellow', 'orange', 'red']"
             :icons="['i-tabler-seeding', 'i-tabler-mood-heart', 'i-tabler-eye-off', 'i-tabler-eyeglass-off']"
-            @select="async (d) => v1UpdatePostRating({
-
+            @select="async (d) => v2UpdatePostRating({
               path: {
                 post_id: post.id,
               },
-              body: {
+              query: {
                 rating: d,
               },
             })"
@@ -173,13 +188,13 @@ const updateSource = useDebounceFn(async (source: any) => {
         </div>
         <div>Path</div>
         <div>
-          {{ post.file_path }}
+          {{ post.filePath }}
         </div>
         <div>
           Name
         </div>
         <div>
-          {{ post.file_name }}
+          {{ post.fileName }}
         </div>
         <div>
           Dimension
@@ -193,17 +208,17 @@ const updateSource = useDebounceFn(async (source: any) => {
         <div class="uppercase">
           {{ post.extension }}
         </div>
-        <div v-if="post.created_at">
+        <div v-if="post.createdAt">
           Created At
         </div>
-        <div v-if="post.created_at">
-          {{ formatTimestr(post.created_at) }}
+        <div v-if="post.createdAt">
+          {{ formatTimestr(post.createdAt) }}
         </div>
-        <div v-if="post.published_at">
+        <div v-if="post.publishedAt">
           Published At
         </div>
-        <div v-if="post.published_at">
-          {{ formatTimestr(post.published_at) }}
+        <div v-if="post.publishedAt">
+          {{ formatTimestr(post.publishedAt) }}
         </div>
       </div>
     </div>
@@ -244,15 +259,15 @@ const updateSource = useDebounceFn(async (source: any) => {
         class="flex flex-wrap gap-2"
       >
         <PostTag
-          v-for="tag of post.tags"
-          :key="tag.tag_info.name"
+          v-for="tag of tagSorted"
+          :key="tag.tagInfo.name"
           class="bg-surface-high cursor-pointer rounded px-1 py-0.5"
           rounded="lg"
           :data="tag"
-          :color="tag.tag_info.group?.color"
+          :color="tag.tagInfo.group?.color"
           @pointerup="openTagSelectorWindow()"
         >
-          {{ tag.tag_info.name }}
+          {{ tag.tagInfo.name }}
         </PostTag>
         <Tag
           rounded="lg"

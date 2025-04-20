@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { v1CountGroupByExtension } from '@/api'
+import { v2GetExtensionCount } from '@/api'
 import { postFilter } from '@/shared'
 import { Btn } from '@roku-ui/vue'
 import { useQuery } from '@tanstack/vue-query'
@@ -34,7 +34,7 @@ const filterWithoutExtension = computed(() => {
 const extensionCountMutation = useQuery({
   queryKey: ['count', 'extension', filterWithoutExtension],
   queryFn: async () => {
-    const resp = await v1CountGroupByExtension({
+    const resp = await v2GetExtensionCount({
       body: {
         ...postFilter.value,
       },

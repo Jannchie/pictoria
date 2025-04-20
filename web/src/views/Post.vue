@@ -1,5 +1,4 @@
 <script setup lang="ts">
-import type { PostPublic } from '@/api'
 import Image from '@/roku/Image.vue'
 import { bottomBarInfo, selectedPostIdSet } from '@/shared'
 import { getPostImageURL } from '@/utils'
@@ -13,8 +12,8 @@ const postQuery = usePostQuery(postId)
 const post = computed(() => postQuery.data.value)
 const scrollAreaRef = ref<HTMLElement>()
 
-function getPostColor(post: PostPublic) {
-  if (post.colors.length > 0) {
+function getPostColor(post: { colors: { color: number, order: number }[] }) {
+  if (post.colors && post.colors.length > 0) {
     return colorNumToHex([...post.colors].sort((a, b) => {
       return a.order - b.order
     })[0].color)
@@ -24,7 +23,7 @@ function getPostColor(post: PostPublic) {
 
 watchEffect(() => {
   if (postQuery.data.value) {
-    bottomBarInfo.value = `Post ID: ${postQuery.data.value.id}, File Name: ${postQuery.data.value.file_name}`
+    bottomBarInfo.value = `Post ID: ${postQuery.data.value.id}, File Name: ${postQuery.data.value.fileName}`
   }
 })
 </script>
@@ -48,7 +47,7 @@ watchEffect(() => {
         </Btn>
       </div>
       <span class="text-sm">
-        {{ post.file_name }}
+        {{ post.fileName }}
       </span>
       <span class="grow-1 basis-0" />
     </div>

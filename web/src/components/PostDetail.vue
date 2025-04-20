@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import type { PostPublic } from '@/api'
+import type { PostSimplePublic } from '@/api'
 import { showPostDetail } from '@/shared'
 import { getPostImageURL } from '@/utils'
 import { Btn, Paper } from '@roku-ui/vue'
@@ -7,7 +7,7 @@ import { useElementBounding, useMouse } from '@vueuse/core'
 import { computed, ref, watchEffect } from 'vue'
 
 const props = defineProps<{
-  post: PostPublic
+  post: PostSimplePublic
 }>()
 const post = computed(() => props.post)
 const imgSrc = computed(() => getPostImageURL(post.value))

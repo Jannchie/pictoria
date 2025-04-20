@@ -1,5 +1,6 @@
 <script setup lang="ts">
-import { v1CountGroupByRating } from '@/api'
+import type { RatingCountItem } from '@/api'
+import { v2GetRatingCount } from '@/api'
 import { postFilter } from '@/shared'
 import { Btn } from '@roku-ui/vue'
 import { useQuery } from '@tanstack/vue-query'
@@ -34,7 +35,7 @@ const filterWithoutRating = computed(() => {
 const scoreCountMutation = useQuery({
   queryKey: ['count', 'rating', filterWithoutRating],
   queryFn: async () => {
-    const resp = await v1CountGroupByRating({
+    const resp = await v2GetRatingCount({
       body: {
         ...postFilter.value,
       },
@@ -46,7 +47,7 @@ const scoreCountMutation = useQuery({
 const scoreCountList = computed(() => {
   const resp = [0, 0, 0, 0, 0]
   const data = scoreCountMutation.data
-  data.value?.forEach((d) => {
+  data.value?.forEach((d: RatingCountItem) => {
     resp[Number(d.rating)] = d.count
   })
   return resp

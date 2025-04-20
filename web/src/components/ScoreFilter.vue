@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { v1CountGroupByScore } from '@/api'
+import { v2GetScoreCount } from '@/api'
 import { postFilter } from '@/shared'
 import { Btn } from '@roku-ui/vue'
 import { useQuery } from '@tanstack/vue-query'
@@ -33,7 +33,7 @@ const filterWidthoutScore = computed(() => {
 const scoreCountMutation = useQuery({
   queryKey: ['count', 'score', filterWidthoutScore],
   queryFn: async () => {
-    const resp = await v1CountGroupByScore({
+    const resp = await v2GetScoreCount({
       body: {
         ...postFilter.value,
       },

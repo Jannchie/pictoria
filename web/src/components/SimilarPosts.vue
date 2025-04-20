@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { v1GetSimilarPosts } from '@/api'
+import { v2GetSimilarPosts } from '@/api'
 import { useQuery } from '@tanstack/vue-query'
 
 const props = defineProps<{
@@ -11,7 +11,7 @@ const postId = computed(() => props.postId)
 const query = useQuery({
   queryKey: ['similarPosts', { postId }],
   queryFn: async () => {
-    const resp = await v1GetSimilarPosts({
+    const resp = await v2GetSimilarPosts({
       path: { post_id: postId.value },
     })
     if (resp.error) {

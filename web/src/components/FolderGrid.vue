@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import type { DirectorySummary } from '@/api'
-import { v1GetFolders } from '@/api'
+import { v2GetFolders } from '@/api'
 import { } from '@/shared'
 import { Btn } from '@roku-ui/vue'
 import { useQuery } from '@tanstack/vue-query'
@@ -10,7 +10,7 @@ import { useRoute } from 'vue-router'
 const folders = useQuery({
   queryKey: ['folders'],
   queryFn: async () => {
-    const resp = await v1GetFolders({ })
+    const resp = await v2GetFolders({ })
     if (resp.error) {
       throw resp.error
     }
