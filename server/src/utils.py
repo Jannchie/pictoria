@@ -14,7 +14,6 @@ from fastapi import FastAPI
 from fastapi.routing import APIRoute
 from PIL import Image
 from sqlalchemy import create_engine, delete, select
-from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 from sqlalchemy.orm import Session, sessionmaker
 
@@ -338,46 +337,79 @@ def from_rating_to_int(rating: str) -> int:
     return 0
 
 
-async def attach_tags_to_post(session: AsyncSession, post: Post, resp: wdtagger.Result, *, is_auto: bool = False):
-    # 统一查看是否有名为 general 或者 character 的 TagGroup，如果没有则创建
-    group_names = ["general", "character", "artist", "copyright"]
-    colors = {
-        "general": "#006192",
-        "character": "#8243ca",
-        "artist": "#f30000",
-        "copyright": "#00b300",
+async def attach_tags_to_posts(session: AsyncSession, post: list[Post], resp: list[wdtagger.Result], *, is_auto: bool = False):
+    # Bulk process all posts and responses together for better efficiency
+    all_tag_names = set()
+    tag_groups = {
+        "general": {"names": [], "color": "#006192"},
+        "character": {"names": [], "color": "#8243ca"},
+        "artist": {"names": [], "color": "#f30000"},
+        "copyright": {"names": [], "color": "#00b300"},
     }
-    for tag_group_name in group_names:
-        tag_group = await session.scalar(select(TagGroup).where(TagGroup.name == tag_group_name))
-        if tag_group is None:
-            tag_group = TagGroup(name=tag_group_name, color=colors[tag_group_name])
-            session.add(tag_group)
-    # 遍历标签并进行处理
-    for i, tag_names in enumerate([resp.general_tags, resp.character_tags]):
-        name = group_names[i]
-        tag_group = await session.scalar(select(TagGroup).where(TagGroup.name == name))
 
-        existing_tags = (await session.scalars(select(Tag).where(Tag.name.in_(tag_names)))).all()
-        existing_tag_names = {tag.name for tag in existing_tags}
-        for existing_tag in existing_tags:
-            if not existing_tag.group_id:
-                existing_tag.group_id = tag_group.id
-                session.add(existing_tag)
-        if new_tags := set(tag_names) - existing_tag_names:
-            for tag_name in new_tags:
-                tag = Tag(name=tag_name, group_id=tag_group.id)
+    # Collect all tags from all responses
+    for result in resp:
+        all_tag_names.update(result.general_tags)
+        all_tag_names.update(result.character_tags)
+        tag_groups["general"]["names"].extend(result.general_tags)
+        tag_groups["character"]["names"].extend(result.character_tags)
+
+    # Fetch all tag groups in a single query
+    group_names = list(tag_groups.keys())
+    existing_groups = (await session.scalars(select(TagGroup).where(TagGroup.name.in_(group_names)))).all()
+    existing_group_dict = {group.name: group for group in existing_groups}
+
+    # Create missing groups
+    for tag_group_name, group_info in tag_groups.items():
+        if tag_group_name not in existing_group_dict:
+            tag_group = TagGroup(name=tag_group_name, color=group_info["color"])
+            session.add(tag_group)
+            existing_group_dict[tag_group_name] = tag_group
+
+    # Fetch all existing tags in one query
+    existing_tags = (await session.scalars(select(Tag).where(Tag.name.in_(all_tag_names)))).all()
+    existing_tag_dict = {tag.name: tag for tag in existing_tags}
+
+    # Fetch all existing post-tag relationships
+    post_ids = [p.id for p in post]
+    existing_post_tags = (await session.scalars(select(PostHasTag).where((PostHasTag.post_id.in_(post_ids)) & (PostHasTag.tag_name.in_(all_tag_names))))).all()
+
+    # Create lookup dict for existing post-tag relationships
+    post_tag_map = {(pt.post_id, pt.tag_name): pt for pt in existing_post_tags}
+
+    # Process tags and create any missing tags
+    for tag_name in all_tag_names:
+        if tag_name in tag_groups["general"]["names"]:
+            group_name = "general"
+        elif tag_name in tag_groups["character"]["names"]:
+            group_name = "character"
+        else:
+            continue  # Skip if not in any group
+
+        tag_group = existing_group_dict[group_name]
+
+        # Update or create tag
+        if tag_name in existing_tag_dict:
+            tag = existing_tag_dict[tag_name]
+            if not tag.group_id:
+                tag.group_id = tag_group.id
                 session.add(tag)
-        post_existing_tags = (
-            await session.scalars(
-                select(PostHasTag).where(PostHasTag.tag_name.in_(tag_names) & (PostHasTag.post_id == post.id)),
-            )
-        ).all()
-        post_existing_tag_names = {tag_record.tag_name for tag_record in post_existing_tags}
-        if post_new_tags := set(tag_names) - post_existing_tag_names:
-            for tag_name in post_new_tags:
-                post_has_tag = PostHasTag(post_id=post.id, tag_name=tag_name, is_auto=is_auto)
-                post.tags.append(post_has_tag)
-    session.add(post)
+        else:
+            tag = Tag(name=tag_name, group_id=tag_group.id)
+            session.add(tag)
+            existing_tag_dict[tag_name] = tag
+
+    # Link tags to posts
+    for p, r in zip(post, resp, strict=False):
+        for tag_name in r.general_tags + r.character_tags:
+            if (p.id, tag_name) not in post_tag_map:
+                post_has_tag = PostHasTag(post_id=p.id, tag_name=tag_name, is_auto=is_auto)
+                p.tags.append(post_has_tag)
+        session.add(p)
+
+
+async def attach_tags_to_post(session: AsyncSession, post: Post, resp: wdtagger.Result, *, is_auto: bool = False):
+    attach_tags_to_posts(session, [post], [resp], is_auto=is_auto)
 
 @cache
 def _get_tagger() -> wdtagger.Tagger:

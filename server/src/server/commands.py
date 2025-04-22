@@ -18,7 +18,7 @@ from processors import process_posts
 from scheme import PostDetailPublic, Result
 from server.utils import is_image
 from server.utils.vec import get_img_vec
-from utils import attach_tags_to_post, from_rating_to_int, get_tagger, logger
+from utils import attach_tags_to_post, attach_tags_to_posts, from_rating_to_int, get_tagger, logger
 
 if TYPE_CHECKING:
     from wdtagger import Tagger
@@ -61,38 +61,43 @@ class CommandController(Controller):
 
     @litestar.put("/auto-tags")
     async def auto_tags_all(self, session: AsyncSession) -> None:
-        posts = await session.stream_scalars(select(Post).where(Post.rating.is_(None)))
+        batch_size = 32
         tagger = get_tagger()
-        batch_size = 8
-        batch = []
-        async for post in posts:
-            if not is_image(post.absolute_path):
-                continue
-            batch.append(post)
-            if len(batch) < batch_size:
-                continue
-            await self.process_tag_batch(session, tagger, batch)
-            batch.clear()
-        if batch:
-            await self.process_tag_batch(session, tagger, batch)
-            batch.clear()
+        last_id = 0
+
+        while True:
+            # Use cursor-based pagination by querying posts with ID > last_id
+
+            query = select(Post).where(Post.rating == 0, Post.id > last_id).order_by(Post.id).limit(batch_size)
+            posts = (await session.scalars(query)).all()
+
+            # Exit loop when no more posts are found
+            if not posts:
+                break
+
+            if valid_posts := [post for post in posts if is_image(post.absolute_path)]:
+                await self.process_tag_batch(session, tagger, valid_posts)
+
+            # Update last_id to the highest ID in this batch
+            last_id = posts[-1].id
+            logger.info(f"Processed batch up to ID: {last_id}")
 
     async def process_tag_batch(self, session: AsyncSession, tagger: "Tagger", batch: list[Post]) -> None:
         abs_paths = [post.absolute_path for post in batch]
         try:
-            responses = tagger.tag(abs_paths)
+            responses = await asyncio.to_thread(tagger.tag, abs_paths)
             for post, resp in zip(batch, responses, strict=True):
                 post.rating = from_rating_to_int(resp.rating)
-                await attach_tags_to_post(session, post, resp, is_auto=True)
+            await attach_tags_to_posts(session, batch, responses, is_auto=True)
         except Exception as e:
-            shared.logger.error(f"Error processing batch starting with post {batch[0].id}: {e}")
+            logger.error(f"Error processing batch starting with post {batch[0].id}: {e}")
             for post in batch:
                 try:
-                    response = tagger.tag([post.absolute_path])[0]
-                    post.rating = from_rating_to_int(response.rating)
-                    await attach_tags_to_post(session, post, response, is_auto=True)
+                    response = await asyncio.to_thread(tagger.tag, [post.absolute_path])
+                    post.rating = from_rating_to_int(response[0].rating)
                 except Exception as single_e:
-                    shared.logger.error(f"Error processing post {post.id}: {single_e}")
+                    logger.error(f"Error processing post {post.id}: {single_e}")
+            await attach_tags_to_posts(session, batch, responses, is_auto=True)
         logger.info("Batch processing complete.")
         await session.commit()
 
