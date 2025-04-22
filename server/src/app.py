@@ -5,6 +5,7 @@ import tomllib
 from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
 
+import pillow_avif  # noqa: F401
 from dotenv import load_dotenv
 from litestar import Litestar, Router
 from litestar.config.compression import CompressionConfig
