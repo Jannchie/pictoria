@@ -26,10 +26,7 @@ class ColorThief:
                      must implement `read()`, `seek()`, and `tell()` methods,
                      and be opened in binary mode.
         """
-        if isinstance(file, Image.Image):
-            self.image = file
-        else:
-            self.image = Image.open(file)
+        self.image = file if isinstance(file, Image.Image) else Image.open(file)
 
     def get_color(self, quality: int = 10):
         """Get the dominant color.
@@ -61,7 +58,7 @@ class ColorThief:
         for i in range(0, pixel_count, quality):
             r, g, b, a = pixels[i]
             # If pixel is mostly opaque and not white
-            if a >= 125 and not (r > 250 and g > 250 and b > 250):  # noqa: PLR2004
+            if a >= 125 and (r <= 250 or g <= 250 or b <= 250):  # noqa: PLR2004
                 valid_pixels.append((r, g, b))
 
         # Send array to quantize function which clusters values
@@ -119,79 +116,95 @@ class MMCQ:
         return VBox(rmin, rmax, gmin, gmax, bmin, bmax, histo)
 
     @staticmethod
-    def median_cut_apply(histo: dict[int, int], vbox: "VBox") -> tuple["VBox", "VBox"]:  # noqa: C901, PLR0912, PLR0915
+    def median_cut_apply(histo: dict[int, int], vbox: "VBox") -> tuple["VBox", "VBox"]:  # noqa: C901
+        """Apply median cut algorithm to vbox."""
         if not vbox.count:
             return (None, None)
 
+        # If only one pixel, no split
+        if vbox.count == 1:
+            return (vbox.copy, None)
+
+        # Find the dimension with the largest range
         rw = vbox.r2 - vbox.r1 + 1
         gw = vbox.g2 - vbox.g1 + 1
         bw = vbox.b2 - vbox.b1 + 1
-        maxw = max([rw, gw, bw])
-        # only one pixel, no split
-        if vbox.count == 1:
-            return (vbox.copy, None)
-        # Find the partial sum arrays along the selected axis.
+        maxw = max(rw, gw, bw)
+
+        # Calculate partial sums along the selected axis
         total = 0
-        sum_ = 0
         partialsum = {}
-        lookaheadsum = {}
-        do_cut_color = None
+
+        # Determine which color dimension to cut
         if maxw == rw:
             do_cut_color = "r"
-            for i in range(vbox.r1, vbox.r2 + 1):
-                sum_ = 0
-                for j in range(vbox.g1, vbox.g2 + 1):
-                    for k in range(vbox.b1, vbox.b2 + 1):
-                        index = MMCQ.get_color_index(i, j, k)
-                        sum_ += histo.get(index, 0)
-                total += sum_
-                partialsum[i] = total
+            dim_range = range(vbox.r1, vbox.r2 + 1)
+
+            def get_index(i: int, j: int, k: int) -> int:
+                return MMCQ.get_color_index(i, j, k)
+
+            secondary_ranges = (range(vbox.g1, vbox.g2 + 1), range(vbox.b1, vbox.b2 + 1))
         elif maxw == gw:
             do_cut_color = "g"
-            for i in range(vbox.g1, vbox.g2 + 1):
-                sum_ = 0
-                for j in range(vbox.r1, vbox.r2 + 1):
-                    for k in range(vbox.b1, vbox.b2 + 1):
-                        index = MMCQ.get_color_index(j, i, k)
-                        sum_ += histo.get(index, 0)
-                total += sum_
-                partialsum[i] = total
+            dim_range = range(vbox.g1, vbox.g2 + 1)
+
+            def get_index(j: int, i: int, k: int) -> int:
+                return MMCQ.get_color_index(j, i, k)
+
+            secondary_ranges = (range(vbox.r1, vbox.r2 + 1), range(vbox.b1, vbox.b2 + 1))
         else:  # maxw == bw
             do_cut_color = "b"
-            for i in range(vbox.b1, vbox.b2 + 1):
-                sum_ = 0
-                for j in range(vbox.r1, vbox.r2 + 1):
-                    for k in range(vbox.g1, vbox.g2 + 1):
-                        index = MMCQ.get_color_index(j, k, i)
-                        sum_ += histo.get(index, 0)
-                total += sum_
-                partialsum[i] = total
-        for i, d in partialsum.items():
-            lookaheadsum[i] = total - d
+            dim_range = range(vbox.b1, vbox.b2 + 1)
 
-        # determine the cut planes
-        dim1 = do_cut_color + "1"
-        dim2 = do_cut_color + "2"
+            def get_index(j: int, k: int, i: int) -> int:
+                return MMCQ.get_color_index(j, k, i)
+
+            secondary_ranges = (range(vbox.r1, vbox.r2 + 1), range(vbox.g1, vbox.g2 + 1))
+
+        # Calculate partial sums for each point in the selected dimension
+        for i in dim_range:
+            sum_ = 0
+            for j in secondary_ranges[0]:
+                for k in secondary_ranges[1]:
+                    index = get_index(j, k, i)
+                    sum_ += histo.get(index, 0)
+            total += sum_
+            partialsum[i] = total
+
+        # Lookup table for remaining pixels
+        lookaheadsum = {i: total - v for i, v in partialsum.items()}
+
+        # Define dimension attribute names
+        dim1 = f"{do_cut_color}1"
+        dim2 = f"{do_cut_color}2"
         dim1_val = getattr(vbox, dim1)
         dim2_val = getattr(vbox, dim2)
+
+        # Find cut point
         for i in range(dim1_val, dim2_val + 1):
             if partialsum[i] > (total / 2):
                 vbox1 = vbox.copy
                 vbox2 = vbox.copy
+
+                # Calculate position for optimal split
                 left = i - dim1_val
                 right = dim2_val - i
-                d2 = min([dim2_val - 1, int(i + right / 2)]) if left <= right else max([dim1_val, int(i - 1 - left / 2)])
-                # avoid 0-count boxes
-                while not partialsum.get(d2, False):
+                d2 = min(dim2_val - 1, int(i + right / 2)) if left <= right else max(dim1_val, int(i - 1 - left / 2))
+
+                # Avoid empty boxes
+                while d2 in partialsum and not partialsum.get(d2):
                     d2 += 1
+
                 count2 = lookaheadsum.get(d2)
-                while not count2 and partialsum.get(d2 - 1, False):
+                while not count2 and d2 > dim1_val and partialsum.get(d2 - 1):
                     d2 -= 1
                     count2 = lookaheadsum.get(d2)
-                # set dimensions
+
+                # Set new dimensions and return split boxes
                 setattr(vbox1, dim2, d2)
                 setattr(vbox2, dim1, getattr(vbox1, dim2) + 1)
                 return (vbox1, vbox2)
+
         return (None, None)
 
     @staticmethod
