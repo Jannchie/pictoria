@@ -28,7 +28,7 @@
     "@hey-api/client-axios": "^0.7.0",
     "@hey-api/openapi-ts": "^0.66.5",
     "@iconify/json": "^2.2.330",
-    "@jannchie/eslint-config": "^3.4.4",
+    "@jannchie/eslint-config": "^3.4.6",
     "@roku-ui/preset": "^0.20.0",
     "@types/culori": "^2.1.1",
     "@types/node": "^22.14.1",

@@ -54,9 +54,9 @@ const folderPath2Count = computed(() => {
   const result: Record<string, number> = {}
   const count = (folder: DirectorySummary) => {
     if (folder.children) {
-      folder.children.forEach((child) => {
+      for (const child of folder.children) {
         count(child)
-      })
+      }
     }
     result[folder.path] = folder.file_count
   }

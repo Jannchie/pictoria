@@ -24,9 +24,9 @@ const tagDataSearched = computed(() => {
 })
 const tagGroupByFirstChar = computed(() => {
   const resp: [string, TagWithCountPublic[]][] = []
-  tagDataSearched.value.forEach((d) => {
+  for (const d of tagDataSearched.value) {
     if (d.name.length === 0) {
-      return
+      continue
     }
     const firstChar = d.name[0].toUpperCase()
     const index = resp.findIndex(r => r[0] === firstChar)
@@ -36,12 +36,12 @@ const tagGroupByFirstChar = computed(() => {
     else if (resp[index][1].length < 21) {
       resp[index][1].push(d)
     }
-  })
+  }
 
   // Sort each group by count in descending order
-  resp.forEach((group) => {
+  for (const group of resp) {
     group[1].sort((a, b) => b.count - a.count)
-  })
+  }
 
   // Sort the groups by first character in ascending order
   resp.sort((a, b) => a[0].localeCompare(b[0]))

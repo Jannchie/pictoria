@@ -42,7 +42,7 @@ class ImageController(Controller):
         if not abs_path.exists():
             raise NotFoundException(detail="Original image not found")
         media_type, _ = mimetypes.guess_type(abs_path)
-        return File(abs_path, media_type=media_type)
+        return File(abs_path, media_type=media_type, filename=abs_path.name, content_disposition_type="inline")
 
     @get("/thumbnails/{post_path:path}")
     async def get_thumbnail(self, post_path: str) -> File:
@@ -58,4 +58,4 @@ class ImageController(Controller):
         if not thumbnail_file_path.exists():
             create_thumbnail(original_file_path, thumbnail_file_path)
         media_type, _ = mimetypes.guess_type(thumbnail_file_path)
-        return File(thumbnail_file_path, media_type=media_type)
+        return File(thumbnail_file_path, media_type=media_type, filename=thumbnail_file_path.name, content_disposition_type="inline")
