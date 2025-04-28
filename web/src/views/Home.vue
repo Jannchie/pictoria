@@ -28,12 +28,7 @@ onKeyStroke('Delete', deleteSelectingPosts)
 useEventListener('wheel', (event) => {
   if (event.ctrlKey) {
     event.preventDefault()
-    if (event.deltaY > 0) {
-      waterfallRowCount.value = Math.min(waterfallRowCount.value + 1, 16)
-    }
-    else {
-      waterfallRowCount.value = Math.max(waterfallRowCount.value - 1, 1)
-    }
+    waterfallRowCount.value = event.deltaY > 0 ? Math.min(waterfallRowCount.value + 1, 16) : Math.max(waterfallRowCount.value - 1, 1)
   }
 }, { passive: false })
 </script>

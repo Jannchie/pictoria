@@ -11,9 +11,9 @@ const props = withDefaults(defineProps<{
   items: () => [],
   is: 'div',
 })
-const slotRefs = ref<HTMLDivElement[]>([])
+const slotReferences = ref<HTMLDivElement[]>([])
 
-const wrapper = ref<any | null>(null)
+const wrapper = ref<any>(undefined)
 const wrapperBounds = useElementBounding(wrapper)
 const wrapperHeight = computed(() => wrapperBounds.height.value)
 
@@ -27,7 +27,7 @@ const avgHeight = controlledComputed(() => {
   return [calculatedHeightsTrue.value]
 }, () => {
   const heights = calculatedHeightsTrue.value
-  if (!heights.length) {
+  if (heights.length === 0) {
     return 20
   }
 
@@ -35,9 +35,9 @@ const avgHeight = controlledComputed(() => {
   let sum = 0
   let count = 0
 
-  for (let i = 0; i < heights.length; i++) {
-    if (heights[i]) {
-      sum += heights[i]
+  for (const height of heights) {
+    if (height) {
+      sum += height
       count++
     }
   }
@@ -45,9 +45,9 @@ const avgHeight = controlledComputed(() => {
 })
 
 const calculatedHeights = computed(() => {
-  return props.items.map((_, i) => {
-    if (calculatedHeightsTrue.value[i]) {
-      return calculatedHeightsTrue.value[i]
+  return props.items.map((_, index) => {
+    if (calculatedHeightsTrue.value[index]) {
+      return calculatedHeightsTrue.value[index]
     }
     return avgHeight.value
   })
@@ -59,25 +59,25 @@ const accumulatedHeights = controlledComputed(() => {
   const heights = calculatedHeights.value
   const accumulated = Array.from({ length: heights.length }) as number[]
   accumulated[0] = 0 // 初始值
-  for (let i = 1; i < heights.length; i++) {
-    accumulated[i] = accumulated[i - 1] + heights[i - 1]
+  for (let index = 1; index < heights.length; index++) {
+    accumulated[index] = accumulated[index - 1] + heights[index - 1]
   }
   return accumulated
 })
 
-function binarySearch(arr: number[], target: number) {
+function binarySearch(array: number[], target: number) {
   let start = 0
-  let end = arr.length - 1
-  if (target <= arr[0]) {
+  let end = array.length - 1
+  if (target <= array[0]) {
     return 0
   }
 
   while (start <= end) {
     const mid = Math.floor((start + end) / 2)
-    if (arr[mid] < target && arr[mid + 1] >= target) {
+    if (array[mid] < target && array[mid + 1] >= target) {
       return mid + 1
     }
-    else if (arr[mid] < target) {
+    else if (array[mid] < target) {
       start = mid + 1
     }
     else {
@@ -94,19 +94,19 @@ const currentStartIdx = controlledComputed(() => {
   if (scrollY.value === 0) {
     return 0
   }
-  const idx = binarySearch(accumulatedHeights.value, scrollY.value) - 1
-  return idx >= 0 ? idx : accumulatedHeights.value.length
+  const index = binarySearch(accumulatedHeights.value, scrollY.value) - 1
+  return index >= 0 ? index : accumulatedHeights.value.length
 })
-const currentEndIdx = computed(() => {
+const currentEndIndex = computed(() => {
   if (scrollY.value + wrapperHeight.value === 0) {
     return 0
   }
-  const idx = binarySearch(accumulatedHeights.value, scrollY.value + wrapperHeight.value)
-  return idx >= 0 ? idx + 1 : accumulatedHeights.value.length
+  const index = binarySearch(accumulatedHeights.value, scrollY.value + wrapperHeight.value)
+  return index >= 0 ? index + 1 : accumulatedHeights.value.length
 })
 
-const showItems = computed(() => props.items.slice(currentStartIdx.value, currentEndIdx.value))
-debouncedWatch(slotRefs.value, async () => {
+const showItems = computed(() => props.items.slice(currentStartIdx.value, currentEndIndex.value))
+debouncedWatch(slotReferences.value, async () => {
   if (!wrapper.value) {
     return
   }
@@ -114,21 +114,25 @@ debouncedWatch(slotRefs.value, async () => {
   if (dom.$el) {
     dom = dom.$el
   }
-  dom?.querySelectorAll('.virtual-scroll-item').forEach((el: HTMLElement) => {
-    const height = el.clientHeight
-    const dataIdx = Number(el.getAttribute('data-index'))
-    calculatedHeightsTrue.value[dataIdx] = height
-  })
+  for (const element of dom?.querySelectorAll('.virtual-scroll-item') || []) {
+    const height = (element as HTMLElement).clientHeight
+    const dataIndex = Number((element as HTMLElement).dataset.index)
+    calculatedHeightsTrue.value[dataIndex] = height
+  }
 }, {
   debounce: 100,
   immediate: true,
 })
 
 const remainHeight = computed(() => {
-  if (!accumulatedHeights.value[currentEndIdx.value]) {
+  if (!accumulatedHeights.value[currentEndIndex.value]) {
     return 0
   }
-  return Math.max(0, accumulatedHeights.value[accumulatedHeights.value.length - 1] - accumulatedHeights.value[currentEndIdx.value])
+  const lastHeight = accumulatedHeights.value.at(-1)
+  if (lastHeight === undefined) {
+    return 0
+  }
+  return Math.max(0, lastHeight - accumulatedHeights.value[currentEndIndex.value])
 })
 const paddingTop = computed(() => calculatedHeights.value.slice(0, currentStartIdx.value).reduce((a, b) => a + b, 0))
 </script>
@@ -147,7 +151,7 @@ const paddingTop = computed(() => calculatedHeights.value.slice(0, currentStartI
     >
       <div
         v-for="item, i of showItems"
-        ref="slotRefs"
+        ref="slotReferences"
         :key="currentStartIdx + i"
         :data-index="currentStartIdx + i"
         class="virtual-scroll-item"

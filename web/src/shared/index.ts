@@ -65,11 +65,11 @@ export function useInfinityPostsQuery() {
   })
   return useInfiniteQuery({
     queryKey: ['posts', body],
-    queryFn: async ({ pageParam = 0 }) => {
+    queryFn: async ({ pageParam: pageParameter = 0 }) => {
       const resp = await v2SearchPosts({
         body: body.value,
         query: {
-          offset: pageParam,
+          offset: pageParameter,
           limit,
         },
       })
@@ -79,9 +79,9 @@ export function useInfinityPostsQuery() {
     staleTime: 1000 * 60 * 60,
     getNextPageParam: (lastPage, allPages) => {
       if (lastPage && lastPage.length < limit) {
-        return undefined
+        return
       }
-      const allPosts = allPages.flatMap(page => page)
+      const allPosts = allPages.flat()
       return allPosts.length
     },
   })
@@ -90,7 +90,7 @@ export function useInfinityPostsQuery() {
 export function usePosts() {
   const postsQuery = useInfinityPostsQuery()
   return computed<Array<PostSimplePublic>>(() => {
-    return postsQuery.data.value?.pages.flatMap(page => page).filter(post => post !== undefined) ?? []
+    return postsQuery.data.value?.pages.flat().filter(post => post !== undefined) ?? []
   })
 }
 
@@ -102,8 +102,8 @@ export function openTagSelectorWindow() {
 export const showPostDetail = ref<PostSimplePublic | null>(null)
 
 export const menuData = ref<any | null>(null)
-export const showMenu = computed({ get: () => !!menuData.value, set: (val) => {
-  if (!val) {
+export const showMenu = computed({ get: () => !!menuData.value, set: (value) => {
+  if (!value) {
     menuData.value = null
   }
 } })
@@ -125,7 +125,7 @@ export function useFoldersQuery() {
   return useQuery({
     queryKey: ['folders'],
     queryFn: async () => {
-      const resp = await v2GetFolders({ })
+      const resp = await v2GetFolders({})
       if (resp.error) {
         throw resp.error
       }

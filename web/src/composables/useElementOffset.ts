@@ -60,17 +60,17 @@ export function useElementOffset(
   const offsetTop = shallowRef(0)
 
   function recalculate() {
-    const el = unrefElement(target)
+    const element = unrefElement(target)
 
-    if (!el) {
+    if (!element) {
       if (reset) {
         offsetLeft.value = 0
         offsetTop.value = 0
       }
       return
     }
-    offsetLeft.value = el.offsetLeft
-    offsetTop.value = el.offsetTop
+    offsetLeft.value = element.offsetLeft
+    offsetTop.value = element.offsetTop
   }
 
   function update() {

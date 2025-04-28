@@ -18,7 +18,7 @@ const props = defineProps<{
   scrollElement?: MaybeRef<HTMLElement>
 }>()
 const slots = defineSlots<{
-  default: (props?: any) => any
+  default: (properties_?: any) => any
 }>()
 const rangeExpand = computed(() => unref(props.rangeExpand) ?? 0)
 const gap = computed(() => unref(props.gap) ?? 16)
@@ -32,8 +32,8 @@ const cols = computed(() => {
   return unref(props.cols) ?? 3
 })
 
-function isArray<T>(val: any): val is T[] {
-  return Array.isArray(val)
+function isArray<T>(value: any): value is T[] {
+  return Array.isArray(value)
 }
 
 const contentWidth = computed(() => {
@@ -54,8 +54,8 @@ const itemWidth = computed(() => {
 })
 
 const boundings = computed(() => {
-  const itemsVal = unref(props.items)
-  return itemsVal.map((d) => {
+  const itemsValue = unref(props.items)
+  return itemsValue.map((d) => {
     if (d.width === 0 || itemWidth.value === 0) {
       return {
         width: itemWidth.value,
@@ -75,8 +75,8 @@ const clientWidth = useClientWidth(wrapper)
 const paddingInner = computed(() => {
   return (clientWidth.value - contentWidth.value) / 2
 })
-function calculateWaterfallLayout(itemsRef: ComputedRef<{ width: number, height: number }[]>, columnCount: MaybeRef<number>, gap: MaybeRef<number>, paddingX: MaybeRef<number>) {
-  const items = unref(itemsRef)
+function calculateWaterfallLayout(itemsReference: ComputedRef<{ width: number, height: number }[]>, columnCount: MaybeRef<number>, gap: MaybeRef<number>, paddingX: MaybeRef<number>) {
+  const items = unref(itemsReference)
   const columnHeights = Array.from<number>({ length: unref(columnCount) }).fill(0) // 初始化列高度数组
   const itemPositions: {
     x: number
@@ -85,8 +85,7 @@ function calculateWaterfallLayout(itemsRef: ComputedRef<{ width: number, height:
     height: number
   }[] = [] // 存储每个项目的坐标
   const offset = Math.max(0, contentWidth.value - unref(paddingX) * 2 - itemWidth.value * items.length - unref(gap) * (items.length)) / 2
-  for (let i = 0; i < items.length; i++) {
-    const item = items[i]
+  for (const item of items) {
     const columnIndex = columnHeights.indexOf(Math.min(...columnHeights)) // 找到最短的列
     const x = columnIndex * (itemWidth.value + unref(gap)) + unref(paddingX) + offset + unref(paddingInner)
     const y = columnHeights[columnIndex] + unref(paddingY)
@@ -115,11 +114,11 @@ const allSlots = computed(() => {
   return slots.default?.() ?? []
 })
 
-function getItemStyle(i: number) {
+function getItemStyle(index: number) {
   if (!isArray(layoutData.value)) {
     return {}
   }
-  const current = layoutData.value[i]
+  const current = layoutData.value[index]
   if (!current) {
     return {}
   }
@@ -151,11 +150,11 @@ const scroll = useScroll(scrollElement, { behavior })
 // })
 
 const scrollBounds = useElementBounding(scrollElement)
-const scrollVal = useScroll(scrollElement)
+const scrollValue = useScroll(scrollElement)
 const wrapperBounds = useElementBounding(wrapper)
 const relativeCoords = computed(() => {
-  const relativeX = wrapperBounds.left.value - scrollBounds.left.value + scrollVal.x.value
-  const relativeY = wrapperBounds.top.value - scrollBounds.top.value + scrollVal.y.value
+  const relativeX = wrapperBounds.left.value - scrollBounds.left.value + scrollValue.x.value
+  const relativeY = wrapperBounds.top.value - scrollBounds.top.value + scrollValue.y.value
   return {
     x: relativeX,
     y: relativeY,
@@ -180,32 +179,38 @@ const inRange = computed(() => {
 
 const childrenList = computed(() => {
   const children: any = []
-  allSlots.value.forEach((slot: any, i: number) => {
+  let index = 0
+  for (const slot of allSlots.value) {
     if (isArray(slot.children)) {
-      slot.children.forEach((child: any, i: number) => {
-        if (!inRange.value[i]) {
-          return
+      let index_ = 0
+      for (const child of slot.children) {
+        if (!inRange.value[index_]) {
+          index_++
+          continue
         }
-        children.push([child, i])
-      })
+        children.push([child, index_])
+        index_++
+      }
     }
     else {
-      if (!inRange.value[i]) {
-        return
+      if (!inRange.value[index]) {
+        index++
+        continue
       }
-      children.push([slot, i])
+      children.push([slot, index])
     }
-  })
+    index++
+  }
   return children
 })
 const contentDom = ref<HTMLElement>()
 defineExpose({
   scroll,
   scrollTo: (top: number, smooth = false) => {
-    const prev = _smooth.value
+    const previous = _smooth.value
     _smooth.value = smooth
     scroll.y.value = top
-    _smooth.value = prev
+    _smooth.value = previous
   },
   wrapper,
   contentDom,

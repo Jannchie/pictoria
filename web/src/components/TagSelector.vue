@@ -92,25 +92,19 @@ async function onPointerUp(tagName: string) {
   if (!postId.value) {
     return
   }
-  if (currentTags.value.some(tag => tag.tagInfo.name === tagName)) {
-    // remove
-    await v2RemoveTagFromPost({
-
-      path: {
-        post_id: postId.value,
-        tag_name: tagName,
-      },
-    })
-  }
-  else {
-    await v2AddTagToPost({
-
-      path: {
-        post_id: postId.value,
-        tag_name: tagName,
-      },
-    })
-  }
+  await (currentTags.value.some(tag => tag.tagInfo.name === tagName)
+    ? v2RemoveTagFromPost({
+        path: {
+          post_id: postId.value,
+          tag_name: tagName,
+        },
+      })
+    : v2AddTagToPost({
+        path: {
+          post_id: postId.value,
+          tag_name: tagName,
+        },
+      }))
   queryClient.invalidateQueries({
     queryKey: ['post', postId],
   })
@@ -162,31 +156,16 @@ const currentHoverIndex = ref(-1)
 const initCurrentTagsRef = ref([])
 const currentGroupTagsRef = ref([])
 const addTagRef = ref(null)
-const refList = computed<any[]>(() => {
-  if (addTagRef.value) {
-    return [addTagRef.value, ...initCurrentTagsRef.value, ...currentGroupTagsRef.value].sort((a: any, b: any) => a.$el.offsetTop - b.$el.offsetTop)
-  }
-  else {
-    return [...initCurrentTagsRef.value, ...currentGroupTagsRef.value].sort((a: any, b: any) => a.$el.offsetTop - b.$el.offsetTop)
-  }
+const referenceList = computed<any[]>(() => {
+  return addTagRef.value ? [addTagRef.value, ...initCurrentTagsRef.value, ...currentGroupTagsRef.value].sort((a: any, b: any) => a.$el.offsetTop - b.$el.offsetTop) : [...initCurrentTagsRef.value, ...currentGroupTagsRef.value].sort((a: any, b: any) => a.$el.offsetTop - b.$el.offsetTop)
 })
 
-function getIndexOfRef(type: string, i: number) {
+function getIndexOfRef(type: string, index: number) {
   if (type === 'current') {
-    if (addTagRef.value) {
-      return i + 1
-    }
-    else {
-      return i
-    }
+    return addTagRef.value ? index + 1 : index
   }
   else if (type === 'group') {
-    if (addTagRef.value) {
-      return i + 1 + initCurrentTagsRef.value.length
-    }
-    else {
-      return i + initCurrentTagsRef.value.length
-    }
+    return addTagRef.value ? index + 1 + initCurrentTagsRef.value.length : index + initCurrentTagsRef.value.length
   }
   else {
     return 0
@@ -194,52 +173,35 @@ function getIndexOfRef(type: string, i: number) {
 }
 
 onKeyStroke('ArrowDown', () => {
-  if (currentHoverIndex.value + 1 >= refList.value.length) {
-    currentHoverIndex.value = 0
-  }
-  else {
-    currentHoverIndex.value = Math.min(currentHoverIndex.value + 1, refList.value.length - 1)
-  }
+  currentHoverIndex.value = currentHoverIndex.value + 1 >= referenceList.value.length ? 0 : Math.min(currentHoverIndex.value + 1, referenceList.value.length - 1)
 
-  refList.value[currentHoverIndex.value]?.$el.scrollIntoView({
+  referenceList.value[currentHoverIndex.value]?.$el.scrollIntoView({
     block: 'nearest',
   })
 })
 
 onKeyStroke('ArrowUp', () => {
-  if (currentHoverIndex.value - 1 < 0) {
-    currentHoverIndex.value = refList.value.length - 1
-  }
-  else {
-    currentHoverIndex.value = Math.max(currentHoverIndex.value - 1, 0)
-  }
-  refList.value[currentHoverIndex.value]?.$el.scrollIntoView({
+  currentHoverIndex.value = currentHoverIndex.value - 1 < 0 ? referenceList.value.length - 1 : Math.max(currentHoverIndex.value - 1, 0)
+  referenceList.value[currentHoverIndex.value]?.$el.scrollIntoView({
     block: 'nearest',
   })
 })
 
 onKeyStroke('Enter', () => {
-  if (currentHoverIndex.value === 0 && showAddTag.value) {
-    addTag(search.value)
-  }
-  else {
-    const ref = refList.value[currentHoverIndex.value]
-    if (ref) {
-      onPointerUp(ref.title)
-    }
-  }
+  const reference = referenceList.value[currentHoverIndex.value]
+  currentHoverIndex.value === 0 && showAddTag.value
+    ? addTag(search.value)
+    : reference && onPointerUp(reference.title)
 })
 const searchRef = ref(null)
 onKeyStroke(true, (e) => {
-  if (e.key !== 'ArrowDown' && e.key !== 'ArrowUp' && e.key !== 'Tab') {
-    if (searchRef.value) {
-      const el = (searchRef.value as any).$el
-      if (el) {
-        // 在 el 中，寻找 input 元素，并 focus
-        const input = el.querySelector('input')
-        if (input) {
-          input.focus()
-        }
+  if (e.key !== 'ArrowDown' && e.key !== 'ArrowUp' && e.key !== 'Tab' && searchRef.value) {
+    const element = (searchRef.value as any).$el
+    if (element) {
+      // 在 el 中，寻找 input 元素，并 focus
+      const input = element.querySelector('input')
+      if (input) {
+        input.focus()
       }
     }
   }
@@ -319,7 +281,7 @@ const searchingInitCurrentTags = computed(() => {
           />
         </div>
         <div
-          v-if="initCurrentTags.filter(tag => isSearchMatch(tag.tagInfo.name)).length"
+          v-if="initCurrentTags.some(tag => isSearchMatch(tag.tagInfo.name))"
           class="border-b border-surface"
         >
           <div class="p-2 text-surface-dimmed">

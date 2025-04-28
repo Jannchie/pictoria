@@ -5,18 +5,14 @@ export function useWatchRoute() {
   const route = useRoute()
   watch(route, () => {
     switch (route.name) {
-      case 'dir':
+      case 'dir': {
         if (Array.isArray(route.params.folder)) {
-          if (route.params.folder.includes('@')) {
-            postFilter.value.folder = '.'
-          }
-          else {
-            postFilter.value.folder = route.params.folder.join('/')
-          }
+          postFilter.value.folder = route.params.folder.includes('@') ? '.' : route.params.folder.join('/')
         }
         else {
           postFilter.value.folder = route.params.folder
         }
+      }
     }
   })
 }

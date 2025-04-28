@@ -19,8 +19,8 @@ async function onUploadFile(file: File, path: string | null, source?: string) {
     })
     queryClient.invalidateQueries({ queryKey: ['posts'] })
   }
-  catch (e) {
-    console.error(e)
+  catch (error) {
+    console.error(error)
   }
 }
 
@@ -45,7 +45,7 @@ async function readDirectory(directoryEntry: FileSystemDirectoryEntry, path: str
   const readEntries = (): Promise<FileSystemEntry[]> => {
     return new Promise((resolve, reject) => {
       reader.readEntries((results) => {
-        if (results.length) {
+        if (results.length > 0) {
           resolve(results)
         }
         else {
@@ -59,7 +59,7 @@ async function readDirectory(directoryEntry: FileSystemDirectoryEntry, path: str
 
   do {
     batch = await readEntries()
-    entries = entries.concat(batch)
+    entries = [...entries, ...batch]
   } while (batch.length > 0)
   for (const entry of entries) {
     if (entry.isFile) {
@@ -75,12 +75,12 @@ async function readDirectory(directoryEntry: FileSystemDirectoryEntry, path: str
     }
   }
 }
-useEventListener(window, 'drop', async (event) => {
+useEventListener(globalThis, 'drop', async (event: DragEvent) => {
   event.preventDefault()
   dragEnterCount.value = 0
   isDraggingFiles.value = false
   const source = event.dataTransfer?.getData('text/uri-list')
-  const entries = Array.from(event.dataTransfer?.items ?? []).map(item => item.webkitGetAsEntry())
+  const entries = [...event.dataTransfer?.items ?? []].map(item => item.webkitGetAsEntry())
   if (entries) {
     for (const entry of entries) {
       try {
@@ -99,8 +99,8 @@ useEventListener(window, 'drop', async (event) => {
           }
         }
       }
-      catch (e) {
-        console.error(e)
+      catch (error) {
+        console.error(error)
       }
     }
   }
@@ -114,34 +114,24 @@ useEventListener(window, 'drop', async (event) => {
   capture: true,
 })
 
-window.addEventListener('dragover', (e) => {
+globalThis.addEventListener('dragover', (e) => {
   e.preventDefault()
 }, false)
 
-useEventListener(window, 'dragend', () => {
+useEventListener(globalThis, 'dragend', () => {
   dragEnterCount.value = 0
 })
 
-useEventListener(window, 'dragenter', (event) => {
+useEventListener(globalThis, 'dragenter', (event: DragEvent) => {
   dragEnterCount.value++
-  if (event.dataTransfer?.types.includes('Files')) {
-    isDraggingFiles.value = true
-  }
-  else {
-    isDraggingFiles.value = false
-  }
+  isDraggingFiles.value = !!event.dataTransfer?.types.includes('Files')
 }, {
   passive: true,
   capture: true,
 })
-useEventListener(window, 'dragleave', (event) => {
+useEventListener(globalThis, 'dragleave', (event: DragEvent) => {
   dragEnterCount.value--
-  if (event.dataTransfer?.types.includes('Files')) {
-    isDraggingFiles.value = true
-  }
-  else {
-    isDraggingFiles.value = false
-  }
+  isDraggingFiles.value = !!event.dataTransfer?.types.includes('Files')
 }, {
   passive: true,
   capture: true,

@@ -31,46 +31,41 @@ const props = withDefaults(
 
 function minMaxStepToOptions(min: number, max: number, step: number) {
   const options = []
-  for (let i = min; i <= max; i += step) {
-    options.push(i)
+  for (let index = min; index <= max; index += step) {
+    options.push(index)
   }
-  if (options[options.length - 1] !== max) {
+  if (options.at(-1) !== max) {
     options.push(max)
   }
   return options
 }
 
-function getTicks(tickNum: number, options: any[]) {
+function getTicks(tickNumber: number, options: any[]) {
   const ticks: any[] = []
-  if (tickNum === 0) {
+  if (tickNumber === 0) {
     return ticks
   }
   ticks.push(options[0])
-  const step = (options.length - 1) / (tickNum - 1)
-  for (let i = 1; i < tickNum - 1; i++) {
-    ticks.push(options[Math.round(i * step)])
+  const step = (options.length - 1) / (tickNumber - 1)
+  for (let index = 1; index < tickNumber - 1; index++) {
+    ticks.push(options[Math.round(index * step)])
   }
-  ticks.push(options[options.length - 1])
+  ticks.push(options.at(-1))
   return ticks
 }
 
-const tickNum = computed(() => {
-  if (props.options) {
-    return props.options.length
-  }
-  else {
-    return props.tickNum ?? 0
-  }
+const tickNumber = computed(() => {
+  return props.options ? props.options.length : props.tickNum ?? 0
 })
 const options = computed(() => props.options === undefined ? minMaxStepToOptions(props.min, props.max, props.step) : props.options)
-const ticks = computed(() => getTicks(tickNum.value, options.value))
+const ticks = computed(() => getTicks(tickNumber.value, options.value))
 
 const model = defineModel<any>({
   default: undefined,
 
 })
 const length = computed(() => options.value.length ?? 0)
-const currentIndex = ref(!options.value.includes(model.value) ? 0 : options.value.indexOf(model.value))
+const currentIndex = ref(options.value.includes(model.value) ? options.value.indexOf(model.value) : 0)
 
 function optionToIndex(option: any) {
   let res = options.value.indexOf(option)
@@ -78,11 +73,11 @@ function optionToIndex(option: any) {
     // 如果 model 是数字，则从 options 中找到最接近的值
     if (typeof option === 'number') {
       let minDiff = Infinity
-      for (let i = 0; i < options.value.length; i++) {
-        const diff = Math.abs(options.value[i] - option)
+      for (let index = 0; index < options.value.length; index++) {
+        const diff = Math.abs(options.value[index] - option)
         if (diff < minDiff) {
           minDiff = diff
-          res = i
+          res = index
         }
       }
     }
@@ -165,7 +160,7 @@ onMounted(() => {
 })
 const sizeCls = computed(() => {
   switch (props.size) {
-    case 'sm':
+    case 'sm': {
       return {
         wrapper: 'h-2',
         innerWrapper: 'px-0.5 h-1',
@@ -175,8 +170,9 @@ const sizeCls = computed(() => {
         indicatorInner: 'h-1.5 w-1.5 -translate-x-0.75 -translate-y-0.75',
         progress: '-mx-0.5',
       }
+    }
 
-    case 'lg':
+    case 'lg': {
       return {
         wrapper: 'h-6',
         innerWrapper: 'px-1.5 h-3',
@@ -186,8 +182,8 @@ const sizeCls = computed(() => {
         indicatorInner: 'h-3 w-3 -translate-x-1.5 -translate-y-1.5',
         progress: '-mx-1.5',
       }
-    case 'md':
-    default:
+    }
+    default: {
       return {
         wrapper: 'h-4',
         innerWrapper: 'px-1 h-2',
@@ -197,6 +193,7 @@ const sizeCls = computed(() => {
         indicatorInner: 'h-2 w-2 -translate-x-1 -translate-y-1',
         progress: '-mx-1',
       }
+    }
   }
 })
 const animateCls = computed(() => props.animate

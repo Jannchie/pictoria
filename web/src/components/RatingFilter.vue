@@ -10,20 +10,15 @@ const ratingFilterData = computed({
   get() {
     return postFilter.value.rating
   },
-  set(val: number[]) {
-    postFilter.value.rating = val
+  set(value: number[]) {
+    postFilter.value.rating = value
   },
 })
 function hasRating(rating: number) {
   return ratingFilterData.value.includes(rating)
 }
 function onPointerDown(rating: number) {
-  if (hasRating(rating)) {
-    ratingFilterData.value = ratingFilterData.value.filter(s => s !== rating)
-  }
-  else {
-    ratingFilterData.value = [...ratingFilterData.value, rating]
-  }
+  ratingFilterData.value = hasRating(rating) ? ratingFilterData.value.filter(s => s !== rating) : [...ratingFilterData.value, rating]
 }
 const filterWithoutRating = computed(() => {
   return {
@@ -55,27 +50,28 @@ const scoreCountList = computed(() => {
 
 const btnText = computed(() => {
   const item = ratingFilterData.value
-  if (item.length === 0) {
-    return 'Rating'
-  }
-  else {
-    return item.map(s => getRatingName(s)).join(', ')
-  }
+  return item.length === 0 ? 'Rating' : item.map(s => getRatingName(s)).join(', ')
 })
 function getRatingName(rating: number) {
   switch (rating) {
-    case 0:
+    case 0: {
       return 'Not Rating Yet'
-    case 1:
+    }
+    case 1: {
       return 'General'
-    case 2:
+    }
+    case 2: {
       return 'Sensitive'
-    case 3:
+    }
+    case 3: {
       return 'Questionable'
-    case 4:
+    }
+    case 4: {
       return 'Explicit'
-    default:
+    }
+    default: {
       return 'Unknown'
+    }
   }
 }
 </script>

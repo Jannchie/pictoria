@@ -15,16 +15,10 @@ const id = computed<number | undefined>(() => {
   else if (showPostDetail.value) {
     return showPostDetail.value.id
   }
-  return undefined
 })
 const { data: postData } = usePostQuery(id)
 const data = computed(() => {
-  if (postData.value) {
-    return [postData.value]
-  }
-  else {
-    return []
-  }
+  return postData.value ? [postData.value] : []
 })
 </script>
 

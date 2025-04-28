@@ -64,10 +64,10 @@ function isImage(extension: string) {
 const folders = computed(() => {
   const names = post.value.filePath.split('/')
   // 返回一个对象数组，包括 name 和 path 两个字段，name 如上所示，而 path 需要包括父亲目录，使用 / 分隔
-  const paths = post.value.filePath.split('/').map((_, i, arr) => arr.slice(0, i + 1).join('/'))
-  return names.map((name, i) => ({
+  const paths = post.value.filePath.split('/').map((_, index, array) => array.slice(0, index + 1).join('/'))
+  return names.map((name, index) => ({
     name,
-    path: paths[i],
+    path: paths[index],
   }))
 })
 
@@ -180,10 +180,10 @@ const tagSorted = computed(() => {
             @select="(d) => onSelectScore(post.id, d)"
           />
         </div>
-        <div v-if="post.size">
+        <div v-if="post.size > 0">
           Size
         </div>
-        <div v-if="post.size">
+        <div v-if="post.size > 0">
           {{ filesize(post.size) }}
         </div>
         <div>Path</div>
@@ -228,7 +228,7 @@ const tagSorted = computed(() => {
       </div>
       <div class="flex gap-2">
         <div
-          v-if="!folders.length"
+          v-if="folders.length === 0"
           class="h-8 w-full flex flex-col items-center justify-center text-surface-dimmed"
         >
           <div class="flex flex-col items-center op50">
@@ -255,7 +255,7 @@ const tagSorted = computed(() => {
         Tags
       </div>
       <div
-        v-if="post.tags && post.tags.length"
+        v-if="post.tags && post.tags.length > 0"
         class="flex flex-wrap gap-2"
       >
         <PostTag

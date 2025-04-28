@@ -26,8 +26,8 @@ const orderOptions: {
   { id: 'desc', label: 'Desc', icon: 'i-tabler-arrow-down' },
 ]
 
-function underlineToSpace(str: string) {
-  return str.replace(/_/g, ' ')
+function underlineToSpace(string_: string) {
+  return string_.replaceAll('_', ' ')
 }
 
 const show = ref(false)

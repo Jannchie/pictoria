@@ -59,18 +59,8 @@ const scaledHeight = computed(() => {
 const x = ref(0)
 const y = ref(0)
 watchEffect(() => {
-  if (scaledInitWidth.value < imgWrapperWidth.value) {
-    x.value = (imgWrapperWidth.value - scaledInitWidth.value) / 2
-  }
-  else {
-    x.value = 0
-  }
-  if (scaledInitHeight.value < imgWrapperHeight.value) {
-    y.value = (imgWrapperHeight.value - scaledInitHeight.value) / 2
-  }
-  else {
-    y.value = 0
-  }
+  x.value = scaledInitWidth.value < imgWrapperWidth.value ? (imgWrapperWidth.value - scaledInitWidth.value) / 2 : 0
+  y.value = scaledInitHeight.value < imgWrapperHeight.value ? (imgWrapperHeight.value - scaledInitHeight.value) / 2 : 0
 })
 
 const mouse = useMouse({ type: 'client' })
@@ -82,7 +72,7 @@ function toInit() {
   y.value = (imgWrapperHeight.value - scaledHeight.value) / 2
 }
 function to1x() {
-  scale.value = 1.00
+  scale.value = 1
   x.value = (imgWrapperWidth.value - scaledWidth.value) / 2
   y.value = (imgWrapperHeight.value - scaledHeight.value) / 2
 }

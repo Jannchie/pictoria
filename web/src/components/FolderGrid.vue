@@ -10,7 +10,7 @@ import { useRoute } from 'vue-router'
 const folders = useQuery({
   queryKey: ['folders'],
   queryFn: async () => {
-    const resp = await v2GetFolders({ })
+    const resp = await v2GetFolders({})
     if (resp.error) {
       throw resp.error
     }

@@ -9,20 +9,15 @@ const scoreFilterData = computed({
   get() {
     return postFilter.value.score
   },
-  set(val: number[]) {
-    postFilter.value.score = val
+  set(value: number[]) {
+    postFilter.value.score = value
   },
 })
 function hasScore(score: number) {
   return scoreFilterData.value.includes(score)
 }
 function onPointerDown(score: number) {
-  if (hasScore(score)) {
-    scoreFilterData.value = scoreFilterData.value.filter(s => s !== score)
-  }
-  else {
-    scoreFilterData.value = [...scoreFilterData.value, score]
-  }
+  scoreFilterData.value = hasScore(score) ? scoreFilterData.value.filter(s => s !== score) : [...scoreFilterData.value, score]
 }
 const filterWidthoutScore = computed(() => {
   return {
@@ -44,20 +39,17 @@ const scoreCountMutation = useQuery({
 const scoreCountList = computed(() => {
   const resp = [0, 0, 0, 0, 0, 0]
   const data = scoreCountMutation.data
-  data.value?.forEach((d) => {
-    resp[Number(d.score)] = d.count
-  })
+  if (data.value) {
+    for (const d of data.value) {
+      resp[Number(d.score)] = d.count
+    }
+  }
   return resp
 })
 
 const btnText = computed(() => {
   const item = scoreFilterData.value
-  if (item.length === 0) {
-    return 'Score'
-  }
-  else {
-    return item.map(s => s === 0 ? 'Not Scored Yet' : `${s} Star`).join(', ')
-  }
+  return item.length === 0 ? 'Score' : item.map(s => s === 0 ? 'Not Scored Yet' : `${s} Star`).join(', ')
 })
 </script>
 

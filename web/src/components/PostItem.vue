@@ -37,25 +37,15 @@ function onPointerDown(e: PointerEvent) {
     }
   }
   else if (e.ctrlKey) {
-    if (selectedPostIdSet.value.has(post.value.id)) {
-      selectedPostIdSet.value = new Set([...selectedPostIdSet.value].filter(p => p !== post.value.id))
-    }
-    else {
-      selectedPostIdSet.value = new Set([...selectedPostIdSet.value, post.value.id])
-    }
+    selectedPostIdSet.value = selectedPostIdSet.value.has(post.value.id) ? new Set([...selectedPostIdSet.value].filter(p => p !== post.value.id)) : new Set([...selectedPostIdSet.value, post.value.id])
   }
   else
     if (!selectedPostIdSet.value.has(post.value.id)) {
-      if (!e.ctrlKey) {
-        selectedPostIdSet.value = new Set([post.value.id])
+      if (e.ctrlKey) {
+        selectedPostIdSet.value = selectedPostIdSet.value.has(post.value.id) ? new Set([...selectedPostIdSet.value].filter(p => p !== post.value.id)) : new Set([...selectedPostIdSet.value, post.value.id])
       }
       else {
-        if (selectedPostIdSet.value.has(post.value.id)) {
-          selectedPostIdSet.value = new Set([...selectedPostIdSet.value].filter(p => p !== post.value.id))
-        }
-        else {
-          selectedPostIdSet.value = new Set([...selectedPostIdSet.value, post.value.id])
-        }
+        selectedPostIdSet.value = new Set([post.value.id])
       }
     }
 }
@@ -68,44 +58,55 @@ function getIconByExtension(extension: string) {
     case 'mp3':
     case 'flac':
     case 'wav':
-    case 'ogg':
+    case 'ogg': {
       return 'i-tabler-music'
+    }
     case 'mp4':
     case 'webm':
     case 'mkv':
     case 'avi':
     case 'mov':
     case 'wmv':
-    case 'flv':
+    case 'flv': {
       return 'i-tabler-video'
+    }
     case 'zip':
     case 'rar':
     case '7z':
     case 'tar':
     case 'gz':
     case 'bz2':
-    case 'xz':
+    case 'xz': {
       return 'i-tabler-archive'
-    case 'pdf':
+    }
+    case 'pdf': {
       return 'i-tabler-file-pdf'
+    }
     case 'doc':
-    case 'docx':
+    case 'docx': {
       return 'i-tabler-file-word'
+    }
     case 'xls':
-    case 'xlsx':
+    case 'xlsx': {
       return 'i-tabler-file-excel'
+    }
     case 'ppt':
-    case 'pptx':
+    case 'pptx': {
       return 'i-tabler-file-powerpoint'
-    case 'txt':
+    }
+    case 'txt': {
       return 'i-tabler-file-text'
+    }
     case 'html':
-    case 'htm':
+    case 'htm': {
       return 'i-tabler-file-code'
-    case 'json':
+    }
+    case 'json': {
       return 'i-tabler-file-code'
-    default:
+    }
+    default: {
       return 'i-tabler-file'
+    }
   }
 }
 const imageLoaded = ref(false)
@@ -132,12 +133,7 @@ const primaryColor = computed(() => {
 function onContextmenu(e: MouseEvent) {
   e.preventDefault()
   // if shift key is pressed, select or unselect this post
-  if (e.shiftKey || e.ctrlKey) {
-    selectedPostIdSet.value = new Set([...selectedPostIdSet.value, post.value.id])
-  }
-  else {
-    selectedPostIdSet.value = new Set([post.value.id])
-  }
+  selectedPostIdSet.value = e.shiftKey || e.ctrlKey ? new Set([...selectedPostIdSet.value, post.value.id]) : new Set([post.value.id])
 }
 </script>
 

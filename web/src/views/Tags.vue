@@ -7,7 +7,7 @@ import { useQuery } from '@tanstack/vue-query'
 const tagQuery = useQuery({
   queryKey: ['tags'],
   queryFn: async () => {
-    const resp = await v2ListTags({ })
+    const resp = await v2ListTags({})
     if (resp.error) {
       throw resp.error
     }

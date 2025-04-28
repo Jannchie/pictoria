@@ -3,7 +3,7 @@ import { rokuPreset } from '@roku-ui/preset'
 
 import { defineConfig } from 'unocss'
 
-const file = readFileSync('node_modules/@roku-ui/vue/dist/index.js', 'utf-8')
+const file = readFileSync('node_modules/@roku-ui/vue/dist/index.js', 'utf8')
 
 export default defineConfig({
   presets: [

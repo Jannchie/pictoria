@@ -46,7 +46,7 @@ useEventListener(target, 'pointerdown', (e) => {
 })
 
 // 捕获任意元素的 mouseup 事件
-useEventListener(window, 'pointerup', (e) => {
+useEventListener(globalThis, 'pointerup', (e) => {
   dragging.value = false
   emit('selectEnd', {
     left: Math.min(startPoint.value.x, endPoint.value.x),
@@ -95,7 +95,7 @@ useEventListener(parent, 'scroll', (e) => {
   }, { target: e.target, shift: shift.value, ctrl: ctrl.value })
 })
 
-useEventListener(window, 'dragend', () => {
+useEventListener(globalThis, 'dragend', () => {
   dragging.value = false
 })
 </script>

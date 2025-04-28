@@ -9,9 +9,9 @@ export interface ToastData {
 }
 export const toasts = ref<ToastData[]>([])
 
+function pushToast(toast: ToastData) {
+  toasts.value.push(toast)
+}
 export function useToast() {
-  function pushToast(toast: ToastData) {
-    toasts.value.push(toast)
-  }
   return { pushToast }
 }

@@ -36,9 +36,9 @@ const props = withDefaults(defineProps<{
 })
 
 const slots = defineSlots<{
-  link?: (props: { data: TreeListLeafData, level: number }) => any
-  collapse?: (props: { data: TreeListCollapseData, level: number }) => any
-  header?: (props: { data: TreeListHeaderData, level: number }) => any
+  link?: (properties_: { data: TreeListLeafData, level: number }) => any
+  collapse?: (properties_: { data: TreeListCollapseData, level: number }) => any
+  header?: (properties_: { data: TreeListHeaderData, level: number }) => any
 }>()
 
 const rounded = useRounded(props)
@@ -64,18 +64,20 @@ const status = ref<Map<TreeListItemData, boolean>>(new Map())
 function travel(data: TreeListItemData, level: number) {
   if (hasChildren(data)) {
     status.value.set(data, data.open ?? false)
-    data.children?.forEach((child) => {
-      travel(child, level + 1)
-    })
+    if (data.children) {
+      for (const child of data.children) {
+        travel(child, level + 1)
+      }
+    }
   }
 }
 
 watchEffect(() => {
-  props.items.forEach((item) => {
+  for (const item of props.items) {
     if (hasChildren(item)) {
       travel(item, 0)
     }
-  })
+  }
 })
 
 function TreeListLink({ data, level }: { data: TreeListLeafData, level: number }) {
@@ -83,11 +85,11 @@ function TreeListLink({ data, level }: { data: TreeListLeafData, level: number }
     return slots.link({ data, level })
   }
   const content = data.title
-  const Comp = (props: any) => data.is
-    ? h(data.is, props, { default: () => {
+  const Comp = (properties: any) => data.is
+    ? h(data.is, properties, { default: () => {
         return content
       } })
-    : h('a', props, { default: () => content })
+    : h('a', properties, { default: () => content })
 
   return (
     <li

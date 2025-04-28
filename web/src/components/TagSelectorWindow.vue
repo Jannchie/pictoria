@@ -3,7 +3,7 @@ import { selectedPostIdSet, tagSelectorWindowRef } from '@/shared'
 
 const selectedPostId = computed(() => {
   if (selectedPostIdSet.value.size === 0) {
-    return undefined
+    return
   }
   return selectedPostIdSet.value.values().next().value
 })

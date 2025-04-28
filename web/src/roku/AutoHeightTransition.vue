@@ -1,27 +1,27 @@
 <script setup lang="ts">
-function onBeforeEnter(el: Element) {
-  if (el instanceof HTMLElement) {
-    el.style.height = `${0}px`
+function onBeforeEnter(element: Element) {
+  if (element instanceof HTMLElement) {
+    element.style.height = `${0}px`
   }
 }
-function onEnter(el: Element) {
-  if (el instanceof HTMLElement) {
-    el.style.height = `${el.scrollHeight}px`
+function onEnter(element: Element) {
+  if (element instanceof HTMLElement) {
+    element.style.height = `${element.scrollHeight}px`
   }
 }
-function onAfterEnter(el: Element) {
-  if (el instanceof HTMLElement) {
-    el.style.height = 'auto'
+function onAfterEnter(element: Element) {
+  if (element instanceof HTMLElement) {
+    element.style.height = 'auto'
   }
 }
-function onBeforeLeave(el: Element) {
-  if (el instanceof HTMLElement) {
-    el.style.height = `${el.scrollHeight}px`
+function onBeforeLeave(element: Element) {
+  if (element instanceof HTMLElement) {
+    element.style.height = `${element.scrollHeight}px`
   }
 }
-function onLeave(el: Element) {
-  if (el instanceof HTMLElement) {
-    el.style.height = `${0}px`
+function onLeave(element: Element) {
+  if (element instanceof HTMLElement) {
+    element.style.height = `${0}px`
   }
 }
 </script>

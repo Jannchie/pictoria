@@ -13,17 +13,17 @@ export function useClientHeight(target: MaybeComputedElementRef, options: {
   } = options
 
   const clientHeight = ref(initialWidth)
-  const el = computed(() => unrefElement(target))
+  const element = computed(() => unrefElement(target))
   const update = () => {
-    if (el.value) {
-      clientHeight.value = el.value.clientHeight
+    if (element.value) {
+      clientHeight.value = element.value.clientHeight
     }
   }
 
   update()
   tryOnMounted(update)
   useEventListener('resize', update, { passive: true })
-  useResizeObserver(() => el.value, update)
+  useResizeObserver(() => element.value, update)
 
   if (listenOrientation) {
     const matches = useMediaQuery('(orientation: portrait)')

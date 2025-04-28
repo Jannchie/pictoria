@@ -15,7 +15,7 @@ const route = useRoute()
 const router = useRouter()
 const infinityPostsQuery = useInfinityPostsQuery()
 const posts = computed<Array<PostSimplePublic>>(() => {
-  return infinityPostsQuery.data.value?.pages.flatMap(page => page).filter(post => post !== undefined) ?? []
+  return infinityPostsQuery.data.value?.pages.flat().filter(post => post !== undefined) ?? []
 })
 const items = computed(() => posts.value.map(post => ({
   width: post.width ?? 1,
@@ -43,37 +43,39 @@ async function onSelectChange(selectArea: Area, { shift, ctrl }: { target: Event
   // 通过计算两者的交集，得到选中的元素 index
   const currentSelectingId: Set<number | undefined> = new Set()
 
-  layoutData.value?.forEach((element, index) => {
-    const elementLeft = element.x + waterfallOffset.offsetLeft.value
-    const elementRight = element.x + element.width + waterfallOffset.offsetLeft.value
-    const elementTop = element.y + waterfallOffset.offsetTop.value
-    const elementBottom = element.y + element.height + waterfallOffset.offsetTop.value
+  if (layoutData.value) {
+    for (const [index, element] of layoutData.value.entries()) {
+      const elementLeft = element.x + waterfallOffset.offsetLeft.value
+      const elementRight = element.x + element.width + waterfallOffset.offsetLeft.value
+      const elementTop = element.y + waterfallOffset.offsetTop.value
+      const elementBottom = element.y + element.height + waterfallOffset.offsetTop.value
 
-    // Check if there is an intersection between the element and the selectArea
-    const isIntersecting
+      // Check if there is an intersection between the element and the selectArea
+      const isIntersecting
     = !(elementLeft > selectArea.right
       || elementRight < selectArea.left
       || elementTop > selectArea.bottom
       || elementBottom < selectArea.top)
     // 如果按住了 shift，则是追加选择，如果按住了 ctrl，则是补集选择
-    const post = posts.value[index]
-    if (isIntersecting) {
-      currentSelectingId.add(post.id)
+      const post = posts.value[index]
+      if (isIntersecting) {
+        currentSelectingId.add(post.id)
+      }
     }
-  })
+  }
   if (shift) {
     selectingPostIdSet.value = new Set([...selectingPostIdSet.value, ...currentSelectingId])
   }
   else if (ctrl) {
     // 如果原来已经选中了，则取消选中，否则添加选中
-    currentSelectingId.forEach((postId) => {
+    for (const postId of currentSelectingId) {
       if (selectedPostIdSet.value.has(postId)) {
         unselectingPostId.value.add(postId)
       }
       else {
         selectingPostIdSet.value.add(postId)
       }
-    })
+    }
   }
   else {
     selectedPostIdSet.value = currentSelectingId
@@ -206,15 +208,18 @@ function onMenuSelect(value: string | number | symbol) {
       continue
     }
     switch (value) {
-      case 'rotate-clockwise':
+      case 'rotate-clockwise': {
         rotateImageMutation.mutate({ postId, clockwise: true })
         break
-      case 'rotate-counterclockwise':
+      }
+      case 'rotate-counterclockwise': {
         rotateImageMutation.mutate({ postId, clockwise: false })
         break
-      case 'delete':
+      }
+      case 'delete': {
         deleteSelectingPosts()
         break
+      }
     }
   }
 }

@@ -20,10 +20,10 @@ const props = withDefaults(
     minBarHeight: 20,
   },
 )
-const scrollBarIndicatorRef = ref<HTMLElement | null>()
+const scrollBarIndicatorRef = ref<HTMLElement>()
 const scrollBarIndicatorBounds = useElementBounding(() => scrollBarIndicatorRef.value)
 
-const scrollDomRef = ref<HTMLElement | null>()
+const scrollDomRef = ref<HTMLElement>()
 
 const clientHeight = useClientHeight(() => scrollDomRef.value)
 const scrollHeight = ref(0)
@@ -68,14 +68,14 @@ const scrollBarData = computed(() => {
 })
 const dragging = ref(false)
 const dragStartY = ref(0)
-const prevUserSelect = ref('')
+const previousUserSelect = ref('')
 const startScrollTop = ref(0)
 const mouse = useMouse({ type: 'client' })
 useEventListener(() => scrollBarIndicatorRef.value, 'pointerdown', (e) => {
   dragging.value = true
   dragStartY.value = e.clientY
   startScrollTop.value = y.value
-  prevUserSelect.value = document.body.style.userSelect
+  previousUserSelect.value = document.body.style.userSelect
   document.body.style.userSelect = 'none'
 }, {
   capture: props.capture,
@@ -104,7 +104,7 @@ useEventListener(() => document, 'pointerup', (e) => {
     e.stopPropagation()
   }
   dragging.value = false
-  document.body.style.userSelect = prevUserSelect.value
+  document.body.style.userSelect = previousUserSelect.value
 }, {
   capture: props.capture,
 })

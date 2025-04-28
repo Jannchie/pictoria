@@ -9,20 +9,15 @@ const ratingFilterData = computed({
   get() {
     return postFilter.value.extension
   },
-  set(val: string[]) {
-    postFilter.value.extension = val
+  set(value: string[]) {
+    postFilter.value.extension = value
   },
 })
-function hasExt(ext: string) {
-  return ratingFilterData.value.includes(ext)
+function hasExt(extension: string) {
+  return ratingFilterData.value.includes(extension)
 }
-function onPointerDown(ext: string) {
-  if (hasExt(ext)) {
-    ratingFilterData.value = ratingFilterData.value.filter(s => s !== ext)
-  }
-  else {
-    ratingFilterData.value = [...ratingFilterData.value, ext]
-  }
+function onPointerDown(extension: string) {
+  ratingFilterData.value = hasExt(extension) ? ratingFilterData.value.filter(s => s !== extension) : [...ratingFilterData.value, extension]
 }
 const filterWithoutExtension = computed(() => {
   return {
@@ -46,9 +41,11 @@ const extensionCountMutation = useQuery({
 const scoreCountList = computed(() => {
   const resp: Record<string, number> = {}
   const data = extensionCountMutation.data
-  data.value?.forEach((d) => {
-    resp[d.extension] = d.count
-  })
+  if (data.value) {
+    for (const d of data.value) {
+      resp[d.extension] = d.count
+    }
+  }
   return resp
 })
 
@@ -58,15 +55,10 @@ const extensions = computed(() => {
 
 const btnText = computed(() => {
   const item = ratingFilterData.value
-  if (item.length === 0) {
-    return 'Extension'
-  }
-  else {
-    return item.map(s => getExtensionName(s)).join(', ')
-  }
+  return item.length === 0 ? 'Extension' : item.map(s => getExtensionName(s)).join(', ')
 })
-function getExtensionName(ext: string) {
-  return ext
+function getExtensionName(extension: string) {
+  return extension
 }
 </script>
 
