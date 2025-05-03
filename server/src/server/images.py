@@ -4,8 +4,10 @@ from typing import ClassVar
 from litestar import Controller, get
 from litestar.exceptions import NotFoundException
 from litestar.response import File
+from sqlalchemy.ext.asyncio import AsyncSession
 
 import shared
+from models import Post
 from utils import create_thumbnail
 
 mimetypes.add_type("image/jpeg", ".jpg")
@@ -57,5 +59,44 @@ class ImageController(Controller):
             raise NotFoundException(detail="Original image not found")
         if not thumbnail_file_path.exists():
             create_thumbnail(original_file_path, thumbnail_file_path)
+        media_type, _ = mimetypes.guess_type(thumbnail_file_path)
+        return File(thumbnail_file_path, media_type=media_type, filename=thumbnail_file_path.name, content_disposition_type="inline")
+
+    @get("/original/id/{post_id:int}")
+    async def get_original_by_id(self, post_id: int, session: AsyncSession) -> File:
+        """
+        Get original image by id.
+        """
+        post = await session.get(Post, post_id)
+        if not post:
+            raise NotFoundException(detail=f"Post with id {post_id} not found")
+
+        abs_path = post.absolute_path
+        if not abs_path.exists():
+            raise NotFoundException(detail=f"Original image for post {post_id} not found")
+
+        media_type, _ = mimetypes.guess_type(abs_path)
+        return File(abs_path, media_type=media_type, filename=abs_path.name, content_disposition_type="inline")
+
+    @get("/thumbnails/id/{post_id:int}")
+    async def get_thumbnail_by_id(self, post_id: int, session: AsyncSession) -> File:
+        """
+        Get thumbnail image by id.
+        """
+        post = await session.get(Post, post_id)
+        if not post:
+            raise NotFoundException(detail=f"Post with id {post_id} not found")
+
+        thumbnail_file_path = post.thumbnail_path
+        if not thumbnail_file_path.exists():
+            thumbnail_file_path.parent.mkdir(parents=True, exist_ok=True)
+
+        original_file_path = post.absolute_path
+        if not original_file_path.exists():
+            raise NotFoundException(detail=f"Original image for post {post_id} not found")
+
+        if not thumbnail_file_path.exists():
+            create_thumbnail(original_file_path, thumbnail_file_path)
+
         media_type, _ = mimetypes.guess_type(thumbnail_file_path)
         return File(thumbnail_file_path, media_type=media_type, filename=thumbnail_file_path.name, content_disposition_type="inline")
