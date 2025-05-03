@@ -112,6 +112,12 @@ function sortByGroup(a: PostHasTagPublic, b: PostHasTagPublic) {
 const tagSorted = computed(() => {
   return post.value.tags?.slice().sort(sortByGroup) ?? []
 })
+function onCopyTags() {
+  const tags = tagSorted.value.map(tag => tag.tagInfo.name).join(', ')
+  if (tags) {
+    navigator.clipboard.writeText(tags)
+  }
+}
 </script>
 
 <template>
@@ -250,9 +256,18 @@ const tagSorted = computed(() => {
     </div>
     <div class="flex flex-col gap-1">
       <div
-        class="py-2 text-zinc-4 font-black"
+        class="flex items-center gap-2 py-2 text-zinc-4 font-black"
       >
-        Tags
+        <span>Tags</span>
+        <Btn
+          v-if="post.tags && post.tags.length > 0"
+          size="sm"
+          icon
+          variant="light"
+          @click="onCopyTags"
+        >
+          <i class="i-tabler-copy" />
+        </Btn>
       </div>
       <div
         v-if="post.tags && post.tags.length > 0"
