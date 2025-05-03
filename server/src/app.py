@@ -144,4 +144,4 @@ app = Litestar(
 if __name__ == "__main__":
     import uvicorn
 
-    uvicorn.run("app:app", port=4777, reload=True, reload_dirs=["src"], reload_excludes=[".venv"], log_config=None)
+    uvicorn.run("app:app", host="0.0.0.0", port=4777, reload=True, reload_dirs=["src"], reload_excludes=[".venv"], log_config=None)  # noqa: S104
