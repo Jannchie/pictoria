@@ -22,7 +22,7 @@ import shared
 from models import Post, PostHasTag
 from processors import process_post
 from scheme import DTOBaseModel, PostDetailPublic, PostHasColorPublic
-from server.utils.vec import find_similar_posts, get_img_vec
+from server.utils.vec import find_similar_posts, get_img_vec_by_id
 from utils import get_path_name_and_extension
 
 if TYPE_CHECKING:
@@ -189,6 +189,12 @@ class PostController(Controller):
     async def get_post(self, session: AsyncSession, post_id: int) -> PostDetailPublic:
         """Get post by id."""
         post = await session.get(Post, post_id)
+
+        group_name_order = ["artist", "copyright", "character", "general", "meta"]
+
+        if post and post.tags:
+            post.tags.sort(key=lambda x: group_name_order.index(x.tag_info.group.name) if x.tag_info.group.name in group_name_order else len(group_name_order))
+
         if not post:
             msg = f"Post with id {post_id} not found."
             raise NotFoundException(detail=msg)
@@ -197,14 +203,10 @@ class PostController(Controller):
     @litestar.get("/{post_id:int}/similar", status_code=200)
     async def get_similar_posts(self, session: AsyncSession, post_id: int, limit: int = 100) -> list[PostSimplePublic]:
         """Get similar posts by id."""
-        post = await session.get(Post, post_id)
-        if not post:
-            msg = f"Post with id {post_id} not found."
-            raise NotFoundException(detail=msg)
-        vec = await get_img_vec(session, post)
+        vec = await get_img_vec_by_id(session, post_id)
         resp = await find_similar_posts(session, vec, limit=limit)
         id_list = [row.post_id for row in resp]
-        stmt = self.simple_select_stmt.filter(Post.id.in_(id_list)).order_by(func.array_position(id_list, Post.id))
+        stmt = self.simple_select_stmt.where(Post.id.in_(id_list)).order_by(func.array_position(id_list, Post.id))
         return [PostSimplePublic.model_validate(post) for post in (await session.scalars(stmt)).all()]
 
     @litestar.post("/count", status_code=200, description="Count posts by filters.")

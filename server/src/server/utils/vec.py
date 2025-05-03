@@ -27,9 +27,13 @@ async def insert_img_vec(session: AsyncSession, post_id: int, image_path: Path):
 
 async def get_img_vec(session: AsyncSession, post: Post):
     post_id = post.id
+    return await session.scalar(
+        select(PostVector).where(PostVector.post_id == post_id),
+    )
+
+
+async def get_img_vec_by_id(session: AsyncSession, post_id: int):
     post_vector = await session.scalar(
         select(PostVector).where(PostVector.post_id == post_id),
     )
-    if post_vector is None:
-        return await insert_img_vec(session, post_id, post.absolute_path)
-    return post_vector.embedding
+    return None if post_vector is None else post_vector.embedding
