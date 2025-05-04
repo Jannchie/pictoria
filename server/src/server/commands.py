@@ -66,8 +66,6 @@ class CommandController(Controller):
         last_id = 0
 
         while True:
-            # Use cursor-based pagination by querying posts with ID > last_id
-
             query = select(Post).where(Post.rating == 0, Post.id > last_id).order_by(Post.id).limit(batch_size)
             posts = (await session.scalars(query)).all()
 
@@ -75,10 +73,11 @@ class CommandController(Controller):
             if not posts:
                 break
 
-            if valid_posts := [post for post in posts if is_image(post.absolute_path)]:
-                await self.process_tag_batch(session, tagger, valid_posts)
-
-            # Update last_id to the highest ID in this batch
+            if valid_posts := [post for post in posts if is_image(post.absolute_path) and post.rating == 0]:
+                try:
+                    await self.process_tag_batch(session, tagger, valid_posts)
+                except Exception as e:
+                    logger.error(f"Error processing batch starting with post {valid_posts[0].id}: {e}")
             last_id = posts[-1].id
             logger.info(f"Processed batch up to ID: {last_id}")
 
