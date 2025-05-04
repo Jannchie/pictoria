@@ -42,9 +42,11 @@ const scoreCountMutation = useQuery({
 const scoreCountList = computed(() => {
   const resp = [0, 0, 0, 0, 0]
   const data = scoreCountMutation.data
-  data.value?.forEach((d: RatingCountItem) => {
-    resp[Number(d.rating)] = d.count
-  })
+  if (data.value) {
+    for (const d of data.value) {
+      resp[Number(d.rating)] = d.count
+    }
+  }
   return resp
 })
 
