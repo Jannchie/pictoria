@@ -1,6 +1,6 @@
 import type { PostSimplePublic } from '@/api'
-import { v2GetFolders, v2SearchPosts } from '@/api'
-import { useInfiniteQuery, useQuery } from '@tanstack/vue-query'
+import { v2GetFolders, v2SearchPosts, v2UpdatePostScore } from '@/api'
+import { useInfiniteQuery, useQuery, useQueryClient } from '@tanstack/vue-query'
 import { useStorage } from '@vueuse/core'
 import { converter, parse } from 'culori'
 import { computed, ref, watch } from 'vue'
@@ -162,6 +162,22 @@ export const showMenu = computed({ get: () => !!menuData.value, set: (value) => 
     menuData.value = null
   }
 } })
+
+// Utility function to update scores for multiple posts
+export async function updateScoreForSelectedPosts(score: number) {
+  const selectedIds = [...selectedPostIdSet.value].filter(id => id !== undefined) as number[]
+
+  if (selectedIds.length === 0) {
+    return
+  }
+
+  for (const postId of selectedIds) {
+    await v2UpdatePostScore({
+      path: { post_id: postId },
+      body: { score },
+    })
+  }
+}
 
 export function useCurrentFolder() {
   const route = useRoute()

@@ -5,7 +5,7 @@ import type { Area } from './SelectArea.vue'
 import { v2DeletePosts } from '@/api'
 import { useRotateImageMutation } from '@/composables/mutations/useRotateImageMutation'
 import { useElementOffset } from '@/composables/useElementOffset'
-import { selectedPostIdSet, selectingPostIdSet, unselectedPostIdSet as unselectingPostId, useInfinityPostsQuery, waterfallRowCount } from '@/shared'
+import { selectedPostIdSet, selectingPostIdSet, unselectedPostIdSet as unselectingPostId, updateScoreForSelectedPosts, useInfinityPostsQuery, waterfallRowCount } from '@/shared'
 import { Btn, Menu } from '@roku-ui/vue'
 import { useQueryClient } from '@tanstack/vue-query'
 import { logicAnd } from '@vueuse/math'
@@ -106,6 +106,40 @@ const notUsingInput = computed(() =>
   activeElement.value?.tagName !== 'INPUT'
   && activeElement.value?.tagName !== 'TEXTAREA')
 
+// Add keyboard shortcuts for batch rating
+const { 1: one, 2: two, 3: three, 4: four, 5: five } = useMagicKeys()
+const queryClient = useQueryClient()
+
+// Watch for number key presses to apply ratings to all selected posts
+watchEffect(async () => {
+  // Only process keyboard input when not in a text field and having posts selected
+  if (!notUsingInput.value || selectedPostIdSet.value.size === 0) {
+    return
+  }
+
+  if (one.value) {
+    await updateScoreForSelectedPosts(1)
+  }
+  if (two.value) {
+    await updateScoreForSelectedPosts(2)
+  }
+  if (three.value) {
+    await updateScoreForSelectedPosts(3)
+  }
+  if (four.value) {
+    await updateScoreForSelectedPosts(4)
+  }
+  if (five.value) {
+    await updateScoreForSelectedPosts(5)
+  }
+  // Invalidate queries to refresh UI
+  const selectedIds = [...selectedPostIdSet.value].filter(id => id !== undefined) as number[]
+  queryClient.invalidateQueries({ queryKey: ['count', 'score'] })
+  for (const postId of selectedIds) {
+    queryClient.invalidateQueries({ queryKey: ['post', postId] })
+  }
+})
+
 whenever(logicAnd(Ctrl_A, notUsingInput), () => {
   selectedPostIdSet.value = new Set(posts.value.map(post => post.id))
 })
@@ -186,8 +220,6 @@ const menuData = computed(() => {
     },
   ]
 })
-
-const queryClient = useQueryClient()
 
 async function deleteSelectingPosts() {
   for (const post_id of selectedPostIdSet.value) {

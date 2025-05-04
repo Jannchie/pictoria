@@ -1,5 +1,4 @@
 <script setup lang="ts">
-import type { RatingCountItem } from '@/api'
 import { v2GetRatingCount } from '@/api'
 import { postFilter } from '@/shared'
 import { Btn } from '@roku-ui/vue'
