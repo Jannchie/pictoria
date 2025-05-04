@@ -3,8 +3,8 @@ import { v2GetFolders, v2SearchPosts } from '@/api'
 import { useInfiniteQuery, useQuery } from '@tanstack/vue-query'
 import { useStorage } from '@vueuse/core'
 import { converter, parse } from 'culori'
-import { computed, ref } from 'vue'
-import { useRoute } from 'vue-router'
+import { computed, ref, watch } from 'vue'
+import { useRoute, useRouter } from 'vue-router'
 
 export const baseURL = 'http://localhost:4777'
 
@@ -29,6 +29,61 @@ export const postFilter = ref<PostFilter>({
   tags: [],
   extension: [],
 })
+
+// Sync postFilter with URL query parameters
+export function useSyncFilterWithUrl() {
+  const route = useRoute()
+  const router = useRouter()
+
+  // Watch for changes in postFilter and update URL
+  watch(postFilter, (newFilter) => {
+    const query = { ...route.query }
+
+    // Handle score filter
+    if (newFilter.score.length > 0) {
+      query.score = newFilter.score.join(',')
+    }
+    else {
+      delete query.score
+    }
+
+    // Handle rating filter
+    if (newFilter.rating.length > 0) {
+      query.rating = newFilter.rating.join(',')
+    }
+    else {
+      delete query.rating
+    }
+
+    // Handle extension filter
+    if (newFilter.extension.length > 0) {
+      query.extension = newFilter.extension.join(',')
+    }
+    else {
+      delete query.extension
+    }
+
+    // Update URL without reloading the page
+    router.replace({ query })
+  }, { deep: true })
+
+  // Watch for URL changes and update postFilter
+  watch(() => route.query, (newQuery) => {
+    // Only update if the component is watching (to avoid initial load overriding filter state)
+    if (newQuery.score !== undefined) {
+      postFilter.value.score = (newQuery.score as string).split(',').map(Number)
+    }
+
+    if (newQuery.rating !== undefined) {
+      postFilter.value.rating = (newQuery.rating as string).split(',').map(Number)
+    }
+
+    if (newQuery.extension !== undefined) {
+      postFilter.value.extension = (newQuery.extension as string).split(',')
+    }
+  }, { immediate: true })
+}
+
 export const waterfallRowCount = useStorage('pictoria.waterfallRowCount', 4)
 export const selectedPostIdSet = ref<Set<number | undefined>>(new Set())
 export const selectingPostIdSet = ref<Set<number | undefined>>(new Set())
