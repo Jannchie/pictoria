@@ -176,8 +176,6 @@ class CommandController(Controller):
                 .on_conflict_do_update(
                     index_elements=["file_path", "file_name", "extension"],
                     set_={
-                        "rating": from_rating_to_int(post.rating),
-                        "updated_at": now,
                         "published_at": post.created_at,
                         "source": f"https://danbooru.donmai.us/posts/{post.id}",
                     },
