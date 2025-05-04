@@ -31,7 +31,7 @@ const extensionCountMutation = useQuery({
   queryFn: async () => {
     const resp = await v2GetExtensionCount({
       body: {
-        ...postFilter.value,
+        ...filterWithoutExtension.value, // 使用不包含自己筛选条件的过滤器
       },
     })
     return resp.data
@@ -49,8 +49,16 @@ const scoreCountList = computed(() => {
   return resp
 })
 
+// 确保已选择的扩展名选项始终显示在列表中
 const extensions = computed(() => {
-  return extensionCountMutation.data.value?.map(d => d.extension) ?? []
+  // 从API获取的扩展名列表
+  const apiExtensions = extensionCountMutation.data.value?.map(d => d.extension) ?? []
+
+  // 已选择的扩展名（可能不在API结果中）
+  const selectedExtensions = ratingFilterData.value
+
+  // 合并并去重
+  return [...new Set([...apiExtensions, ...selectedExtensions])]
 })
 
 const btnText = computed(() => {
@@ -100,6 +108,12 @@ function getExtensionName(extension: string) {
               class="flex-shrink-0"
             >
               {{ scoreCountList[ext] }}
+            </div>
+            <div
+              v-else-if="hasExt(ext)"
+              class="flex-shrink-0 text-gray-400"
+            >
+              0
             </div>
           </div>
         </div>

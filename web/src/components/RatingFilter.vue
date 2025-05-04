@@ -32,7 +32,7 @@ const scoreCountMutation = useQuery({
   queryFn: async () => {
     const resp = await v2GetRatingCount({
       body: {
-        ...postFilter.value,
+        ...filterWithoutRating.value, // 使用不包含自己筛选条件的过滤器
       },
     })
     return resp.data
@@ -114,6 +114,12 @@ function getRatingName(rating: number) {
               class="flex-shrink-0"
             >
               {{ scoreCountList[rating] }}
+            </div>
+            <div
+              v-else-if="hasRating(rating)"
+              class="flex-shrink-0 text-gray-400"
+            >
+              0
             </div>
           </div>
         </div>

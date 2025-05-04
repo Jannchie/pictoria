@@ -30,7 +30,7 @@ const scoreCountMutation = useQuery({
   queryFn: async () => {
     const resp = await v2GetScoreCount({
       body: {
-        ...postFilter.value,
+        ...filterWidthoutScore.value, // 使用不包含自己筛选条件的过滤器
       },
     })
     return resp.data
@@ -95,6 +95,12 @@ const btnText = computed(() => {
               class="flex-shrink-0"
             >
               {{ scoreCountList[score] }}
+            </div>
+            <div 
+              v-else-if="hasScore(score)"
+              class="flex-shrink-0 text-gray-400"
+            >
+              0
             </div>
           </div>
         </div>
