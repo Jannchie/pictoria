@@ -93,7 +93,10 @@ function emptyPointerDown(e: PointerEvent) {
   // 如果是右键，且没有按 ctrl 或者 shift
   if (!e.ctrlKey && !e.shiftKey) {
     selectedPostIdSet.value = new Set()
-    router.push({ query: { post_id: undefined } })
+    // 保留现有的查询参数，只清除 post_id
+    const currentQuery = { ...route.query }
+    delete currentQuery.post_id
+    router.replace({ query: currentQuery })
   }
 }
 
@@ -117,7 +120,10 @@ watchEffect(async () => {
     }
     const postIndex = posts.value.findIndex(post => post.id === postId)
     if (postIndex === -1 && !infinityPostsQuery.hasNextPage.value) {
-      await router.push({ query: { post_id: undefined } })
+      // 保留现有的查询参数，只清除 post_id
+      const currentQuery = { ...route.query }
+      delete currentQuery.post_id
+      await router.replace({ query: currentQuery })
       return
     }
     if (postId) {

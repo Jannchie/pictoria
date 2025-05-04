@@ -96,7 +96,7 @@ const btnText = computed(() => {
             >
               {{ scoreCountList[score] }}
             </div>
-            <div 
+            <div
               v-else-if="hasScore(score)"
               class="flex-shrink-0 text-gray-400"
             >
