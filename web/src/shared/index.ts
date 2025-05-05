@@ -1,6 +1,6 @@
 import type { PostSimplePublic } from '@/api'
-import { v2GetFolders, v2SearchPosts, v2UpdatePostScore } from '@/api'
-import { useInfiniteQuery, useQuery, useQueryClient } from '@tanstack/vue-query'
+import { v2BulkUpdatePostRating, v2BulkUpdatePostScore, v2GetFolders, v2SearchPosts } from '@/api'
+import { useInfiniteQuery, useQuery } from '@tanstack/vue-query'
 import { useStorage } from '@vueuse/core'
 import { converter, parse } from 'culori'
 import { computed, ref, watch } from 'vue'
@@ -171,12 +171,24 @@ export async function updateScoreForSelectedPosts(score: number) {
     return
   }
 
-  for (const postId of selectedIds) {
-    await v2UpdatePostScore({
-      path: { post_id: postId },
-      body: { score },
-    })
+  // Use the bulk update endpoint instead of individual requests
+  await v2BulkUpdatePostScore({
+    query: { ids: selectedIds, score },
+  })
+}
+
+// Utility function to update ratings for multiple posts
+export async function updateRatingForSelectedPosts(rating: number) {
+  const selectedIds = [...selectedPostIdSet.value].filter(id => id !== undefined) as number[]
+
+  if (selectedIds.length === 0) {
+    return
   }
+
+  // Use the bulk update endpoint
+  await v2BulkUpdatePostRating({
+    query: { ids: selectedIds, rating },
+  })
 }
 
 export function useCurrentFolder() {

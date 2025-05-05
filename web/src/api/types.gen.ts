@@ -69,7 +69,11 @@ export interface PostFilter {
   /**
    * Lab color space values for filtering.
    */
-  lab?: number | null
+  lab?: [
+    number,
+    number,
+    number,
+  ] | null
 }
 
 export interface PostFilterWithOrder {
@@ -93,7 +97,11 @@ export interface PostFilterWithOrder {
   /**
    * Lab color space values for filtering.
    */
-  lab?: number | null
+  lab?: [
+    number,
+    number,
+    number,
+  ] | null
   /**
    * Field to order by.
    */
@@ -249,6 +257,66 @@ export interface V2AddTagToPostResponses {
 }
 
 export type V2AddTagToPostResponse = V2AddTagToPostResponses[keyof V2AddTagToPostResponses]
+
+export interface V2BulkUpdatePostRatingData {
+  body?: never
+  path?: never
+  query: {
+    ids: Array<number>
+    rating: number
+  }
+  url: '/v2/posts/bulk/rating'
+}
+
+export interface V2BulkUpdatePostRatingErrors {
+  /**
+   * Validation Exception
+   */
+  400: {
+    status_code: number
+    detail: string
+    extra?: null | Array<unknown> | Array<unknown>
+  }
+}
+
+export type V2BulkUpdatePostRatingError = V2BulkUpdatePostRatingErrors[keyof V2BulkUpdatePostRatingErrors]
+
+export interface V2BulkUpdatePostRatingResponses {
+  /**
+   * Request fulfilled, document follows
+   */
+  200: unknown
+}
+
+export interface V2BulkUpdatePostScoreData {
+  body?: never
+  path?: never
+  query: {
+    ids: Array<number>
+    score: number
+  }
+  url: '/v2/posts/bulk/score'
+}
+
+export interface V2BulkUpdatePostScoreErrors {
+  /**
+   * Validation Exception
+   */
+  400: {
+    status_code: number
+    detail: string
+    extra?: null | Array<unknown> | Array<unknown>
+  }
+}
+
+export type V2BulkUpdatePostScoreError = V2BulkUpdatePostScoreErrors[keyof V2BulkUpdatePostScoreErrors]
+
+export interface V2BulkUpdatePostScoreResponses {
+  /**
+   * Request fulfilled, document follows
+   */
+  200: unknown
+}
 
 export interface V2DeletePostsData {
   body?: never
@@ -835,6 +903,37 @@ export interface V2GetOriginalResponses {
 
 export type V2GetOriginalResponse = V2GetOriginalResponses[keyof V2GetOriginalResponses]
 
+export interface V2GetOriginalByIdData {
+  body?: never
+  path: {
+    post_id: number
+  }
+  query?: never
+  url: '/v2/images/original/id/{post_id}'
+}
+
+export interface V2GetOriginalByIdErrors {
+  /**
+   * Validation Exception
+   */
+  400: {
+    status_code: number
+    detail: string
+    extra?: null | Array<unknown> | Array<unknown>
+  }
+}
+
+export type V2GetOriginalByIdError = V2GetOriginalByIdErrors[keyof V2GetOriginalByIdErrors]
+
+export interface V2GetOriginalByIdResponses {
+  /**
+   * File Download
+   */
+  200: string
+}
+
+export type V2GetOriginalByIdResponse = V2GetOriginalByIdResponses[keyof V2GetOriginalByIdResponses]
+
 export interface V2GetThumbnailData {
   body?: never
   path: {
@@ -865,6 +964,37 @@ export interface V2GetThumbnailResponses {
 }
 
 export type V2GetThumbnailResponse = V2GetThumbnailResponses[keyof V2GetThumbnailResponses]
+
+export interface V2GetThumbnailByIdData {
+  body?: never
+  path: {
+    post_id: number
+  }
+  query?: never
+  url: '/v2/images/thumbnails/id/{post_id}'
+}
+
+export interface V2GetThumbnailByIdErrors {
+  /**
+   * Validation Exception
+   */
+  400: {
+    status_code: number
+    detail: string
+    extra?: null | Array<unknown> | Array<unknown>
+  }
+}
+
+export type V2GetThumbnailByIdError = V2GetThumbnailByIdErrors[keyof V2GetThumbnailByIdErrors]
+
+export interface V2GetThumbnailByIdResponses {
+  /**
+   * File Download
+   */
+  200: string
+}
+
+export type V2GetThumbnailByIdResponse = V2GetThumbnailByIdResponses[keyof V2GetThumbnailByIdResponses]
 
 export interface V2DeleteTagsData {
   body: TagBatchDelete
