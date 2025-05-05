@@ -334,6 +334,38 @@ class PostController(Controller):
             raise HTTPException(detail=msg, status_code=HTTP_409_CONFLICT)
         return PostDetailPublic.model_validate(post)
 
+    @litestar.put("/bulk/score")
+    async def bulk_update_post_score(self, session: AsyncSession, ids: list[int], score: int) -> None:
+        """Update score for multiple posts by ids."""
+        max_score = 5
+        if not 0 <= score <= max_score:
+            msg = f"Score must be between 0 and 5, got {score}."
+            raise HTTPException(detail=msg, status_code=HTTP_409_CONFLICT)
+
+        for post_id in ids:
+            p = await session.get(Post, post_id)
+            if p:
+                p.score = score
+                session.add(p)
+
+        await session.commit()
+
+    @litestar.put("/bulk/rating")
+    async def bulk_update_post_rating(self, session: AsyncSession, ids: list[int], rating: int) -> None:
+        """Update rating for multiple posts by ids."""
+        max_rating = 4
+        if not 0 <= rating <= max_rating:
+            msg = f"Rating must be between 0 and 4, got {rating}."
+            raise HTTPException(detail=msg, status_code=HTTP_409_CONFLICT)
+
+        for post_id in ids:
+            p = await session.get(Post, post_id)
+            if p:
+                p.rating = rating
+                session.add(p)
+
+        await session.commit()
+
     async def _count_by_column(self, session: AsyncSession, data: PostFilter, column: Post, result_class: type) -> list:
         stmt = select(column, func.count()).group_by(column)
         stmt = apply_body_filter(data, stmt)

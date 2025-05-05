@@ -10,8 +10,6 @@ from pathlib import Path
 from typing import Any, TypeVar
 
 import wdtagger
-from fastapi import FastAPI
-from fastapi.routing import APIRoute
 from PIL import Image
 from sqlalchemy import create_engine, delete, select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
@@ -58,18 +56,6 @@ def prepare_openai_api(openai_key: str | None) -> None:
 def prepare_paths(target_path: Path) -> None:
     shared.target_dir = get_target_dir(target_path)
     shared.pictoria_dir = get_pictoria_directory()
-
-
-def use_route_names_as_operation_ids(app: FastAPI) -> None:
-    """
-    Simplify operation IDs so that generated API clients have simpler function
-    names.
-
-    Should be called only after all routes have been added.
-    """
-    for route in app.routes:
-        if isinstance(route, APIRoute):
-            route.operation_id = route.name
 
 
 def parse_arguments():
@@ -410,6 +396,7 @@ async def attach_tags_to_posts(session: AsyncSession, post: list[Post], resp: li
 
 async def attach_tags_to_post(session: AsyncSession, post: Post, resp: wdtagger.Result, *, is_auto: bool = False):
     attach_tags_to_posts(session, [post], [resp], is_auto=is_auto)
+
 
 @cache
 def _get_tagger() -> wdtagger.Tagger:
