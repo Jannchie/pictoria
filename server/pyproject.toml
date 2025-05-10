@@ -32,9 +32,6 @@ dependencies = [
 
 requires-python = ">=3.11"
 
-[tool.black]
-line-length = 120
-
 [[tool.uv.index]]
 name = "default"
 url = "https://pypi.org/simple"
@@ -50,18 +47,18 @@ torchvision = { index = "pytorch" }
 image-gen-aux = { git = "https://github.com/asomoza/image_gen_aux.git" }
 
 [dependency-groups]
-dev = [
-    "ipykernel>=6.29.5",
-    "matplotlib>=3.9.3",
-]
+dev = ["ipykernel>=6.29.5", "matplotlib>=3.9.3"]
 
 [tool.pyright]
 enabled = true
 reportGeneralTypeIssues = true
 
 [tool.ruff]
-select = ["ALL"]
 exclude = ["alembic", ".venv"]
+line-length = 160
+
+[tool.ruff.lint]
+select = ["ALL"]
 ignore = [
     "ANN401",
     "PGH",
@@ -78,7 +75,8 @@ ignore = [
     "FAST002",
     "INP001",
 ]
-line-length = 160
+[tool.ruff.lint.per-file-ignores]
+"**/test/**/*" = ["S101"]
 
 [tool.uv]
 package = true
