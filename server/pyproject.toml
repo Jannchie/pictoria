@@ -28,6 +28,7 @@ dependencies = [
     "litestar[sqlalchemy,standard]>=2.15.2",
     "diffusion-prompt-embedder>=0.2.0",
     "accelerate>=1.6.0",
+    "waifu-scorer[cu124]>=0.1.1",
 ]
 
 requires-python = ">=3.11"
