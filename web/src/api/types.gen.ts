@@ -827,6 +827,20 @@ export interface V2AutoTagsAllResponses {
   200: unknown
 }
 
+export interface V2AutoWaifuScorerData {
+  body?: never
+  path?: never
+  query?: never
+  url: '/v2/cmd/waifu-scorer'
+}
+
+export interface V2AutoWaifuScorerResponses {
+  /**
+   * Request fulfilled, document follows
+   */
+  200: unknown
+}
+
 export interface V2CalculateEmbeddingData {
   body?: never
   path?: never
@@ -871,6 +885,37 @@ export interface V2DownloadFromDanbooruResponses {
    */
   201: unknown
 }
+
+export interface V2GetWaifuScorerData {
+  body?: never
+  path: {
+    post_id: number
+  }
+  query?: never
+  url: '/v2/cmd/waifu-scorer/{post_id}'
+}
+
+export interface V2GetWaifuScorerErrors {
+  /**
+   * Validation Exception
+   */
+  400: {
+    status_code: number
+    detail: string
+    extra?: null | Array<unknown> | Array<unknown>
+  }
+}
+
+export type V2GetWaifuScorerError = V2GetWaifuScorerErrors[keyof V2GetWaifuScorerErrors]
+
+export interface V2GetWaifuScorerResponses {
+  /**
+   * Request fulfilled, document follows
+   */
+  200: number
+}
+
+export type V2GetWaifuScorerResponse = V2GetWaifuScorerResponses[keyof V2GetWaifuScorerResponses]
 
 export interface V2GetOriginalData {
   body?: never
