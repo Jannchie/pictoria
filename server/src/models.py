@@ -61,6 +61,13 @@ class PostVector(Base):
     embedding: Mapped[HalfVector] = mapped_column(HALFVEC(768), nullable=False)
 
 
+class PostWaifuScorer(Base):
+    __tablename__ = "post_waifu_scorer"
+
+    post_id: Mapped[int] = mapped_column(ForeignKey("posts.id", ondelete="CASCADE"), primary_key=True)
+    score: Mapped[float] = mapped_column(Float, nullable=False, default=0.0)
+
+
 class Post(BaseWithTime):
     __tablename__ = "posts"
     __table_args__ = (Index("idx_file_path_name_extension", "file_path", "file_name", "extension", unique=True),)
@@ -93,6 +100,7 @@ class Post(BaseWithTime):
     dominant_color: Mapped[np.ndarray | None] = mapped_column("dominant_color", Vector(3), nullable=True, default=None)
     tags: Mapped[list["PostHasTag"]] = relationship(default_factory=list, lazy="selectin")
     colors: Mapped[list["PostHasColor"]] = relationship(default_factory=list, lazy="selectin")
+    waifu_scorer: Mapped[PostWaifuScorer | None] = relationship(default=None, lazy="selectin")
 
     @property
     def absolute_path(self) -> Path:
@@ -155,10 +163,3 @@ class PostHasTag(Base):
     tag_name: Mapped[str] = mapped_column(ForeignKey("tags.name", ondelete="CASCADE"), primary_key=True)
     is_auto: Mapped[bool] = mapped_column(Boolean, default=False)
     tag_info: Mapped["Tag"] = relationship(lazy="selectin", init=False)
-
-
-class PostWaifuScorer(Base):
-    __tablename__ = "post_waifu_scorer"
-
-    post_id: Mapped[int] = mapped_column(ForeignKey("posts.id", ondelete="CASCADE"), primary_key=True)
-    score: Mapped[float] = mapped_column(Float, nullable=False, default=0.0)

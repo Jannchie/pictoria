@@ -1,7 +1,7 @@
 import asyncio
 import os
 from datetime import UTC, datetime
-from typing import TYPE_CHECKING, ClassVar
+from typing import ClassVar
 
 import litestar
 from litestar import Controller
@@ -12,16 +12,14 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 import shared
 from ai.make_captions import OpenAIImageAnnotator
+from ai.waifu_scorer import get_waifu_scorer
 from danbooru import DanbooruClient
-from models import Post, PostHasTag, PostVector, Tag, TagGroup
+from models import Post, PostHasTag, PostVector, PostWaifuScorer, Tag, TagGroup
 from processors import process_posts
 from scheme import PostDetailPublic, Result
 from server.utils import is_image
 from server.utils.vec import get_img_vec
-from utils import attach_tags_to_post, attach_tags_to_posts, from_rating_to_int, get_tagger, logger
-
-if TYPE_CHECKING:
-    from wdtagger import Tagger
+from utils import attach_tags_to_post, from_rating_to_int, get_tagger, logger
 
 
 class CommandController(Controller):
@@ -81,24 +79,49 @@ class CommandController(Controller):
             last_id = posts[-1].id
             logger.info(f"Processed batch up to ID: {last_id}")
 
-    async def process_tag_batch(self, session: AsyncSession, tagger: "Tagger", batch: list[Post]) -> None:
-        abs_paths = [post.absolute_path for post in batch]
-        try:
-            responses = await asyncio.to_thread(tagger.tag, abs_paths)
-            for post, resp in zip(batch, responses, strict=True):
-                post.rating = from_rating_to_int(resp.rating)
-            await attach_tags_to_posts(session, batch, responses, is_auto=True)
-        except Exception as e:
-            logger.error(f"Error processing batch starting with post {batch[0].id}: {e}")
-            for post in batch:
-                try:
-                    response = await asyncio.to_thread(tagger.tag, [post.absolute_path])
-                    post.rating = from_rating_to_int(response[0].rating)
-                except Exception as single_e:
-                    logger.error(f"Error processing post {post.id}: {single_e}")
-            await attach_tags_to_posts(session, batch, responses, is_auto=True)
-        logger.info("Batch processing complete.")
-        await session.commit()
+    @litestar.put("/waifu-scorer")
+    async def auto_waifu_scorer(self, session: AsyncSession) -> None:
+        """
+        Use Waifu Scorer to tag posts with a rating of 0.
+        """
+        batch_size = 32
+        waifu_scorer = get_waifu_scorer()
+        last_id = 0
+
+        while True:
+            # sourcery skip: none-compare
+            query = select(Post).where(Post.waifu_scorer == None, Post.id > last_id).order_by(Post.id).limit(batch_size)  # noqa: E711
+            posts = (await session.scalars(query)).all()
+            if not posts:
+                break
+            posts = [post for post in posts if is_image(post.absolute_path)]
+            images = [post.absolute_path for post in posts]
+            results = waifu_scorer(images)
+            for post, result in zip(posts, results, strict=True):
+                post.waifu_scorer = PostWaifuScorer(post_id=post.id, score=result)
+                session.add(post)
+            await session.commit()
+
+    @litestar.get("/waifu-scorer/{post_id:int}")
+    async def get_waifu_scorer(self, post_id: int, session: AsyncSession) -> float:
+        """
+        Get Waifu Scorer result for a post.
+        """
+        post = await session.get(Post, post_id)
+        waifu_scorer = get_waifu_scorer()
+        if post is None:
+            msg = f"Post with ID {post_id} not found."
+            raise NotFoundException(msg)
+        if not is_image(post.absolute_path):
+            msg = f"Post {post_id} is not an image."
+            raise HTTPException(status_code=400, detail=msg)
+        if post.waifu_scorer is None:
+            score = waifu_scorer(post.absolute_path)
+            post.waifu_scorer = PostWaifuScorer(post_id=post.id, score=score[0])
+            session.add(post)
+            await session.commit()
+            return score[0]
+        return 0.0
 
     @litestar.post("/posts/embedding", description="Calculate embedding for all posts")
     async def calculate_embedding(self, session: AsyncSession) -> Result:
