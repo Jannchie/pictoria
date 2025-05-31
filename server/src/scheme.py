@@ -53,6 +53,10 @@ class PostHasColorPublic(DTOBaseModel):
     color: int
 
 
+class WaifuScorerPublic(DTOBaseModel):
+    score: float
+
+
 class PostPublic(DTOBaseModel):
     id: int
     file_path: str
@@ -75,6 +79,7 @@ class PostPublic(DTOBaseModel):
     colors: list[PostHasColorPublic]
     published_at: datetime | None
     dominant_color: list[float] | None
+    waifu_scorer: WaifuScorerPublic | None
 
 
 class PostDetailPublic(PostPublic):
