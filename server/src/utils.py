@@ -10,6 +10,7 @@ from pathlib import Path
 from typing import Any, TypeVar
 
 import wdtagger
+from dotenv import load_dotenv
 from PIL import Image
 from sqlalchemy import create_engine, delete, select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
@@ -18,6 +19,8 @@ from sqlalchemy.orm import Session, sessionmaker
 import shared
 from models import Post, PostHasTag, Tag, TagGroup
 from shared import logger
+
+load_dotenv()
 
 # 定义泛型变量，用于注释被装饰的可调用对象的返回类型
 R = TypeVar("R")

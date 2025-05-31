@@ -155,3 +155,10 @@ class PostHasTag(Base):
     tag_name: Mapped[str] = mapped_column(ForeignKey("tags.name", ondelete="CASCADE"), primary_key=True)
     is_auto: Mapped[bool] = mapped_column(Boolean, default=False)
     tag_info: Mapped["Tag"] = relationship(lazy="selectin", init=False)
+
+
+class PostWaifuScorer(Base):
+    __tablename__ = "post_waifu_scorer"
+
+    post_id: Mapped[int] = mapped_column(ForeignKey("posts.id", ondelete="CASCADE"), primary_key=True)
+    score: Mapped[float] = mapped_column(Float, nullable=False, default=0.0)
