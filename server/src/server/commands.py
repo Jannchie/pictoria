@@ -1,4 +1,5 @@
 import asyncio
+import contextlib
 import os
 from datetime import UTC, datetime
 from typing import ClassVar
@@ -89,18 +90,19 @@ class CommandController(Controller):
         last_id = 0
 
         while True:
-            # sourcery skip: none-compare
-            query = select(Post).where(Post.waifu_scorer == None, Post.id > last_id).order_by(Post.id).limit(batch_size)  # noqa: E711
-            posts = (await session.scalars(query)).all()
-            if not posts:
-                break
-            posts = [post for post in posts if is_image(post.absolute_path)]
-            images = [post.absolute_path for post in posts]
-            results = waifu_scorer(images)
-            for post, result in zip(posts, results, strict=True):
-                post.waifu_scorer = PostWaifuScorer(post_id=post.id, score=result)
-                session.add(post)
-            await session.commit()
+            with contextlib.suppress(Exception):
+                # sourcery skip: none-compare
+                query = select(Post).where(Post.waifu_scorer == None, Post.id > last_id).order_by(Post.id).limit(batch_size)  # noqa: E711
+                posts = (await session.scalars(query)).all()
+                if not posts:
+                    break
+                posts = [post for post in posts if is_image(post.absolute_path)]
+                images = [post.absolute_path for post in posts]
+                results = waifu_scorer(images)
+                for post, result in zip(posts, results, strict=True):
+                    post.waifu_scorer = PostWaifuScorer(post_id=post.id, score=result)
+                    session.add(post)
+                await session.commit()
 
     @litestar.get("/waifu-scorer/{post_id:int}")
     async def get_waifu_scorer(self, post_id: int, session: AsyncSession) -> float:
