@@ -169,8 +169,8 @@ class PostController(Controller):
             lab_vec = [l, a, b]
             distance = Post.dominant_color.l2_distance(lab_vec)
             stmt = apply_body_filter(data, self.simple_select_stmt).order_by(nulls_last(distance)).limit(limit).offset(offset)
-            return (await session.scalars(stmt)).all()
-
+            results = (await session.scalars(stmt)).all()
+            return [PostSimplePublic.model_validate(post) for post in results]
         stmt = apply_body_filter(data, self.simple_select_stmt).limit(limit).offset(offset)
         if data.order_by:
             order_column: MappedColumn = getattr(Post, data.order_by)
