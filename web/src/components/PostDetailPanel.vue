@@ -226,11 +226,11 @@ function onCopyTags() {
         <div v-if="post.publishedAt">
           {{ formatTimestr(post.publishedAt) }}
         </div>
-        <div v-if="post.waifuScorer">
+        <div v-if="post.waifuScore">
           Waifu Score
         </div>
-        <div v-if="post.waifuScorer">
-          {{ post.waifuScorer.score.toFixed(2) }}
+        <div v-if="post.waifuScore">
+          {{ post.waifuScore.score.toFixed(2) }}
         </div>
       </div>
     </div>

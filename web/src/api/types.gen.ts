@@ -45,7 +45,7 @@ export interface PostDetailPublic {
   colors: Array<PostHasColorPublic>
   publishedAt?: string | null
   dominantColor?: Array<number> | null
-  waifuScorer?: WaifuScorerPublic | null
+  waifuScore?: WaifuScorePublic | null
   tags: Array<PostHasTagPublic>
 }
 
@@ -195,7 +195,7 @@ export interface TagWithGroupPublic {
   createdAt: string
 }
 
-export interface WaifuScorerPublic {
+export interface WaifuScorePublic {
   score: number
 }
 
