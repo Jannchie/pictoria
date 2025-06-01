@@ -88,21 +88,26 @@ class CommandController(Controller):
         batch_size = 32
         waifu_scorer = get_waifu_scorer()
         last_id = 0
+        from rich.progress import Progress
 
-        while True:
-            with contextlib.suppress(Exception):
-                # sourcery skip: none-compare
-                query = select(Post).where(Post.waifu_score == None, Post.id > last_id).order_by(Post.id).limit(batch_size)  # noqa: E711
-                posts = (await session.scalars(query)).all()
-                if not posts:
-                    break
-                posts = [post for post in posts if is_image(post.absolute_path)]
-                images = [post.absolute_path for post in posts]
-                results = waifu_scorer(images)
-                for post, result in zip(posts, results, strict=True):
-                    post.waifu_score = PostWaifuScore(post_id=post.id, score=result)
-                    session.add(post)
-                await session.commit()
+        with Progress() as progress:
+            task = progress.add_task("Waifu Scorer")
+            while True:
+                with contextlib.suppress(Exception):
+                    # sourcery skip: none-compare
+                    stmt = select(Post).where(Post.waifu_score == None, Post.id > last_id).order_by(Post.id).limit(batch_size)  # noqa: E711
+                    posts = (await session.scalars(stmt)).all()
+                    if not posts:
+                        break
+                    last_id = posts[-1].id
+                    posts = [post for post in posts if is_image(post.absolute_path)]
+                    images = [post.absolute_path for post in posts]
+                    results = await asyncio.to_thread(waifu_scorer, images)
+                    for post, result in zip(posts, results, strict=True):
+                        post.waifu_score = PostWaifuScore(post_id=post.id, score=result)
+                        session.add(post)
+                    await session.commit()
+                    progress.update(task, advance=len(posts))
 
     @litestar.get("/waifu-scorer/{post_id:int}")
     async def get_waifu_scorer(self, post_id: int, session: AsyncSession) -> float:
