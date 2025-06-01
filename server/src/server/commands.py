@@ -15,7 +15,7 @@ import shared
 from ai.make_captions import OpenAIImageAnnotator
 from ai.waifu_scorer import get_waifu_scorer
 from danbooru import DanbooruClient
-from models import Post, PostHasTag, PostVector, PostWaifuScorer, Tag, TagGroup
+from models import Post, PostHasTag, PostVector, PostWaifuScore, Tag, TagGroup
 from processors import process_posts
 from scheme import PostDetailPublic, Result
 from server.utils import is_image
@@ -92,7 +92,7 @@ class CommandController(Controller):
         while True:
             with contextlib.suppress(Exception):
                 # sourcery skip: none-compare
-                query = select(Post).where(Post.waifu_scorer == None, Post.id > last_id).order_by(Post.id).limit(batch_size)  # noqa: E711
+                query = select(Post).where(Post.waifu_score == None, Post.id > last_id).order_by(Post.id).limit(batch_size)  # noqa: E711
                 posts = (await session.scalars(query)).all()
                 if not posts:
                     break
@@ -100,7 +100,7 @@ class CommandController(Controller):
                 images = [post.absolute_path for post in posts]
                 results = waifu_scorer(images)
                 for post, result in zip(posts, results, strict=True):
-                    post.waifu_scorer = PostWaifuScorer(post_id=post.id, score=result)
+                    post.waifu_score = PostWaifuScore(post_id=post.id, score=result)
                     session.add(post)
                 await session.commit()
 
@@ -117,9 +117,9 @@ class CommandController(Controller):
         if not is_image(post.absolute_path):
             msg = f"Post {post_id} is not an image."
             raise HTTPException(status_code=400, detail=msg)
-        if post.waifu_scorer is None:
+        if post.waifu_score is None:
             score = waifu_scorer(post.absolute_path)
-            post.waifu_scorer = PostWaifuScorer(post_id=post.id, score=score[0])
+            post.waifu_score = PostWaifuScore(post_id=post.id, score=score[0])
             session.add(post)
             await session.commit()
             return score[0]
