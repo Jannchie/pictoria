@@ -1,0 +1,840 @@
+# Reorganized Tag Classification System - Integrated Details (No Level Limit enforced by this change)
+categories:
+  # Visual aspects of the image content
+  - name: Visuals
+    children:
+      # How the image is composed and styled
+      - name: "Composition & Style"
+        children:
+          - name: Image Composition # General composition rules and techniques
+            children:
+              - name: View Angle # Camera angles (from above, below, side, dutch angle, etc.)
+              - name: "Perspective & Depth" # Fisheye, panorama, vanishing point, etc.
+              - name: "Framing & Layout" # Borders, collage, lineup, out of frame, POV, symmetry, etc.
+              - name: "Format & Medium" # Comic, screenshot, photo, pixel art, traditional media, etc.
+              - name: Subject Matter Focus # Cityscape, landscape, portrait, upper body, full body, close-up, etc.
+              - name: Artistic Style # Abstract, art deco, realistic, sketch, style parody, etc.
+              - name: Techniques # Blending, bokeh, cel shading, depth of field, glitch, halftone, motion blur, etc.
+          - name: Backgrounds # Background elements and colors
+            children:
+              - name: Color Backgrounds # Single color backgrounds (blue, red, white, etc.)
+              - name: Multi-Color Backgrounds # Gradient, rainbow, two-tone, etc.
+              - name: Patterned Backgrounds # Checkered, dotted, grid, striped, simple, etc.
+              - name: Themed Backgrounds # Abstract, floral, photo, starry, text, etc.
+          - name: Colors # Color theory, palettes, and themes
+            children:
+              - name: Color Themes # Monochrome, greyscale, specific color themes (blue theme, red theme, etc.)
+              - name: Palettes # Dark, muted, pale, pastel, neon, limited palette, etc.
+              - name: Partial Coloring # Spot color, greyscale with colored background, etc.
+              - name: "Color Theory & Styles" # Colorful, contrast, coordination, filters (sepia, negative), etc.
+          - name: Lighting # Light sources, direction, time of day, effects
+            children:
+              - name: Light Direction # Backlighting, sidelighting, underlighting
+              - name: Light Types # Bloom, sunlight, moonlight, spotlight, caustics, light rays, dim light
+              - name: Time of Day # Morning, day, evening, night, dawn, dusk, twilight
+              - name: Light Sources # Sun, moon, lamp, torch, fire, candle, flashlight, lantern, etc.
+              - name: Absence of Light # Shade, shadow, dark, darkness
+          - name: Environmental Conditions # Weather and environmental effects
+            children:
+              - name: Weather Phenomena # Snowstorm, tornado, vortex, boiling, crystallization
+              - name: Climate Features # Glacier, volcano
+              - name: Environmental States # Abandoned, dilapidated, crumbling, empty_pool
+      # Physical appearance of subjects
+      - name: Appearance
+        children:
+          - name: Body # General body features and types
+            children:
+              - name: Overall Body # Height, weight, build (muscular, plump, skinny), posture types
+              - name: Skin # Skin color (pale, dark, tan, non-human colors), markings (tanlines, scars, tattoos, moles)
+              - name: "Sex & Gender Traits" # Male, female, futanari, androgynous, intersex features, etc.
+          - name: Head # Features of the head region
+            children:
+              - name: Hair # Styles, colors, lengths, accessories
+                children:
+                  - name: Hair Color # Black, blonde, blue, multi-colored, gradient, etc.
+                  - name: Hair Style
+                    children:
+                      - name: Short Styles # Bob cut, Pixie cut, Bowl cut, Undercut, etc.
+                      - name: Medium Styles # Flipped hair, Wolf cut, etc.
+                      - name: Long Styles # Hime cut, Mullet, Straight long, Wavy long, etc.
+                      - name: Tied Styles
+                        children:
+                          - name: Ponytail # High ponytail, Side ponytail, Short ponytail, etc.
+                          - name: Twintails # Low twintails, Short twintails, Uneven twintails, etc.
+                          - name: Braid # Single braid, Twin braids, French braid, Crown braid, etc.
+                          - name: Bun # Single bun, Double bun (odango), Topknot, Hair rings, etc.
+                          - name: Other Tied # Half updo, One side up, etc.
+                      - name: Tall Styles # Afro, Pompadour, Beehive, etc.
+                      - name: Textured Styles # Curly, Straight, Wavy, Spiked, Messy, Drill hair, etc.
+                  - name: Hair Length # Short, medium, long, very long, bald, etc.
+                  - name: Hair Features # Bangs, sidelocks, ahoge, hair intakes, widow's peak, etc.
+                  - name: Facial Hair # Beard, mustache, goatee, stubble
+                  - name: "Hair Actions & Objects" # Brushing, tying, cutting, ornaments, accessories, wet hair, etc.
+              - name: Eyes # Color, pupils, sclera, shape, expressions, accessories
+                children:
+                  - name: "Eye Color & Iris" # Blue, brown, red, heterochromia, multi-colored, ringed, symbol iris, etc.
+                  - name: Pupils
+                    children:
+                      - name: Pupil Shape # Normal, Slit, Horizontal, No pupils
+                      - name: Symbol Pupils # Heart-shaped, Star-shaped, Flower-shaped, Cross-shaped, X-shaped, Diamond-shaped, etc.
+                      - name: Pupil State # Constricted, Dilated, Mismatched
+                  - name: Sclera # Black, red, yellow, white, bloodshot, etc.
+                  - name: Eye Features # Bags under eyes, glowing eyes, third eye, reflection, etc.
+                  - name: "Eye Expressions & Shapes" # Closed eyes, wink, jitome, tareme, tsurime, symbol eyes (> <, ^ ^), etc.
+                  - name: "Eye Accessories & Coverings" # Glasses, eyepatch, contacts, blindfold, hair over eyes, makeup, etc.
+              - name: Face # Expressions, features, markings
+                children:
+                  - name: Facial Expressions
+                    children:
+                      - name: Positive # Smile, Grin, Laughing, Happy, Excited, Blush, Smug, etc.
+                      - name: Negative # Frown, Sad, Angry, Scared, Disgusted, Bored, Confused, Pain, Crying, etc.
+                      - name: Neutral/Other # Expressionless, Thinking, Surprised, Sleepy, Drunk, etc.
+                      - name: Sexual # Ahegao, Torogao, Aroused, Naughty Face, etc.
+                      - name: Emotes # :D, :3, :P, >:(, O_O, ^_^, >_<, etc. (Tag Group:face Tags)
+                  - name: Facial Features # Nose types, mouth shapes (:3, :p), lips, cheeks, chin, fangs, tongue, etc.
+                  - name: "Facial Markings & Accessories" # Freckles, mole, scar, tattoo, makeup, mask, piercing, etc.
+              - name: Ears # Types, shapes, accessories
+                children:
+                  - name: Ear Types
+                    children:
+                      - name: Human Ears
+                      - name: Pointy Ears # Elf ears, long pointy ears
+                      - name: Animal Ears # Cat ears, Dog ears, Fox ears, Rabbit ears, etc.
+                      - name: Other Ears # Fake ears, Robot ears, Hair ears, Floppy ears
+                  - name: Ear Accessories # Earrings, ear cuffs, headphones, ear protection, piercings (Tag Group:ears Tags)
+              - name: Head Accessories
+                children:
+                  - name: Headgear # Hats, helmets, crowns, tiaras, hoods, veils, etc.
+                  - name: Masks # Face masks, gas masks, animal masks, etc. (Tag Group:mask)
+                  - name: "Head Piercings & Tattoos" # Piercings (nose, lip), tattoos on the head/face (Tag Group:piercings)
+              - name: Other Head Features # Forehead, neck, throat, horns, antennae
+
+          - name: Torso # Upper and lower body features
+            children:
+              - name: Upper Torso # Chest, back, shoulders, collarbone, armpits, pectorals
+              - name: Breasts # Size, shape, visibility, actions
+                children:
+                  - name: Breast Size # Flat, small, medium, large, huge, gigantic, expansion, reduction, comparison
+                  - name: Breast Visibility # Cleavage, sideboob, underboob, nipples, areolae, slip, out, covered nipples
+                  - name: "Breast Shape & Description" # Perky, sagging, bouncing, asymmetrical, pointy, veiny, etc.
+                  - name: "Breast Actions & Interactions" # Hold, grab, press, paizuri, breastfeeding, lactation, smother, pillow, etc. (Tag Group:breasts Tags)
+              - name: Lower Torso # Stomach, waist, hips, navel, abs, back (lower), dimples of venus
+              - name: "Genitalia & Groin" # Penis, pussy, testicles, anus, pubic region
+                children:
+                  - name: Pussy # Anatomy, visibility, actions
+                    children:
+                      - name: Pussy Anatomy # Labia, clitoris, mons pubis, pubic hair, cleft of venus, etc.
+                      - name: Pussy Visibility # Cameltoe, pussy peek, spread pussy, etc.
+                      - name: "Pussy Actions & Interactions" # Fingering, cunnilingus, vaginal sex, masturbation, object insertion, tribadism, etc. (Tag Group:pussy)
+                  - name: "Penis & Testicles" # Anatomy, state, actions
+                    children:
+                      - name: Penis Features # Foreskin, erection, flaccid, size (small, large, huge), animal penis, veiny, etc.
+                      - name: Testicles # Covered, no testicles, balls, etc.
+                      - name: "Penis Actions & Interactions" # Handjob, fellatio, ejaculation, bulge, docking, etc.
+                  - name: "Ass & Anus" # Shape, size, visibility, actions
+                    children:
+                      - name: Ass Features # Flat ass, huge ass, butt crack, spread ass, etc.
+                      - name: Anus Features # Spread anus, no anus, anal hair, etc.
+                      - name: "Ass Actions & Interactions" # Ass grab, spank, anal fingering/fisting, anal sex, anilingus, etc. (Tag Group:ass)
+                  - name: Pubic Hair # Presence, style
+          - name: "Limbs & Appendages" # Arms, legs, hands, feet, tails, wings
+            children:
+              - name: "Arms & Hands" # Shoulders, biceps, elbows, wrists, fingers, palms, hand poses/gestures
+              - name: "Legs & Feet" # Thighs, knees, calves, ankles, soles, toes, leg poses
+              - name: Tail # Type (cat, fox, demon), number, actions (wagging, wrapping), accessories
+                children:
+                  - name: Tail Type # Cat tail, fox tail, demon tail, dragon tail, fluffy tail, etc.
+                  - name: Tail Number # Single tail, multiple tails (kitsune), no tail
+                  - name: "Tail Actions & Interactions" # Wagging, wrapping, holding, biting, tailjob, tail plug, etc.
+                  - name: Tail Accessories # Tail bow, tail ring, tail ribbon, etc. (Tag Group:tail)
+              - name: Wings # Type (angel, bat, insect), number, location (back, head), actions
+                children:
+                  - name: Wing Type # Angel, demon, bat, bird, insect, mechanical, feathered, etc.
+                  - name: "Wing Number & Location" # Single wing, multiple wings, back wings, head wings, detached wings, etc.
+                  - name: "Wing Actions & Interactions" # Flapping, folded, spread, wing hug, wingjob, etc.
+                  - name: "Wing Accessories & Features" # Wing piercing, torn wings, glowing wings, etc. (Tag Group:wings)
+              - name: Tentacles # Location, actions
+      # Clothing and accessories worn by subjects
+      - name: Attire
+        children:
+          - name: Clothing Items # Specific types of clothes
+            children:
+              - name: Headwear
+                children:
+                  - name: Hats # Baseball cap, Beanie, Beret, Bowler, Cowboy hat, Fedora, Top hat, Witch hat, Straw hat, etc.
+                  - name: Helmets # Motorcycle helmet, Kabuto, Knight helm, Pilot helmet, etc.
+                  - name: "Crowns & Tiaras" # Crown, Tiara, Circlet, Diadem, etc.
+                  - name: "Hoods & Veils" # Hood, Veil, Headscarf, Hijab, etc.
+                  - name: Bands # Headband, Hairband, Bandana, Sweatband, etc. (Tag Group:headwear)
+              - name: Topwear # Shirts, blouses, sweaters, jackets, coats, vests, hoodies, etc.
+              - name: Bottomwear # Pants, shorts, skirts, kilts, loincloths, etc.
+              - name: Full Body # Dresses, robes, jumpsuits, overalls, kimonos, uniforms, etc. (Tag Group:dress)
+              - name: Legwear # Socks, stockings, tights, leggings, leg warmers, etc. (Tag Group:legwear)
+              - name: Footwear
+                children:
+                  - name: Boots # Ankle, Knee, Thigh, Cowboy, Work, Rubber, Lace-up, etc.
+                  - name: Shoes # Dress shoes, Loafers, Oxfords, Pumps, Mary Janes, Flats, Monk shoes, etc.
+                  - name: Sandals # Flip-flops, Gladiator, Geta, Zouri, Sports sandals, etc.
+                  - name: Slippers # Animal slippers, Ballet slippers, Uwabaki, Crocs, etc.
+                  - name: Sneakers # High-tops, Low-tops, specific brands (Converse), etc.
+                  - name: Heels # High heels, Wedge heels, Platform footwear, Stilettos, etc.
+              - name: Handwear # Gloves, mittens, wristbands, etc. (Tag Group:handwear)
+              - name: Neckwear # Scarves, ties, bowties, chokers, necklaces, collars, etc. (Tag Group:neck And Neckwear)
+              - name: "Underwear & Lingerie" # Bras, panties, boxers, briefs, corsets, garter belts, etc. (Tag Group:bra, Tag Group:panties)
+              - name: "Swimwear & Bodysuits" # Bikinis, one-piece swimsuits, leotards, bodysuits, wetsuits, etc.
+          - name: Accessories # Items complementing attire
+            children:
+              - name: "Head & Face Accessories" # Hair ornaments, glasses, masks, earrings, piercings, headphones, etc. (Tag Group:eyewear, Tag Group:mask, Tag Group:piercings)
+              - name: Body Accessories # Belts, sashes, bags, watches, badges, pins, etc.
+              - name: Jewelry # Rings, necklaces, bracelets, earrings, piercings, etc. (Tag Group:piercings)
+          - name: "Clothing Styles & Features" # Overall fashion styles and specific details
+            children:
+              - name: Fashion Styles # Casual, formal, goth, punk, lolita, gyaru, steampunk, techwear, etc. (Tag Group:fashion Style)
+              - name: Clothing Features # Cutouts, frills, lace, ribbons, zippers, pockets, hoods, collars, sleeves, etc. (Tag Group:sleeves)
+              - name: "Patterns & Prints" # Striped, plaid, polka dot, checkered, floral, animal print, camouflage, etc. (Tag Group:patterns, Tag Group:prints)
+              - name: Clothing State # Torn, wet, dirty, open, unbuttoned, see-through, tight, loose, etc.
+      # How subjects pose or move
+      - name: "Actions & Poses"
+        children:
+          - name: Posture # How the body is positioned
+            children:
+              - name: Basic Positions # Standing, sitting, lying, kneeling, etc.
+              - name: Body Inclination # Leaning, bent over, arched back, slouching, etc.
+              - name: Limb Positions # Arms up, legs crossed, spread legs, arms behind back, etc.
+              - name: Specific Poses # All fours, fetal position, handstand, yoga poses, fighting stance, signature poses, etc. (Tag Group:posture)
+          - name: Gestures # Hand and arm signals
+            children:
+              - name: One-Hand Gestures # Pointing, thumbs up/down, V sign, OK sign, waving, fist, middle finger, etc.
+              - name: Two-Hand Gestures # Heart hands, clapping, praying hands, facepalm, high five, crossed arms, etc.
+              - name: Culture-Specific Gestures # Kitsune no mado, shaka sign, vulcan salute, etc. (Tag Group:gestures)
+          - name: "Movement & Actions" # Dynamic activities
+            children:
+              - name: Locomotion # Walking, running, jumping, flying, swimming, crawling, climbing, falling, etc.
+              - name: Interactions # Holding, carrying, pushing, pulling, throwing, catching, hitting, kicking, etc.
+              - name: Dances # Ballet, hip hop, waltz, specific choreographies, meme dances, etc. (Tag Group:dances)
+              - name: "Verbs & Gerunds" # Specific actions like eating, drinking, sleeping, reading, writing, fighting, etc. (Tag Group:verbs And Gerunds)
+              - name: "Other Actions" # Specific actions not covered by other categories (Tag Group:action Tags)
+      # Changes made to a character's canonical appearance
+      - name: Artistic License
+        children:
+          - name: Major Transformations # Significant changes to form
+            children:
+              - name: Species Change # Humanization, animalization, monsterification, mechanization, etc.
+              - name: Form Change # Genderswap, age change (up/down), fusion, objectification, etc.
+          - name: Attire Changes # Modifications to clothing
+            children:
+              - name: Alternate Costume # Different outfit, casual wear, costume switch, cosplay, etc.
+              - name: Specific Item Change # Alternate weapon/headwear, adding/removing glasses/mask/hat, etc.
+          - name: Appearance Changes # Modifications to body features
+            children:
+              - name: Hair Changes # Alternate color, style, length
+              - name: Eye Changes # Alternate color, unusually open eyes
+              - name: Body Part Changes # Alternate breast/skin/wing/tail/horn/ear features, adding/removing features
+          - name: Other Changes # Palette swaps, role reversal, out of character, etc.
+            children:
+              - name: Color Changes # Palette swap, alternate color/element, player 2 colors
+              - name: "Role & Personality" # Role reversal, personality switch, dark/light persona, out of character (Tag Group:artistic License)
+
+  # Thematic elements and subjects depicted
+  - name: Content
+    children:
+      # Inanimate items and constructs
+      - name: Objects
+        children:
+          - name: Vehicles # Means of transport
+            children:
+              - name: Land Vehicles # Cars, trucks, buses, tanks, trains, motorcycles, bicycles, etc. (List Of Ground Vehicles)
+              - name: Air Vehicles # Airplanes, helicopters, jets, spacecraft, balloons, etc. (List Of Airplanes, List Of Helicopters)
+              - name: Sea Vehicles # Ships, boats, submarines, etc. (List Of Ships)
+              - name: "Fictional & Other Vehicles" # Mecha, UFOs, etc.
+          - name: Weapons # Tools for combat
+            children:
+              - name: Melee Weapons
+                children:
+                  - name: Swords # Katana, Longsword, Rapier, Scimitar, etc.
+                  - name: Bladed # Knives, Daggers, Axes, Scythes, etc.
+                  - name: Blunt # Hammers, Maces, Clubs, Staffs, etc.
+                  - name: Polearms # Spears, Lances, Halberds, Naginata, etc.
+                  - name: Other Melee # Whips, Chains, Brass knuckles, etc.
+              - name: Ranged Weapons
+                children:
+                  - name: "Bows & Crossbows" # Longbow, Shortbow, Crossbow
+                  - name: Firearms # Pistols, Revolvers, Rifles, Shotguns, Machine guns, etc.
+                  - name: Heavy Ranged # Cannons, Artillery, Rocket launchers, Flamethrowers, etc.
+              - name: "Explosives & Thrown" # Grenades, bombs, molotov cocktails, shuriken, kunai, throwing knives, etc.
+              - name: "Fictional & Other Weapons" # Energy blades, laser guns, magic wands, beam weapons, etc. (List Of Weapons)
+          - name: "Armor & Shields" # Protective gear
+            children:
+              - name: Historical Armor # Plate armor, chainmail, samurai armor, helmets, etc. (List Of Armor)
+              - name: Modern Armor # Bulletproof vests, riot gear, etc.
+              - name: Fictional Armor # Power armor, sci-fi suits, fantasy armor, etc.
+              - name: Shields # Bucklers, kite shields, tower shields, energy shields, etc.
+          - name: "Technology & Electronics" # Devices and machinery
+            children:
+              - name: Computing # Computers, laptops, tablets, keyboards, monitors, software, etc.
+              - name: Communication # Phones, smartphones, radios, headsets, microphones, satellites, etc.
+              - name: "Robotics & Cybernetics" # Robots, androids, cyborgs, drones, prosthetics, etc.
+              - name: Other Tech # Gadgets, tools, lab equipment, power sources, futuristic tech, steampunk tech, etc. (Tag Group:technology)
+          - name: "Food & Drink" # Consumables
+            children:
+              - name: Food Types # Fruits, vegetables, meat, bread, dairy, sweets, snacks, meals, etc.
+              - name: Drinks # Water, juice, soda, tea, coffee, alcohol, etc.
+              - name: Food Related # Utensils, containers, cooking, eating, restaurants, brands, etc. (Tag Group:food Tags)
+          - name: "Audio & Music" # Sound-related items
+            children:
+              - name: Instruments # Guitar, piano, drums, violin, flute, synthesizer, etc.
+              - name: Audio Equipment # Speakers, headphones, microphones, amplifiers, players (CD, record), etc.
+              - name: Music Related # Sheet music, notes, music stands, genres, etc. (Tag Group:audio Tags)
+          - name: "Games & Entertainment" # Items for play and leisure
+            children:
+              - name: "Board Games & Pieces" # Chess, Go, Mahjong, dice, game boards, etc. (Tag Group:board Games)
+              - name: "Card Games & Cards" # Playing cards, tarot cards, trading cards, specific card games (Yu-Gi-Oh!, MTG), etc. (Tag Group:cards)
+              - name: Video Games (as objects) # Consoles, controllers, cartridges, arcade machines, etc.
+              - name: "Other Toys & Games" # Dolls, plushies, puzzles, sports equipment, etc.
+          - name: Everyday Objects # Common household or personal items
+            children:
+              - name: "Furniture & Decor" # Chairs, tables, beds, sofas, shelves, lamps, curtains, rugs, etc.
+              - name: Containers # Boxes, bottles, bags, jars, cans, etc.
+              - name: Tools # Hammer, screwdriver, wrench, measuring tape, etc.
+              - name: Stationery # Pens, pencils, paper, books, notebooks, etc.
+              - name: Personal Items # Keys, wallets, umbrellas, glasses, watches, etc.
+          - name: "Fictional & Specific Objects" # Named or unique items
+            children:
+              - name: Pokemon Objects # Pokeballs, Pokedex, specific items from Pokemon (List Of Pokemon Objects)
+              - name: Other Specific Items # Lightsabers, TARDIS, specific artifacts, etc.
+          - name: "Materials"
+            children:
+              - name: "Natural Materials" # Wood, stone, metal, glass, clay, etc.
+              - name: "Synthetic Materials" # Plastic, rubber, fabric, leather, etc.
+              - name: "Food Materials" # Ingredients (flour, sugar, spices), food types (fruit, vegetable), etc.
+              - name: "Other Materials" # Paper, cardboard, paint, ink, etc.
+      # Living organisms
+      - name: Living Things
+        children:
+          - name: People # Human characters and real individuals
+            children:
+              - name: Demographics # Age groups (child, teen, adult, elderly), specific individuals
+              - name: Occupations # Doctor, teacher, artist, soldier, maid, etc. (Tag Group:jobs)
+              - name: Relationships # Family (mother, father, sibling), friends, couples, etc. (Tag Group:family Relationships)
+              - name: Real People # Actors, musicians, politicians, historical figures, artists, cosplayers, etc. (Tag Group:people)
+          - name: Animals # Non-human creatures (real)
+            children:
+              - name: Mammals # Cats, dogs, horses, bears, wolves, monkeys, rodents, etc. (List Of Animals, Tag Group:cats, Tag Group:dogs)
+              - name: Birds # Eagles, owls, penguins, chickens, parrots, etc. (Tag Group:birds)
+              - name: "Reptiles & Amphibians" # Snakes, lizards, turtles, frogs, salamanders, etc.
+              - name: "Fish & Aquatic Life" # Fish, sharks, whales, dolphins, octopus, crabs, etc.
+              - name: "Insects & Arachnids" # Butterflies, beetles, spiders, ants, bees, etc.
+              - name: Other Animals # Dinosaurs, etc.
+          - name: "Mythical & Fictional Creatures" # Non-real beings
+            children:
+              - name: Legendary Creatures # Dragons, unicorns, griffins, phoenixes, mermaids, elves, dwarves, etc. (Tag Group:legendary Creatures)
+              - name: Monsters # Goblins, orcs, trolls, zombies, vampires, werewolves, slimes, etc.
+              - name: "Spirits & Deities" # Angels, demons, ghosts, gods, goddesses, yokai (kappa, tengu, kitsune), etc.
+              - name: Specific Fictional Species # Pokemon, Digimon, Zerg, Wookiees, etc. (List Of Pokemon, List Of Digimon)
+          - name: Plants # Flora
+            children:
+              - name: Plant Types # Trees, flowers, grass, cacti, fungi, seaweed, etc.
+              - name: Specific Plants # Rose, cherry blossom, oak tree, mushroom, bamboo, etc. (Tag Group:flowers)
+              - name: Plant Parts # Leaves, petals, roots, stems, seeds, fruit, vegetables, etc.
+      # Abstract concepts, themes, and settings
+      - name: "Concepts & Themes"
+        children:
+          - name: "Actions & Activities" # General activities depicted
+            children:
+              - name: Sports # Baseball, basketball, soccer, tennis, swimming, etc. (Tag Group:sports)
+              - name: Games # Playing board games, card games, video games, etc. (List Of Game Activities)
+              - name: "Hobbies & Leisure" # Reading, drawing, photography, music, travel, collecting, etc.
+              - name: Everyday Activities # Eating, sleeping, working, studying, shopping, socializing, etc.
+          - name: "Emotions & States" # Feelings and conditions
+            children:
+              - name: Positive Emotions # Happiness, joy, love, excitement, surprise, relief, etc.
+              - name: Negative Emotions # Sadness, anger, fear, disgust, boredom, confusion, pain, etc.
+              - name: Neutral/Complex Emotions # Nostalgia, curiosity, determination, revenge, rivalry, etc.
+              - name: States of Being # Sleepy, drunk, tired, hungry, sick, injured, focused, etc.
+          - name: Abstract Concepts # Intangible ideas
+            children:
+              - name: Mental States
+                children:
+                  - name: Psychological States # Insanity, crazy, determined, curious, etc.
+                  - name: Physical States # Illness, fever, exhaustion, etc.
+                  - name: Social States # Poverty, hikikomori, etc.
+              - name: Social Concepts
+                children:
+                  - name: Identity & Groups # Patriotism, nationalism, muslim, soviet, nazi, etc.
+                  - name: Human Relations # Family, friendship, romance, rivalry, etc.
+                  - name: Social Issues # Racism, you_work_you_lose, etc.
+              - name: Natural Phenomena
+                children:
+                  - name: Weather # Rain, snow, thunder, etc.
+                  - name: Natural Disasters # Volcano, tornado, earthquake, etc.
+                  - name: Celestial Bodies # Sun, moon, stars, planets, etc.
+                  - name: Constellations # Aries, Virgo, Sagittarius, Orion, etc.
+              - name: Conceptual Themes
+                children:
+                  - name: Life & Death # Birth, death, burial, resurrection, etc.
+                  - name: Health & Injury # Illness, fever, sprain, accident, electrocution, etc.
+                  - name: Success & Failure # Victory, defeat, etc.
+
+          - name: "Settings & Locations" # Places depicted
+            children:
+              - name: Natural Environments # Forests, mountains, deserts, oceans, caves, sky, weather, etc.
+              - name: Man-Made Environments # Cities, towns, buildings (houses, schools, hospitals), roads, bridges, rooms, etc. (Tag Group:locations, Tag Group:real World Locations)
+                children:
+                  - name: Urban Environments # Cities, towns, streets, parks, etc.
+                  - name: Rural Environments # Countryside, farms, fields, forests, etc.
+                  - name: Industrial Environments # Factories, warehouses, power plants, etc.
+                  - name: Domestic Environments # Homes, apartments, kitchens, living rooms, etc.
+                  - name: Public Spaces # Parks, schools, hospitals, airports, etc.
+                  - name: Commercial Spaces # Stores, malls, restaurants, hotels, etc.
+                  - name: Recreational Spaces # Parks, theaters, stadiums, museums, etc.
+                  - name: Transportation Spaces # Airports, train stations, bus stops, docks, etc.
+                  - name: Other Environments # Abandoned places, ruins, etc.
+                  - name: Enclosures # Rooms, hallways, stairs, elevators, etc.
+              - name: Fictional Locations # Specific places from media (Hogwarts, Middle-earth, Aincrad), fantasy worlds, sci-fi settings, etc.
+                children:
+                  - name: Fantasy Locations # Fantasy worlds, realms, dungeons, etc.
+                  - name: Sci-Fi Locations # Futuristic cities, alien planets, space stations, etc.
+                  - name: Specific Fictional Locations # Hogwarts, Middle-earth, Aincrad, etc.
+              - name: Geographic Locations
+                children:
+                  - name: Countries & Nations # Names of real countries and nations
+                    children:
+                      - name: Asian Countries # Japan, China, Korea, Indonesia, Vietnam, Philippines, etc.
+                      - name: European Countries # England, Spain, Sweden, Finland, Ukraine, Russia, etc.
+                      - name: North American # United States, Canada, Mexico, etc.
+                      - name: South American # Brazil, Argentina, etc.
+                      - name: Other Countries # Australia, etc.
+                  - name: Regions & Areas # Named regions within countries or across countries
+                  - name: Cities & Locations # Named cities, towns, and specific locations
+                  - name: Geographic Features
+                    children:
+                      - name: Natural Features # Mountains, lakes, rivers, forests, beaches, valley
+                      - name: Man-made Features # Landmarks, monuments, bridges, dams, etc.
+              - name: Facilities & Buildings
+                children:
+                  - name: Public Buildings # Stations, airports, schools, hospitals, infirmary, prison, etc.
+                  - name: Commercial Buildings # Stores, malls, restaurants, hotels, ryokan, etc.
+                  - name: Residential Buildings # Houses, apartments, dormitories, etc.
+                  - name: Entertainment & Recreation # Parks, theaters, stadiums, museums, etc.
+                  - name: Industrial & Utility # Factories, power plants, etc.
+              - name: Interior Spaces
+                children:
+                  - name: Room Types # Bedroom, bathroom, kitchen, living room, etc.
+                  - name: Indoor Features # Furniture, fixtures, decorations, etc.
+                  - name: Indoor Areas # Hallways, stairs, elevators, etc.
+              - name: Time Periods
+                children:
+                  - name: Historical Periods # Ancient, medieval, renaissance, industrial revolution, etc.
+                  - name: Modern Era # Contemporary, 20th century, 21st century, etc.
+                  - name: Future & Fictional # Post-apocalyptic, dystopian, utopian, etc.
+                  - name: Calendar Periods # January, May, August, 2023, etc.
+          - name: "Themes & Genres" # Overarching styles or subjects
+            children:
+              - name: Genre # Fantasy, sci-fi, horror, romance, comedy, drama, mystery, historical, cyberpunk, steampunk, etc.
+              - name: "Mood & Atmosphere" # Dark, light, comedic, serious, peaceful, chaotic, nostalgic, surreal, dreamlike, etc.
+              - name: Narrative Elements # Plot points, character archetypes, foreshadowing, flashback, etc.
+              - name: Specific Themes # War, school life, work life, adventure, exploration, slice of life, memes, etc. (Tag Group:meme)
+          - name: "Sound & Language" # Auditory and linguistic elements
+            children:
+              - name: Sound Effects # Bang, crash, meow, woof, specific SFX lists (List Of Sfx...)
+              - name: Language # Specific languages, text, writing, translation, dialects, phrases (Tag Group:text, Tag Group:phrases, Tag Group:japanese Dialects)
+      # Content related to sexual themes
+      - name: Sexual Content
+        children:
+          - name: Anatomy # Explicit depiction of sexual body parts
+            children:
+              - name: Female Genitalia # Pussy, labia, clitoris, etc.
+              - name: Male Genitalia # Penis, testicles, erection, bulge, etc.
+              - name: Anus # Spread anus, anal focus, etc.
+              - name: Breasts (explicit) # Nipples, areolae, lactation, etc.
+              - name: Other # Pubic hair, perineum, etc.
+          - name: Sex Acts
+            children:
+              - name: Penetrative Sex # Vaginal sex, anal sex, pegging, double/triple penetration, etc.
+              - name: Oral Sex # Fellatio, cunnilingus, anilingus, 69, deepthroat, etc.
+              - name: Manual Sex # Handjob, fingering, fisting, masturbation (solo/mutual), etc.
+              - name: Non-Penetrative Sex # Paizuri (breast sex), footjob, thigh sex, frottage, tribadism, etc.
+              - name: Group Sex # Threesome, foursome, orgy, gangbang, spitroast, etc.
+              - name: "Fetishes & Kinks"
+                children:
+                  - name: BDSM # Bondage, discipline, dominance, submission, sadomasochism (shibari, spanking, torture, etc.)
+                  - name: Bodily Fluids # Cum play (bukkake, facial, gokkun), watersports (peeing, golden shower), scat, etc.
+                  - name: "Body Modification & Play" # Piercings (nipple, genital), tattoos (sexual), inflation, transformation, etc.
+                  - name: "Roleplay & Power Dynamics" # Ageplay, pet play, femdom, humiliation, slave/master, etc.
+                  - name: Specific Object/Attire Fetishes # Latex, diapers, masks, foot fetish (shoejob), etc.
+                  - name: Non-Consensual (Simulated) # Rape, molestation, mind control, etc.
+                  - name: "Paraphilias & Other" # Vore, bestiality, tentacle sex, incest, exhibitionism, voyeurism, etc.
+              - name: Simulated Sex Acts # Non-explicit depictions (Tag Group:simulated Sex Acts)
+          - name: "Nudity & Exposure" # Depiction of nakedness or partial undress
+            children:
+              - name: Full Nudity # Completely nude subjects
+              - name: Partial Nudity # Topless, bottomless, specific body parts exposed (shoulders, midriff, back), etc.
+              - name: Clothing States # Undressing, open clothes, see-through, wet clothes, torn clothes, wardrobe malfunction, etc.
+              - name: Suggestive Views # Upskirt, downblouse, pantyshot, cameltoe, bulge, etc. (Tag Group:nudity)
+          - name: "Sexual Attire & Objects" # Clothing or items associated with sex
+            children:
+              - name: Lingerie # Bras, panties, thongs, garter belts, corsets, stockings, etc.
+              - name: Fetish Wear # Latex, leather, bondage gear, collars, harnesses, etc.
+              - name: Sex Toys # Dildos, vibrators, butt plugs, strap-ons, gags, whips, etc. (Tag Group:sex Objects)
+              - name: Other Items # Condoms, lube, aphrodisiacs, etc. (Tag Group:sexual Attire)
+          - name: "Sexual Themes & States" # Related concepts and conditions
+            children:
+              - name: Arousal # Erection, wetness, blushing, moaning, specific expressions (ahegao, torogao), etc.
+              - name: Fluids # Cum, pussy juice, sweat, saliva, urine, feces, blood (in sexual context), etc.
+              - name: Concepts # Orgasm, foreplay, afterglow, consent/non-consent (rape), exhibitionism, voyeurism, prostitution, etc.
+              - name: Positions # Missionary, doggystyle, cowgirl, 69, specific bondage positions, etc. (Tag Group:sexual Positions)
+
+  # Events, Culture, and History
+  - name: "Events & Culture"
+    children:
+      # Holidays and celebrations
+      - name: "Holidays & Celebrations"
+        children:
+          - name: Specific Holidays # Christmas, Halloween, New Year's, Valentine's Day, Easter, Tanabata, etc.
+          - name: Holiday Themes # Decorations, specific foods, related activities (e.g., trick-or-treating)
+          - name: "Anniversaries & Milestones" # Birthdays, anniversaries, congratulations
+          - name: Cultural Events # Festivals (summer festival, Oktoberfest), ceremonies (tea ceremony), etc. (Tag Group:holidays And Celebrations)
+      # Historical periods and events
+      - name: History
+        children:
+          - name: Historical Periods # Sengoku period, World War II, Victorian era, etc.
+          - name: Historical Events # Specific battles, revolutions, significant occurrences (Tag Group:history)
+          - name: Historical Figures # Depictions of people from the past (Covered under Content -> Living Things -> People -> Real People)
+      # Cultural elements and practices
+      - name: Culture
+        children:
+          - name: "Mythology & Folklore" # Specific myths, legends, deities (Covered under Content -> Living Things -> Mythical & Fictional Creatures)
+          - name: "Traditions & Customs" # Specific cultural practices, clothing, food, architecture not tied to a specific holiday
+          - name: Social Trends # Memes, internet culture, fashion trends (partially covered elsewhere)
+
+  # Information about the media source, characters, artists, etc.
+  - name: "Media & Copyrights"
+    children:
+      # Specific franchises, series, or works
+      - name: "Franchises & Series"
+        children:
+          - name: By Genre # Grouping by type of media
+            children:
+              - name: "Anime & Manga"
+              - name: Video Games
+                children:
+                  - name: Action # Platformer, Shooter (FPS, TPS, Shmup), Fighting, Beat 'em up, Stealth, Survival
+                  - name: Adventure # Graphic Adventure, Visual Novel, Interactive Movie
+                  - name: Role-Playing (RPG) # Action RPG, MMORPG, Roguelike, Tactical RPG, JRPG, Western RPG
+                  - name: Simulation # Construction/Management Sim, Life Sim, Vehicle Sim
+                  - name: Strategy # 4X, RTS, TBS, Tower Defense, MOBA, Wargame
+                  - name: Other Genres # Puzzle, Sports, Racing, Rhythm, Party, Educational
+              - name: "Literature & Comics"
+              - name: "Film & Television"
+              - name: Music # Includes specific music genres, songs, albums (List Of Tagged Songs, List Of Vocaloid Songs, List Of Deemo Songs)
+              - name: Other Media # Web series, tabletop games, etc.
+          - name: By Name # Listing specific known franchises
+            children:
+              - name: Pokemon # (List Of Pokemon Media)
+              - name: Vocaloid # (List Of Vocaloid Derivatives, List Of Vocal Synthesizers)
+              - name: Touhou Project
+              - name: Kantai Collection
+              - name: Fate Series
+              - name: Azur Lane
+              - name: Arknights
+              - name: Genshin Impact # (List Of Genshin Impact Tags)
+              - name: Final Fantasy
+              - name: Dragon Quest
+              - name: Street Fighter
+              - name: Mario
+              - name: Zelda
+              - name: "# ... (Add other major franchises as needed)"
+          - name: Specific Media Items # Individual works or items within a franchise
+            children:
+              - name: Publications # Magazines, specific issues (List Of Magazine Publications, List Of Dengeki Moeoh Issues, List Of Megami Issues, List Of Nyantype Issues)
+              - name: "Songs & Music" # Specific named songs or albums
+              - name: "Episodes & Chapters"
+              - name: Specific Game Items/Mechanics # (List Of Pokemon Abilities, List Of Pokemon Moves, List Of Special Moves, List Of Zaku Ii Variants)
+      # Characters depicted in the image
+      - name: Characters
+        children:
+          - name: By Franchise # Grouping characters by their source media
+            children:
+              - name: Ace Attorney # (List Of Ace Attorney Characters)
+              - name: Arknights # (List Of Arknights Characters)
+              - name: Atelier # (List Of Atelier Characters)
+              - name: Azur Lane # (List Of Azur Lane Characters)
+              - name: Bleach # (List Of Bleach Characters)
+              - name: Bokujou Monogatari # (List Of Bokujou Monogatari Characters)
+              - name: Danganronpa # (List Of Danganronpa Characters)
+              - name: Digimon # (List Of Digimon, List Of Digimon Characters)
+              - name: Dragon Ball # (List Of Dragon Ball Characters)
+              - name: Dragon Quest # (List Of Dragon Quest Characters)
+              - name: Fate Series # (List Of Fate Series Characters)
+              - name: Final Fantasy # (List Of Final Fantasy Characters)
+              - name: Fire Emblem # (List Of Fire Emblem Characters)
+              - name: Genshin Impact # (List Of Genshin Impact Characters)
+              - name: "Girls' Frontline" # (List Of Girls' Frontline Characters)
+              - name: Girls Und Panzer # (List Of Girls Und Panzer Characters)
+              - name: Hunter X Hunter # (List Of Hunter X Hunter Characters)
+              - name: "Jojo's Bizarre Adventure" # (List Of Jojo No Kimyou Na Bouken Characters)
+              - name: Kantai Collection # (List Of Kantai Collection Characters)
+              - name: Kingdom Hearts # (List Of Kingdom Hearts Characters)
+              - name: Naruto # (List Of Naruto Characters)
+              - name: One Piece # (List Of One Piece Characters)
+              - name: Pokemon # (List Of Pokemon Characters, List Of Pokemon Anime Characters, List Of Pokemon Trainer Classes, List Of Gym Leaders, List Of Elite Four Members)
+              - name: Sailor Moon # (List Of Sailor Moon Characters)
+              - name: Street Fighter # (Implicit, needs character list)
+              - name: Touhou Project # (List Of Touhou Characters)
+              - name: Vocaloid # (List Of Vocaloid Characters)
+              - name: Yu-Gi-Oh! # (List Of Yu-Gi-Oh! Characters)
+              - name: "# ... (Add lists for other franchises present in the original flat list)"
+          - name: By Type # Grouping by character archetype or role
+            children:
+              - name: Original Character
+              - name: Official Mascot # (List Of Official Mascots)
+              - name: Genderswap Character # (List Of Genderswap Characters)
+              - name: Fan Character
+          - name: Real Life Individuals (as characters) # Depictions of real horses, etc.
+            children:
+              - name: Real Life Racehorses # (List Of Real Life Racehorses)
+      # Creators and rights holders
+      - name: "Creators & Copyrights"
+        children:
+          - name: Artists # Individuals who created the artwork
+            children:
+              - name: Specific Artist Name # Tag for the artist if known
+              - name: Named Drawfags # (List Of Named Drawfags)
+              - name: Signature # Presence of an artist's signature
+              - name: Artist Collaboration # Multiple artists worked on the piece
+          - name: "Authors & Directors" # Creators of the source material
+          - name: "Companies & Studios" # Entities holding copyrights or involved in production
+            children:
+              - name: Game Developers # Nintendo, Capcom, Square Enix, etc.
+              - name: Animation Studios # Kyoto Animation, Studio Ghibli, etc.
+              - name: Publishers # Kadokawa, Shueisha, etc.
+              - name: Brands # Depicted brands (Tag Group:companies And Brand Names)
+          - name: Cosplayers # Individuals depicted in cosplay
+      # Specific types of media or creative projects
+      - name: "Media Types & Projects"
+        children:
+          - name: Publications # Books, magazines, comics, artbooks, etc.
+          - name: Audiovisual # Music videos, animations, films, etc.
+          - name: Interactive # Games, visual novels, etc.
+          - name: Fan Projects # Doujinshi, fanart collections, fan games, etc.
+          - name: Collaborative Projects # Pixiv Fantasia, themed collections, etc. (Tag Group:pixiv Projects)
+          - name: Specific Items # Uniform designs, character variants, etc. (List Of Uniforms)
+
+  # Tags describing the image file itself or its context
+  - name: Metadata
+    children:
+      # Technical aspects of the image file
+      - name: Technical Info
+        children:
+          - name: File Properties # Attributes of the digital file
+            children:
+              - name: Resolution # Highres, lowres, absurdres, specific dimensions
+              - name: File Type # JPEG, PNG, GIF, MP4, SWF, WEBP, etc.
+              - name: Animation # Animated GIF/PNG, video, ugoira, looping, non-repeating
+              - name: Transparency # Alpha channel, transparent background
+              - name: Sound # Presence of audio, music, speech, volume warning
+          - name: Image Quality # Visual fidelity and artifacts
+            children:
+              - name: Artifacts # JPEG artifacts, GIF artifacts, moire, scan artifacts, compression issues
+              - name: Flaws # Blurry, noisy, bad aspect ratio, rotated, reversed
+              - name: Color Issues # Bad color balance, limited palette, greyscale
+              - name: "Edits & Modifications" # Cropped, resized (upscaled/downscaled), stitched, colorized, cleaned, detexted, third-party edit
+          - name: Software Used # Tools employed in creation or editing
+            children:
+              - name: Illustration Software # Photoshop, SAI, Clip Studio Paint, Krita, GIMP, Medibang, etc. (Tag Group:drawing Software)
+              - name: 3D Software # Blender, Maya, MMD, Koikatsu, SFM, ZBrush, etc.
+              - name: Animation Software # After Effects, Live2D, Spine, Flash, Easytoon, etc.
+              - name: AI Generation # Stable Diffusion, Midjourney, NovelAI, etc. (Ai-Generated, Ai-Assisted)
+      # Information about the image's source and provenance
+      - name: "Source & Provenance"
+        children:
+          - name: Source Status # Validity and type of source link
+            children:
+              - name: Source Provided # Link exists
+              - name: Bad Source # Broken link, wrong source, dead link, paywall/protected
+              - name: Multiple Sources
+              - name: Source Type # Official source, artist source, third-party source, non-web source, archived source
+              - name: Source Issues # Resolution mismatch, ID mismatch, imageboard desourced
+          - name: "Origin & Type" # How the image came to be
+            children:
+              - name: Official Art # Promotional art, key visual, game CG, novel illustration, production art
+              - name: Fan Art # General fan-created artwork
+              - name: Commission # Artwork created for payment
+              - name: Gift Art # Artwork created as a gift
+              - name: Derivative Work # Based on another image (redraw, trace, photo-referenced)
+              - name: Scan # Image obtained via scanner (magazine scan, artbook scan) (Tag Group:scan)
+              - name: Screenshot # Capture from game, anime, video, etc.
+              - name: Photograph # Real-world photo
+          - name: Content Origin # Specific source details
+            children:
+              - name: Image Sample # Preview image from a platform (Pixiv Sample, Twitter Sample, etc.)
+              - name: Paid Reward # Content from Patreon, Fanbox, etc.
+              - name: Avatar Generator # Image made with a character creator tool
+      # Tags used for management and organization
+      - name: "Management & Organization"
+        children:
+          - name: Requests # Tags indicating a need for user action
+            children:
+              - name: Tagme # Needs more tags
+              - name: Translation Request # Needs translation or check
+              - name: Source Request # Needs source identification or check
+              - name: Artist Request # Needs artist identification or check
+              - name: Copyright Request # Needs copyright identification or check
+              - name: Character Request # Needs character identification or check
+              - name: Commentary Request # Needs commentary or check
+              - name: Annotation Request # Needs annotation or check
+              - name: Quality Request # Needs quality check or improvement
+              - name: General Check Request # Needs general review (Check *)
+          - name: Informational # Tags providing context about the image or post
+            children:
+              - name: Translated # Indicates translation status
+              - name: Commentary # Presence of commentary
+              - name: Annotated # Presence of annotations
+              - name: Making-Of # Process video or images available
+              - name: Spoilers # Content reveals plot points
+              - name: Alternate Version Available # E.g., Textless version, different color scheme
+          - name: "Disambiguation & Cleanup" # Tags for resolving ambiguity or errors
+            children:
+              - name: Disambiguation # Used when a tag could refer to multiple things (List Of Disambiguation Pages)
+              - name: Commonly Misused Tag # Tag often applied incorrectly (List Of Commonly Misused Tags)
+              - name: Duplicate # Image is a duplicate of another post
+              - name: Meta-Wiki # Links to wiki pages about tagging itself (List Of Meta-Wikis)
+          - name: "Ratings & Warnings" # Content ratings or specific warnings
+            children:
+              - name: Explicit # General explicit tag
+              - name: Questionable # Borderline explicit/suggestive
+              - name: Safe # Safe for work
+              - name: Gore/Violence Warning # (Guro is under Fetishes)
+              - name: Epilepsy Warning
+      # Tags related to subjective quality or interpretation
+      - name: "Subjectivity & Quality"
+        children:
+          - name: Quality Assessment # User opinions on the image's quality or appeal
+            children:
+              - name: Positive # Awesome, beautiful, cool, cute, epic, gorgeous, great, handsome, hot, sexy, wholesome, VIP Quality
+              - name: Negative # Bad anatomy, poorly drawn, creepy, disgusting
+              - name: Neutral/Other # Moe, chibi, realistic, stylized, simple (Tag Group:subjective)
+          - name: Interpretation # User interpretations or humorous observations
+            children:
+              - name: Obvious Statement # Stating something clearly visible
+              - name: Too Literal # Tagging exactly what is depicted without abstraction
+              - name: What # Expressing confusion or disbelief
+              - name: Truth # Agreeing with a depiction or statement
+      # Tags related to censorship
+      - name: Censorship
+        children:
+          - name: Censorship Status # Whether the image is censored or not
+            children:
+              - name: Censored # Image has censorship applied
+              - name: Uncensored # Explicit version without censorship
+              - name: Decensored # Censorship removed by a third party
+          - name: Censorship Method # How the censorship is applied
+            children:
+              - name: Bar Censor # Black or white bars
+              - name: Mosaic Censor # Pixelation
+              - name: Blur Censor # Gaussian blur or similar
+              - name: Light Censor # Bright light or lens flare
+              - name: Steam Censor # Steam or mist effect
+              - name: Object Censor # Using an object to conveniently cover (hair, hand, item)
+              - name: Symbol Censor # Using symbols like hearts, stars, emojis
+              - name: Text Censor # Using text to cover
+              - name: Other Censors # Scribble, silhouette, glitch, novelty censors, etc.
+          - name: Censored Content # What is being censored
+            children:
+              - name: Genitalia Censor # Penis, pussy, anus
+              - name: Nipple Censor # Female nipples
+              - name: Violence Censor # Gore, blood
+              - name: Text/Symbol Censor # Profanity, offensive symbols
+              - name: Identity Censor # Blurring faces, redacting names (Tag Group:censorship)
+
+      - name: "Food & Cuisine"
+        children:
+          - name: Food Types
+            children:
+              - name: Dishes & Prepared Food # Napolitan, yakiniku, pancake, inarizushi, makizushi, takuan, etc.
+              - name: Snacks & Desserts # Sundae, parfait, muffin, etc.
+              - name: Ingredients # Peanut, sardine, etc.
+              - name: Condiments & Sauces # Mayonnaise, tabasco, etc.
+          - name: Beverages
+            children:
+              - name: Alcoholic Beverages # Beer, wine, sake, etc.
+              - name: Non-Alcoholic Beverages # Coffee, tea, juice, etc.
+          - name: Cooking & Food Preparation
+            children:
+              - name: Cooking Methods # Boiling, roasting, griddle, etc.
+              - name: Cooking Equipment # Kitchen tools, etc.
+
+      # Materials and substances
+      - name: "Materials & Substances"
+        children:
+          - name: Natural Materials
+            children:
+              - name: Minerals & Ores # Coal, bauxite, etc.
+              - name: Organic Materials # Wood, leather, etc.
+          - name: Synthetic Materials
+            children:
+              - name: Manufactured Materials # Plastic, rubber, etc.
+              - name: Chemical Substances # Chloroform, etc.
+          - name: Energy & Fluids
+            children:
+              - name: Energy Forms # Electricity, cryokinesis, etc.
+              - name: Fluids & Liquids # Gas, petroleum, precum, etc.
+              - name: Bodily Fluids # Roe, etc.
+
+      # Time and temporal concepts
+      - name: "Time & Temporal"
+        children:
+          - name: Calendar
+            children:
+              - name: Years # 2023, etc.
+              - name: Months # January, May, August, etc.
+              - name: Seasons # Spring, summer, autumn, winter
+              - name: Eras # Heisei, etc.
+          - name: Time Events
+            children:
+              - name: Regular Events # Holidays, birthdays, etc.
+              - name: Historical Events # Specific historical moments
+
+      # Linguistic and communication elements
+      - name: "Language & Communication"
+        children:
+          - name: Words & Responses
+            children:
+              - name: Affirmative # Yes, etc.
+              - name: Negative # No, etc.
+          - name: Expressions & Phrases
+            children:
+              - name: Common Phrases # I'm_such_a_fool, etc.
+          - name: Written Communication
+            children:
+              - name: Documents # Diploma, plaque, dollar_bill, etc.
+
+      # Miscellaneous items that don't fit elsewhere
+      - name: "Miscellaneous Items"
+        children:
+          - name: Specialized Equipment
+            children:
+              - name: Medical Equipment # Thermometer, rebreather, etc.
+              - name: Safety Equipment # O-ring, etc.
+              - name: Special Devices # Build_driver, log_pose, octagram, etc.
+          - name: Cultural Items
+            children:
+              - name: Traditional Items # Oonusa, okobo, kesa, papakha, etc.
+              - name: Specific Cultural Items # Noren, huadian, daxiushan, tuanshan, etc.
+          - name: Recreation & Games
+            children:
+              - name: Sports Equipment # Hurdle, etc.
+              - name: Games # Old_maid, etc.
+              - name: Toys # Jack-in-the-box, etc.
+          - name: Urban Elements
+            children:
+              - name: Street & City Features # Empty_pool, windmill, chimney, etc.
+              - name: Public Transportation # Shinkansen, etc.
+          - name: Miscellaneous Concepts
+            children:
+              - name: Unclassified Terms # Inflation, nepolabo, reverse_suspended_congress, reverse_trap, bevor, etc.
+          - name: Character Types
+            children:
+              - name: Social Types # Gopnik, delinquent, missionary, etc.
+              - name: Character Roles # Catcher_(baseball), fatherly, etc.
+              - name: Supernatural Types # Arrancar, pharaoh, etc.
