@@ -4,8 +4,9 @@ from pathlib import Path
 import numpy as np
 from dotenv import load_dotenv
 from pydantic import BaseModel
-from sqlalchemy import select
+from sqlalchemy import create_engine, select
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
+from sqlalchemy.orm import sessionmaker
 
 from ai.clip import calculate_image_features
 from models import Post, PostVector
@@ -50,3 +51,6 @@ def find_similar_posts(vec: np.ndarray, *, limit: int = 100) -> list[SimilarImag
 db_url = os.environ.get("DB_URL")
 aengine = create_async_engine(db_url, echo=False, pool_size=100, max_overflow=200)
 ASession = async_sessionmaker(bind=aengine, expire_on_commit=False)
+
+engine = create_engine(db_url, echo=False, pool_size=100, max_overflow=200)
+Session = sessionmaker(bind=engine, expire_on_commit=False)
