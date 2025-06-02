@@ -27,6 +27,7 @@ from server.commands import CommandController
 from server.folders import FoldersController
 from server.images import ImageController
 from server.posts import PostController
+from server.statistics import StatisticsController
 from server.tags import TagsController
 from utils import initialize, logger
 
@@ -94,7 +95,7 @@ async def db_connection(app: Litestar) -> AsyncGenerator[None, None]:
 
 v2 = Router(
     path="/v2",
-    route_handlers=[PostController, CommandController, ImageController, TagsController, FoldersController],
+    route_handlers=[PostController, CommandController, ImageController, TagsController, FoldersController, StatisticsController],
 )
 
 SEPARATORS_CLEANUP_PATTERN = re.compile(r"[!#$%&'*+\-.^_`|~:]+")
