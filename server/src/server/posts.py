@@ -16,7 +16,7 @@ from msgspec import Meta, Struct
 from pydantic import BaseModel, ConfigDict
 from sqlalchemy import Select, delete, func, nulls_last, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy.orm import lazyload, load_only
+from sqlalchemy.orm import load_only
 
 import shared
 from models import Post, PostHasTag
@@ -157,7 +157,6 @@ class PostController(Controller):
             Post.dominant_color,
             Post.md5,
         ),
-        lazyload(Post.tags),
     )
 
     @litestar.post("/search", status_code=200, description="Search for posts by filters.")

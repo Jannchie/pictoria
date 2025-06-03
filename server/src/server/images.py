@@ -1,13 +1,15 @@
 import mimetypes
 from typing import ClassVar
 
-from litestar import Controller, get
+from litestar import Controller, Response, get
 from litestar.exceptions import NotFoundException
 from litestar.response import File
+from litestar.status_codes import HTTP_200_OK
 from sqlalchemy.ext.asyncio import AsyncSession
 
 import shared
 from models import Post
+from services.s3 import presigned_get_object_from_s3
 from utils import create_thumbnail
 
 mimetypes.add_type("image/jpeg", ".jpg")
@@ -72,10 +74,24 @@ class ImageController(Controller):
             raise NotFoundException(detail=f"Post with id {post_id} not found")
 
         abs_path = post.absolute_path
-        if not abs_path.exists():
-            raise NotFoundException(detail=f"Original image for post {post_id} not found")
-
         media_type, _ = mimetypes.guess_type(abs_path)
+        if not abs_path.exists():
+            link = await presigned_get_object_from_s3(post.full_path)
+            # download the file by link, and return it
+            if not link:
+                raise NotFoundException(detail=f"Original image for post {post_id} not found")
+            import httpx
+
+            async with httpx.AsyncClient() as client:
+                response = await client.get(link)
+
+                if response.status_code != HTTP_200_OK:
+                    raise NotFoundException(detail=f"Failed to download original image for post {post_id}")
+
+                return Response(
+                    response.content,
+                    media_type=media_type,
+                )
         return File(abs_path, media_type=media_type, filename=abs_path.name, content_disposition_type="inline")
 
     @get("/thumbnails/id/{post_id:int}")
