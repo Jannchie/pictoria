@@ -29,6 +29,9 @@ dependencies = [
     "diffusion-prompt-embedder>=0.2.0",
     "accelerate>=1.6.0",
     "waifu-scorer[cu124]>=0.1.1",
+    "inch>=0.2.0",
+    "pyarrow>=20.0.0",
+    "minio>=7.2.15",
 ]
 
 requires-python = ">=3.11"
