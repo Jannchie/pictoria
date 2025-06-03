@@ -39,9 +39,18 @@ def timer(func: Callable[..., R]) -> Callable[..., R]:
     return wrapper
 
 
+def prepare_s3() -> None:
+    shared.s3_endpoint = os.environ.get("S3_ENDPOINT")
+    shared.s3_access_key = os.environ.get("S3_ACCESS_KEY")
+    shared.s3_secret_key = os.environ.get("S3_SECRET_KEY")
+    shared.s3_bucket = os.environ.get("S3_BUCKET", "pictoria")
+    shared.s3_base_dir = os.environ.get("S3_BASE_DIR", "collections")
+
+
 def initialize(target_dir: os.PathLike, openai_key: str | None = None) -> None:
     prepare_paths(Path(target_dir))
     prepare_openai_api(openai_key)
+    prepare_s3()
     init_thumbnails_directory()
 
 
@@ -326,15 +335,17 @@ def from_rating_to_int(rating: str) -> int:
     return 0
 
 
+tag_groups = {
+    "general": {"names": [], "color": "#006192"},
+    "character": {"names": [], "color": "#8243ca"},
+    "artist": {"names": [], "color": "#f30000"},
+    "copyright": {"names": [], "color": "#00b300"},
+}
+
+
 async def attach_tags_to_posts(session: AsyncSession, post: list[Post], resp: list[wdtagger.Result], *, is_auto: bool = False):
     # Bulk process all posts and responses together for better efficiency
     all_tag_names = set()
-    tag_groups = {
-        "general": {"names": [], "color": "#006192"},
-        "character": {"names": [], "color": "#8243ca"},
-        "artist": {"names": [], "color": "#f30000"},
-        "copyright": {"names": [], "color": "#00b300"},
-    }
 
     # Collect all tags from all responses
     for result in resp:
@@ -367,6 +378,18 @@ async def attach_tags_to_posts(session: AsyncSession, post: list[Post], resp: li
     post_tag_map = {(pt.post_id, pt.tag_name): pt for pt in existing_post_tags}
 
     # Process tags and create any missing tags
+    upsert_tags(session, all_tag_names, existing_group_dict, existing_tag_dict)
+
+    # Link tags to posts
+    for p, r in zip(post, resp, strict=False):
+        for tag_name in r.general_tags + r.character_tags:
+            if (p.id, tag_name) not in post_tag_map:
+                post_has_tag = PostHasTag(post_id=p.id, tag_name=tag_name, is_auto=is_auto)
+                p.tags.append(post_has_tag)
+        session.add(p)
+
+
+def upsert_tags(session: AsyncSession, all_tag_names: set[str], existing_group_dict: dict[str, TagGroup], existing_tag_dict: dict[str, Tag]):
     for tag_name in all_tag_names:
         if tag_name in tag_groups["general"]["names"]:
             group_name = "general"
@@ -387,14 +410,6 @@ async def attach_tags_to_posts(session: AsyncSession, post: list[Post], resp: li
             tag = Tag(name=tag_name, group_id=tag_group.id)
             session.add(tag)
             existing_tag_dict[tag_name] = tag
-
-    # Link tags to posts
-    for p, r in zip(post, resp, strict=False):
-        for tag_name in r.general_tags + r.character_tags:
-            if (p.id, tag_name) not in post_tag_map:
-                post_has_tag = PostHasTag(post_id=p.id, tag_name=tag_name, is_auto=is_auto)
-                p.tags.append(post_has_tag)
-        session.add(p)
 
 
 async def attach_tags_to_post(session: AsyncSession, post: Post, resp: wdtagger.Result, *, is_auto: bool = False):

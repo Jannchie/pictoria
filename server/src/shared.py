@@ -58,3 +58,10 @@ class I18N:
 
 i18n = I18N()
 logger = get_logger()
+
+
+s3_access_key = ""
+s3_secret_key = ""
+s3_endpoint = ""
+s3_bucket = "pictoria"
+s3_base_dir = "collections"
