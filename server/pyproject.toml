@@ -24,7 +24,6 @@ dependencies = [
     "psycopg[binary]>=3.2.4",
     "pgvector>=0.3.6",
     "scikit-image>=0.25.2",
-    "boto3>=1.37.34",
     "litestar[sqlalchemy,standard]>=2.15.2",
     "diffusion-prompt-embedder>=0.2.0",
     "accelerate>=1.6.0",

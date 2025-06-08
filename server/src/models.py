@@ -5,7 +5,7 @@ from typing import Optional
 import numpy as np
 from pgvector.sqlalchemy import HALFVEC, HalfVector, Vector
 from PIL import Image
-from sqlalchemy import Boolean, Computed, Float, ForeignKey, Index, Integer, String, func
+from sqlalchemy import Boolean, Computed, Float, ForeignKey, Index, Integer, MetaData, String, func
 from sqlalchemy.dialects.postgresql import TIMESTAMP
 from sqlalchemy.orm import (
     DeclarativeBase,
@@ -19,7 +19,16 @@ from sqlalchemy.orm import (
 import shared
 
 
-class Base(DeclarativeBase, MappedAsDataclass): ...
+class Base(DeclarativeBase, MappedAsDataclass):
+    metadata = MetaData(
+        naming_convention={
+            "ix": "ix_%(column_0_label)s",
+            "uq": "uq_%(table_name)s_%(column_0_name)s",
+            "ck": "ck_%(table_name)s_`%(constraint_name)s`",
+            "fk": "fk_%(table_name)s_%(column_0_name)s_%(referred_table_name)s",
+            "pk": "pk_%(table_name)s",
+        },
+    )
 
 
 class BaseWithTime(Base):
@@ -160,6 +169,6 @@ class PostHasTag(Base):
     __tablename__ = "post_has_tag"
 
     post_id: Mapped[int] = mapped_column(ForeignKey("posts.id", ondelete="CASCADE"), primary_key=True)
-    tag_name: Mapped[str] = mapped_column(ForeignKey("tags.name", ondelete="CASCADE"), primary_key=True)
+    tag_name: Mapped[str] = mapped_column(ForeignKey("tags.name", ondelete="CASCADE", onupdate="CASCADE"), primary_key=True)
     is_auto: Mapped[bool] = mapped_column(Boolean, default=False)
     tag_info: Mapped["Tag"] = relationship(lazy="selectin", init=False)

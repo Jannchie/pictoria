@@ -12,7 +12,7 @@ tags = set()
 for tag_group in tag_data:
     for tag in tag_data[tag_group]:
         if tag:
-            tags.add(tag.replace("_", " "))
+            tags.add(tag)
 
 en_data = {tag: tag for tag in tags}
 

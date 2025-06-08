@@ -346,7 +346,6 @@ tag_groups = {
 async def attach_tags_to_posts(session: AsyncSession, post: list[Post], resp: list[wdtagger.Result], *, is_auto: bool = False):
     # Bulk process all posts and responses together for better efficiency
     all_tag_names = set()
-
     # Collect all tags from all responses
     for result in resp:
         all_tag_names.update(result.general_tags)
@@ -413,7 +412,7 @@ def upsert_tags(session: AsyncSession, all_tag_names: set[str], existing_group_d
 
 
 async def attach_tags_to_post(session: AsyncSession, post: Post, resp: wdtagger.Result, *, is_auto: bool = False):
-    attach_tags_to_posts(session, [post], [resp], is_auto=is_auto)
+    await attach_tags_to_posts(session, [post], [resp], is_auto=is_auto)
 
 
 @cache

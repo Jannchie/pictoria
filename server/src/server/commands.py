@@ -194,12 +194,11 @@ class CommandController(Controller):
                 continue
             for t in types:
                 for tag_str in getattr(post, f"tag_string_{t}").split(" "):
-                    tag_name = tag_str.replace("_", " ")
                     await session.execute(
                         insert(Tag)
                         .values(
                             {
-                                "name": tag_name,
+                                "name": tag_str,
                                 "group_id": type_to_group_id[t],
                             },
                         )
@@ -210,7 +209,7 @@ class CommandController(Controller):
                         .values(
                             {
                                 "post_id": post_id,
-                                "tag_name": tag_name,
+                                "tag_name": tag_str,
                                 "is_auto": False,
                             },
                         )
