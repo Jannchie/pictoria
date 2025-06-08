@@ -245,21 +245,6 @@ def get_path_name_and_extension(file_path: Path) -> tuple[str, str, str]:
     return path, name, ext
 
 
-def update_file_metadata(file_data: bytes, post: Post, file_abs_path: Path):
-    post.md5 = calculate_md5(file_data)
-    post.size = file_abs_path.stat().st_size
-
-    # 从 file_path 获取所有上级目录，存到列表里
-    # folder = str(Path(post.file_path).parents[0]).replace("\\", "/")
-
-    # # 查询 Folder 表，如果不存在则创建
-    # folder_record = session.query(Folder).filter(Folder.path == folder).first()
-    # if folder_record is None:
-    #     folder_record = Folder(path=folder, file_count=0)
-    #     session.add(folder_record)
-    # folder_record.file_count += 1
-
-
 def compute_image_properties(img: Image.Image, post: Post, file_abs_path: Path):
     img.verify()
     post.width, post.height = img.size

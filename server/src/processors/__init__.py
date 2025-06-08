@@ -19,13 +19,13 @@ from utils import (
     add_new_files,
     async_session,
     attach_tags_to_post,
+    calculate_md5,
     compute_image_properties,
     find_files_in_directory,
     from_rating_to_int,
     get_path_name_and_extension,
     get_tagger,
     remove_deleted_files,
-    update_file_metadata,
 )
 
 # Store task references to prevent garbage collection
@@ -76,10 +76,6 @@ async def process_posts(session: AsyncSession, *, all_posts: bool = False):
 
 
 async def process_post(session: AsyncSession, file_abs_path: Path | None = None):
-    await _process_post(session, file_abs_path)
-
-
-async def _process_post(session: AsyncSession, file_abs_path: Path | None = None) -> None:
     file_path, file_name, extension = get_path_name_and_extension(file_abs_path)
     post = await session.execute(select(Post).filter(Post.file_path == file_path, Post.file_name == file_name, Post.extension == extension))
     post = post.scalar_one_or_none()
@@ -121,7 +117,8 @@ async def _process_post(session: AsyncSession, file_abs_path: Path | None = None
         return
 
     if file_data:
-        update_file_metadata(file_data, post, file_abs_path)
+        post.md5 = calculate_md5(file_data)
+        post.size = file_abs_path.stat().st_size
     session.add(post)
 
     # calculate features
