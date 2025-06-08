@@ -1,10 +1,12 @@
 import mimetypes
 from typing import ClassVar
 
+import httpx
 from litestar import Controller, Response, get
 from litestar.exceptions import NotFoundException
 from litestar.response import File
 from litestar.status_codes import HTTP_200_OK
+from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 import shared
@@ -25,6 +27,15 @@ mimetypes.add_type("image/heic", ".heic")
 mimetypes.add_type("image/heif", ".heif")
 mimetypes.add_type("image/avif", ".avif")
 mimetypes.add_type("image/x-icon", ".ico")
+
+
+async def delete_post_by_id(session: AsyncSession, post_id: int) -> None:
+    """
+    Deletes a post by its ID.
+    If the post does not exist, it raises a NotFoundException.
+    """
+    await session.execute(text("DELETE FROM posts WHERE id = :post_id"), {"post_id": post_id})
+    await session.commit()
 
 
 class ImageController(Controller):
@@ -79,13 +90,14 @@ class ImageController(Controller):
             link = await presigned_get_object_from_s3(post.full_path)
             # download the file by link, and return it
             if not link:
+                await delete_post_by_id(session, post_id)
                 raise NotFoundException(detail=f"Original image for post {post_id} not found")
-            import httpx
 
             async with httpx.AsyncClient() as client:
                 response = await client.get(link)
 
                 if response.status_code != HTTP_200_OK:
+                    await delete_post_by_id(session, post_id)
                     raise NotFoundException(detail=f"Failed to download original image for post {post_id}")
 
                 return Response(

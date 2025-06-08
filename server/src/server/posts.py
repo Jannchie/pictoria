@@ -2,7 +2,7 @@ import asyncio
 import io
 import shutil
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Annotated, ClassVar, Literal
+from typing import TYPE_CHECKING, Annotated, ClassVar, Literal, TypeVar
 
 import httpx
 import litestar
@@ -122,6 +122,14 @@ class ExtensionCountItem:
     count: int
 
 
+T = TypeVar("T")
+
+
+class CursorResponse(DTOBaseModel):
+    items: list[T]
+    next_cursor: None | int = None
+
+
 class ScoreUpdate(Struct):
     score: Annotated[int, Meta(ge=0, le=5, description="Score from 0 to 5.")]
 
@@ -183,6 +191,27 @@ class PostController(Controller):
                 msg = f"Invalid order value: {data.order}"
                 raise HTTPException(detail=msg, status_code=HTTP_409_CONFLICT)
         return [PostSimplePublic.model_validate(post) for post in (await session.scalars(stmt)).all()]
+
+    @litestar.get("/", status_code=200, description="Get all posts.")
+    async def list_posts(
+        self,
+        session: AsyncSession,
+        start: int = 0,
+        limit: int = 100,
+    ) -> CursorResponse:
+        """Get all posts with pagination."""
+        stmt = select(Post).order_by(Post.id.asc()).where(Post.id >= start).limit(limit + 1)
+        if start < 0 or limit <= 0:
+            msg = "Start must be >= 0 and limit must be > 0."
+            raise HTTPException(detail=msg, status_code=HTTP_409_CONFLICT)
+        posts = (await session.scalars(stmt)).all()
+        items = [PostDetailPublic.model_validate(post) for post in posts]
+        if len(posts) > limit:
+            next_cursor = items[-1].id
+            items = items[:-1]
+        else:
+            next_cursor = None
+        return CursorResponse(items=items, next_cursor=next_cursor)
 
     @litestar.get("/{post_id:int}", status_code=200)
     async def get_post(self, session: AsyncSession, post_id: int) -> PostDetailPublic:

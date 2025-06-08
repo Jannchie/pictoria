@@ -42,7 +42,7 @@ with pathlib.Path("pyproject.toml").open("rb") as f:
 async def my_lifespan(_: Litestar):
     load_dotenv()
     initialize(target_dir="demo")
-    # sync_metadata()
+    # await sync_metadata()
     # watch_target_dir()
     host = "localhost"
     port = 4777
