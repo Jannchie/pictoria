@@ -135,32 +135,11 @@ class CommandController(Controller):
         logger.info(f"Fetched {len(posts)} avaliable posts ({len(posts_orig)} total)")
         type_to_group_id = await self.fetch_tag_group_ids(session)
         types = type_to_group_id.keys()
+        posts = [
+            post for post in posts if post.file_ext and post.file_ext.lower() in {"jpg", "jpeg", "png", "gif", "webp", "avif", "bmp", "tiff", "tif", "svg"}
+        ]
         for post in posts:
             if not post.file_url:
-                continue
-            ext = post.file_ext
-            if ext not in {
-                ".jpg",
-                ".jpeg",
-                ".png",
-                ".gif",
-                ".webp",
-                ".avif",
-                ".bmp",
-                ".tiff",
-                ".tif",
-                ".svg",
-                "jpg",
-                "jpeg",
-                "png",
-                "gif",
-                "webp",
-                "avif",
-                "bmp",
-                "tiff",
-                "tif",
-                "svg",
-            }:
                 continue
             now = datetime.now(UTC)
             file_path = save_dir.relative_to(shared.target_dir).as_posix()

@@ -29,7 +29,7 @@ from server.images import ImageController
 from server.posts import PostController
 from server.statistics import StatisticsController
 from server.tags import TagsController
-from utils import initialize, logger
+from utils import initialize, logger, parse_arguments
 
 console = get_console()
 
@@ -41,7 +41,8 @@ with pathlib.Path("pyproject.toml").open("rb") as f:
 @asynccontextmanager
 async def my_lifespan(_: Litestar):
     load_dotenv()
-    initialize(target_dir="demo")
+    args = parse_arguments()
+    initialize(target_dir=args.target_dir)
     # await sync_metadata()
     # watch_target_dir()
     host = "localhost"
