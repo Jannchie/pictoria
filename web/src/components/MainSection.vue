@@ -222,13 +222,16 @@ const menuData = computed(() => {
 })
 
 async function deleteSelectingPosts() {
-  for (const post_id of selectedPostIdSet.value) {
-    if (post_id === undefined) {
-      continue
-    }
+  const ids = [...selectedPostIdSet.value].filter(id => id !== undefined) as number[]
+  if (ids.length === 0) {
+    return
+  }
+  const batchSize = 100
+  for (let i = 0; i < ids.length; i += batchSize) {
+    const batch = ids.slice(i, i + batchSize)
     await v2DeletePosts({
       query: {
-        ids: [post_id],
+        ids: batch,
       },
     })
   }
