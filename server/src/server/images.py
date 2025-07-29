@@ -46,7 +46,7 @@ class ImageController(Controller):
     """
 
     path = "/images"
-    tags: ClassVar[list[str]] = ["Images"]
+    tags: ClassVar[list[str]] = ["Images"] # type: ignore
 
     @get("/original/{post_path:path}")
     async def get_original(self, post_path: str) -> File:
@@ -76,7 +76,7 @@ class ImageController(Controller):
         return File(thumbnail_file_path, media_type=media_type, filename=thumbnail_file_path.name, content_disposition_type="inline")
 
     @get("/original/id/{post_id:int}")
-    async def get_original_by_id(self, post_id: int, session: AsyncSession) -> File:
+    async def get_original_by_id(self, post_id: int, session: AsyncSession) -> File | Response:
         """
         Get original image by id.
         """

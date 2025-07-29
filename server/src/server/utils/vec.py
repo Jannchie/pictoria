@@ -1,7 +1,7 @@
 import asyncio
 from pathlib import Path
 
-import numpy as np
+from pgvector import HalfVector
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -10,7 +10,7 @@ from db import SimilarImageResult
 from models import Post, PostVector
 
 
-async def find_similar_posts(session: AsyncSession, vec: np.ndarray, *, limit: int = 100) -> list[SimilarImageResult]:
+async def find_similar_posts(session: AsyncSession, vec: HalfVector | None, *, limit: int = 100) -> list[SimilarImageResult]:
     distance = PostVector.embedding.cosine_distance(vec)
     stmt = select(PostVector.post_id, distance.label("distance")).order_by(distance).limit(limit).offset(1)
     result = (await session.execute(stmt)).all()

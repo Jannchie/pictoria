@@ -127,12 +127,12 @@ class CommandController(Controller):
         """
         Download posts from https://danbooru.donmai.us/ and save them to the database.
         """
-        client = DanbooruClient(os.getenv("DANBOORU_API_KEY"), os.getenv("DANBOORU_USER_NAME"))
+        client = DanbooruClient(os.getenv("DANBOORU_API_KEY", ""), os.getenv("DANBOORU_USER_NAME", ""))
         danbooru_dir = shared.target_dir / "danbooru"
         save_dir = danbooru_dir / tags
         posts_orig = client.get_posts(tags=tags, limit=99999)
         posts = [post for post in posts_orig if post.file_url]
-        logger.info(f"Fetched {len(posts)} avaliable posts ({len(posts_orig)} total)")
+        logger.info(f"Fetched {len(posts)} available posts ({len(posts_orig)} total)")
         type_to_group_id = await self.fetch_tag_group_ids(session)
         types = type_to_group_id.keys()
         posts = [

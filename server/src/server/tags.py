@@ -1,3 +1,4 @@
+from collections.abc import Sequence
 from typing import Annotated, ClassVar
 
 import litestar
@@ -34,7 +35,7 @@ class TagBatchDelete(Struct):
 
 class TagsController(Controller):
     path = "/tags"
-    tags: ClassVar[list[str]] = ["Tags"]
+    tags: ClassVar[Sequence[str] | None] = ("Tags",)  # type: ignore[assignment]
 
     @litestar.post("/")
     async def create_tag(self, session: AsyncSession, data: TagCreate) -> Result:
@@ -76,7 +77,14 @@ class TagsController(Controller):
             stmt = stmt.limit(limit)
 
         result = await session.execute(stmt)
-        return [TagWithCountPublic(name=tag.name, group=tag.group, count=count) for tag, count in result.tuples()]
+        return [
+            TagWithCountPublic(
+                name=tag.name,
+                group=TagGroupPublic(id=tag.group.id, name=tag.group.name, color=tag.group.color) if tag.group else None,
+                count=count,
+            )
+            for tag, count in result.tuples()
+        ]
 
     @litestar.put("/{name:str}")
     async def update_tag(self, session: AsyncSession, name: str, data: TagUpdate) -> TagPublic:

@@ -2,7 +2,7 @@ import asyncio
 import io
 import shutil
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Annotated, ClassVar, Literal, TypeVar
+from typing import TYPE_CHECKING, Annotated, ClassVar, Generic, Literal, TypeVar
 
 import httpx
 import litestar
@@ -125,7 +125,7 @@ class ExtensionCountItem:
 T = TypeVar("T")
 
 
-class CursorResponse(DTOBaseModel):
+class CursorResponse(DTOBaseModel, Generic[T]):
     items: list[T]
     next_cursor: None | int = None
 
@@ -150,7 +150,7 @@ class PostSimplePublic(DTOBaseModel):
 
 class PostController(Controller):
     path = "/posts"
-    tags: ClassVar[list[str]] = ["Posts"]
+    tags: ClassVar[list[str]] = ["Posts"]  # type: ignore
 
     simple_select_stmt = select(Post).options(
         load_only(

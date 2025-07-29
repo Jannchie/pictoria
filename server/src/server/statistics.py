@@ -40,7 +40,7 @@ async def get_waifu_score_buckets(session: AsyncSession):
 
 class StatisticsController(Controller):
     path = "/statistics"
-    tags: ClassVar[list[str]] = ["Statistics"]
+    tags: ClassVar[list[str]] = ["Statistics"]  # type: ignore
 
     @litestar.get("/")
     async def get_waifu_scorer_statistics(self, session: AsyncSession) -> list[WaifuScoreResult]:

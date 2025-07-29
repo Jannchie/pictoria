@@ -12,7 +12,7 @@ from rich.progress import (
 )
 
 
-def get_progress(console: Console = None) -> Progress:
+def get_progress(console: Console | None = None) -> Progress:
     """Return a Progress object."""
     return Progress(
         SpinnerColumn(style="yellow"),
