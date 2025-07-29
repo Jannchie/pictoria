@@ -16,7 +16,7 @@ from msgspec import Meta, Struct
 from pydantic import BaseModel, ConfigDict
 from sqlalchemy import Select, delete, func, nulls_last, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy.orm import load_only
+from sqlalchemy.orm import InstrumentedAttribute, load_only
 
 import shared
 from models import Post, PostHasTag
@@ -221,7 +221,11 @@ class PostController(Controller):
         group_name_order = ["artist", "copyright", "character", "general", "meta"]
 
         if post and post.tags:
-            post.tags.sort(key=lambda x: group_name_order.index(x.tag_info.group.name) if x.tag_info.group.name in group_name_order else len(group_name_order))
+            post.tags.sort(
+                key=lambda x: group_name_order.index(x.tag_info.group.name)
+                if x.tag_info.group and x.tag_info.group.name in group_name_order
+                else len(group_name_order),
+            )
 
         if not post:
             msg = f"Post with id {post_id} not found."
@@ -394,7 +398,7 @@ class PostController(Controller):
 
         await session.commit()
 
-    async def _count_by_column(self, session: AsyncSession, data: PostFilter, column: Post, result_class: type) -> list:
+    async def _count_by_column(self, session: AsyncSession, data: PostFilter, column: InstrumentedAttribute, result_class: type) -> list:
         stmt = select(column, func.count()).group_by(column)
         stmt = apply_body_filter(data, stmt)
         resp = await session.execute(stmt)
