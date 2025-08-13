@@ -175,7 +175,7 @@ class DanbooruClient:
         logger.exception("All attempts to download post %s have failed", post_id)
 
     def download_by_id(self, post_id: int, target_dir: str) -> None:
-        post: dict = self.get_post(post_id)
+        post = self.get_post(post_id)
         if not post:
             logger.warning("Post %s not found", post_id)
             return
@@ -186,9 +186,13 @@ class DanbooruClient:
         target_dir.mkdir(exist_ok=True, parents=True)
         logger.info("Download started!")
         with concurrent.futures.ThreadPoolExecutor(max_workers=n_worker) as executor:
+            futures = []
             for post in posts:
                 logger.debug("Downloading post %s", post.id)
-                executor.submit(self.download_image, post, target_dir)
+                future = executor.submit(self.download_image, post, str(target_dir))
+                futures.append(future)
+            # 等待所有下载任务完成
+            concurrent.futures.wait(futures)
         logger.info("Download completed!")
 
 
@@ -211,9 +215,12 @@ class Downloader:
             self.executor.shutdown(wait=True)
 
     def download(self, url: str, target_path: os.PathLike) -> concurrent.futures.Future:
-        target_path: Path = Path(target_path)
-        target_path.parent.mkdir(parents=True, exist_ok=True)
-        return self.executor.submit(self._download_single, url, target_path)
+        true_target_path: Path = Path(target_path)
+        true_target_path.parent.mkdir(parents=True, exist_ok=True)
+        if not self.executor:
+            msg = "Downloader must be used as a context manager"
+            raise RuntimeError(msg)
+        return self.executor.submit(self._download_single, url, true_target_path)
 
     def _download_single(self, url: str, target_path: Path) -> None:
         try:
