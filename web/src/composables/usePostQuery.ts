@@ -1,6 +1,6 @@
 import type { MaybeRef } from 'vue'
-import { v2GetPost } from '@/api'
 import { useQuery } from '@tanstack/vue-query'
+import { v2GetPost } from '@/api'
 
 export function usePostQuery(id: MaybeRef<number | undefined>) {
   return useQuery(

@@ -9,7 +9,7 @@ defineProps<{
 </script>
 
 <template>
-  <div class="inline-block h-auto w-96 flex items-center gap-2 rounded-xl bg-black px-4 py-2">
+  <div class="px-4 py-2 rounded-xl bg-black flex gap-2 h-auto w-96 inline-block items-center">
     <div
       v-if="icon"
       class="flex-shrink-0"

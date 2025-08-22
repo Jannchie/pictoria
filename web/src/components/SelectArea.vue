@@ -104,7 +104,7 @@ useEventListener(globalThis, 'dragend', () => {
   <div class="relative">
     <div
       v-if="dragging"
-      class="absolute z-10000 h-1 border-primary-8/75 bg-primary-8/25"
+      class="border-primary-8/75 bg-primary-8/25 h-1 absolute z-10000"
       :style="{
         left: `${Math.min(startPoint.x, endPoint.x)}px`,
         top: `${Math.min(startPoint.y, endPoint.y)}px`,

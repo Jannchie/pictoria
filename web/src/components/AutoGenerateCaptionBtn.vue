@@ -1,9 +1,8 @@
 <script setup lang="ts">
-import { v2AutoCaption } from '@/api'
-import { } from '@/shared'
 import { Btn } from '@roku-ui/vue'
 import { useMutation, useQueryClient } from '@tanstack/vue-query'
 import { computed } from 'vue'
+import { v2AutoCaption } from '@/api'
 
 const props = defineProps<{
   postId: number
@@ -42,7 +41,7 @@ async function onAutoTag() {
       v-else
       class="i-tabler-message-2-bolt"
     />
-    <div class="w-full overflow-hidden text-ellipsis text-nowrap">
+    <div class="w-full text-nowrap text-ellipsis overflow-hidden">
       Auto Generate Caption
     </div>
   </Btn>

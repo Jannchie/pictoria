@@ -1,8 +1,8 @@
 <script setup lang="ts">
 import type { TagWithCountPublic } from '@/api'
-import { v2ListTags } from '@/api'
 import { TextField } from '@roku-ui/vue'
 import { useQuery } from '@tanstack/vue-query'
+import { v2ListTags } from '@/api'
 
 const tagQuery = useQuery({
   queryKey: ['tags'],
@@ -51,8 +51,8 @@ const tagGroupByFirstChar = computed(() => {
 </script>
 
 <template>
-  <div class="h-full flex flex-col">
-    <div class="sticky top-0 z-10 px-4 py-3 shadow-sm">
+  <div class="flex flex-col h-full">
+    <div class="px-4 py-3 shadow-sm top-0 sticky z-10">
       <TextField
         v-model="search"
         placeholder="Search tags"
@@ -66,30 +66,30 @@ const tagGroupByFirstChar = computed(() => {
       >
         <template #default="{ item }">
           <div
-            class="border-b py-3"
+            class="py-3 border-b"
           >
             <div class="flex flex-col">
-              <div class="mb-3 flex items-baseline px-4">
+              <div class="mb-3 px-4 flex items-baseline">
                 <span class="text-3xl font-bold">
                   {{ item[0] }}
                 </span>
-                <span class="ml-2 text-lg">
+                <span class="text-lg ml-2">
                   ({{ item[1].length }})
                 </span>
               </div>
-              <div class="flex flex-wrap gap-3 px-4">
+              <div class="px-4 flex flex-wrap gap-3">
                 <div
                   v-for="tag, i of item[1]"
                   :key="tag.name"
-                  class="mb-2 flex items-center gap-2"
+                  class="mb-2 flex gap-2 items-center"
                 >
                   <template v-if="i === 20">
-                    <div class="px-2 text-surface-dimmed italic">
+                    <div class="text-surface-dimmed px-2 italic">
                       ...
                     </div>
                   </template>
                   <template v-else>
-                    <div class="flex items-end gap-2">
+                    <div class="flex gap-2 items-end">
                       <PostTag
                         class="cursor-pointer"
                         rounded="lg"

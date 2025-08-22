@@ -1,7 +1,7 @@
 <script setup lang="ts">
-import { postSort, postSortColor, postSortOrder } from '@/shared'
 import { Btn, ColorSwatch } from '@roku-ui/vue'
 import { ref } from 'vue'
+import { postSort, postSortColor, postSortOrder } from '@/shared'
 
 // Sort options data
 const sortOptions: {
@@ -34,7 +34,7 @@ const show = ref(false)
 </script>
 
 <template>
-  <div class="relative flex gap-2">
+  <div class="flex gap-2 relative">
     <Popover
       v-model="show"
       position="bottom-end"
@@ -64,25 +64,25 @@ const show = ref(false)
       </Btn>
       <template #content>
         <div
-          class="min-w-36 border border-surface rounded bg-surface p-1"
+          class="p-1 border border-surface rounded bg-surface min-w-36"
         >
           <div
             class="flex flex-col gap-1"
           >
-            <div class="border-surface-hover mt-1 flex items-center gap-2 border rounded p-2">
+            <div class="border-surface-hover mt-1 p-2 border rounded flex gap-2 items-center">
               <div class="flex-grow">
-                <div class="mb-1 text-xs text-gray-400">
+                <div class="text-xs text-gray-400 mb-1">
                   Sort Color
                 </div>
-                <div class="flex items-center gap-2">
+                <div class="flex gap-2 items-center">
                   <div
-                    class="border-surface-hover h-6 w-6 overflow-hidden border rounded"
+                    class="border-surface-hover border rounded h-6 w-6 overflow-hidden"
                     :style="{ backgroundColor: postSortColor || '#ffffff' }"
                   >
                     <input
                       v-model="postSortColor"
                       type="color"
-                      class="h-full w-full cursor-pointer opacity-0"
+                      class="opacity-0 h-full w-full cursor-pointer"
                     >
                   </div>
                   <div class="text-xs font-mono">

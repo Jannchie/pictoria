@@ -1,7 +1,7 @@
 <script setup lang="ts">
-import { v2UploadFile } from '@/api'
 import { useQueryClient } from '@tanstack/vue-query'
 import { useRoute } from 'vue-router'
+import { v2UploadFile } from '@/api'
 
 const dropZoneRef = ref<HTMLElement | null>(null)
 const isDraggingFiles = ref(false)
@@ -144,7 +144,7 @@ useEventListener(globalThis, 'dragleave', (event: DragEvent) => {
     :class="{
       'op-0': dragEnterCount === 0 || !isDraggingFiles,
     }"
-    class="pointer-events-none fixed z-10 h-100vh w-100vw flex items-center justify-center bg-primary-5/25 text-lg"
+    class="text-lg bg-primary-5/25 flex h-100vh w-100vw pointer-events-none items-center justify-center fixed z-10"
   >
     <div class="text-black">
       Drop files here to save them.

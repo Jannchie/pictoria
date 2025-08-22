@@ -1,10 +1,10 @@
 <script setup lang="ts">
 import type { PostSimplePublic } from '@/api'
-import { showPostDetail } from '@/shared'
-import { getPostImageURL } from '@/utils'
 import { Btn, Paper } from '@roku-ui/vue'
 import { useElementBounding, useMouse } from '@vueuse/core'
 import { computed, ref, watchEffect } from 'vue'
+import { showPostDetail } from '@/shared'
+import { getPostImageURL } from '@/utils'
 
 const props = defineProps<{
   post: PostSimplePublic
@@ -199,10 +199,10 @@ onKeyStroke('Escape', () => {
 
 <template>
   <div
-    class="absolute inset-0 z-10000 flex flex-col bg-surface-base"
+    class="bg-surface-base flex flex-col inset-0 absolute z-10000"
   >
-    <header class="flex flex-col items-center justify-center py-2">
-      <div class="w-full flex flex-grow items-center justify-between gap-2">
+    <header class="py-2 flex flex-col items-center justify-center">
+      <div class="flex flex-grow gap-2 w-full items-center justify-between">
         <Popover
           position="bottom"
           trigger="hover"
@@ -218,7 +218,7 @@ onKeyStroke('Escape', () => {
           </Btn>
           <template #content>
             <Paper
-              class="w-20 py-2 text-center text-xs !p-1 !py-3"
+              class="text-xs py-2 text-center w-20 !p-1 !py-3"
               with-border
             >
               <kbd>Esc</kbd>
@@ -228,8 +228,8 @@ onKeyStroke('Escape', () => {
             </Paper>
           </template>
         </Popover>
-        <div class="flex items-center justify-center gap-2">
-          <div class="w-27px text-xs font-mono">
+        <div class="flex gap-2 items-center justify-center">
+          <div class="text-xs font-mono w-27px">
             {{ scaleStr }}%
           </div>
           <Slider
@@ -256,7 +256,7 @@ onKeyStroke('Escape', () => {
 
             <template #content>
               <Paper
-                class="w-20 text-center text-xs !p-1"
+                class="text-xs text-center w-20 !p-1"
                 with-border
               >
                 initial scale
@@ -283,7 +283,7 @@ onKeyStroke('Escape', () => {
     </header>
     <div
       ref="imgWrapperRef"
-      class="relative h-full w-full flex-grow overflow-hidden"
+      class="flex-grow h-full w-full relative overflow-hidden"
       @pointerdown.stop="onPointerDown"
       @pointermove.stop="onPointermove"
       @pointerup.stop="onPointerUp"
@@ -305,7 +305,7 @@ onKeyStroke('Escape', () => {
       >
       <div
         ref="miniMapRef"
-        class="absolute bottom-4 left-4 z-200 bg-white outline-white outline"
+        class="outline-white outline bg-white bottom-4 left-4 absolute z-200"
         @pointerdown.stop="onMiniMapPointerDown"
         @pointerup.stop="onMiniMapPointerUp"
         @pointermove.stop="onMiniMapPointerMove"
@@ -330,7 +330,7 @@ onKeyStroke('Escape', () => {
           >
           <!-- 显示视口框 -->
           <div
-            class="absolute border-2 border-primary"
+            class="border-primary border-2 absolute"
             :style="{
               width: `${miniMapViewBox.width}px`,
               height: `${miniMapViewBox.height}px`,

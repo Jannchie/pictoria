@@ -1,5 +1,5 @@
-import { v2RotatePostImage } from '@/api'
 import { useMutation, useQueryClient } from '@tanstack/vue-query'
+import { v2RotatePostImage } from '@/api'
 
 export function useRotateImageMutation() {
   const queryClient = useQueryClient()

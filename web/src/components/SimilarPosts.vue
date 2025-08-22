@@ -1,6 +1,6 @@
 <script setup lang="ts">
-import { v2GetSimilarPosts } from '@/api'
 import { useQuery } from '@tanstack/vue-query'
+import { v2GetSimilarPosts } from '@/api'
 
 const props = defineProps<{
   postId: number
@@ -28,7 +28,7 @@ const cols = computed(() => Math.floor(width.value / 300))
 
 <template>
   <template v-if="query.status.value === 'pending'">
-    <div class="h-64 flex flex-col items-center justify-center gap-2 text-sm text-surface-dimmed">
+    <div class="text-sm text-surface-dimmed flex flex-col gap-2 h-64 items-center justify-center">
       <i
         class="i-svg-spinners-90-ring-with-bg text-surface-high text-3xl"
       />

@@ -124,7 +124,7 @@ const folderStr = computed(() => {
               <template #collapse="{ data, level }">
                 <RouterLink
                   :to="`/dir/${data.value}`"
-                  class="py-1 pr-1 rounded-full flex gap-2 h-8 w-full cursor-pointer items-center relative focus-visible:outline-none focus-visible:bg-surface-variant-1"
+                  class="py-1 pr-1 rounded-full flex gap-2 h-8 w-full cursor-pointer items-center relative focus-visible:bg-surface-variant-1 focus-visible:outline-none"
                   :class="[{
                     'hover:bg-surface-variant-1 hover:text-surface text-surface-dimmed': folderStr !== data.value,
                     'text-primary bg-surface-variant-2': folderStr === data.value,
@@ -154,7 +154,7 @@ const folderStr = computed(() => {
               </template>
               <template #link="{ data, level }">
                 <RouterLink
-                  class="hover-source py-1 pr-1 rounded-full flex flex gap-2 h-8 w-full cursor-pointer items-center relative focus-visible:outline-none focus-visible:bg-surface-variant-1"
+                  class="hover-source py-1 pr-1 rounded-full flex flex gap-2 h-8 w-full cursor-pointer items-center relative focus-visible:bg-surface-variant-1 focus-visible:outline-none"
                   :class="[
                     {
                       'hover:bg-surface-variant-1 hover:text-surface text-surface-dimmed': folderStr !== data.value,

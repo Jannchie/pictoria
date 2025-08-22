@@ -1,11 +1,10 @@
 <script setup lang="ts">
 import type { DirectorySummary } from '@/api'
-import { v2GetFolders } from '@/api'
-import { } from '@/shared'
 import { Btn } from '@roku-ui/vue'
 import { useQuery } from '@tanstack/vue-query'
 import { computed } from 'vue'
 import { useRoute } from 'vue-router'
+import { v2GetFolders } from '@/api'
 
 const folders = useQuery({
   queryKey: ['folders'],

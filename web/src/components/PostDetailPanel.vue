@@ -1,12 +1,12 @@
 <script setup lang="ts">
 import type { PostDetailPublic, PostHasTagPublic } from '@/api'
+import { Btn, ColorSwatch, Tag, TextField } from '@roku-ui/vue'
+import { useQueryClient } from '@tanstack/vue-query'
+import { filesize } from 'filesize'
 import { v2UpdatePostCaption, v2UpdatePostRating, v2UpdatePostScore, v2UpdatePostSource } from '@/api'
 import { hideNSFW, openTagSelectorWindow, showPostDetail } from '@/shared'
 import { getPostThumbnailURL } from '@/utils'
 import { colorNumToHex, labToRgbaString } from '@/utils/color'
-import { Btn, ColorSwatch, Tag, TextField } from '@roku-ui/vue'
-import { useQueryClient } from '@tanstack/vue-query'
-import { filesize } from 'filesize'
 
 const props = defineProps<{
   post: PostDetailPublic
@@ -122,23 +122,23 @@ function onCopyTags() {
 
 <template>
   <ScrollArea
-    class="h-full flex flex-col gap-2 overflow-x-hidden overflow-y-auto text-xs"
+    class="text-xs flex flex-col gap-2 h-full overflow-x-hidden overflow-y-auto"
   >
     <div
       v-if="isImage(post.extension)"
       class="flex justify-center"
     >
-      <div class="overflow-hidden rounded">
+      <div class="rounded overflow-hidden">
         <img
           :src="getPostThumbnailURL(post)"
-          class="h-40 overflow-hidden rounded object-contain"
+          class="rounded h-40 overflow-hidden object-contain"
           :class="{
             blur: (post?.rating ?? 0) >= 3 && hideNSFW,
           }"
         >
       </div>
     </div>
-    <div class="flex items-center justify-center gap-1">
+    <div class="flex gap-1 items-center justify-center">
       <ColorSwatch
         v-if="post.dominantColor"
         class="mr-2 h-8 w-8"
@@ -152,11 +152,11 @@ function onCopyTags() {
       />
     </div>
     <div>
-      <div class="py-2 text-zinc-4 font-black">
+      <div class="text-zinc-4 font-black py-2">
         Basic Info
       </div>
       <div
-        class="grid grid-cols-2 even:children:text-zinc-4"
+        class="even:children:text-zinc-4 grid grid-cols-2"
       >
         <div>Rating</div>
         <div>
@@ -235,15 +235,15 @@ function onCopyTags() {
       </div>
     </div>
     <div>
-      <div class="py-2 text-zinc-4 font-black">
+      <div class="text-zinc-4 font-black py-2">
         Folder
       </div>
       <div class="flex gap-2">
         <div
           v-if="folders.length === 0"
-          class="h-8 w-full flex flex-col items-center justify-center text-surface-dimmed"
+          class="text-surface-dimmed flex flex-col h-8 w-full items-center justify-center"
         >
-          <div class="flex flex-col items-center op50">
+          <div class="op50 flex flex-col items-center">
             <i class="i-tabler-folder-off" />
             <div>
               No folder
@@ -262,7 +262,7 @@ function onCopyTags() {
     </div>
     <div class="flex flex-col gap-1">
       <div
-        class="flex items-center gap-2 py-2 text-zinc-4 font-black"
+        class="text-zinc-4 font-black py-2 flex gap-2 items-center"
       >
         <span>Tags</span>
         <Btn
@@ -282,7 +282,7 @@ function onCopyTags() {
         <PostTag
           v-for="tag of tagSorted"
           :key="tag.tagInfo.name"
-          class="bg-surface-high cursor-pointer rounded px-1 py-0.5"
+          class="bg-surface-high px-1 py-0.5 rounded cursor-pointer"
           rounded="lg"
           :data="tag"
           :color="tag.tagInfo.group?.color"
@@ -300,9 +300,9 @@ function onCopyTags() {
       </div>
       <div
         v-else
-        class="h-14 flex flex-col items-center justify-center text-surface-dimmed"
+        class="text-surface-dimmed flex flex-col h-14 items-center justify-center"
       >
-        <div class="flex flex-col items-center op50">
+        <div class="op50 flex flex-col items-center">
           <i class="i-tabler-bookmark-off" />
           <div>
             No Tag
@@ -310,7 +310,7 @@ function onCopyTags() {
         </div>
         <Btn
           size="sm"
-          class="my-2 w-full flex"
+          class="my-2 flex w-full"
           @pointerup="openTagSelectorWindow()"
         >
           <i class="i-tabler-bookmark-plus" />
@@ -319,7 +319,7 @@ function onCopyTags() {
       </div>
     </div>
     <div>
-      <div class="py-2 text-zinc-4 font-black">
+      <div class="text-zinc-4 font-black py-2">
         Caption
       </div>
       <div>
@@ -331,7 +331,7 @@ function onCopyTags() {
       </div>
     </div>
     <div>
-      <div class="py-2 text-zinc-4 font-black">
+      <div class="text-zinc-4 font-black py-2">
         Source
       </div>
       <div>
@@ -343,7 +343,7 @@ function onCopyTags() {
       </div>
     </div>
     <div>
-      <div class="py-2 text-zinc-4 font-black">
+      <div class="text-zinc-4 font-black py-2">
         Command
       </div>
       <div class="flex flex-col gap-2">

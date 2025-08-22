@@ -1,9 +1,9 @@
 <script setup lang="ts">
-import { v2GetScoreCount } from '@/api'
-import { postFilter } from '@/shared'
 import { Btn } from '@roku-ui/vue'
 import { useQuery } from '@tanstack/vue-query'
 import { computed } from 'vue'
+import { v2GetScoreCount } from '@/api'
+import { postFilter } from '@/shared'
 
 const scoreFilterData = computed({
   get() {
@@ -66,19 +66,19 @@ const btnText = computed(() => {
       </Btn>
       <template #content>
         <div
-          class="min-w-52 border border-surface rounded bg-surface p-1"
+          class="p-1 border border-surface rounded bg-surface min-w-52"
         >
           <div
             v-for="score in [5, 4, 3, 2, 1, 0]"
             :key="score"
-            class="w-full flex cursor-pointer items-center gap-2 rounded hover:bg-surface-variant-1 px-2 py-1 text-xs"
+            class="text-xs px-2 py-1 rounded flex gap-2 w-full cursor-pointer items-center hover:bg-surface-variant-1"
             @pointerdown="onPointerDown(score)"
           >
             <Checkbox
-              class="pointer-events-none flex-shrink-0"
+              class="flex-shrink-0 pointer-events-none"
               :model-value="hasScore(score)"
             />
-            <div class="h-16px flex flex-grow gap-1">
+            <div class="flex flex-grow gap-1 h-16px">
               <template v-if="score === 0">
                 Not Scored Yet
               </template>
@@ -98,7 +98,7 @@ const btnText = computed(() => {
             </div>
             <div
               v-else-if="hasScore(score)"
-              class="flex-shrink-0 text-gray-400"
+              class="text-gray-400 flex-shrink-0"
             >
               0
             </div>

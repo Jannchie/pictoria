@@ -6,7 +6,7 @@ useSyncFilterWithUrl()
 </script>
 
 <template>
-  <div class="w-full flex justify-between gap-2 border-b border-surface px-1 pb-1">
+  <div class="px-1 pb-1 border-b border-surface flex gap-2 w-full justify-between">
     <div class="flex gap-2">
       <ScoreFilter />
       <RatingFilter />

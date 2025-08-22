@@ -1,7 +1,7 @@
 <script setup lang="ts">
+import { useQueryClient } from '@tanstack/vue-query'
 import { v2DeletePosts } from '@/api'
 import { selectedPostIdSet, showPostDetail, waterfallRowCount } from '@/shared'
-import { useQueryClient } from '@tanstack/vue-query'
 import PostDetail from '../components/PostDetail.vue'
 import 'splitpanes/dist/splitpanes.css'
 
@@ -38,11 +38,11 @@ useEventListener('wheel', (event) => {
     v-if="showPostDetail"
     :post="showPostDetail"
   />
-  <div class="h-full flex flex-col">
+  <div class="flex flex-col h-full">
     <header
-      class="h-60px flex shrink-0 flex-col items-center justify-center"
+      class="flex shrink-0 flex-col h-60px items-center justify-center"
     >
-      <div class="w-32 flex flex-grow items-center justify-center">
+      <div class="flex flex-grow w-32 items-center justify-center">
         <Slider
           v-model="waterfallRowCount"
           size="sm"

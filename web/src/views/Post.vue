@@ -1,10 +1,10 @@
 <script setup lang="ts">
+import { Btn } from '@roku-ui/vue'
+import { useRoute } from 'vue-router'
 import Image from '@/roku/Image.vue'
 import { bottomBarInfo, selectedPostIdSet } from '@/shared'
 import { getPostImageURL } from '@/utils'
 import { colorNumToHex } from '@/utils/color'
-import { Btn } from '@roku-ui/vue'
-import { useRoute } from 'vue-router'
 
 const route = useRoute()
 const postId = computed(() => Number.parseInt(route.params.postId as string))
@@ -31,10 +31,10 @@ watchEffect(() => {
 <template>
   <div
     v-if="post"
-    class="h-full flex flex-col"
+    class="flex flex-col h-full"
   >
     <div
-      class="flex items-center justify-between border-b bg-surface-base"
+      class="border-b bg-surface-base flex items-center justify-between"
     >
       <div class="grow-1 basis-0">
         <Btn
@@ -53,9 +53,9 @@ watchEffect(() => {
     </div>
     <ScrollArea
       ref="scrollAreaRef"
-      class="relative h-full w-full flex flex-grow flex-basis-0 flex-col items-center gap-4"
+      class="flex flex-grow flex-basis-0 flex-col gap-4 h-full w-full items-center relative"
     >
-      <div class="max-h-80% px-2 pt-3">
+      <div class="px-2 pt-3 max-h-80%">
         <Image
           :key="post.id"
           :src="getPostImageURL(post)"

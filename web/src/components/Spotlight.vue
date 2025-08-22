@@ -1,5 +1,5 @@
 <template>
-  <div class="fixed inset-25 z-1000 flex justify-center">
+  <div class="flex inset-25 justify-center fixed z-1000">
     <div>
       <slot />
     </div>

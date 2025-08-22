@@ -1,5 +1,5 @@
-import { postFilter } from '@/shared'
 import { useRoute } from 'vue-router'
+import { postFilter } from '@/shared'
 
 export function useWatchRoute() {
   const route = useRoute()

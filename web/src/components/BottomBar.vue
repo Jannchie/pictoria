@@ -1,6 +1,6 @@
 <script setup lang="ts">
-import { bottomBarInfo, selectedPostIdSet, usePosts } from '@/shared'
 import { useRoute } from 'vue-router'
+import { bottomBarInfo, selectedPostIdSet, usePosts } from '@/shared'
 
 const posts = usePosts()
 const route = useRoute()
@@ -8,7 +8,7 @@ const route = useRoute()
 
 <template>
   <div
-    class="h-24px flex items-center border-t border-surface bg-surface px-1 text-xs text-surface-dimmed"
+    class="text-xs text-surface-dimmed px-1 border-t border-surface bg-surface flex h-24px items-center"
   >
     <template v-if="route.name === 'all' || route.name === 'dir'">
       Display: {{ posts.length }}, Selected: {{ selectedPostIdSet.size }}

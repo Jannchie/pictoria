@@ -37,7 +37,7 @@ defineExpose({
 <template>
   <div
     ref="folderItemRef"
-    class="w-full flex items-center gap-2 rounded px-2 py-1"
+    class="px-2 py-1 rounded flex gap-2 w-full items-center"
     :class="{
       'bg-surface-variant-1': active && type === 'normal',
       'bg-surface-variant-2': hover || dragover,
@@ -48,7 +48,7 @@ defineExpose({
   >
     <Checkbox
       v-if="type === 'checkbox'"
-      class="pointer-events-none flex-shrink-0"
+      class="flex-shrink-0 pointer-events-none"
       :model-value="active"
     />
     <i
@@ -61,7 +61,7 @@ defineExpose({
     </div>
     <div
       v-if="extraInfo"
-      class="flex-shrink-0 text-xs text-surface-dimmed font-mono"
+      class="text-xs text-surface-dimmed font-mono flex-shrink-0"
     >
       {{ extraInfo }}
     </div>

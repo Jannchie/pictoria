@@ -1,8 +1,8 @@
 <script setup lang="ts">
-import { v2AddTagToPost, v2ListTagGroup, v2ListTags, v2RemoveTagFromPost } from '@/api'
 import { Btn, TextField } from '@roku-ui/vue'
 import { useQuery, useQueryClient } from '@tanstack/vue-query'
 import { computed, ref } from 'vue'
+import { v2AddTagToPost, v2ListTagGroup, v2ListTags, v2RemoveTagFromPost } from '@/api'
 import { usePostQuery } from '../composables/usePostQuery'
 
 const props = defineProps<{
@@ -219,20 +219,20 @@ const searchingInitCurrentTags = computed(() => {
 <template>
   <div
     v-if="!postQuery.data.value"
-    class="relative h-96 max-h-96 max-w-96 w-96 flex flex-col border rounded bg-surface-base text-sm text-surface shadow-md"
+    class="text-sm text-surface border rounded bg-surface-base flex flex-col h-96 max-h-96 max-w-96 w-96 shadow-md relative"
   >
-    <div class="h-full w-full flex flex-grow flex-col items-center justify-center text-surface-dimmed">
-      <i class="i-tabler-tag p-4 text-2xl" />
-      <span class="mt-2 text-xs">
+    <div class="text-surface-dimmed flex flex-grow flex-col h-full w-full items-center justify-center">
+      <i class="i-tabler-tag text-2xl p-4" />
+      <span class="text-xs mt-2">
         No Post Selected
       </span>
     </div>
   </div>
   <div
     v-else
-    class="h-96 max-h-96 max-w-96 w-96 flex flex-col border rounded bg-surface-base text-sm text-surface shadow-md"
+    class="text-sm text-surface border rounded bg-surface-base flex flex-col h-96 max-h-96 max-w-96 w-96 shadow-md"
   >
-    <div class="flex gap-2 border-b border-surface p-2">
+    <div class="p-2 border-b border-surface flex gap-2">
       <TextField
         ref="searchRef"
         v-model="search"
@@ -250,11 +250,11 @@ const searchingInitCurrentTags = computed(() => {
       </Btn>
     </div>
     <div class="flex flex-grow overflow-auto">
-      <div class="w-36 flex-shrink-0 border-r border-surface">
+      <div class="border-r border-surface flex-shrink-0 w-36">
         <ListItem
           v-for="group, i in finalTagGroups"
           :key="i"
-          class="cursor-pointer p-2"
+          class="p-2 cursor-pointer"
           :title="group.name"
           icon="i-tabler-bookmark"
           :active="group.id === currentGroupId"
@@ -284,7 +284,7 @@ const searchingInitCurrentTags = computed(() => {
           v-if="initCurrentTags.some(tag => isSearchMatch(tag.tagInfo.name))"
           class="border-b border-surface"
         >
-          <div class="p-2 text-surface-dimmed">
+          <div class="text-surface-dimmed p-2">
             Already Selected ({{ searchingInitCurrentTags.length }})
           </div>
           <template
@@ -308,7 +308,7 @@ const searchingInitCurrentTags = computed(() => {
           </template>
         </div>
         <div>
-          <div class="p-2 text-surface-dimmed">
+          <div class="text-surface-dimmed p-2">
             All ({{ currentGroupTags.filter(tag => isSearchMatch(tag.name)).length }})
           </div>
           <template
@@ -332,13 +332,13 @@ const searchingInitCurrentTags = computed(() => {
         </div>
         <div
           v-if="displayCurrentGroupTags.length === 100"
-          class="p-1 text-center text-xs op50"
+          class="text-xs p-1 text-center op50"
         >
           Only Show Top 100
         </div>
       </ScrollArea>
     </div>
-    <div class="border-t border-surface p-2 text-xs">
+    <div class="text-xs p-2 border-t border-surface">
       <kbd>↑</kbd> <kbd>↓</kbd> to navigate, <kbd>Enter</kbd> to select, <kbd>Tab</kbd> to switch group
     </div>
   </div>

@@ -1,10 +1,10 @@
 <script setup lang="ts">
 import type { PostSimplePublic } from '@/api'
+import { AspectRatio } from '@roku-ui/vue'
+import { computed } from 'vue'
 import { hideNSFW, selectedPostIdSet, selectingPostIdSet, unselectedPostIdSet } from '@/shared'
 import { getPostThumbnailURL } from '@/utils'
 import { colorNumToHex, labToRgbaString } from '@/utils/color'
-import { AspectRatio } from '@roku-ui/vue'
-import { computed } from 'vue'
 
 const props = defineProps<{
   post: PostSimplePublic
@@ -139,7 +139,7 @@ function onContextmenu(e: MouseEvent) {
 
 <template>
   <div
-    class="post-item flex flex-col items-center gap-1"
+    class="post-item flex flex-col gap-1 items-center"
     :class="{ selected }"
     draggable="true"
     @dragstart.stop
@@ -151,7 +151,7 @@ function onContextmenu(e: MouseEvent) {
     <AspectRatio
       v-if="post.width && post.height"
       :ratio="post.width / post.height"
-      class="bg-surface-high w-full rounded-lg bg-primary"
+      class="bg-surface-high rounded-lg bg-primary w-full"
       :style="{ backgroundColor: primaryColor !== 'primary' ? primaryColor : '' }"
     >
       <div class="post-content rounded-lg">
@@ -163,7 +163,7 @@ function onContextmenu(e: MouseEvent) {
           <img
             v-show="imageLoaded"
             :src="getPostThumbnailURL(post)"
-            class="w-inherit rounded-lg"
+            class="rounded-lg w-inherit"
             draggable="true"
             :class="{ blur: ((post.rating ?? 0) >= 3) && hideNSFW }"
             @load="onImageLoad"
@@ -174,7 +174,7 @@ function onContextmenu(e: MouseEvent) {
     <AspectRatio
       v-else
       :ratio="1"
-      class="post-content h-full w-full rounded-lg bg-surface"
+      class="post-content rounded-lg bg-surface h-full w-full"
     >
       <div class="p-12">
         <i
@@ -183,15 +183,15 @@ function onContextmenu(e: MouseEvent) {
         />
       </div>
     </AspectRatio>
-    <div class="w-full flex flex-col text-center text-xs text-zinc-4">
-      <div class="w-full truncate text-xs">
-        <div class="filename-wrapper inline rounded px-1">
+    <div class="text-zinc-4 text-xs text-center flex flex-col w-full">
+      <div class="text-xs w-full truncate">
+        <div class="filename-wrapper px-1 rounded inline">
           {{ `${post.fileName}.${post.extension}` }}
         </div>
       </div>
       <div
         v-if="post.width && post.height"
-        class="w-full truncate text-11px font-bold font-mono"
+        class="text-11px font-bold font-mono w-full truncate"
       >
         {{ post.width }} x {{ post.height }}
       </div>

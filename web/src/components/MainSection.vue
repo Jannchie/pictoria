@@ -1,15 +1,15 @@
 <script setup lang="ts">
-import type { PostSimplePublic } from '@/api'
 import type LazyWaterfall from './LazyWaterfall.vue'
 import type { Area } from './SelectArea.vue'
-import { v2DeletePosts } from '@/api'
-import { useRotateImageMutation } from '@/composables/mutations/useRotateImageMutation'
-import { useElementOffset } from '@/composables/useElementOffset'
-import { selectedPostIdSet, selectingPostIdSet, unselectedPostIdSet as unselectingPostId, updateScoreForSelectedPosts, useInfinityPostsQuery, waterfallRowCount } from '@/shared'
+import type { PostSimplePublic } from '@/api'
 import { Btn, Menu } from '@roku-ui/vue'
 import { useQueryClient } from '@tanstack/vue-query'
 import { logicAnd } from '@vueuse/math'
 import { useRoute, useRouter } from 'vue-router'
+import { v2DeletePosts } from '@/api'
+import { useRotateImageMutation } from '@/composables/mutations/useRotateImageMutation'
+import { useElementOffset } from '@/composables/useElementOffset'
+import { selectedPostIdSet, selectingPostIdSet, unselectedPostIdSet as unselectingPostId, updateScoreForSelectedPosts, useInfinityPostsQuery, waterfallRowCount } from '@/shared'
 
 const route = useRoute()
 const router = useRouter()
@@ -270,7 +270,7 @@ const mainSectionRef = ref<HTMLElement>()
 <template>
   <ScrollArea
     ref="mainSectionRef"
-    class="relative flex flex-grow basis-0 flex-col"
+    class="flex flex-grow basis-0 flex-col relative"
   >
     <SelectArea
       :target="mainSectionRef"
@@ -280,20 +280,20 @@ const mainSectionRef = ref<HTMLElement>()
     <Menu
       :data="menuData"
       trigger="contextmenu"
-      class="h-full w-full shrink-0 grow-1 basis-0"
+      class="shrink-0 grow-1 basis-0 h-full w-full"
       @select="onMenuSelect"
     >
       <FolderSection />
       <div v-if="infinityPostsQuery.isLoading.value && posts.length === 0">
-        <div class="flex flex-col items-center p-16 op-50">
-          <i class="i-tabler-loader animate-spin text-2xl" />
+        <div class="p-16 op-50 flex flex-col items-center">
+          <i class="i-tabler-loader text-2xl animate-spin" />
           <div class="text-sm">
             Loading posts...
           </div>
         </div>
       </div>
       <div v-else-if="posts.length === 0">
-        <div class="flex flex-col items-center p-16 op-50">
+        <div class="p-16 op-50 flex flex-col items-center">
           <i class="i-tabler-alert-triangle text-2xl" />
           <div class="text-sm">
             No posts found
@@ -323,7 +323,7 @@ const mainSectionRef = ref<HTMLElement>()
       </LazyWaterfall>
       <div
         v-if="posts.length > 0 && infinityPostsQuery.hasNextPage.value"
-        class="flex justify-center p-4"
+        class="p-4 flex justify-center"
       >
         <Btn
           :loading="infinityPostsQuery.isLoading.value"

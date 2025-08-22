@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import type { DirectorySummary } from '@/api'
-import { menuData, postFilter, selectedPostIdSet, showPostDetail } from '@/shared'
 import { ref } from 'vue'
+import { menuData, postFilter, selectedPostIdSet, showPostDetail } from '@/shared'
 
 const props = defineProps<{
   folder: DirectorySummary
@@ -32,7 +32,7 @@ useEventListener(folderItemRef, 'drop', (e: DragEvent) => {
     @contextmenu.prevent.stop="onContextmenu"
   >
     <div
-      class="flex flex-shrink-0 items-center gap-0.5"
+      class="flex flex-shrink-0 gap-0.5 items-center"
       :class="{
         'border-l border-surface': depth !== 0,
       }"

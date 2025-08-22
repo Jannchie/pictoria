@@ -1,12 +1,13 @@
 <script setup lang="ts">
 import type { PostDetailPublic } from '@/api'
 
-import { selectedPostIdSet, showPostDetail } from '@/shared'
 import { computed } from 'vue'
+import { selectedPostIdSet, showPostDetail } from '@/shared'
 
 function isPost(datum: any): datum is PostDetailPublic {
   return 'filePath' in datum
 }
+// eslint-disable-next-line vue/return-in-computed-property
 const id = computed<number | undefined>(() => {
   const selected = selectedPostIdSet.value.values().next().value
   if (selected) {
