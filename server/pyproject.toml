@@ -17,7 +17,6 @@ dependencies = [
     "torchvision>=0.20.1",
     "sqlalchemy>=2.0.38",
     "transformers>=4.46.3",
-    "image-gen-aux",
     "pillow-avif-plugin>=1.4.6",
     "datasets>=3.1.0",
     "python-dotenv>=1.0.1",
@@ -47,10 +46,9 @@ explicit = true
 [tool.uv.sources]
 torch = { index = "pytorch" }
 torchvision = { index = "pytorch" }
-image-gen-aux = { git = "https://github.com/asomoza/image_gen_aux.git" }
 
 [dependency-groups]
-dev = ["ipykernel>=6.29.5", "matplotlib>=3.9.3"]
+dev = ["ipykernel>=6.29.5", "matplotlib>=3.9.3", "ruff>=0.12.10"]
 
 [tool.pyright]
 enabled = true

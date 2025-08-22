@@ -1,7 +1,7 @@
 <script setup lang="ts">
-import type { DirectorySummary } from '@/api'
 import type { TreeListItemData } from './roku/TreeList.vue'
-import { Btn, primaryColor, RokuProvider } from '@roku-ui/vue'
+import type { DirectorySummary } from '@/api'
+import { Btn, RokuProvider } from '@roku-ui/vue'
 import { Pane, Splitpanes } from 'splitpanes'
 import { RouterLink, useRoute } from 'vue-router'
 import { useWatchRoute } from './composables'
@@ -12,8 +12,6 @@ import 'splitpanes/dist/splitpanes.css'
 useWatchRoute()
 
 const currentFolder = useCurrentFolder()
-
-primaryColor.value = '#A7A'
 
 const foldersQuery = useFoldersQuery()
 function convertPathToTree(path: DirectorySummary): TreeListItemData[] {
@@ -82,11 +80,19 @@ const folderStr = computed(() => {
 
 <template>
   <!-- <ToastSystem /> -->
-  <RokuProvider>
+  <RokuProvider
+    :theme-obj="{ colors: {
+      primary: '#9a76c2',
+      secondary: '#5999A6',
+      tertiary: '#F76C22',
+      error: '#F95858',
+      surface: '#121212',
+    } }"
+  >
     <DropOverlay />
-    <div class="h-100vh w-100vw flex flex-col select-none overflow-hidden">
+    <div class="flex flex-col h-100vh w-100vw select-none overflow-hidden">
       <FloatWindow v-model="showMenu">
-        <div class="overflow-hidden rounded-lg bg-surface-base text-sm">
+        <div class="text-sm rounded-lg bg-surface-base overflow-hidden">
           <ListItem
             title="New Folder"
             icon="i-tabler-folder-plus"
@@ -104,13 +110,13 @@ const folderStr = computed(() => {
           :min-size="8"
           :size="12"
           :max-size="36"
-          class="min-w-64 flex flex-col border-r border-surface p-2"
+          class="p-2 border-r border-surface flex flex-col min-w-64"
         >
-          <div class="h-36px flex shrink-0 items-center justify-center text-xl font-black">
+          <div class="text-xl font-black flex shrink-0 h-36px items-center justify-center">
             Pictoria
           </div>
           <SpecialPathList />
-          <ScrollArea class="flex-grow py-2">
+          <ScrollArea class="py-2 flex-grow">
             <TreeList
               :model-value="currentFolder"
               :items="folderTree"
@@ -118,7 +124,7 @@ const folderStr = computed(() => {
               <template #collapse="{ data, level }">
                 <RouterLink
                   :to="`/dir/${data.value}`"
-                  class="relative h-8 w-full flex cursor-pointer items-center gap-2 rounded-full focus-visible:bg-surface-variant-1 py-1 pr-1 focus-visible:outline-none"
+                  class="py-1 pr-1 rounded-full flex gap-2 h-8 w-full cursor-pointer items-center relative focus-visible:outline-none focus-visible:bg-surface-variant-1"
                   :class="[{
                     'hover:bg-surface-variant-1 hover:text-surface text-surface-dimmed': folderStr !== data.value,
                     'text-primary bg-surface-variant-2': folderStr === data.value,
@@ -129,14 +135,14 @@ const folderStr = computed(() => {
                   @click="data.open = true"
                 >
                   <i
-                    class="i-tabler-chevron-down absolute left-2 h-4 w-4 py-1 transition-transform"
+                    class="i-tabler-chevron-down py-1 h-4 w-4 transition-transform left-2 absolute"
                     :class="[
                       data.open ? 'rotate-0' : '-rotate-90',
                     ]"
                   />
                   <i
                     v-if="data.icon"
-                    class="h-4 w-4 py-1"
+                    class="py-1 h-4 w-4"
                     :class="[
                       data.icon,
                     ]"
@@ -148,7 +154,7 @@ const folderStr = computed(() => {
               </template>
               <template #link="{ data, level }">
                 <RouterLink
-                  class="hover-source relative h-8 w-full flex flex cursor-pointer items-center gap-2 rounded-full focus-visible:bg-surface-variant-1 py-1 pr-1 focus-visible:outline-none"
+                  class="hover-source py-1 pr-1 rounded-full flex flex gap-2 h-8 w-full cursor-pointer items-center relative focus-visible:outline-none focus-visible:bg-surface-variant-1"
                   :class="[
                     {
                       'hover:bg-surface-variant-1 hover:text-surface text-surface-dimmed': folderStr !== data.value,
@@ -165,7 +171,7 @@ const folderStr = computed(() => {
                     {{ data.title }}
                   </span>
 
-                  <span class="mx-2 text-xs">
+                  <span class="text-xs mx-2">
                     {{ numberFormater.format(folderPath2Count[data.value] ?? 0) }}
                   </span>
 
@@ -200,7 +206,7 @@ const folderStr = computed(() => {
           :min-size="12"
           :size="12"
           :max-size="36"
-          class="min-w-64 border-l border-surface p-1"
+          class="p-1 border-l border-surface min-w-64"
         >
           <RightPanel />
         </Pane>

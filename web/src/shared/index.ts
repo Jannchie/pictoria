@@ -1,10 +1,10 @@
 import type { PostSimplePublic } from '@/api'
-import { v2BulkUpdatePostRating, v2BulkUpdatePostScore, v2GetFolders, v2SearchPosts } from '@/api'
 import { useInfiniteQuery, useQuery } from '@tanstack/vue-query'
-import { useStorage } from '@vueuse/core'
+import { useDebounce, useLocalStorage, useStorage } from '@vueuse/core'
 import { converter, parse } from 'culori'
 import { computed, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
+import { v2BulkUpdatePostRating, v2BulkUpdatePostScore, v2GetFolders, v2SearchPosts } from '@/api'
 
 export const baseURL = 'http://localhost:4777'
 
@@ -103,41 +103,53 @@ const toLab = converter('lab')
 export function useInfinityPostsQuery() {
   const limit = 1000
   const route = useRoute()
+
   const isRandomPage = computed(() => route.path === '/random')
+
   const order = computed<'asc' | 'desc' | 'random'>(() => {
     return isRandomPage.value ? 'random' : postSortOrder.value as 'asc' | 'desc'
   })
-  const body = computed<PostFilter>(() => {
+
+  const requestBody = computed(() => {
+    const base = {
+      ...postFilter.value,
+      order_by: postSort.value,
+      order: order.value,
+    }
+
     if (postSortColorDebounce.value) {
       const color = parse(postSortColorDebounce.value)
       const lab = toLab(color)
-      if (lab === undefined) {
-        return { ...postFilter.value, order_by: postSort.value, order: order.value }
+      if (
+        lab
+        && typeof lab.l === 'number'
+        && typeof lab.a === 'number'
+        && typeof lab.b === 'number'
+      ) {
+        return { ...base, lab: [lab.l, lab.a, lab.b] as [number, number, number] }
       }
-      return { ...postFilter.value, lab: [lab.l, lab.a, lab.b] }
     }
-    return { ...postFilter.value, order_by: postSort.value, order: order.value }
+
+    return base
   })
+
   return useInfiniteQuery({
-    queryKey: ['posts', body],
-    queryFn: async ({ pageParam: pageParameter = 0 }) => {
+    queryKey: ['posts', requestBody],
+    queryFn: async ({ pageParam = 0 }) => {
       const resp = await v2SearchPosts({
-        body: body.value,
-        query: {
-          offset: pageParameter,
-          limit,
-        },
+        body: requestBody.value,
+        query: { offset: pageParam, limit },
       })
       return resp.data
     },
+    enabled: computed(() => !!route.params.folder),
     initialPageParam: 0,
     staleTime: 1000 * 60 * 60,
     getNextPageParam: (lastPage, allPages) => {
-      if (lastPage && lastPage.length < limit) {
+      if (!lastPage || lastPage.length < limit) {
         return
       }
-      const allPosts = allPages.flat()
-      return allPosts.length
+      return allPages.flat().length
     },
   })
 }

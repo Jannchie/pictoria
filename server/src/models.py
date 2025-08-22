@@ -57,6 +57,9 @@ class Tag(BaseWithTime):
 
 class PostHasColor(Base):
     __tablename__ = "post_has_color"
+    __table_args__ = (
+        Index("idx_post_has_color_post_id", "post_id"),
+    )
 
     post_id: Mapped[int] = mapped_column(ForeignKey("posts.id", ondelete="CASCADE"), primary_key=True)
     order: Mapped[int] = mapped_column(Integer, primary_key=True)
@@ -79,7 +82,24 @@ class PostWaifuScore(Base):
 
 class Post(BaseWithTime):
     __tablename__ = "posts"
-    __table_args__ = (Index("idx_file_path_name_extension", "file_path", "file_name", "extension", unique=True),)
+    __table_args__ = (
+        # 唯一索引
+        Index("idx_file_path_name_extension", "file_path", "file_name", "extension", unique=True),
+        
+        # 优化 LIKE 前缀查询的索引
+        Index("idx_posts_file_path_pattern", "file_path", postgresql_ops={"file_path": "text_pattern_ops"}),
+        
+        # 复合索引：优化 WHERE file_path LIKE ... GROUP BY 查询
+        Index("idx_posts_file_path_score", "file_path", "score"),
+        Index("idx_posts_file_path_rating", "file_path", "rating"),
+        Index("idx_posts_file_path_extension", "file_path", "extension"),
+        
+        # 复合索引：优化排序查询
+        Index("idx_posts_file_path_created_at", "file_path", "created_at"),
+        
+        # 优化单独的 ORDER BY created_at DESC 查询
+        Index("idx_posts_created_at_desc", "created_at", postgresql_using="btree", postgresql_ops={"created_at": "DESC"}),
+    )
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True, nullable=False, init=False)
     file_path: Mapped[str] = mapped_column(String, index=True, default="")
@@ -167,6 +187,10 @@ class Post(BaseWithTime):
 
 class PostHasTag(Base):
     __tablename__ = "post_has_tag"
+    __table_args__ = (
+        Index("idx_post_has_tag_post_id", "post_id"),
+        Index("idx_post_has_tag_tag_name", "tag_name"),
+    )
 
     post_id: Mapped[int] = mapped_column(ForeignKey("posts.id", ondelete="CASCADE"), primary_key=True)
     tag_name: Mapped[str] = mapped_column(ForeignKey("tags.name", ondelete="CASCADE", onupdate="CASCADE"), primary_key=True)
