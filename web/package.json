@@ -9,10 +9,9 @@
     "preview": "vite preview",
     "test": "vitest",
     "lint": "eslint . --fix",
-    "genapi": "openapi-ts --input http://127.0.0.1:4777/schema/openapi.json -c @hey-api/client-axios --output src/api && eslint src/api --fix"
+    "genapi": "openapi-ts --input http://127.0.0.1:4777/schema/openapi.json -c @hey-api/client-axios --output src/api"
   },
   "dependencies": {
-    "@hey-api/client-fetch": "^0.13.1",
     "@roku-ui/vue": "^0.28.0",
     "@tanstack/vue-query": "^5.85.5",
     "@vitejs/plugin-vue-jsx": "^5.0.1",
@@ -25,10 +24,9 @@
     "vue-router": "^4.5.1"
   },
   "devDependencies": {
-    "@hey-api/client-axios": "^0.9.1",
-    "@hey-api/openapi-ts": "^0.80.18",
+    "@hey-api/openapi-ts": "^0.81.0",
     "@iconify/json": "^2.2.377",
-    "@jannchie/eslint-config": "^3.7.0",
+    "@jannchie/eslint-config": "^3.7.1",
     "@roku-ui/preset": "^0.28.0",
     "@types/culori": "^4.0.0",
     "@types/node": "^24.3.0",
@@ -37,7 +35,8 @@
     "@unocss/preset-icons": "66.4.2",
     "@unocss/reset": "66.4.2",
     "@vitejs/plugin-vue": "^6.0.1",
-    "eslint": "^9.33.0",
+    "axios": "^1.11.0",
+    "eslint": "^9.34.0",
     "typescript": "^5.9.2",
     "unocss": "66.4.2",
     "unplugin-auto-import": "^20.0.0",
