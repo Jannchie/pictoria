@@ -144,7 +144,7 @@ async def delete_by_file_path_and_ext(session: AsyncSession, path_name_and_ext: 
 
 
 async def add_new_files(
-    session: Session,
+    session: AsyncSession,
     *,
     os_tuples_set: set[tuple[str, str, str]],
     db_tuples_set: set[tuple[str, str, str]],
@@ -160,7 +160,7 @@ async def add_new_files(
 
 @cache
 def get_engine():
-    db_url = os.environ.get("DB_URL")
+    db_url = os.environ.get("DB_URL", "")
     return create_engine(db_url, echo=False, pool_size=100, max_overflow=200)
 
 
@@ -172,7 +172,7 @@ def get_session():
 
 @cache
 def get_async_engine():
-    db_url = os.environ.get("DB_URL")
+    db_url = os.environ.get("DB_URL", "")
     return create_async_engine(db_url, echo=False, pool_size=100, max_overflow=200)
 
 
@@ -213,11 +213,11 @@ def find_files_in_directory(target_dir: Path) -> list[tuple[str, str, str]]:
     return os_tuples
 
 
-def calculate_md5(file: bytes) -> str:
-    # 读取文件的内容并计算 md5 值。
-    md5 = hashlib.sha256()
-    md5.update(file)
-    return md5.hexdigest()
+def calculate_sha256(file: bytes) -> str:
+    # 读取文件的内容并计算 sha256 值。
+    sha256 = hashlib.sha256()
+    sha256.update(file)
+    return sha256.hexdigest()
 
 
 def create_thumbnail(input_image_path: Path, output_image_path: Path, max_width: int = 400):

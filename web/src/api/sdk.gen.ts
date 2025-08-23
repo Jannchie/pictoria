@@ -178,7 +178,7 @@ export const v2ListPosts = <ThrowOnError extends boolean = false>(options?: Opti
 /**
  * RotatePostImage
  * Rotate post image by id.
- * It will rotate the image and update md5, width and height.
+ * It will rotate the image and update SHA256, width and height.
  */
 export const v2RotatePostImage = <ThrowOnError extends boolean = false>(options: Options<V2RotatePostImageData, ThrowOnError>) => {
     return (options.client ?? _heyApiClient).put<V2RotatePostImageResponses, V2RotatePostImageErrors, ThrowOnError>({

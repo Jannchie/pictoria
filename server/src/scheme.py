@@ -72,7 +72,7 @@ class PostPublic(DTOBaseModel):
     rating: int
     description: str
     meta: str
-    md5: str
+    sha256: str
     size: int
     source: str
     caption: str

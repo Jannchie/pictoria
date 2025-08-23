@@ -19,7 +19,7 @@ from utils import (
     add_new_files,
     async_session,
     attach_tags_to_post,
-    calculate_md5,
+    calculate_sha256,
     compute_image_properties,
     find_files_in_directory,
     from_rating_to_int,
@@ -56,13 +56,13 @@ async def _sync_metadata() -> None:
 
 
 async def process_posts(session: AsyncSession, *, all_posts: bool = False):
-    """Process posts in the database. Including calculating MD5 hash, size, and creating thumbnails.
+    """Process posts in the database. Including calculating SHA256 hash, size, and creating thumbnails.
 
     Args:
-        all (bool, optional): Process all posts or only those without an MD5 hash. Defaults to False.
+        all (bool, optional): Process all posts or only those without an SHA256 hash. Defaults to False.
     """
     target_dir = shared.target_dir
-    posts = (await session.scalars(select(Post))).all() if all_posts else (await session.scalars(select(Post).where(Post.md5 == ""))).all()
+    posts = (await session.scalars(select(Post))).all() if all_posts else (await session.scalars(select(Post).where(Post.sha256 == ""))).all()
     with Progress(console=shared.console) as progress:
         if not posts:
             logger.info("No posts to process")
@@ -82,7 +82,7 @@ async def process_post(session: AsyncSession, file_abs_path: Path | None = None)
     if post is None:
         logger.info(f"Post not found in database: {file_abs_path}")
         return
-    if post.md5:
+    if post.sha256:
         logger.info(f"Skipping post: {file_abs_path}")
         return
     file_data = None
@@ -117,7 +117,7 @@ async def process_post(session: AsyncSession, file_abs_path: Path | None = None)
         return
 
     if file_data:
-        post.md5 = calculate_md5(file_data)
+        post.sha256 = calculate_sha256(file_data)
         post.size = file_abs_path.stat().st_size
     session.add(post)
 

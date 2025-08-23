@@ -63,7 +63,7 @@ export type PostDetailPublic = {
     rating: number;
     description: string;
     meta: string;
-    md5: string;
+    sha256: string;
     size: number;
     source: string;
     caption: string;
@@ -174,7 +174,7 @@ export type PostSimplePublic = {
     aspectRatio?: number | null;
     dominantColor?: Array<number> | null;
     colors: Array<PostHasColorPublic>;
-    md5: string;
+    sha256: string;
 };
 
 /**

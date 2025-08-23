@@ -145,7 +145,7 @@ class PostSimplePublic(DTOBaseModel):
     aspect_ratio: float | None = None
     dominant_color: list[float] | None = None
     colors: list[PostHasColorPublic]
-    md5: str
+    sha256: str
 
 
 class PostController(Controller):
@@ -163,7 +163,7 @@ class PostController(Controller):
             Post.height,
             Post.aspect_ratio,
             Post.dominant_color,
-            Post.md5,
+            Post.sha256,
         ),
     )
 
@@ -324,7 +324,7 @@ class PostController(Controller):
     async def rotate_post_image(self, session: AsyncSession, post_id: int, *, clockwise: bool = True) -> PostDetailPublic:
         """
         Rotate post image by id.
-        It will rotate the image and update md5, width and height.
+        It will rotate the image and update SHA256, width and height.
         """
         post = await session.get(Post, post_id)
         if post is None:

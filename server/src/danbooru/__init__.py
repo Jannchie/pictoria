@@ -24,7 +24,7 @@ class MediaAsset(BaseModel):
     id: int
     created_at: datetime
     updated_at: datetime
-    md5: str | None = None
+    sha256: str | None = None
     file_ext: str
     file_size: int
     image_width: int
@@ -43,7 +43,7 @@ class DanbooruPost(BaseModel):
     uploader_id: int
     score: int
     source: str | None = None
-    md5: str | None = None
+    sha256: str | None = None
     last_comment_bumped_at: datetime | None = None
     rating: str
     image_width: int
