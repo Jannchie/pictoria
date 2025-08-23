@@ -3,1427 +3,1427 @@
 /**
  * CountPostsResponse
  */
-export type CountPostsResponse = {
-    count: number;
-};
+export interface CountPostsResponse {
+  count: number
+}
 
 /**
  * CursorResponse
  */
-export type CursorResponse = {
-    items: Array<{
-        [key: string]: unknown;
-    }>;
-    nextCursor?: number | null;
-};
+export interface CursorResponse {
+  items: Array<{
+    [key: string]: unknown
+  }>
+  nextCursor?: number | null
+}
 
 /**
  * DirectorySummary
  */
-export type DirectorySummary = {
-    name: string;
-    path: string;
-    file_count: number;
-    children?: Array<DirectorySummary> | null;
-};
+export interface DirectorySummary {
+  name: string
+  path: string
+  file_count: number
+  children?: Array<DirectorySummary> | null
+}
 
 /**
  * ExtensionCountItem
  */
-export type ExtensionCountItem = {
-    extension: string;
-    count: number;
-};
+export interface ExtensionCountItem {
+  extension: string
+  count: number
+}
 
 /**
  * UploadFormData
  */
-export type PostControllerUploadFormData = {
-    url?: string | null;
-    path?: string | null;
-    source?: string | null;
-    file: Blob | File;
-};
+export interface PostControllerUploadFormData {
+  url?: string | null
+  path?: string | null
+  source?: string | null
+  file: Blob | File
+}
 
 /**
  * PostDetailPublic
  */
-export type PostDetailPublic = {
-    id: number;
-    filePath: string;
-    fileName: string;
-    extension: string;
-    fullPath: string;
-    width?: number | null;
-    height?: number | null;
-    aspectRatio?: number | null;
-    updatedAt: string;
-    createdAt: string;
-    score: number;
-    rating: number;
-    description: string;
-    meta: string;
-    sha256: string;
-    size: number;
-    source: string;
-    caption: string;
-    colors: Array<PostHasColorPublic>;
-    publishedAt?: string | null;
-    dominantColor?: Array<number> | null;
-    waifuScore?: WaifuScorePublic | null;
-    tags: Array<PostHasTagPublic>;
-};
+export interface PostDetailPublic {
+  id: number
+  filePath: string
+  fileName: string
+  extension: string
+  fullPath: string
+  width?: number | null
+  height?: number | null
+  aspectRatio?: number | null
+  updatedAt: string
+  createdAt: string
+  score: number
+  rating: number
+  description: string
+  meta: string
+  sha256: string
+  size: number
+  source: string
+  caption: string
+  colors: Array<PostHasColorPublic>
+  publishedAt?: string | null
+  dominantColor?: Array<number> | null
+  waifuScore?: WaifuScorePublic | null
+  tags: Array<PostHasTagPublic>
+}
 
 /**
  * PostFilter
  */
-export type PostFilter = {
-    /**
-     * Rating to filter by.
-     */
-    rating?: Array<number> | null;
-    /**
-     * Score to filter by.
-     */
-    score?: Array<number> | null;
-    /**
-     * Tags to filter by.
-     */
-    tags?: Array<string> | null;
-    /**
-     * File extensions to filter by.
-     */
-    extension?: Array<string> | null;
-    folder?: string | null;
-    /**
-     * Lab color space values for filtering.
-     */
-    lab?: [
-        number,
-        number,
-        number
-    ] | null;
-};
+export interface PostFilter {
+  /**
+   * Rating to filter by.
+   */
+  rating?: Array<number> | null
+  /**
+   * Score to filter by.
+   */
+  score?: Array<number> | null
+  /**
+   * Tags to filter by.
+   */
+  tags?: Array<string> | null
+  /**
+   * File extensions to filter by.
+   */
+  extension?: Array<string> | null
+  folder?: string | null
+  /**
+   * Lab color space values for filtering.
+   */
+  lab?: [
+    number,
+    number,
+    number,
+  ] | null
+}
 
 /**
  * PostFilterWithOrder
  */
-export type PostFilterWithOrder = {
-    /**
-     * Rating to filter by.
-     */
-    rating?: Array<number> | null;
-    /**
-     * Score to filter by.
-     */
-    score?: Array<number> | null;
-    /**
-     * Tags to filter by.
-     */
-    tags?: Array<string> | null;
-    /**
-     * File extensions to filter by.
-     */
-    extension?: Array<string> | null;
-    folder?: string | null;
-    /**
-     * Lab color space values for filtering.
-     */
-    lab?: [
-        number,
-        number,
-        number
-    ] | null;
-    /**
-     * Field to order by.
-     */
-    order_by?: 'id' | 'score' | 'rating' | 'created_at' | 'published_at' | 'file_name' | null;
-    /**
-     * Order direction.
-     */
-    order?: 'asc' | 'desc' | 'random';
-};
+export interface PostFilterWithOrder {
+  /**
+   * Rating to filter by.
+   */
+  rating?: Array<number> | null
+  /**
+   * Score to filter by.
+   */
+  score?: Array<number> | null
+  /**
+   * Tags to filter by.
+   */
+  tags?: Array<string> | null
+  /**
+   * File extensions to filter by.
+   */
+  extension?: Array<string> | null
+  folder?: string | null
+  /**
+   * Lab color space values for filtering.
+   */
+  lab?: [
+    number,
+    number,
+    number,
+  ] | null
+  /**
+   * Field to order by.
+   */
+  order_by?: 'id' | 'score' | 'rating' | 'created_at' | 'published_at' | 'file_name' | null
+  /**
+   * Order direction.
+   */
+  order?: 'asc' | 'desc' | 'random'
+}
 
 /**
  * PostHasColorPublic
  */
-export type PostHasColorPublic = {
-    order: number;
-    color: number;
-};
+export interface PostHasColorPublic {
+  order: number
+  color: number
+}
 
 /**
  * PostHasTagPublic
  */
-export type PostHasTagPublic = {
-    isAuto: boolean;
-    tagInfo: TagWithGroupPublic;
-};
+export interface PostHasTagPublic {
+  isAuto: boolean
+  tagInfo: TagWithGroupPublic
+}
 
 /**
  * PostSimplePublic
  */
-export type PostSimplePublic = {
-    id: number;
-    filePath: string;
-    fileName: string;
-    extension: string;
-    rating: number;
-    width: number;
-    height: number;
-    aspectRatio?: number | null;
-    dominantColor?: Array<number> | null;
-    colors: Array<PostHasColorPublic>;
-    sha256: string;
-};
+export interface PostSimplePublic {
+  id: number
+  filePath: string
+  fileName: string
+  extension: string
+  rating: number
+  width: number
+  height: number
+  aspectRatio?: number | null
+  dominantColor?: Array<number> | null
+  colors: Array<PostHasColorPublic>
+  sha256: string
+}
 
 /**
  * RatingCountItem
  */
-export type RatingCountItem = {
-    rating: number;
-    count: number;
-};
+export interface RatingCountItem {
+  rating: number
+  count: number
+}
 
 /**
  * Result
  */
-export type Result = {
-    msg: string;
-};
+export interface Result {
+  msg: string
+}
 
 /**
  * ScoreCountItem
  */
-export type ScoreCountItem = {
-    score: number;
-    count: number;
-};
+export interface ScoreCountItem {
+  score: number
+  count: number
+}
 
 /**
  * ScoreUpdate
  */
-export type ScoreUpdate = {
-    /**
-     * Score from 0 to 5.
-     */
-    score: number;
-};
+export interface ScoreUpdate {
+  /**
+   * Score from 0 to 5.
+   */
+  score: number
+}
 
 /**
  * TagBatchDelete
  */
-export type TagBatchDelete = {
-    name_list: Array<string>;
-};
+export interface TagBatchDelete {
+  name_list: Array<string>
+}
 
 /**
  * TagCreate
  */
-export type TagCreate = {
-    name: string;
-    group_id?: number | null;
-};
+export interface TagCreate {
+  name: string
+  group_id?: number | null
+}
 
 /**
  * TagGroupPublic
  */
-export type TagGroupPublic = {
-    id: number;
-    name: string;
-    color: string;
-};
+export interface TagGroupPublic {
+  id: number
+  name: string
+  color: string
+}
 
 /**
  * TagPublic
  */
-export type TagPublic = {
-    name: string;
-    group?: TagGroupPublic | null;
-};
+export interface TagPublic {
+  name: string
+  group?: TagGroupPublic | null
+}
 
 /**
  * TagUpdate
  */
-export type TagUpdate = {
-    group_id?: number | null;
-};
+export interface TagUpdate {
+  group_id?: number | null
+}
 
 /**
  * TagWithCountPublic
  */
-export type TagWithCountPublic = {
-    name: string;
-    group?: TagGroupPublic | null;
-    count: number;
-};
+export interface TagWithCountPublic {
+  name: string
+  group?: TagGroupPublic | null
+  count: number
+}
 
 /**
  * TagWithGroupPublic
  */
-export type TagWithGroupPublic = {
-    group?: TagGroupPublic | null;
-    name: string;
-    updatedAt: string;
-    createdAt: string;
-};
+export interface TagWithGroupPublic {
+  group?: TagGroupPublic | null
+  name: string
+  updatedAt: string
+  createdAt: string
+}
 
 /**
  * WaifuScorePublic
  */
-export type WaifuScorePublic = {
-    score: number;
-};
+export interface WaifuScorePublic {
+  score: number
+}
 
 /**
  * WaifuScoreResult
  */
-export type WaifuScoreResult = {
-    bucket: string;
-    count: number;
-};
-
-export type V2RemoveTagFromPostData = {
-    body?: never;
-    path: {
-        post_id: number;
-        tag_name: string;
-    };
-    query?: never;
-    url: '/v2/posts/{post_id}/tags/{tag_name}';
-};
-
-export type V2RemoveTagFromPostErrors = {
-    /**
-     * Validation Exception
-     */
-    400: {
-        status_code: number;
-        detail: string;
-        extra?: null | {
-            [key: string]: unknown;
-        } | Array<unknown>;
-    };
-};
-
-export type V2RemoveTagFromPostError = V2RemoveTagFromPostErrors[keyof V2RemoveTagFromPostErrors];
-
-export type V2RemoveTagFromPostResponses = {
-    /**
-     * Request fulfilled, document follows
-     */
-    200: PostDetailPublic;
-};
-
-export type V2RemoveTagFromPostResponse = V2RemoveTagFromPostResponses[keyof V2RemoveTagFromPostResponses];
-
-export type V2AddTagToPostData = {
-    body?: never;
-    path: {
-        post_id: number;
-        tag_name: string;
-    };
-    query?: never;
-    url: '/v2/posts/{post_id}/tags/{tag_name}';
-};
-
-export type V2AddTagToPostErrors = {
-    /**
-     * Validation Exception
-     */
-    400: {
-        status_code: number;
-        detail: string;
-        extra?: null | {
-            [key: string]: unknown;
-        } | Array<unknown>;
-    };
-};
-
-export type V2AddTagToPostError = V2AddTagToPostErrors[keyof V2AddTagToPostErrors];
-
-export type V2AddTagToPostResponses = {
-    /**
-     * Request fulfilled, document follows
-     */
-    200: PostDetailPublic;
-};
-
-export type V2AddTagToPostResponse = V2AddTagToPostResponses[keyof V2AddTagToPostResponses];
-
-export type V2BulkUpdatePostRatingData = {
-    body?: never;
-    path?: never;
-    query: {
-        ids: Array<number>;
-        rating: number;
-    };
-    url: '/v2/posts/bulk/rating';
-};
-
-export type V2BulkUpdatePostRatingErrors = {
-    /**
-     * Validation Exception
-     */
-    400: {
-        status_code: number;
-        detail: string;
-        extra?: null | {
-            [key: string]: unknown;
-        } | Array<unknown>;
-    };
-};
-
-export type V2BulkUpdatePostRatingError = V2BulkUpdatePostRatingErrors[keyof V2BulkUpdatePostRatingErrors];
-
-export type V2BulkUpdatePostRatingResponses = {
-    /**
-     * Request fulfilled, document follows
-     */
-    200: unknown;
-};
-
-export type V2BulkUpdatePostScoreData = {
-    body?: never;
-    path?: never;
-    query: {
-        ids: Array<number>;
-        score: number;
-    };
-    url: '/v2/posts/bulk/score';
-};
-
-export type V2BulkUpdatePostScoreErrors = {
-    /**
-     * Validation Exception
-     */
-    400: {
-        status_code: number;
-        detail: string;
-        extra?: null | {
-            [key: string]: unknown;
-        } | Array<unknown>;
-    };
-};
-
-export type V2BulkUpdatePostScoreError = V2BulkUpdatePostScoreErrors[keyof V2BulkUpdatePostScoreErrors];
-
-export type V2BulkUpdatePostScoreResponses = {
-    /**
-     * Request fulfilled, document follows
-     */
-    200: unknown;
-};
-
-export type V2DeletePostsData = {
-    body?: never;
-    path?: never;
-    query: {
-        ids: Array<number>;
-    };
-    url: '/v2/posts/delete';
-};
-
-export type V2DeletePostsErrors = {
-    /**
-     * Validation Exception
-     */
-    400: {
-        status_code: number;
-        detail: string;
-        extra?: null | {
-            [key: string]: unknown;
-        } | Array<unknown>;
-    };
-};
-
-export type V2DeletePostsError = V2DeletePostsErrors[keyof V2DeletePostsErrors];
-
-export type V2DeletePostsResponses = {
-    /**
-     * Request fulfilled, nothing follows
-     */
-    204: void;
-};
-
-export type V2DeletePostsResponse = V2DeletePostsResponses[keyof V2DeletePostsResponses];
-
-export type V2GetExtensionCountData = {
-    body: PostFilter;
-    path?: never;
-    query?: never;
-    url: '/v2/posts/count/extension';
-};
-
-export type V2GetExtensionCountErrors = {
-    /**
-     * Validation Exception
-     */
-    400: {
-        status_code: number;
-        detail: string;
-        extra?: null | {
-            [key: string]: unknown;
-        } | Array<unknown>;
-    };
-};
-
-export type V2GetExtensionCountError = V2GetExtensionCountErrors[keyof V2GetExtensionCountErrors];
-
-export type V2GetExtensionCountResponses = {
-    /**
-     * Request fulfilled, document follows
-     */
-    200: Array<ExtensionCountItem>;
-};
-
-export type V2GetExtensionCountResponse = V2GetExtensionCountResponses[keyof V2GetExtensionCountResponses];
-
-export type V2GetPostData = {
-    body?: never;
-    path: {
-        post_id: number;
-    };
-    query?: never;
-    url: '/v2/posts/{post_id}';
-};
-
-export type V2GetPostErrors = {
-    /**
-     * Validation Exception
-     */
-    400: {
-        status_code: number;
-        detail: string;
-        extra?: null | {
-            [key: string]: unknown;
-        } | Array<unknown>;
-    };
-};
-
-export type V2GetPostError = V2GetPostErrors[keyof V2GetPostErrors];
-
-export type V2GetPostResponses = {
-    /**
-     * Request fulfilled, document follows
-     */
-    200: PostDetailPublic;
-};
-
-export type V2GetPostResponse = V2GetPostResponses[keyof V2GetPostResponses];
-
-export type V2GetPostsCountData = {
-    body: PostFilter;
-    path?: never;
-    query?: never;
-    url: '/v2/posts/count';
-};
-
-export type V2GetPostsCountErrors = {
-    /**
-     * Validation Exception
-     */
-    400: {
-        status_code: number;
-        detail: string;
-        extra?: null | {
-            [key: string]: unknown;
-        } | Array<unknown>;
-    };
-};
-
-export type V2GetPostsCountError = V2GetPostsCountErrors[keyof V2GetPostsCountErrors];
-
-export type V2GetPostsCountResponses = {
-    /**
-     * Request fulfilled, document follows
-     */
-    200: CountPostsResponse;
-};
-
-export type V2GetPostsCountResponse = V2GetPostsCountResponses[keyof V2GetPostsCountResponses];
-
-export type V2GetRatingCountData = {
-    body: PostFilter;
-    path?: never;
-    query?: never;
-    url: '/v2/posts/count/rating';
-};
-
-export type V2GetRatingCountErrors = {
-    /**
-     * Validation Exception
-     */
-    400: {
-        status_code: number;
-        detail: string;
-        extra?: null | {
-            [key: string]: unknown;
-        } | Array<unknown>;
-    };
-};
-
-export type V2GetRatingCountError = V2GetRatingCountErrors[keyof V2GetRatingCountErrors];
-
-export type V2GetRatingCountResponses = {
-    /**
-     * Request fulfilled, document follows
-     */
-    200: Array<RatingCountItem>;
-};
-
-export type V2GetRatingCountResponse = V2GetRatingCountResponses[keyof V2GetRatingCountResponses];
-
-export type V2GetScoreCountData = {
-    body: PostFilter;
-    path?: never;
-    query?: never;
-    url: '/v2/posts/count/score';
-};
-
-export type V2GetScoreCountErrors = {
-    /**
-     * Validation Exception
-     */
-    400: {
-        status_code: number;
-        detail: string;
-        extra?: null | {
-            [key: string]: unknown;
-        } | Array<unknown>;
-    };
-};
-
-export type V2GetScoreCountError = V2GetScoreCountErrors[keyof V2GetScoreCountErrors];
-
-export type V2GetScoreCountResponses = {
-    /**
-     * Request fulfilled, document follows
-     */
-    200: Array<ScoreCountItem>;
-};
-
-export type V2GetScoreCountResponse = V2GetScoreCountResponses[keyof V2GetScoreCountResponses];
-
-export type V2GetSimilarPostsData = {
-    body?: never;
-    path: {
-        post_id: number;
-    };
-    query?: {
-        limit?: number;
-    };
-    url: '/v2/posts/{post_id}/similar';
-};
-
-export type V2GetSimilarPostsErrors = {
-    /**
-     * Validation Exception
-     */
-    400: {
-        status_code: number;
-        detail: string;
-        extra?: null | {
-            [key: string]: unknown;
-        } | Array<unknown>;
-    };
-};
-
-export type V2GetSimilarPostsError = V2GetSimilarPostsErrors[keyof V2GetSimilarPostsErrors];
-
-export type V2GetSimilarPostsResponses = {
-    /**
-     * Request fulfilled, document follows
-     */
-    200: Array<PostSimplePublic>;
-};
-
-export type V2GetSimilarPostsResponse = V2GetSimilarPostsResponses[keyof V2GetSimilarPostsResponses];
-
-export type V2ListPostsData = {
-    body?: never;
-    path?: never;
-    query?: {
-        start?: number;
-        limit?: number;
-    };
-    url: '/v2/posts';
-};
-
-export type V2ListPostsErrors = {
-    /**
-     * Validation Exception
-     */
-    400: {
-        status_code: number;
-        detail: string;
-        extra?: null | {
-            [key: string]: unknown;
-        } | Array<unknown>;
-    };
-};
-
-export type V2ListPostsError = V2ListPostsErrors[keyof V2ListPostsErrors];
-
-export type V2ListPostsResponses = {
-    /**
-     * Request fulfilled, document follows
-     */
-    200: CursorResponse;
-};
-
-export type V2ListPostsResponse = V2ListPostsResponses[keyof V2ListPostsResponses];
-
-export type V2RotatePostImageData = {
-    body?: never;
-    path: {
-        post_id: number;
-    };
-    query?: {
-        clockwise?: boolean;
-    };
-    url: '/v2/posts/{post_id}/rotate';
-};
-
-export type V2RotatePostImageErrors = {
-    /**
-     * Validation Exception
-     */
-    400: {
-        status_code: number;
-        detail: string;
-        extra?: null | {
-            [key: string]: unknown;
-        } | Array<unknown>;
-    };
-};
-
-export type V2RotatePostImageError = V2RotatePostImageErrors[keyof V2RotatePostImageErrors];
-
-export type V2RotatePostImageResponses = {
-    /**
-     * Request fulfilled, document follows
-     */
-    200: PostDetailPublic;
-};
-
-export type V2RotatePostImageResponse = V2RotatePostImageResponses[keyof V2RotatePostImageResponses];
-
-export type V2SearchPostsData = {
-    body: PostFilterWithOrder;
-    path?: never;
-    query?: {
-        limit?: number;
-        offset?: number;
-    };
-    url: '/v2/posts/search';
-};
-
-export type V2SearchPostsErrors = {
-    /**
-     * Validation Exception
-     */
-    400: {
-        status_code: number;
-        detail: string;
-        extra?: null | {
-            [key: string]: unknown;
-        } | Array<unknown>;
-    };
-};
-
-export type V2SearchPostsError = V2SearchPostsErrors[keyof V2SearchPostsErrors];
-
-export type V2SearchPostsResponses = {
-    /**
-     * Request fulfilled, document follows
-     */
-    200: Array<PostSimplePublic>;
-};
-
-export type V2SearchPostsResponse = V2SearchPostsResponses[keyof V2SearchPostsResponses];
-
-export type V2UpdatePostCaptionData = {
-    body?: never;
-    path: {
-        post_id: number;
-    };
-    query: {
-        caption: string;
-    };
-    url: '/v2/posts/{post_id}/caption';
-};
-
-export type V2UpdatePostCaptionErrors = {
-    /**
-     * Validation Exception
-     */
-    400: {
-        status_code: number;
-        detail: string;
-        extra?: null | {
-            [key: string]: unknown;
-        } | Array<unknown>;
-    };
-};
-
-export type V2UpdatePostCaptionError = V2UpdatePostCaptionErrors[keyof V2UpdatePostCaptionErrors];
-
-export type V2UpdatePostCaptionResponses = {
-    /**
-     * Request fulfilled, document follows
-     */
-    200: PostDetailPublic;
-};
-
-export type V2UpdatePostCaptionResponse = V2UpdatePostCaptionResponses[keyof V2UpdatePostCaptionResponses];
-
-export type V2UpdatePostRatingData = {
-    body?: never;
-    path: {
-        post_id: number;
-    };
-    query: {
-        rating: number;
-    };
-    url: '/v2/posts/{post_id}/rating';
-};
-
-export type V2UpdatePostRatingErrors = {
-    /**
-     * Validation Exception
-     */
-    400: {
-        status_code: number;
-        detail: string;
-        extra?: null | {
-            [key: string]: unknown;
-        } | Array<unknown>;
-    };
-};
-
-export type V2UpdatePostRatingError = V2UpdatePostRatingErrors[keyof V2UpdatePostRatingErrors];
-
-export type V2UpdatePostRatingResponses = {
-    /**
-     * Request fulfilled, document follows
-     */
-    200: PostDetailPublic;
-};
-
-export type V2UpdatePostRatingResponse = V2UpdatePostRatingResponses[keyof V2UpdatePostRatingResponses];
-
-export type V2UpdatePostScoreData = {
-    body: ScoreUpdate;
-    path: {
-        post_id: number;
-    };
-    query?: never;
-    url: '/v2/posts/{post_id}/score';
-};
-
-export type V2UpdatePostScoreErrors = {
-    /**
-     * Validation Exception
-     */
-    400: {
-        status_code: number;
-        detail: string;
-        extra?: null | {
-            [key: string]: unknown;
-        } | Array<unknown>;
-    };
-};
-
-export type V2UpdatePostScoreError = V2UpdatePostScoreErrors[keyof V2UpdatePostScoreErrors];
-
-export type V2UpdatePostScoreResponses = {
-    /**
-     * Request fulfilled, document follows
-     */
-    200: PostDetailPublic;
-};
-
-export type V2UpdatePostScoreResponse = V2UpdatePostScoreResponses[keyof V2UpdatePostScoreResponses];
-
-export type V2UpdatePostSourceData = {
-    body?: never;
-    path: {
-        post_id: number;
-    };
-    query: {
-        source: string;
-    };
-    url: '/v2/posts/{post_id}/source';
-};
-
-export type V2UpdatePostSourceErrors = {
-    /**
-     * Validation Exception
-     */
-    400: {
-        status_code: number;
-        detail: string;
-        extra?: null | {
-            [key: string]: unknown;
-        } | Array<unknown>;
-    };
-};
-
-export type V2UpdatePostSourceError = V2UpdatePostSourceErrors[keyof V2UpdatePostSourceErrors];
-
-export type V2UpdatePostSourceResponses = {
-    /**
-     * Request fulfilled, document follows
-     */
-    200: PostDetailPublic;
-};
-
-export type V2UpdatePostSourceResponse = V2UpdatePostSourceResponses[keyof V2UpdatePostSourceResponses];
-
-export type V2UploadFileData = {
-    body: PostControllerUploadFormData;
-    path?: never;
-    query?: never;
-    url: '/v2/posts/upload';
-};
-
-export type V2UploadFileErrors = {
-    /**
-     * Validation Exception
-     */
-    400: {
-        status_code: number;
-        detail: string;
-        extra?: null | {
-            [key: string]: unknown;
-        } | Array<unknown>;
-    };
-};
-
-export type V2UploadFileError = V2UploadFileErrors[keyof V2UploadFileErrors];
-
-export type V2UploadFileResponses = {
-    /**
-     * Document created, URL follows
-     */
-    201: unknown;
-};
-
-export type V2AutoCaptionData = {
-    body?: never;
-    path: {
-        post_id: number;
-    };
-    query?: never;
-    url: '/v2/cmd/auto-caption/{post_id}';
-};
-
-export type V2AutoCaptionErrors = {
-    /**
-     * Validation Exception
-     */
-    400: {
-        status_code: number;
-        detail: string;
-        extra?: null | {
-            [key: string]: unknown;
-        } | Array<unknown>;
-    };
-};
-
-export type V2AutoCaptionError = V2AutoCaptionErrors[keyof V2AutoCaptionErrors];
-
-export type V2AutoCaptionResponses = {
-    /**
-     * Request fulfilled, document follows
-     */
-    200: PostDetailPublic;
-};
-
-export type V2AutoCaptionResponse = V2AutoCaptionResponses[keyof V2AutoCaptionResponses];
-
-export type V2AutoTagsData = {
-    body?: never;
-    path: {
-        post_id: number;
-    };
-    query?: never;
-    url: '/v2/cmd/auto-tags/{post_id}';
-};
-
-export type V2AutoTagsErrors = {
-    /**
-     * Validation Exception
-     */
-    400: {
-        status_code: number;
-        detail: string;
-        extra?: null | {
-            [key: string]: unknown;
-        } | Array<unknown>;
-    };
-};
-
-export type V2AutoTagsError = V2AutoTagsErrors[keyof V2AutoTagsErrors];
-
-export type V2AutoTagsResponses = {
-    /**
-     * Request fulfilled, document follows
-     */
-    200: PostDetailPublic;
-};
-
-export type V2AutoTagsResponse = V2AutoTagsResponses[keyof V2AutoTagsResponses];
-
-export type V2AutoTagsAllData = {
-    body?: never;
-    path?: never;
-    query?: never;
-    url: '/v2/cmd/auto-tags';
-};
-
-export type V2AutoTagsAllResponses = {
-    /**
-     * Request fulfilled, document follows
-     */
-    200: unknown;
-};
-
-export type V2AutoWaifuScorerData = {
-    body?: never;
-    path?: never;
-    query?: never;
-    url: '/v2/cmd/waifu-scorer';
-};
-
-export type V2AutoWaifuScorerResponses = {
-    /**
-     * Request fulfilled, document follows
-     */
-    200: unknown;
-};
-
-export type V2CalculateEmbeddingData = {
-    body?: never;
-    path?: never;
-    query?: never;
-    url: '/v2/cmd/posts/embedding';
-};
-
-export type V2CalculateEmbeddingResponses = {
-    /**
-     * Document created, URL follows
-     */
-    201: Result;
-};
-
-export type V2CalculateEmbeddingResponse = V2CalculateEmbeddingResponses[keyof V2CalculateEmbeddingResponses];
-
-export type V2DownloadFromDanbooruData = {
-    body?: never;
-    path?: never;
-    query: {
-        tags: string;
-    };
-    url: '/v2/cmd/download-from-danbooru';
-};
-
-export type V2DownloadFromDanbooruErrors = {
-    /**
-     * Validation Exception
-     */
-    400: {
-        status_code: number;
-        detail: string;
-        extra?: null | {
-            [key: string]: unknown;
-        } | Array<unknown>;
-    };
-};
-
-export type V2DownloadFromDanbooruError = V2DownloadFromDanbooruErrors[keyof V2DownloadFromDanbooruErrors];
-
-export type V2DownloadFromDanbooruResponses = {
-    /**
-     * Document created, URL follows
-     */
-    201: unknown;
-};
-
-export type V2GetWaifuScorerData = {
-    body?: never;
-    path: {
-        post_id: number;
-    };
-    query?: never;
-    url: '/v2/cmd/waifu-scorer/{post_id}';
-};
-
-export type V2GetWaifuScorerErrors = {
-    /**
-     * Validation Exception
-     */
-    400: {
-        status_code: number;
-        detail: string;
-        extra?: null | {
-            [key: string]: unknown;
-        } | Array<unknown>;
-    };
-};
-
-export type V2GetWaifuScorerError = V2GetWaifuScorerErrors[keyof V2GetWaifuScorerErrors];
-
-export type V2GetWaifuScorerResponses = {
-    /**
-     * Request fulfilled, document follows
-     */
-    200: number;
-};
-
-export type V2GetWaifuScorerResponse = V2GetWaifuScorerResponses[keyof V2GetWaifuScorerResponses];
-
-export type V2GetOriginalData = {
-    body?: never;
-    path: {
-        post_path: string;
-    };
-    query?: never;
-    url: '/v2/images/original/{post_path}';
-};
-
-export type V2GetOriginalErrors = {
-    /**
-     * Validation Exception
-     */
-    400: {
-        status_code: number;
-        detail: string;
-        extra?: null | {
-            [key: string]: unknown;
-        } | Array<unknown>;
-    };
-};
-
-export type V2GetOriginalError = V2GetOriginalErrors[keyof V2GetOriginalErrors];
-
-export type V2GetOriginalResponses = {
-    /**
-     * File Download
-     */
-    200: string;
-};
-
-export type V2GetOriginalResponse = V2GetOriginalResponses[keyof V2GetOriginalResponses];
-
-export type V2GetOriginalByIdData = {
-    body?: never;
-    path: {
-        post_id: number;
-    };
-    query?: never;
-    url: '/v2/images/original/id/{post_id}';
-};
-
-export type V2GetOriginalByIdErrors = {
-    /**
-     * Validation Exception
-     */
-    400: {
-        status_code: number;
-        detail: string;
-        extra?: null | {
-            [key: string]: unknown;
-        } | Array<unknown>;
-    };
-};
-
-export type V2GetOriginalByIdError = V2GetOriginalByIdErrors[keyof V2GetOriginalByIdErrors];
-
-export type V2GetOriginalByIdResponses = {
-    /**
-     * Request fulfilled, document follows
-     */
-    200: unknown;
-};
-
-export type V2GetThumbnailData = {
-    body?: never;
-    path: {
-        post_path: string;
-    };
-    query?: never;
-    url: '/v2/images/thumbnails/{post_path}';
-};
-
-export type V2GetThumbnailErrors = {
-    /**
-     * Validation Exception
-     */
-    400: {
-        status_code: number;
-        detail: string;
-        extra?: null | {
-            [key: string]: unknown;
-        } | Array<unknown>;
-    };
-};
-
-export type V2GetThumbnailError = V2GetThumbnailErrors[keyof V2GetThumbnailErrors];
-
-export type V2GetThumbnailResponses = {
-    /**
-     * File Download
-     */
-    200: string;
-};
-
-export type V2GetThumbnailResponse = V2GetThumbnailResponses[keyof V2GetThumbnailResponses];
-
-export type V2GetThumbnailByIdData = {
-    body?: never;
-    path: {
-        post_id: number;
-    };
-    query?: never;
-    url: '/v2/images/thumbnails/id/{post_id}';
-};
-
-export type V2GetThumbnailByIdErrors = {
-    /**
-     * Validation Exception
-     */
-    400: {
-        status_code: number;
-        detail: string;
-        extra?: null | {
-            [key: string]: unknown;
-        } | Array<unknown>;
-    };
-};
-
-export type V2GetThumbnailByIdError = V2GetThumbnailByIdErrors[keyof V2GetThumbnailByIdErrors];
-
-export type V2GetThumbnailByIdResponses = {
-    /**
-     * File Download
-     */
-    200: string;
-};
-
-export type V2GetThumbnailByIdResponse = V2GetThumbnailByIdResponses[keyof V2GetThumbnailByIdResponses];
-
-export type V2DeleteTagsData = {
-    body: TagBatchDelete;
-    path?: never;
-    query?: never;
-    url: '/v2/tags';
-};
-
-export type V2DeleteTagsErrors = {
-    /**
-     * Validation Exception
-     */
-    400: {
-        status_code: number;
-        detail: string;
-        extra?: null | {
-            [key: string]: unknown;
-        } | Array<unknown>;
-    };
-};
-
-export type V2DeleteTagsError = V2DeleteTagsErrors[keyof V2DeleteTagsErrors];
-
-export type V2DeleteTagsResponses = {
-    /**
-     * Request fulfilled, nothing follows
-     */
-    204: void;
-};
-
-export type V2DeleteTagsResponse = V2DeleteTagsResponses[keyof V2DeleteTagsResponses];
-
-export type V2ListTagsData = {
-    body?: never;
-    path?: never;
-    query?: {
-        prev?: string | null;
-        limit?: number | null;
-    };
-    url: '/v2/tags';
-};
-
-export type V2ListTagsErrors = {
-    /**
-     * Validation Exception
-     */
-    400: {
-        status_code: number;
-        detail: string;
-        extra?: null | {
-            [key: string]: unknown;
-        } | Array<unknown>;
-    };
-};
-
-export type V2ListTagsError = V2ListTagsErrors[keyof V2ListTagsErrors];
-
-export type V2ListTagsResponses = {
-    /**
-     * Request fulfilled, document follows
-     */
-    200: Array<TagWithCountPublic>;
-};
-
-export type V2ListTagsResponse = V2ListTagsResponses[keyof V2ListTagsResponses];
-
-export type V2CreateTagData = {
-    body: TagCreate;
-    path?: never;
-    query?: never;
-    url: '/v2/tags';
-};
-
-export type V2CreateTagErrors = {
-    /**
-     * Validation Exception
-     */
-    400: {
-        status_code: number;
-        detail: string;
-        extra?: null | {
-            [key: string]: unknown;
-        } | Array<unknown>;
-    };
-};
-
-export type V2CreateTagError = V2CreateTagErrors[keyof V2CreateTagErrors];
-
-export type V2CreateTagResponses = {
-    /**
-     * Document created, URL follows
-     */
-    201: Result;
-};
-
-export type V2CreateTagResponse = V2CreateTagResponses[keyof V2CreateTagResponses];
-
-export type V2DeleteTagData = {
-    body?: never;
-    path: {
-        name: string;
-    };
-    query?: never;
-    url: '/v2/tags/{name}';
-};
-
-export type V2DeleteTagErrors = {
-    /**
-     * Validation Exception
-     */
-    400: {
-        status_code: number;
-        detail: string;
-        extra?: null | {
-            [key: string]: unknown;
-        } | Array<unknown>;
-    };
-};
-
-export type V2DeleteTagError = V2DeleteTagErrors[keyof V2DeleteTagErrors];
-
-export type V2DeleteTagResponses = {
-    /**
-     * Request fulfilled, nothing follows
-     */
-    204: void;
-};
-
-export type V2DeleteTagResponse = V2DeleteTagResponses[keyof V2DeleteTagResponses];
-
-export type V2UpdateTagData = {
-    body: TagUpdate;
-    path: {
-        name: string;
-    };
-    query?: never;
-    url: '/v2/tags/{name}';
-};
-
-export type V2UpdateTagErrors = {
-    /**
-     * Validation Exception
-     */
-    400: {
-        status_code: number;
-        detail: string;
-        extra?: null | {
-            [key: string]: unknown;
-        } | Array<unknown>;
-    };
-};
-
-export type V2UpdateTagError = V2UpdateTagErrors[keyof V2UpdateTagErrors];
-
-export type V2UpdateTagResponses = {
-    /**
-     * Request fulfilled, document follows
-     */
-    200: TagPublic;
-};
-
-export type V2UpdateTagResponse = V2UpdateTagResponses[keyof V2UpdateTagResponses];
-
-export type V2ListTagGroupData = {
-    body?: never;
-    path?: never;
-    query?: never;
-    url: '/v2/tags/groups';
-};
-
-export type V2ListTagGroupResponses = {
-    /**
-     * Request fulfilled, document follows
-     */
-    200: Array<TagGroupPublic>;
-};
-
-export type V2ListTagGroupResponse = V2ListTagGroupResponses[keyof V2ListTagGroupResponses];
-
-export type V2GetFoldersData = {
-    body?: never;
-    path?: never;
-    query?: never;
-    url: '/v2/folders';
-};
-
-export type V2GetFoldersResponses = {
-    /**
-     * Request fulfilled, document follows
-     */
-    200: DirectorySummary;
-};
-
-export type V2GetFoldersResponse = V2GetFoldersResponses[keyof V2GetFoldersResponses];
-
-export type V2GetWaifuScorerStatisticsData = {
-    body?: never;
-    path?: never;
-    query?: never;
-    url: '/v2/statistics';
-};
-
-export type V2GetWaifuScorerStatisticsResponses = {
-    /**
-     * Request fulfilled, document follows
-     */
-    200: Array<WaifuScoreResult>;
-};
-
-export type V2GetWaifuScorerStatisticsResponse = V2GetWaifuScorerStatisticsResponses[keyof V2GetWaifuScorerStatisticsResponses];
-
-export type ClientOptions = {
-    baseURL: `${string}://${string}` | (string & {});
-};
+export interface WaifuScoreResult {
+  bucket: string
+  count: number
+}
+
+export interface V2RemoveTagFromPostData {
+  body?: never
+  path: {
+    post_id: number
+    tag_name: string
+  }
+  query?: never
+  url: '/v2/posts/{post_id}/tags/{tag_name}'
+}
+
+export interface V2RemoveTagFromPostErrors {
+  /**
+   * Validation Exception
+   */
+  400: {
+    status_code: number
+    detail: string
+    extra?: null | {
+      [key: string]: unknown
+    } | Array<unknown>
+  }
+}
+
+export type V2RemoveTagFromPostError = V2RemoveTagFromPostErrors[keyof V2RemoveTagFromPostErrors]
+
+export interface V2RemoveTagFromPostResponses {
+  /**
+   * Request fulfilled, document follows
+   */
+  200: PostDetailPublic
+}
+
+export type V2RemoveTagFromPostResponse = V2RemoveTagFromPostResponses[keyof V2RemoveTagFromPostResponses]
+
+export interface V2AddTagToPostData {
+  body?: never
+  path: {
+    post_id: number
+    tag_name: string
+  }
+  query?: never
+  url: '/v2/posts/{post_id}/tags/{tag_name}'
+}
+
+export interface V2AddTagToPostErrors {
+  /**
+   * Validation Exception
+   */
+  400: {
+    status_code: number
+    detail: string
+    extra?: null | {
+      [key: string]: unknown
+    } | Array<unknown>
+  }
+}
+
+export type V2AddTagToPostError = V2AddTagToPostErrors[keyof V2AddTagToPostErrors]
+
+export interface V2AddTagToPostResponses {
+  /**
+   * Request fulfilled, document follows
+   */
+  200: PostDetailPublic
+}
+
+export type V2AddTagToPostResponse = V2AddTagToPostResponses[keyof V2AddTagToPostResponses]
+
+export interface V2BulkUpdatePostRatingData {
+  body?: never
+  path?: never
+  query: {
+    ids: Array<number>
+    rating: number
+  }
+  url: '/v2/posts/bulk/rating'
+}
+
+export interface V2BulkUpdatePostRatingErrors {
+  /**
+   * Validation Exception
+   */
+  400: {
+    status_code: number
+    detail: string
+    extra?: null | {
+      [key: string]: unknown
+    } | Array<unknown>
+  }
+}
+
+export type V2BulkUpdatePostRatingError = V2BulkUpdatePostRatingErrors[keyof V2BulkUpdatePostRatingErrors]
+
+export interface V2BulkUpdatePostRatingResponses {
+  /**
+   * Request fulfilled, document follows
+   */
+  200: unknown
+}
+
+export interface V2BulkUpdatePostScoreData {
+  body?: never
+  path?: never
+  query: {
+    ids: Array<number>
+    score: number
+  }
+  url: '/v2/posts/bulk/score'
+}
+
+export interface V2BulkUpdatePostScoreErrors {
+  /**
+   * Validation Exception
+   */
+  400: {
+    status_code: number
+    detail: string
+    extra?: null | {
+      [key: string]: unknown
+    } | Array<unknown>
+  }
+}
+
+export type V2BulkUpdatePostScoreError = V2BulkUpdatePostScoreErrors[keyof V2BulkUpdatePostScoreErrors]
+
+export interface V2BulkUpdatePostScoreResponses {
+  /**
+   * Request fulfilled, document follows
+   */
+  200: unknown
+}
+
+export interface V2DeletePostsData {
+  body?: never
+  path?: never
+  query: {
+    ids: Array<number>
+  }
+  url: '/v2/posts/delete'
+}
+
+export interface V2DeletePostsErrors {
+  /**
+   * Validation Exception
+   */
+  400: {
+    status_code: number
+    detail: string
+    extra?: null | {
+      [key: string]: unknown
+    } | Array<unknown>
+  }
+}
+
+export type V2DeletePostsError = V2DeletePostsErrors[keyof V2DeletePostsErrors]
+
+export interface V2DeletePostsResponses {
+  /**
+   * Request fulfilled, nothing follows
+   */
+  204: void
+}
+
+export type V2DeletePostsResponse = V2DeletePostsResponses[keyof V2DeletePostsResponses]
+
+export interface V2GetExtensionCountData {
+  body: PostFilter
+  path?: never
+  query?: never
+  url: '/v2/posts/count/extension'
+}
+
+export interface V2GetExtensionCountErrors {
+  /**
+   * Validation Exception
+   */
+  400: {
+    status_code: number
+    detail: string
+    extra?: null | {
+      [key: string]: unknown
+    } | Array<unknown>
+  }
+}
+
+export type V2GetExtensionCountError = V2GetExtensionCountErrors[keyof V2GetExtensionCountErrors]
+
+export interface V2GetExtensionCountResponses {
+  /**
+   * Request fulfilled, document follows
+   */
+  200: Array<ExtensionCountItem>
+}
+
+export type V2GetExtensionCountResponse = V2GetExtensionCountResponses[keyof V2GetExtensionCountResponses]
+
+export interface V2GetPostData {
+  body?: never
+  path: {
+    post_id: number
+  }
+  query?: never
+  url: '/v2/posts/{post_id}'
+}
+
+export interface V2GetPostErrors {
+  /**
+   * Validation Exception
+   */
+  400: {
+    status_code: number
+    detail: string
+    extra?: null | {
+      [key: string]: unknown
+    } | Array<unknown>
+  }
+}
+
+export type V2GetPostError = V2GetPostErrors[keyof V2GetPostErrors]
+
+export interface V2GetPostResponses {
+  /**
+   * Request fulfilled, document follows
+   */
+  200: PostDetailPublic
+}
+
+export type V2GetPostResponse = V2GetPostResponses[keyof V2GetPostResponses]
+
+export interface V2GetPostsCountData {
+  body: PostFilter
+  path?: never
+  query?: never
+  url: '/v2/posts/count'
+}
+
+export interface V2GetPostsCountErrors {
+  /**
+   * Validation Exception
+   */
+  400: {
+    status_code: number
+    detail: string
+    extra?: null | {
+      [key: string]: unknown
+    } | Array<unknown>
+  }
+}
+
+export type V2GetPostsCountError = V2GetPostsCountErrors[keyof V2GetPostsCountErrors]
+
+export interface V2GetPostsCountResponses {
+  /**
+   * Request fulfilled, document follows
+   */
+  200: CountPostsResponse
+}
+
+export type V2GetPostsCountResponse = V2GetPostsCountResponses[keyof V2GetPostsCountResponses]
+
+export interface V2GetRatingCountData {
+  body: PostFilter
+  path?: never
+  query?: never
+  url: '/v2/posts/count/rating'
+}
+
+export interface V2GetRatingCountErrors {
+  /**
+   * Validation Exception
+   */
+  400: {
+    status_code: number
+    detail: string
+    extra?: null | {
+      [key: string]: unknown
+    } | Array<unknown>
+  }
+}
+
+export type V2GetRatingCountError = V2GetRatingCountErrors[keyof V2GetRatingCountErrors]
+
+export interface V2GetRatingCountResponses {
+  /**
+   * Request fulfilled, document follows
+   */
+  200: Array<RatingCountItem>
+}
+
+export type V2GetRatingCountResponse = V2GetRatingCountResponses[keyof V2GetRatingCountResponses]
+
+export interface V2GetScoreCountData {
+  body: PostFilter
+  path?: never
+  query?: never
+  url: '/v2/posts/count/score'
+}
+
+export interface V2GetScoreCountErrors {
+  /**
+   * Validation Exception
+   */
+  400: {
+    status_code: number
+    detail: string
+    extra?: null | {
+      [key: string]: unknown
+    } | Array<unknown>
+  }
+}
+
+export type V2GetScoreCountError = V2GetScoreCountErrors[keyof V2GetScoreCountErrors]
+
+export interface V2GetScoreCountResponses {
+  /**
+   * Request fulfilled, document follows
+   */
+  200: Array<ScoreCountItem>
+}
+
+export type V2GetScoreCountResponse = V2GetScoreCountResponses[keyof V2GetScoreCountResponses]
+
+export interface V2GetSimilarPostsData {
+  body?: never
+  path: {
+    post_id: number
+  }
+  query?: {
+    limit?: number
+  }
+  url: '/v2/posts/{post_id}/similar'
+}
+
+export interface V2GetSimilarPostsErrors {
+  /**
+   * Validation Exception
+   */
+  400: {
+    status_code: number
+    detail: string
+    extra?: null | {
+      [key: string]: unknown
+    } | Array<unknown>
+  }
+}
+
+export type V2GetSimilarPostsError = V2GetSimilarPostsErrors[keyof V2GetSimilarPostsErrors]
+
+export interface V2GetSimilarPostsResponses {
+  /**
+   * Request fulfilled, document follows
+   */
+  200: Array<PostSimplePublic>
+}
+
+export type V2GetSimilarPostsResponse = V2GetSimilarPostsResponses[keyof V2GetSimilarPostsResponses]
+
+export interface V2ListPostsData {
+  body?: never
+  path?: never
+  query?: {
+    start?: number
+    limit?: number
+  }
+  url: '/v2/posts'
+}
+
+export interface V2ListPostsErrors {
+  /**
+   * Validation Exception
+   */
+  400: {
+    status_code: number
+    detail: string
+    extra?: null | {
+      [key: string]: unknown
+    } | Array<unknown>
+  }
+}
+
+export type V2ListPostsError = V2ListPostsErrors[keyof V2ListPostsErrors]
+
+export interface V2ListPostsResponses {
+  /**
+   * Request fulfilled, document follows
+   */
+  200: CursorResponse
+}
+
+export type V2ListPostsResponse = V2ListPostsResponses[keyof V2ListPostsResponses]
+
+export interface V2RotatePostImageData {
+  body?: never
+  path: {
+    post_id: number
+  }
+  query?: {
+    clockwise?: boolean
+  }
+  url: '/v2/posts/{post_id}/rotate'
+}
+
+export interface V2RotatePostImageErrors {
+  /**
+   * Validation Exception
+   */
+  400: {
+    status_code: number
+    detail: string
+    extra?: null | {
+      [key: string]: unknown
+    } | Array<unknown>
+  }
+}
+
+export type V2RotatePostImageError = V2RotatePostImageErrors[keyof V2RotatePostImageErrors]
+
+export interface V2RotatePostImageResponses {
+  /**
+   * Request fulfilled, document follows
+   */
+  200: PostDetailPublic
+}
+
+export type V2RotatePostImageResponse = V2RotatePostImageResponses[keyof V2RotatePostImageResponses]
+
+export interface V2SearchPostsData {
+  body: PostFilterWithOrder
+  path?: never
+  query?: {
+    limit?: number
+    offset?: number
+  }
+  url: '/v2/posts/search'
+}
+
+export interface V2SearchPostsErrors {
+  /**
+   * Validation Exception
+   */
+  400: {
+    status_code: number
+    detail: string
+    extra?: null | {
+      [key: string]: unknown
+    } | Array<unknown>
+  }
+}
+
+export type V2SearchPostsError = V2SearchPostsErrors[keyof V2SearchPostsErrors]
+
+export interface V2SearchPostsResponses {
+  /**
+   * Request fulfilled, document follows
+   */
+  200: Array<PostSimplePublic>
+}
+
+export type V2SearchPostsResponse = V2SearchPostsResponses[keyof V2SearchPostsResponses]
+
+export interface V2UpdatePostCaptionData {
+  body?: never
+  path: {
+    post_id: number
+  }
+  query: {
+    caption: string
+  }
+  url: '/v2/posts/{post_id}/caption'
+}
+
+export interface V2UpdatePostCaptionErrors {
+  /**
+   * Validation Exception
+   */
+  400: {
+    status_code: number
+    detail: string
+    extra?: null | {
+      [key: string]: unknown
+    } | Array<unknown>
+  }
+}
+
+export type V2UpdatePostCaptionError = V2UpdatePostCaptionErrors[keyof V2UpdatePostCaptionErrors]
+
+export interface V2UpdatePostCaptionResponses {
+  /**
+   * Request fulfilled, document follows
+   */
+  200: PostDetailPublic
+}
+
+export type V2UpdatePostCaptionResponse = V2UpdatePostCaptionResponses[keyof V2UpdatePostCaptionResponses]
+
+export interface V2UpdatePostRatingData {
+  body?: never
+  path: {
+    post_id: number
+  }
+  query: {
+    rating: number
+  }
+  url: '/v2/posts/{post_id}/rating'
+}
+
+export interface V2UpdatePostRatingErrors {
+  /**
+   * Validation Exception
+   */
+  400: {
+    status_code: number
+    detail: string
+    extra?: null | {
+      [key: string]: unknown
+    } | Array<unknown>
+  }
+}
+
+export type V2UpdatePostRatingError = V2UpdatePostRatingErrors[keyof V2UpdatePostRatingErrors]
+
+export interface V2UpdatePostRatingResponses {
+  /**
+   * Request fulfilled, document follows
+   */
+  200: PostDetailPublic
+}
+
+export type V2UpdatePostRatingResponse = V2UpdatePostRatingResponses[keyof V2UpdatePostRatingResponses]
+
+export interface V2UpdatePostScoreData {
+  body: ScoreUpdate
+  path: {
+    post_id: number
+  }
+  query?: never
+  url: '/v2/posts/{post_id}/score'
+}
+
+export interface V2UpdatePostScoreErrors {
+  /**
+   * Validation Exception
+   */
+  400: {
+    status_code: number
+    detail: string
+    extra?: null | {
+      [key: string]: unknown
+    } | Array<unknown>
+  }
+}
+
+export type V2UpdatePostScoreError = V2UpdatePostScoreErrors[keyof V2UpdatePostScoreErrors]
+
+export interface V2UpdatePostScoreResponses {
+  /**
+   * Request fulfilled, document follows
+   */
+  200: PostDetailPublic
+}
+
+export type V2UpdatePostScoreResponse = V2UpdatePostScoreResponses[keyof V2UpdatePostScoreResponses]
+
+export interface V2UpdatePostSourceData {
+  body?: never
+  path: {
+    post_id: number
+  }
+  query: {
+    source: string
+  }
+  url: '/v2/posts/{post_id}/source'
+}
+
+export interface V2UpdatePostSourceErrors {
+  /**
+   * Validation Exception
+   */
+  400: {
+    status_code: number
+    detail: string
+    extra?: null | {
+      [key: string]: unknown
+    } | Array<unknown>
+  }
+}
+
+export type V2UpdatePostSourceError = V2UpdatePostSourceErrors[keyof V2UpdatePostSourceErrors]
+
+export interface V2UpdatePostSourceResponses {
+  /**
+   * Request fulfilled, document follows
+   */
+  200: PostDetailPublic
+}
+
+export type V2UpdatePostSourceResponse = V2UpdatePostSourceResponses[keyof V2UpdatePostSourceResponses]
+
+export interface V2UploadFileData {
+  body: PostControllerUploadFormData
+  path?: never
+  query?: never
+  url: '/v2/posts/upload'
+}
+
+export interface V2UploadFileErrors {
+  /**
+   * Validation Exception
+   */
+  400: {
+    status_code: number
+    detail: string
+    extra?: null | {
+      [key: string]: unknown
+    } | Array<unknown>
+  }
+}
+
+export type V2UploadFileError = V2UploadFileErrors[keyof V2UploadFileErrors]
+
+export interface V2UploadFileResponses {
+  /**
+   * Document created, URL follows
+   */
+  201: unknown
+}
+
+export interface V2AutoCaptionData {
+  body?: never
+  path: {
+    post_id: number
+  }
+  query?: never
+  url: '/v2/cmd/auto-caption/{post_id}'
+}
+
+export interface V2AutoCaptionErrors {
+  /**
+   * Validation Exception
+   */
+  400: {
+    status_code: number
+    detail: string
+    extra?: null | {
+      [key: string]: unknown
+    } | Array<unknown>
+  }
+}
+
+export type V2AutoCaptionError = V2AutoCaptionErrors[keyof V2AutoCaptionErrors]
+
+export interface V2AutoCaptionResponses {
+  /**
+   * Request fulfilled, document follows
+   */
+  200: PostDetailPublic
+}
+
+export type V2AutoCaptionResponse = V2AutoCaptionResponses[keyof V2AutoCaptionResponses]
+
+export interface V2AutoTagsData {
+  body?: never
+  path: {
+    post_id: number
+  }
+  query?: never
+  url: '/v2/cmd/auto-tags/{post_id}'
+}
+
+export interface V2AutoTagsErrors {
+  /**
+   * Validation Exception
+   */
+  400: {
+    status_code: number
+    detail: string
+    extra?: null | {
+      [key: string]: unknown
+    } | Array<unknown>
+  }
+}
+
+export type V2AutoTagsError = V2AutoTagsErrors[keyof V2AutoTagsErrors]
+
+export interface V2AutoTagsResponses {
+  /**
+   * Request fulfilled, document follows
+   */
+  200: PostDetailPublic
+}
+
+export type V2AutoTagsResponse = V2AutoTagsResponses[keyof V2AutoTagsResponses]
+
+export interface V2AutoTagsAllData {
+  body?: never
+  path?: never
+  query?: never
+  url: '/v2/cmd/auto-tags'
+}
+
+export interface V2AutoTagsAllResponses {
+  /**
+   * Request fulfilled, document follows
+   */
+  200: unknown
+}
+
+export interface V2AutoWaifuScorerData {
+  body?: never
+  path?: never
+  query?: never
+  url: '/v2/cmd/waifu-scorer'
+}
+
+export interface V2AutoWaifuScorerResponses {
+  /**
+   * Request fulfilled, document follows
+   */
+  200: unknown
+}
+
+export interface V2CalculateEmbeddingData {
+  body?: never
+  path?: never
+  query?: never
+  url: '/v2/cmd/posts/embedding'
+}
+
+export interface V2CalculateEmbeddingResponses {
+  /**
+   * Document created, URL follows
+   */
+  201: Result
+}
+
+export type V2CalculateEmbeddingResponse = V2CalculateEmbeddingResponses[keyof V2CalculateEmbeddingResponses]
+
+export interface V2DownloadFromDanbooruData {
+  body?: never
+  path?: never
+  query: {
+    tags: string
+  }
+  url: '/v2/cmd/download-from-danbooru'
+}
+
+export interface V2DownloadFromDanbooruErrors {
+  /**
+   * Validation Exception
+   */
+  400: {
+    status_code: number
+    detail: string
+    extra?: null | {
+      [key: string]: unknown
+    } | Array<unknown>
+  }
+}
+
+export type V2DownloadFromDanbooruError = V2DownloadFromDanbooruErrors[keyof V2DownloadFromDanbooruErrors]
+
+export interface V2DownloadFromDanbooruResponses {
+  /**
+   * Document created, URL follows
+   */
+  201: unknown
+}
+
+export interface V2GetWaifuScorerData {
+  body?: never
+  path: {
+    post_id: number
+  }
+  query?: never
+  url: '/v2/cmd/waifu-scorer/{post_id}'
+}
+
+export interface V2GetWaifuScorerErrors {
+  /**
+   * Validation Exception
+   */
+  400: {
+    status_code: number
+    detail: string
+    extra?: null | {
+      [key: string]: unknown
+    } | Array<unknown>
+  }
+}
+
+export type V2GetWaifuScorerError = V2GetWaifuScorerErrors[keyof V2GetWaifuScorerErrors]
+
+export interface V2GetWaifuScorerResponses {
+  /**
+   * Request fulfilled, document follows
+   */
+  200: number
+}
+
+export type V2GetWaifuScorerResponse = V2GetWaifuScorerResponses[keyof V2GetWaifuScorerResponses]
+
+export interface V2GetOriginalData {
+  body?: never
+  path: {
+    post_path: string
+  }
+  query?: never
+  url: '/v2/images/original/{post_path}'
+}
+
+export interface V2GetOriginalErrors {
+  /**
+   * Validation Exception
+   */
+  400: {
+    status_code: number
+    detail: string
+    extra?: null | {
+      [key: string]: unknown
+    } | Array<unknown>
+  }
+}
+
+export type V2GetOriginalError = V2GetOriginalErrors[keyof V2GetOriginalErrors]
+
+export interface V2GetOriginalResponses {
+  /**
+   * File Download
+   */
+  200: string
+}
+
+export type V2GetOriginalResponse = V2GetOriginalResponses[keyof V2GetOriginalResponses]
+
+export interface V2GetOriginalByIdData {
+  body?: never
+  path: {
+    post_id: number
+  }
+  query?: never
+  url: '/v2/images/original/id/{post_id}'
+}
+
+export interface V2GetOriginalByIdErrors {
+  /**
+   * Validation Exception
+   */
+  400: {
+    status_code: number
+    detail: string
+    extra?: null | {
+      [key: string]: unknown
+    } | Array<unknown>
+  }
+}
+
+export type V2GetOriginalByIdError = V2GetOriginalByIdErrors[keyof V2GetOriginalByIdErrors]
+
+export interface V2GetOriginalByIdResponses {
+  /**
+   * Request fulfilled, document follows
+   */
+  200: unknown
+}
+
+export interface V2GetThumbnailData {
+  body?: never
+  path: {
+    post_path: string
+  }
+  query?: never
+  url: '/v2/images/thumbnails/{post_path}'
+}
+
+export interface V2GetThumbnailErrors {
+  /**
+   * Validation Exception
+   */
+  400: {
+    status_code: number
+    detail: string
+    extra?: null | {
+      [key: string]: unknown
+    } | Array<unknown>
+  }
+}
+
+export type V2GetThumbnailError = V2GetThumbnailErrors[keyof V2GetThumbnailErrors]
+
+export interface V2GetThumbnailResponses {
+  /**
+   * File Download
+   */
+  200: string
+}
+
+export type V2GetThumbnailResponse = V2GetThumbnailResponses[keyof V2GetThumbnailResponses]
+
+export interface V2GetThumbnailByIdData {
+  body?: never
+  path: {
+    post_id: number
+  }
+  query?: never
+  url: '/v2/images/thumbnails/id/{post_id}'
+}
+
+export interface V2GetThumbnailByIdErrors {
+  /**
+   * Validation Exception
+   */
+  400: {
+    status_code: number
+    detail: string
+    extra?: null | {
+      [key: string]: unknown
+    } | Array<unknown>
+  }
+}
+
+export type V2GetThumbnailByIdError = V2GetThumbnailByIdErrors[keyof V2GetThumbnailByIdErrors]
+
+export interface V2GetThumbnailByIdResponses {
+  /**
+   * File Download
+   */
+  200: string
+}
+
+export type V2GetThumbnailByIdResponse = V2GetThumbnailByIdResponses[keyof V2GetThumbnailByIdResponses]
+
+export interface V2DeleteTagsData {
+  body: TagBatchDelete
+  path?: never
+  query?: never
+  url: '/v2/tags'
+}
+
+export interface V2DeleteTagsErrors {
+  /**
+   * Validation Exception
+   */
+  400: {
+    status_code: number
+    detail: string
+    extra?: null | {
+      [key: string]: unknown
+    } | Array<unknown>
+  }
+}
+
+export type V2DeleteTagsError = V2DeleteTagsErrors[keyof V2DeleteTagsErrors]
+
+export interface V2DeleteTagsResponses {
+  /**
+   * Request fulfilled, nothing follows
+   */
+  204: void
+}
+
+export type V2DeleteTagsResponse = V2DeleteTagsResponses[keyof V2DeleteTagsResponses]
+
+export interface V2ListTagsData {
+  body?: never
+  path?: never
+  query?: {
+    prev?: string | null
+    limit?: number | null
+  }
+  url: '/v2/tags'
+}
+
+export interface V2ListTagsErrors {
+  /**
+   * Validation Exception
+   */
+  400: {
+    status_code: number
+    detail: string
+    extra?: null | {
+      [key: string]: unknown
+    } | Array<unknown>
+  }
+}
+
+export type V2ListTagsError = V2ListTagsErrors[keyof V2ListTagsErrors]
+
+export interface V2ListTagsResponses {
+  /**
+   * Request fulfilled, document follows
+   */
+  200: Array<TagWithCountPublic>
+}
+
+export type V2ListTagsResponse = V2ListTagsResponses[keyof V2ListTagsResponses]
+
+export interface V2CreateTagData {
+  body: TagCreate
+  path?: never
+  query?: never
+  url: '/v2/tags'
+}
+
+export interface V2CreateTagErrors {
+  /**
+   * Validation Exception
+   */
+  400: {
+    status_code: number
+    detail: string
+    extra?: null | {
+      [key: string]: unknown
+    } | Array<unknown>
+  }
+}
+
+export type V2CreateTagError = V2CreateTagErrors[keyof V2CreateTagErrors]
+
+export interface V2CreateTagResponses {
+  /**
+   * Document created, URL follows
+   */
+  201: Result
+}
+
+export type V2CreateTagResponse = V2CreateTagResponses[keyof V2CreateTagResponses]
+
+export interface V2DeleteTagData {
+  body?: never
+  path: {
+    name: string
+  }
+  query?: never
+  url: '/v2/tags/{name}'
+}
+
+export interface V2DeleteTagErrors {
+  /**
+   * Validation Exception
+   */
+  400: {
+    status_code: number
+    detail: string
+    extra?: null | {
+      [key: string]: unknown
+    } | Array<unknown>
+  }
+}
+
+export type V2DeleteTagError = V2DeleteTagErrors[keyof V2DeleteTagErrors]
+
+export interface V2DeleteTagResponses {
+  /**
+   * Request fulfilled, nothing follows
+   */
+  204: void
+}
+
+export type V2DeleteTagResponse = V2DeleteTagResponses[keyof V2DeleteTagResponses]
+
+export interface V2UpdateTagData {
+  body: TagUpdate
+  path: {
+    name: string
+  }
+  query?: never
+  url: '/v2/tags/{name}'
+}
+
+export interface V2UpdateTagErrors {
+  /**
+   * Validation Exception
+   */
+  400: {
+    status_code: number
+    detail: string
+    extra?: null | {
+      [key: string]: unknown
+    } | Array<unknown>
+  }
+}
+
+export type V2UpdateTagError = V2UpdateTagErrors[keyof V2UpdateTagErrors]
+
+export interface V2UpdateTagResponses {
+  /**
+   * Request fulfilled, document follows
+   */
+  200: TagPublic
+}
+
+export type V2UpdateTagResponse = V2UpdateTagResponses[keyof V2UpdateTagResponses]
+
+export interface V2ListTagGroupData {
+  body?: never
+  path?: never
+  query?: never
+  url: '/v2/tags/groups'
+}
+
+export interface V2ListTagGroupResponses {
+  /**
+   * Request fulfilled, document follows
+   */
+  200: Array<TagGroupPublic>
+}
+
+export type V2ListTagGroupResponse = V2ListTagGroupResponses[keyof V2ListTagGroupResponses]
+
+export interface V2GetFoldersData {
+  body?: never
+  path?: never
+  query?: never
+  url: '/v2/folders'
+}
+
+export interface V2GetFoldersResponses {
+  /**
+   * Request fulfilled, document follows
+   */
+  200: DirectorySummary
+}
+
+export type V2GetFoldersResponse = V2GetFoldersResponses[keyof V2GetFoldersResponses]
+
+export interface V2GetWaifuScorerStatisticsData {
+  body?: never
+  path?: never
+  query?: never
+  url: '/v2/statistics'
+}
+
+export interface V2GetWaifuScorerStatisticsResponses {
+  /**
+   * Request fulfilled, document follows
+   */
+  200: Array<WaifuScoreResult>
+}
+
+export type V2GetWaifuScorerStatisticsResponse = V2GetWaifuScorerStatisticsResponses[keyof V2GetWaifuScorerStatisticsResponses]
+
+export interface ClientOptions {
+  baseURL: `${string}://${string}` | (string & {})
+}

@@ -47,7 +47,7 @@ async def _sync_metadata() -> None:
     db_tuples = rows.fetchall()
     logger.info(f"Found {len(db_tuples)} files in database")
 
-    db_tuples_set = set(db_tuples)
+    db_tuples_set = {tuple(row) for row in db_tuples}
     os_tuples_set = set(os_tuples)
 
     await remove_deleted_files(session, os_tuples_set=os_tuples_set, db_tuples_set=db_tuples_set)
@@ -76,6 +76,9 @@ async def process_posts(session: AsyncSession, *, all_posts: bool = False):
 
 
 async def process_post(session: AsyncSession, file_abs_path: Path | None = None):
+    if file_abs_path is None:
+        logger.error("file_abs_path cannot be None")
+        return
     file_path, file_name, extension = get_path_name_and_extension(file_abs_path)
     post = await session.execute(select(Post).filter(Post.file_path == file_path, Post.file_name == file_name, Post.extension == extension))
     post = post.scalar_one_or_none()
@@ -109,11 +112,11 @@ async def process_post(session: AsyncSession, file_abs_path: Path | None = None)
             file.seek(0)
             set_post_colors(post, file)
     except Exception as e:
-        if file_data:
+        if file_data and file_abs_path:
             file_abs_path.unlink()
         logger.warning(f"Error processing file: {file_abs_path}")
         logger.exception(e)
-        session.rollback()
+        await session.rollback()
         return
 
     if file_data:
@@ -153,7 +156,7 @@ def rgb_to_lab_skimage(rgb_tuple: tuple[int, int, int]):
 def set_post_colors(post: Post, file: None | BufferedReader = None):
     if post.colors:
         return
-    arg = post.absolute_path.as_posix() if file is None else file
+    arg = post.absolute_path if file is None else file
     colors = get_palette_ints(arg)
     rgb_dominant_color = get_dominant_color(arg)
     post.dominant_color = rgb_to_lab_skimage(rgb_dominant_color)

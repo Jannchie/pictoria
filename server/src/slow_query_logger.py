@@ -9,6 +9,8 @@ from utils import logger
 
 # 慢查询阈值（毫秒）
 SLOW_QUERY_THRESHOLD_MS = 100.0
+# 特别慢查询阈值（毫秒）
+VERY_SLOW_QUERY_THRESHOLD_MS = 1000.0
 
 
 class SlowQueryLogger:
@@ -35,7 +37,7 @@ class SlowQueryLogger:
         statement: str,  # noqa: ARG002
         parameters: Any,  # noqa: ARG002
         context: Any,
-        executemany: bool,  # noqa: ARG002
+        executemany: bool,  # noqa: ARG002, FBT001
     ) -> None:
         """记录查询开始时间"""
         self._query_start_times[id(context)] = time.time()
@@ -47,7 +49,7 @@ class SlowQueryLogger:
         statement: str,
         parameters: Any,
         context: Any,
-        executemany: bool,  # noqa: ARG002
+        executemany: bool,  # noqa: ARG002, FBT001
     ) -> None:
         """计算查询执行时间并记录慢查询"""
         context_id = id(context)
@@ -73,7 +75,7 @@ class SlowQueryLogger:
                 )
 
                 # 如果查询特别慢（超过1秒），使用 error 级别
-                if duration_ms > 1000:
+                if duration_ms > VERY_SLOW_QUERY_THRESHOLD_MS:
                     logger.error(
                         f"[VERY SLOW QUERY] Duration: {duration_ms:.2f}ms | "
                         f"This query took more than 1 second!",
@@ -83,7 +85,7 @@ class SlowQueryLogger:
         """连接建立时的回调(可选)"""
         logger.debug("Database connection established")
 
-    def _on_checkout(self, dbapi_conn: Any, connection_record: Any, connection_proxy: Any) -> None:  # noqa: ARG002
+    def _on_checkout(self, dbapi_conn: Any, connection_record: Any, connection_proxy: Any) -> None:
         """从连接池获取连接时的回调(可选)"""
 
     def set_threshold(self, threshold_ms: float) -> None:

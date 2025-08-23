@@ -89,14 +89,14 @@ async def db_connection(app: Litestar) -> AsyncGenerator[None, None]:
         db_url = os.environ.get("DB_URL")
         engine = create_async_engine(db_url, echo=False, pool_size=100, max_overflow=200)
         app.state.engine = engine
-        
+
         # 设置慢查询日志，可以通过环境变量配置阈值
         slow_query_threshold = float(os.environ.get("SLOW_QUERY_THRESHOLD_MS", "100"))
         # 注意：对于异步引擎，我们需要使用同步引擎来设置事件监听器
         # SQLAlchemy 的事件系统主要是为同步引擎设计的
         sync_engine = engine.sync_engine
         app.state.slow_query_logger = setup_slow_query_logging(sync_engine, slow_query_threshold)
-        
+
     try:
         yield
     finally:
