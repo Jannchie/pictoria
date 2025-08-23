@@ -2,9 +2,10 @@
 import { Btn } from '@roku-ui/vue'
 import { useRoute } from 'vue-router'
 import Image from '@/roku/Image.vue'
-import { bottomBarInfo, selectedPostIdSet } from '@/shared'
+import { bottomBarInfo, selectedPostIdSet, showPostDetail } from '@/shared'
 import { getPostImageURL } from '@/utils'
 import { colorNumToHex } from '@/utils/color'
+import PostDetail from '@/components/PostDetail.vue'
 
 const route = useRoute()
 const postId = computed(() => Number.parseInt(route.params.postId as string))
@@ -29,6 +30,10 @@ watchEffect(() => {
 </script>
 
 <template>
+  <PostDetail
+    v-if="showPostDetail"
+    :post="showPostDetail"
+  />
   <div
     v-if="post"
     class="flex flex-col h-full"
@@ -62,7 +67,8 @@ watchEffect(() => {
           alt="post"
           :color="getPostColor(post)"
           rounded="lg"
-          @click=" selectedPostIdSet = new Set([post.id])"
+          class="cursor-pointer"
+          @click="showPostDetail = post"
         />
       </div>
       <SimilarPosts

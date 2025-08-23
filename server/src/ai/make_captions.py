@@ -1,5 +1,6 @@
 import base64
 from io import BytesIO
+from os import PathLike
 from pathlib import Path
 
 import PIL.Image
@@ -28,23 +29,19 @@ class WDTaggerAnnotator(BaseAnnotator):
 
 
 class OpenAIImageAnnotator(BaseAnnotator):
-    MODEL = "gpt-4o-mini"
+    MODEL = "gpt-4.1-nano"
 
     def __init__(self, api_key: str) -> None:
         self.client = OpenAI(api_key=api_key)
-
-    def load_and_process_image(self, image_path: Path) -> PIL.Image.Image:
-        return load_image(image_path.as_posix())
 
     def get_img_base64(self, image: PIL.Image.Image) -> str:
         buffered = BytesIO()
         image.save(buffered, format="JPEG")  # Change format as needed
         return base64.b64encode(buffered.getvalue()).decode("utf-8")
 
-    def annotate_image(self, image_path: Path) -> str:
-        image = self.load_and_process_image(image_path)
+    def annotate_image(self, image_path: PathLike | str) -> str:
+        image = load_image(Path(image_path).as_posix())
         base64_image = self.get_img_base64(image)
-
         response = self.client.chat.completions.create(
             model=self.MODEL,
             messages=[
