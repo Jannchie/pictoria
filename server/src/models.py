@@ -17,7 +17,6 @@ from sqlalchemy.orm import (
 )
 
 import shared
-from utils import calculate_sha256, create_thumbnail_by_image
 
 
 class Base(DeclarativeBase, MappedAsDataclass):
@@ -141,6 +140,7 @@ class Post(BaseWithTime):
         return shared.thumbnails_dir / self.full_path
 
     def rotate(self, *, clockwise: bool = True) -> None:
+        from utils import calculate_sha256, create_thumbnail_by_image
         image = Image.open(self.absolute_path)
         image = image.rotate(-90 if clockwise else 90, expand=True)
         image.save(self.absolute_path)

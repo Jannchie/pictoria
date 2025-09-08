@@ -86,7 +86,7 @@ async def provide_async_session(state: State) -> AsyncGenerator[AsyncSession, No
 async def db_connection(app: Litestar) -> AsyncGenerator[None, None]:
     engine = getattr(app.state, "engine", None)
     if engine is None:
-        db_url = os.environ.get("DB_URL")
+        db_url = os.environ.get("DB_URL", "")
         engine = create_async_engine(db_url, echo=False, pool_size=100, max_overflow=200)
         app.state.engine = engine
 
