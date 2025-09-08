@@ -8,7 +8,7 @@ from sqlalchemy.pool import Pool
 from utils import logger
 
 # 慢查询阈值（毫秒）
-SLOW_QUERY_THRESHOLD_MS = 100.0
+SLOW_QUERY_THRESHOLD_MS = 400.0
 # 特别慢查询阈值（毫秒）
 VERY_SLOW_QUERY_THRESHOLD_MS = 1000.0
 

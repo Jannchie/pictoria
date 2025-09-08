@@ -21,6 +21,7 @@ interface PostFilter {
   tags: string[]
   extension: string[]
   folder?: string
+  waifu_score_range?: [number, number]
 }
 export type RightPanelDatum = PostSimplePublic | ImageDatum | InputDatum
 export const postFilter = ref<PostFilter>({
@@ -63,6 +64,14 @@ export function useSyncFilterWithUrl() {
       delete query.extension
     }
 
+    // Handle waifu score range filter
+    if (newFilter.waifu_score_range) {
+      query.waifu_score_range = newFilter.waifu_score_range.join(',')
+    }
+    else {
+      delete query.waifu_score_range
+    }
+
     // Update URL without reloading the page
     router.replace({ query })
   }, { deep: true })
@@ -80,6 +89,11 @@ export function useSyncFilterWithUrl() {
 
     if (newQuery.extension !== undefined) {
       postFilter.value.extension = (newQuery.extension as string).split(',')
+    }
+
+    if (newQuery.waifu_score_range !== undefined) {
+      const range = (newQuery.waifu_score_range as string).split(',').map(Number) as [number, number]
+      postFilter.value.waifu_score_range = range
     }
   }, { immediate: true })
 }

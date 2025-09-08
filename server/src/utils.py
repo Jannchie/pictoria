@@ -12,7 +12,7 @@ from typing import Any, TypeVar
 import wdtagger
 from dotenv import load_dotenv
 from PIL import Image
-from sqlalchemy import create_engine, delete, select
+from sqlalchemy import create_engine, select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 from sqlalchemy.orm import Session, sessionmaker
 
@@ -106,56 +106,6 @@ def init_thumbnails_directory():
     if not shared.thumbnails_dir.exists():
         shared.thumbnails_dir.mkdir()
         logger.info(f'Created directory "{shared.thumbnails_dir}"')
-
-
-async def remove_deleted_files(
-    session: AsyncSession,
-    *,
-    os_tuples_set: set[tuple[str, str, str]],
-    db_tuples_set: set[tuple[str, str, str]],
-):
-    if deleted_files := db_tuples_set - os_tuples_set:
-        logger.info(f"Detected {len(deleted_files)} files have been deleted")
-        for file_path in deleted_files:
-            await delete_by_file_path_and_ext(session, file_path)
-        await session.commit()
-        logger.info("Deleted files from database")
-
-
-async def delete_by_file_path_and_ext(session: AsyncSession, path_name_and_ext: tuple[str, str, str]):
-    await session.execute(
-        delete(Post).where(
-            Post.file_path == path_name_and_ext[0],
-            Post.file_name == path_name_and_ext[1],
-            Post.extension == path_name_and_ext[2],
-        ),
-    )
-    await session.commit()
-    if path_name_and_ext[2]:
-        relative_path = (Path(path_name_and_ext[0]) / path_name_and_ext[1]).with_suffix(f".{path_name_and_ext[2]}")
-    else:
-        relative_path = Path(path_name_and_ext[0]) / path_name_and_ext[1]
-    file_path = shared.target_dir / relative_path
-    thumbnails_path = shared.thumbnails_dir / relative_path
-    if thumbnails_path.exists():
-        thumbnails_path.unlink()
-    if file_path.exists():
-        file_path.unlink()
-
-
-async def add_new_files(
-    session: AsyncSession,
-    *,
-    os_tuples_set: set[tuple[str, str, str]],
-    db_tuples_set: set[tuple[str, str, str]],
-):
-    if new_file_tuples := os_tuples_set - db_tuples_set:
-        logger.info(f"Detected {len(new_file_tuples)} new files")
-        for file_tuple in new_file_tuples:
-            post = Post(file_path=file_tuple[0], file_name=file_tuple[1], extension=file_tuple[2])
-            session.add(post)
-        await session.commit()
-        logger.info("Added new files to database")
 
 
 @cache
@@ -266,6 +216,9 @@ def remove_post(
     auto_commit: bool = True,
 ):
     if post is None:
+        if file_abs_path is None:
+            logger.info("file_abs_path is None, cannot remove post.")
+            return
         file_path, file_name, extension = get_path_name_and_extension(file_abs_path)
         post = session.query(Post).filter(Post.file_path == file_path, Post.file_name == file_name, Post.extension == extension).first()
     else:
@@ -292,9 +245,9 @@ def remove_post_in_path(session: Session, file_path: Path):
     # 如果 file_path 是绝对路径，则转换为相对路径
     if file_path.is_absolute():
         file_path = file_path.relative_to(shared.target_dir)
-    file_path = str(file_path).replace("\\", "/")
+    file_path_str = str(file_path).replace("\\", "/")
     # 删除数据库中前缀和 file_path 相同的所有文件
-    posts = session.query(Post).filter(Post.file_path.like(f"{file_path}%")).all()
+    posts = session.query(Post).filter(Post.file_path.like(f"{file_path_str}%")).all()
     for post in posts:
         remove_post(session, post=post, auto_commit=False)
     session.commit()

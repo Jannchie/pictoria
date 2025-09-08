@@ -13,10 +13,10 @@ from sqlalchemy.ext.asyncio import AsyncSession
 import shared
 from ai.clip import calculate_image_features
 from models import Post, PostHasColor, PostVector
+from services.file_management import add_new_files, remove_deleted_files
 from shared import logger
 from tools.colors import get_dominant_color, get_palette_ints
 from utils import (
-    add_new_files,
     async_session,
     attach_tags_to_post,
     calculate_sha256,
@@ -25,7 +25,6 @@ from utils import (
     from_rating_to_int,
     get_path_name_and_extension,
     get_tagger,
-    remove_deleted_files,
 )
 
 # Store task references to prevent garbage collection

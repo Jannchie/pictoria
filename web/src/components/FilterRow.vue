@@ -11,6 +11,7 @@ useSyncFilterWithUrl()
       <ScoreFilter />
       <RatingFilter />
       <ExtensionFilter />
+      <WaifuScoreFilter />
     </div>
     <div>
       <PostSorter />

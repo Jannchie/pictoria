@@ -19,7 +19,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import InstrumentedAttribute, load_only
 
 import shared
-from models import Post, PostHasTag
+from models import Post, PostHasTag, PostWaifuScore
 from processors import process_post
 from scheme import DTOBaseModel, PostDetailPublic, PostHasColorPublic
 from server.utils.vec import find_similar_posts, get_img_vec_by_id
@@ -54,6 +54,18 @@ class PostFilter(Struct):
             extra_json_schema={
                 "min_length": 3,
                 "max_length": 3,
+            },
+        ),
+    ] = None
+
+    waifu_score_range: Annotated[
+        tuple[float, float] | None,
+        Meta(
+            description="Waifu score range for filtering (min, max).",
+            examples=[(0.0, 10.0)],
+            extra_json_schema={
+                "min_length": 2,
+                "max_length": 2,
             },
         ),
     ] = None
@@ -96,6 +108,12 @@ def apply_body_filter(filter: PostFilter, stmt: Select) -> Select:  # noqa: A002
         stmt = stmt.filter(Post.extension.in_(filter.extension))
     if filter.folder and filter.folder != ".":
         stmt = stmt.filter(Post.file_path.like(f"{filter.folder}%"))
+    if filter.waifu_score_range:
+        min_score, max_score = filter.waifu_score_range
+        stmt = stmt.join(PostWaifuScore, Post.id == PostWaifuScore.post_id).filter(
+            PostWaifuScore.score >= min_score,
+            PostWaifuScore.score <= max_score
+        )
     return stmt
 
 

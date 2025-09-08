@@ -22,7 +22,7 @@ export function defaultPathSerializer({ path, url: _url }: PathSerializer) {
   if (matches) {
     for (const match of matches) {
       let explode = false
-      let name = match.slice(1, -1)
+      let name = match.substring(1, match.length - 1)
       let style: ArraySeparatorStyle = 'simple'
 
       if (name.endsWith('*')) {

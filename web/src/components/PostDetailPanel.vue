@@ -3,7 +3,7 @@ import type { PostDetailPublic, PostHasTagPublic } from '@/api'
 import { Btn, ColorSwatch, Tag, TextField } from '@roku-ui/vue'
 import { useQueryClient } from '@tanstack/vue-query'
 import { filesize } from 'filesize'
-import { v2UpdatePostCaption, v2UpdatePostRating, v2UpdatePostScore, v2UpdatePostSource } from '@/api'
+import { v2GetWaifuScorer, v2UpdatePostCaption, v2UpdatePostRating, v2UpdatePostScore, v2UpdatePostSource } from '@/api'
 import { hideNSFW, openTagSelectorWindow, showPostDetail } from '@/shared'
 import { getPostThumbnailURL } from '@/utils'
 import { colorNumToHex, labToRgbaString } from '@/utils/color'
@@ -118,6 +118,30 @@ function onCopyTags() {
     navigator.clipboard.writeText(tags)
   }
 }
+
+const isCalculatingWaifuScore = ref(false)
+
+async function calculateWaifuScore() {
+  if (isCalculatingWaifuScore.value) {
+    return
+  }
+
+  isCalculatingWaifuScore.value = true
+  try {
+    await v2GetWaifuScorer({
+      path: {
+        post_id: post.value.id,
+      },
+    })
+    queryClient.invalidateQueries({ queryKey: ['post', post.value.id] })
+  }
+  catch (error) {
+    console.error('Failed to calculate waifu score:', error)
+  }
+  finally {
+    isCalculatingWaifuScore.value = false
+  }
+}
 </script>
 
 <template>
@@ -226,11 +250,23 @@ function onCopyTags() {
         <div v-if="post.publishedAt">
           {{ formatTimestr(post.publishedAt) }}
         </div>
-        <div v-if="post.waifuScore">
+        <div>
           Waifu Score
         </div>
-        <div v-if="post.waifuScore">
-          {{ post.waifuScore.score.toFixed(2) }}
+        <div>
+          <template v-if="post.waifuScore">
+            <WaifuScoreLevel :score="post.waifuScore.score" />
+          </template>
+          <template v-else>
+            <Btn
+              size="sm"
+              variant="light"
+              :loading="isCalculatingWaifuScore"
+              @click="calculateWaifuScore"
+            >
+              {{ isCalculatingWaifuScore ? 'Computing...' : 'Compute' }}
+            </Btn>
+          </template>
         </div>
       </div>
     </div>

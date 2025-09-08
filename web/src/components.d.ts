@@ -51,5 +51,7 @@ declare module 'vue' {
     ToastSystem: typeof import('./components/ToastSystem.vue')['default']
     TranslatedTagText: typeof import('./components/TranslatedTagText.vue')['default']
     VirtualScroll: typeof import('./components/VirtualScroll.vue')['default']
+    WaifuScoreFilter: typeof import('./components/WaifuScoreFilter.vue')['default']
+    WaifuScoreLevel: typeof import('./components/WaifuScoreLevel.vue')['default']
   }
 }

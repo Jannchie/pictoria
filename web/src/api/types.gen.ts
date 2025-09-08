@@ -103,6 +103,13 @@ export interface PostFilter {
     number,
     number,
   ] | null
+  /**
+   * Waifu score range for filtering (min, max).
+   */
+  waifu_score_range?: [
+    number,
+    number,
+  ] | null
 }
 
 /**
@@ -131,6 +138,13 @@ export interface PostFilterWithOrder {
    */
   lab?: [
     number,
+    number,
+    number,
+  ] | null
+  /**
+   * Waifu score range for filtering (min, max).
+   */
+  waifu_score_range?: [
     number,
     number,
   ] | null
