@@ -4,5 +4,5 @@ import shared
 from db import Session
 from services.waifu import waifu_score_all_posts
 
-shared.target_dir = Path(R"E:\pictoria\server\demo")
+shared.target_dir = Path(R"E:\pictoria\server\illustration\images")
 waifu_score_all_posts(Session())
