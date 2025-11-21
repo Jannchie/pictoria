@@ -1,5 +1,4 @@
 <script setup lang="ts">
-import type LazyWaterfall from './LazyWaterfall.vue'
 import type { Area } from './SelectArea.vue'
 import type { PostSimplePublic } from '@/api'
 import { Btn, Menu } from '@roku-ui/vue'
@@ -7,6 +6,7 @@ import { useQuery, useQueryClient } from '@tanstack/vue-query'
 import { useDebounce } from '@vueuse/core'
 import { logicAnd } from '@vueuse/math'
 import { useRoute, useRouter } from 'vue-router'
+import { Waterfall } from 'vue-wf'
 import { v2DeletePosts, v2SearchPostsByText } from '@/api'
 import { useRotateImageMutation } from '@/composables/mutations/useRotateImageMutation'
 import { useElementOffset } from '@/composables/useElementOffset'
@@ -78,11 +78,11 @@ async function onSelectChange(selectArea: Area, { shift, ctrl }: { target: Event
 
       // Check if there is an intersection between the element and the selectArea
       const isIntersecting
-    = !(elementLeft > selectArea.right
+        = !(elementLeft > selectArea.right
       || elementRight < selectArea.left
       || elementTop > selectArea.bottom
       || elementBottom < selectArea.top)
-    // 如果按住了 shift，则是追加选择，如果按住了 ctrl，则是补集选择
+      // 如果按住了 shift，则是追加选择，如果按住了 ctrl，则是补集选择
       const post = posts.value[index]
       if (isIntersecting) {
         currentSelectingId.add(post.id)
@@ -311,7 +311,7 @@ const mainSectionRef = ref<HTMLElement>()
     >
       <FolderSection />
       <div v-if="isTextSearchActive && textSearchQueryResult.isLoading.value">
-        <div class="p-16 op-50 flex flex-col items-center gap-2">
+        <div class="p-16 op-50 flex flex-col gap-2 items-center">
           <i class="i-tabler-loader text-2xl animate-spin" />
           <div class="text-sm">
             Searching for “{{ textSearchPrompt }}”
@@ -319,7 +319,7 @@ const mainSectionRef = ref<HTMLElement>()
         </div>
       </div>
       <div v-else-if="isTextSearchActive && textSearchQueryResult.error.value">
-        <div class="p-16 op-50 flex flex-col items-center gap-2 text-center text-red-400">
+        <div class="text-red-400 p-16 text-center op-50 flex flex-col gap-2 items-center">
           <i class="i-tabler-alert-circle text-2xl" />
           <div class="text-sm">
             Failed to run text search. Please try again.
@@ -327,7 +327,7 @@ const mainSectionRef = ref<HTMLElement>()
         </div>
       </div>
       <div v-else-if="isTextSearchActive && posts.length === 0">
-        <div class="p-16 op-50 flex flex-col items-center gap-2 text-center">
+        <div class="p-16 text-center op-50 flex flex-col gap-2 items-center">
           <i class="i-tabler-mood-empty text-2xl" />
           <div class="text-sm">
             No images matched “{{ textSearchPrompt }}”.
@@ -354,7 +354,7 @@ const mainSectionRef = ref<HTMLElement>()
         </div>
       </div>
 
-      <LazyWaterfall
+      <Waterfall
         ref="waterfallRef"
         class="waterfall-wrapper select-none"
         :scroll-element="mainSectionRef"
@@ -373,7 +373,7 @@ const mainSectionRef = ref<HTMLElement>()
           :key="post.id"
           :post="post"
         />
-      </LazyWaterfall>
+      </Waterfall>
       <div
         v-if="!isTextSearchActive && posts.length > 0 && infinityPostsQuery.hasNextPage.value"
         class="p-4 flex justify-center"
