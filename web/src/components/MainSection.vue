@@ -3,19 +3,45 @@ import type LazyWaterfall from './LazyWaterfall.vue'
 import type { Area } from './SelectArea.vue'
 import type { PostSimplePublic } from '@/api'
 import { Btn, Menu } from '@roku-ui/vue'
-import { useQueryClient } from '@tanstack/vue-query'
+import { useQuery, useQueryClient } from '@tanstack/vue-query'
+import { useDebounce } from '@vueuse/core'
 import { logicAnd } from '@vueuse/math'
 import { useRoute, useRouter } from 'vue-router'
-import { v2DeletePosts } from '@/api'
+import { v2DeletePosts, v2SearchPostsByText } from '@/api'
 import { useRotateImageMutation } from '@/composables/mutations/useRotateImageMutation'
 import { useElementOffset } from '@/composables/useElementOffset'
-import { selectedPostIdSet, selectingPostIdSet, unselectedPostIdSet as unselectingPostId, updateScoreForSelectedPosts, useInfinityPostsQuery, waterfallRowCount } from '@/shared'
+import { selectedPostIdSet, selectingPostIdSet, textSearchQuery, unselectedPostIdSet as unselectingPostId, updateScoreForSelectedPosts, useInfinityPostsQuery, waterfallRowCount } from '@/shared'
 
 const route = useRoute()
 const router = useRouter()
 const infinityPostsQuery = useInfinityPostsQuery()
-const posts = computed<Array<PostSimplePublic>>(() => {
+const debouncedTextSearch = useDebounce(textSearchQuery, 400)
+const textSearchPrompt = computed(() => debouncedTextSearch.value.trim())
+const isTextSearchActive = computed(() => textSearchPrompt.value.length > 0)
+const textSearchQueryResult = useQuery({
+  queryKey: computed(() => ['textSearch', textSearchPrompt.value]),
+  queryFn: async () => {
+    if (!textSearchPrompt.value) {
+      return []
+    }
+    const resp = await v2SearchPostsByText({
+      body: { query: textSearchPrompt.value },
+      query: { limit: 200 },
+    })
+    if (resp.error) {
+      throw resp.error
+    }
+    return resp.data
+  },
+  enabled: computed(() => isTextSearchActive.value),
+  staleTime: 1000 * 30,
+})
+const textSearchResults = computed<Array<PostSimplePublic>>(() => textSearchQueryResult.data.value ?? [])
+const folderPosts = computed<Array<PostSimplePublic>>(() => {
   return infinityPostsQuery.data.value?.pages.flat().filter(post => post !== undefined) ?? []
+})
+const posts = computed<Array<PostSimplePublic>>(() => {
+  return isTextSearchActive.value ? textSearchResults.value : folderPosts.value
 })
 const items = computed(() => posts.value.map(post => ({
   width: post.width ?? 1,
@@ -284,7 +310,34 @@ const mainSectionRef = ref<HTMLElement>()
       @select="onMenuSelect"
     >
       <FolderSection />
-      <div v-if="infinityPostsQuery.isLoading.value && posts.length === 0">
+      <div v-if="isTextSearchActive && textSearchQueryResult.isLoading.value">
+        <div class="p-16 op-50 flex flex-col items-center gap-2">
+          <i class="i-tabler-loader text-2xl animate-spin" />
+          <div class="text-sm">
+            Searching for “{{ textSearchPrompt }}”
+          </div>
+        </div>
+      </div>
+      <div v-else-if="isTextSearchActive && textSearchQueryResult.error.value">
+        <div class="p-16 op-50 flex flex-col items-center gap-2 text-center text-red-400">
+          <i class="i-tabler-alert-circle text-2xl" />
+          <div class="text-sm">
+            Failed to run text search. Please try again.
+          </div>
+        </div>
+      </div>
+      <div v-else-if="isTextSearchActive && posts.length === 0">
+        <div class="p-16 op-50 flex flex-col items-center gap-2 text-center">
+          <i class="i-tabler-mood-empty text-2xl" />
+          <div class="text-sm">
+            No images matched “{{ textSearchPrompt }}”.
+          </div>
+          <div class="text-xs">
+            Try a different description or clear the text search box.
+          </div>
+        </div>
+      </div>
+      <div v-else-if="!isTextSearchActive && infinityPostsQuery.isLoading.value && posts.length === 0">
         <div class="p-16 op-50 flex flex-col items-center">
           <i class="i-tabler-loader text-2xl animate-spin" />
           <div class="text-sm">
@@ -322,7 +375,7 @@ const mainSectionRef = ref<HTMLElement>()
         />
       </LazyWaterfall>
       <div
-        v-if="posts.length > 0 && infinityPostsQuery.hasNextPage.value"
+        v-if="!isTextSearchActive && posts.length > 0 && infinityPostsQuery.hasNextPage.value"
         class="p-4 flex justify-center"
       >
         <Btn

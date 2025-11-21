@@ -22,7 +22,7 @@ import shared
 from models import Post, PostHasTag, PostWaifuScore
 from processors import process_post
 from scheme import DTOBaseModel, PostDetailPublic, PostHasColorPublic
-from server.utils.vec import find_similar_posts, get_img_vec_by_id
+from server.utils.vec import find_similar_posts, get_img_vec_by_id, get_text_vec
 from utils import get_path_name_and_extension
 
 if TYPE_CHECKING:
@@ -95,6 +95,18 @@ class PostFilterWithOrder(PostFilter):
             },
         ),
     ] = "desc"
+
+
+class TextSearchRequest(Struct):
+    """Payload for CLIP text-to-image search."""
+
+    query: Annotated[
+        str,
+        Meta(
+            description="Natural language prompt describing the desired image.",
+            min_length=1,
+        ),
+    ]
 
 
 def apply_body_filter(filter: PostFilter, stmt: Select) -> Select:  # noqa: A002
@@ -209,6 +221,21 @@ class PostController(Controller):
                 msg = f"Invalid order value: {data.order}"
                 raise HTTPException(detail=msg, status_code=HTTP_409_CONFLICT)
         return [PostSimplePublic.model_validate(post) for post in (await session.scalars(stmt)).all()]
+
+    @litestar.post("/search/text", status_code=200, description="Search posts by CLIP text embedding.")
+    async def search_posts_by_text(self, session: AsyncSession, data: TextSearchRequest, limit: int = 100) -> list[PostSimplePublic]:
+        """Return posts ordered by similarity to the provided text prompt."""
+        prompt = data.query.strip()
+        if not prompt:
+            return []
+        vec = await get_text_vec(prompt)
+        resp = await find_similar_posts(session, vec, limit=limit, skip_self=False)
+        id_list = [row.post_id for row in resp]
+        if not id_list:
+            return []
+        stmt = self.simple_select_stmt.where(Post.id.in_(id_list)).order_by(func.array_position(id_list, Post.id))
+        posts = (await session.scalars(stmt)).all()
+        return [PostSimplePublic.model_validate(post) for post in posts]
 
     @litestar.get("/", status_code=200, description="Get all posts.")
     async def list_posts(

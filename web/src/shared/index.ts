@@ -30,6 +30,7 @@ export const postFilter = ref<PostFilter>({
   tags: [],
   extension: [],
 })
+export const textSearchQuery = ref('')
 
 // Sync postFilter with URL query parameters
 export function useSyncFilterWithUrl() {

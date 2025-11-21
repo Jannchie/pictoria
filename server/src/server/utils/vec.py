@@ -5,14 +5,18 @@ from pgvector import HalfVector
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from ai.clip import calculate_image_features
+from ai.clip import calculate_image_features, calculate_text_features
 from db import SimilarImageResult
 from models import Post, PostVector
 
 
-async def find_similar_posts(session: AsyncSession, vec: HalfVector | None, *, limit: int = 100) -> list[SimilarImageResult]:
+async def find_similar_posts(session: AsyncSession, vec: HalfVector | None, *, limit: int = 100, skip_self: bool = True) -> list[SimilarImageResult]:
+    if vec is None:
+        return []
     distance = PostVector.embedding.cosine_distance(vec)
-    stmt = select(PostVector.post_id, distance.label("distance")).order_by(distance).limit(limit).offset(1)
+    stmt = select(PostVector.post_id, distance.label("distance")).order_by(distance).limit(limit)
+    if skip_self:
+        stmt = stmt.offset(1)
     result = (await session.execute(stmt)).all()
     return [SimilarImageResult(post_id=row[0], distance=row[1]) for row in result]
 
@@ -37,3 +41,10 @@ async def get_img_vec_by_id(session: AsyncSession, post_id: int):
         select(PostVector).where(PostVector.post_id == post_id),
     )
     return None if post_vector is None else post_vector.embedding
+
+
+async def get_text_vec(prompt: str) -> HalfVector:
+    """Convert a text prompt into a HalfVector compatible with pgvector."""
+    features = await asyncio.to_thread(calculate_text_features, prompt)
+    features_np = features.cpu().numpy()
+    return HalfVector(features_np[0].tolist())

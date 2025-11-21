@@ -35,6 +35,17 @@ def calculate_image_features(image: Image.Image | Path | str) -> torch.Tensor:
         return model.get_image_features(pixel_values=inputs.pixel_values)
 
 
+def calculate_text_features(text: str | list[str]) -> torch.Tensor:
+    """Calculate CLIP text features for the given prompt(s)."""
+    if isinstance(text, str):
+        text = [text]
+    model = get_clip_model()
+    processor = get_processor()
+    inputs = processor(text=text, return_tensors="pt", padding=True).to(device)
+    with torch.no_grad():
+        return model.get_text_features(**inputs)
+
+
 if __name__ == "__main__":
     model = get_clip_model()
     image = Image.open(R"E:\pictoria\server\demo\9c34d98c7242c2b174fa0f7617f1d736.jpg")
