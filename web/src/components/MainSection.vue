@@ -3,7 +3,7 @@ import type { Area } from './SelectArea.vue'
 import type { PostSimplePublic } from '@/api'
 import { Btn, Menu } from '@roku-ui/vue'
 import { useQuery, useQueryClient } from '@tanstack/vue-query'
-import { useDebounce } from '@vueuse/core'
+import { refDebounced } from '@vueuse/core'
 import { logicAnd } from '@vueuse/math'
 import { useRoute, useRouter } from 'vue-router'
 import { Waterfall } from 'vue-wf'
@@ -15,7 +15,7 @@ import { selectedPostIdSet, selectingPostIdSet, textSearchQuery, unselectedPostI
 const route = useRoute()
 const router = useRouter()
 const infinityPostsQuery = useInfinityPostsQuery()
-const debouncedTextSearch = useDebounce(textSearchQuery, 400)
+const debouncedTextSearch = refDebounced(textSearchQuery, 400)
 const textSearchPrompt = computed(() => debouncedTextSearch.value.trim())
 const isTextSearchActive = computed(() => textSearchPrompt.value.length > 0)
 const textSearchQueryResult = useQuery({
@@ -48,7 +48,7 @@ const items = computed(() => posts.value.map(post => ({
   height: post.height ?? 1,
 })))
 
-const waterfallRef = ref<InstanceType<typeof LazyWaterfall> | null>(null)
+const waterfallRef = ref<InstanceType<typeof Waterfall> | null>(null)
 const waterfallWrapperDom = computed(() => waterfallRef.value?.wrapper)
 const waterfallWrapperBounds = useElementBounding(waterfallWrapperDom)
 const waterfallItemWidth = computed(() => {

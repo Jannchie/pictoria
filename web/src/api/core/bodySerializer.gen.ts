@@ -4,85 +4,97 @@ import type {
   ArrayStyle,
   ObjectStyle,
   SerializerOptions,
-} from './pathSerializer.gen'
+} from './pathSerializer.gen';
 
-export type QuerySerializer = (query: Record<string, unknown>) => string
+export type QuerySerializer = (query: Record<string, unknown>) => string;
 
-export type BodySerializer = (body: any) => any
+export type BodySerializer = (body: any) => any;
 
-export interface QuerySerializerOptions {
-  allowReserved?: boolean
-  array?: SerializerOptions<ArrayStyle>
-  object?: SerializerOptions<ObjectStyle>
-}
+type QuerySerializerOptionsObject = {
+  allowReserved?: boolean;
+  array?: Partial<SerializerOptions<ArrayStyle>>;
+  object?: Partial<SerializerOptions<ObjectStyle>>;
+};
 
-function serializeFormDataPair(data: FormData, key: string, value: unknown): void {
+export type QuerySerializerOptions = QuerySerializerOptionsObject & {
+  /**
+   * Per-parameter serialization overrides. When provided, these settings
+   * override the global array/object settings for specific parameter names.
+   */
+  parameters?: Record<string, QuerySerializerOptionsObject>;
+};
+
+const serializeFormDataPair = (
+  data: FormData,
+  key: string,
+  value: unknown,
+): void => {
   if (typeof value === 'string' || value instanceof Blob) {
-    data.append(key, value)
+    data.append(key, value);
+  } else if (value instanceof Date) {
+    data.append(key, value.toISOString());
+  } else {
+    data.append(key, JSON.stringify(value));
   }
-  else if (value instanceof Date) {
-    data.append(key, value.toISOString())
-  }
-  else {
-    data.append(key, JSON.stringify(value))
-  }
-}
+};
 
-function serializeUrlSearchParamsPair(data: URLSearchParams, key: string, value: unknown): void {
+const serializeUrlSearchParamsPair = (
+  data: URLSearchParams,
+  key: string,
+  value: unknown,
+): void => {
   if (typeof value === 'string') {
-    data.append(key, value)
+    data.append(key, value);
+  } else {
+    data.append(key, JSON.stringify(value));
   }
-  else {
-    data.append(key, JSON.stringify(value))
-  }
-}
+};
 
 export const formDataBodySerializer = {
   bodySerializer: <T extends Record<string, any> | Array<Record<string, any>>>(
     body: T,
   ): FormData => {
-    const data = new FormData()
+    const data = new FormData();
 
-    for (const [key, value] of Object.entries(body)) {
+    Object.entries(body).forEach(([key, value]) => {
       if (value === undefined || value === null) {
-        continue
+        return;
       }
       if (Array.isArray(value)) {
-        for (const v of value) serializeFormDataPair(data, key, v)
+        value.forEach((v) => serializeFormDataPair(data, key, v));
+      } else {
+        serializeFormDataPair(data, key, value);
       }
-      else {
-        serializeFormDataPair(data, key, value)
-      }
-    }
+    });
 
-    return data
+    return data;
   },
-}
+};
 
 export const jsonBodySerializer = {
   bodySerializer: <T>(body: T): string =>
     JSON.stringify(body, (_key, value) =>
-      typeof value === 'bigint' ? value.toString() : value),
-}
+      typeof value === 'bigint' ? value.toString() : value,
+    ),
+};
 
 export const urlSearchParamsBodySerializer = {
   bodySerializer: <T extends Record<string, any> | Array<Record<string, any>>>(
     body: T,
   ): string => {
-    const data = new URLSearchParams()
+    const data = new URLSearchParams();
 
-    for (const [key, value] of Object.entries(body)) {
+    Object.entries(body).forEach(([key, value]) => {
       if (value === undefined || value === null) {
-        continue
+        return;
       }
       if (Array.isArray(value)) {
-        for (const v of value) serializeUrlSearchParamsPair(data, key, v)
+        value.forEach((v) => serializeUrlSearchParamsPair(data, key, v));
+      } else {
+        serializeUrlSearchParamsPair(data, key, value);
       }
-      else {
-        serializeUrlSearchParamsPair(data, key, value)
-      }
-    }
+    });
 
-    return data.toString()
+    return data.toString();
   },
-}
+};
