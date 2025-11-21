@@ -10,25 +10,25 @@ function clearTextSearch() {
 </script>
 
 <template>
-  <div class="px-1 pb-1 border-b border-surface flex gap-2 w-full justify-between items-center">
+  <div class="px-1 pb-1 border-b border-surface flex gap-2 w-full items-center justify-between">
     <div class="flex gap-2">
       <ScoreFilter />
       <RatingFilter />
       <ExtensionFilter />
       <WaifuScoreFilter />
     </div>
-    <div class="flex items-center gap-2">
-      <div class="relative text-sm">
-        <i class="i-tabler-search absolute left-3 top-1/2 -translate-y-1/2 text-surface-dimmed" />
+    <div class="flex gap-2 items-center">
+      <div class="text-sm relative">
+        <i class="i-tabler-search text-surface-dimmed left-3 top-1/2 absolute -translate-y-1/2" />
         <input
           v-model="textSearchQuery"
           type="text"
-          class="pl-9 pr-8 py-1 rounded border border-surface bg-transparent text-surface-high min-w-60 focus:(outline-none border-primary) transition-colors"
+          class="text-surface-high py-1 pl-9 pr-8 border border-surface rounded bg-transparent min-w-60 transition-colors focus:(outline-none border-primary)"
           placeholder="Describe what you want to see..."
         >
         <button
           v-if="textSearchQuery"
-          class="absolute right-2 top-1/2 -translate-y-1/2 text-surface-dimmed hover:text-surface-high"
+          class="hover:text-surface-high text-surface-dimmed right-2 top-1/2 absolute -translate-y-1/2"
           @click="clearTextSearch"
         >
           <i class="i-tabler-x text-sm" />
