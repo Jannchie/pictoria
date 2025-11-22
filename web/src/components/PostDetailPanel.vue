@@ -110,7 +110,7 @@ function sortByGroup(a: PostHasTagPublic, b: PostHasTagPublic) {
   return a.tagInfo.name.localeCompare(b.tagInfo.name)
 }
 const tagSorted = computed(() => {
-  return post.value.tags?.slice().sort(sortByGroup) ?? []
+  return post.value.tags?.toSorted(sortByGroup) ?? []
 })
 function onCopyTags() {
   const tags = tagSorted.value.map(tag => tag.tagInfo.name).join(', ')
@@ -176,11 +176,11 @@ async function calculateWaifuScore() {
       />
     </div>
     <div>
-      <div class="text-zinc-4 font-black py-2">
+      <div class="text-default font-black py-2">
         Basic Info
       </div>
       <div
-        class="even:children:text-zinc-4 grid grid-cols-2"
+        class="grid grid-cols-2 even:children:text-muted"
       >
         <div>Rating</div>
         <div>
@@ -271,13 +271,13 @@ async function calculateWaifuScore() {
       </div>
     </div>
     <div>
-      <div class="text-zinc-4 font-black py-2">
+      <div class="text-default font-black py-2">
         Folder
       </div>
       <div class="flex gap-2">
         <div
           v-if="folders.length === 0"
-          class="text-surface-dimmed flex flex-col h-8 w-full items-center justify-center"
+          class="text-dimmed flex flex-col h-8 w-full items-center justify-center"
         >
           <div class="op50 flex flex-col items-center">
             <i class="i-tabler-folder-off" />
@@ -298,7 +298,7 @@ async function calculateWaifuScore() {
     </div>
     <div class="flex flex-col gap-1">
       <div
-        class="text-zinc-4 font-black py-2 flex gap-2 items-center"
+        class="text-default font-black py-2 flex gap-2 items-center"
       >
         <span>Tags</span>
         <Btn
@@ -318,7 +318,7 @@ async function calculateWaifuScore() {
         <PostTag
           v-for="tag of tagSorted"
           :key="tag.tagInfo.name"
-          class="bg-surface-high px-1 py-0.5 rounded cursor-pointer"
+          class="bg-elevated px-1 py-0.5 rounded cursor-pointer"
           rounded="lg"
           :data="tag"
           :color="tag.tagInfo.group?.color"
@@ -336,7 +336,7 @@ async function calculateWaifuScore() {
       </div>
       <div
         v-else
-        class="text-surface-dimmed flex flex-col h-14 items-center justify-center"
+        class="text-dimmed flex flex-col h-14 items-center justify-center"
       >
         <div class="op50 flex flex-col items-center">
           <i class="i-tabler-bookmark-off" />
@@ -355,7 +355,7 @@ async function calculateWaifuScore() {
       </div>
     </div>
     <div>
-      <div class="text-zinc-4 font-black py-2">
+      <div class="text-default font-black py-2">
         Caption
       </div>
       <div>
@@ -367,7 +367,7 @@ async function calculateWaifuScore() {
       </div>
     </div>
     <div>
-      <div class="text-zinc-4 font-black py-2">
+      <div class="text-default font-black py-2">
         Source
       </div>
       <div>
@@ -379,7 +379,7 @@ async function calculateWaifuScore() {
       </div>
     </div>
     <div>
-      <div class="text-zinc-4 font-black py-2">
+      <div class="text-default font-black py-2">
         Command
       </div>
       <div class="flex flex-col gap-2">

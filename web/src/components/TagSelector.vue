@@ -157,7 +157,10 @@ const initCurrentTagsRef = ref([])
 const currentGroupTagsRef = ref([])
 const addTagRef = ref(null)
 const referenceList = computed<any[]>(() => {
-  return addTagRef.value ? [addTagRef.value, ...initCurrentTagsRef.value, ...currentGroupTagsRef.value].sort((a: any, b: any) => a.$el.offsetTop - b.$el.offsetTop) : [...initCurrentTagsRef.value, ...currentGroupTagsRef.value].sort((a: any, b: any) => a.$el.offsetTop - b.$el.offsetTop)
+  const refs = addTagRef.value
+    ? [addTagRef.value, ...initCurrentTagsRef.value, ...currentGroupTagsRef.value]
+    : [...initCurrentTagsRef.value, ...currentGroupTagsRef.value]
+  return refs.toSorted((a: any, b: any) => a.$el.offsetTop - b.$el.offsetTop)
 })
 
 function getIndexOfRef(type: string, index: number) {
@@ -219,9 +222,9 @@ const searchingInitCurrentTags = computed(() => {
 <template>
   <div
     v-if="!postQuery.data.value"
-    class="text-sm text-surface border rounded bg-surface-base flex flex-col h-96 max-h-96 max-w-96 w-96 shadow-md relative"
+    class="text-default bg-base border-base text-sm border rounded flex flex-col h-96 max-h-96 max-w-96 w-96 shadow-md relative"
   >
-    <div class="text-surface-dimmed flex flex-grow flex-col h-full w-full items-center justify-center">
+    <div class="text-dimmed flex flex-grow flex-col h-full w-full items-center justify-center">
       <i class="i-tabler-tag text-2xl p-4" />
       <span class="text-xs mt-2">
         No Post Selected
@@ -230,9 +233,9 @@ const searchingInitCurrentTags = computed(() => {
   </div>
   <div
     v-else
-    class="text-sm text-surface border rounded bg-surface-base flex flex-col h-96 max-h-96 max-w-96 w-96 shadow-md"
+    class="text-default bg-base border-base text-sm border rounded flex flex-col h-96 max-h-96 max-w-96 w-96 shadow-md"
   >
-    <div class="p-2 border-b border-surface flex gap-2">
+    <div class="border-base p-2 border-b flex gap-2">
       <TextField
         ref="searchRef"
         v-model="search"
@@ -250,7 +253,7 @@ const searchingInitCurrentTags = computed(() => {
       </Btn>
     </div>
     <div class="flex flex-grow overflow-auto">
-      <div class="border-r border-surface flex-shrink-0 w-36">
+      <div class="border-base border-r flex-shrink-0 w-36">
         <ListItem
           v-for="group, i in finalTagGroups"
           :key="i"
@@ -266,7 +269,7 @@ const searchingInitCurrentTags = computed(() => {
       >
         <div
           v-if="showAddTag"
-          class="border-b border-surface"
+          class="border-base border-b"
         >
           <ListItem
             ref="addTagRef"
@@ -274,7 +277,7 @@ const searchingInitCurrentTags = computed(() => {
             :title="addTagText"
             icon="i-tabler-plus"
             :class="{
-              'bg-surface-high': currentHoverIndex === 0,
+              'bg-elevated': currentHoverIndex === 0,
             }"
             @pointerup="addTag(search)"
             @pointermove="currentHoverIndex = 0"
@@ -282,9 +285,9 @@ const searchingInitCurrentTags = computed(() => {
         </div>
         <div
           v-if="initCurrentTags.some(tag => isSearchMatch(tag.tagInfo.name))"
-          class="border-b border-surface"
+          class="border-base border-b"
         >
-          <div class="text-surface-dimmed p-2">
+          <div class="text-dimmed p-2">
             Already Selected ({{ searchingInitCurrentTags.length }})
           </div>
           <template
@@ -300,7 +303,7 @@ const searchingInitCurrentTags = computed(() => {
               :active="currentTags.some(predicate => predicate.tagInfo.name === tag.tagInfo.name)"
               type="checkbox"
               :class="{
-                'bg-surface-high': currentHoverIndex === getIndexOfRef('current', i),
+                'bg-elevated': currentHoverIndex === getIndexOfRef('current', i),
               }"
               @pointerup="onPointerUp(tag.tagInfo.name)"
               @pointermove="currentHoverIndex = getIndexOfRef('current', i)"
@@ -308,7 +311,7 @@ const searchingInitCurrentTags = computed(() => {
           </template>
         </div>
         <div>
-          <div class="text-surface-dimmed p-2">
+          <div class="text-dimmed p-2">
             All ({{ currentGroupTags.filter(tag => isSearchMatch(tag.name)).length }})
           </div>
           <template
@@ -323,7 +326,7 @@ const searchingInitCurrentTags = computed(() => {
               :active="currentTags.some(predicate => predicate.tagInfo.name === tag.name)"
               type="checkbox"
               :class="{
-                'bg-surface-high': currentHoverIndex === getIndexOfRef('group', i),
+                'bg-elevated': currentHoverIndex === getIndexOfRef('group', i),
               }"
               @pointerup="onPointerUp(tag.name)"
               @pointermove="currentHoverIndex = getIndexOfRef('group', i)"
@@ -338,7 +341,7 @@ const searchingInitCurrentTags = computed(() => {
         </div>
       </ScrollArea>
     </div>
-    <div class="text-xs p-2 border-t border-surface">
+    <div class="border-base text-xs p-2 border-t">
       <kbd>↑</kbd> <kbd>↓</kbd> to navigate, <kbd>Enter</kbd> to select, <kbd>Tab</kbd> to switch group
     </div>
   </div>
@@ -346,19 +349,19 @@ const searchingInitCurrentTags = computed(() => {
 
 <style>
 .highlight{
-  color: rgb(var(--r-color-primary-on));
+  color: rgb(var(--r-text-primary));
   font-weight: bolder;
 }
 </style>
 
 <style>
 kbd {
-  background-color: rgb(var(--r-color-surface-base));
-  color: rgb(var(--r-color-surface-on-high));
+  background-color: rgb(var(--r-bg-base));
+  color: rgb(var(--r-text-default));
   padding: 0.1em 0.3em;
   border-radius: 0.2em;
   margin: 0 0.2em;
-  box-shadow: 0 0 0 1px rgb(var(--r-color-surface-border-high));
-  border-bottom: 1px solid rgb(var(--r-color-surface-border-high));
+  box-shadow: 0 0 0 1px rgb(var(--r-border-elevated));
+  border-bottom: 1px solid rgb(var(--r-border-elevated));
 }
 </style>

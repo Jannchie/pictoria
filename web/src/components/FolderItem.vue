@@ -34,7 +34,7 @@ useEventListener(folderItemRef, 'drop', (e: DragEvent) => {
     <div
       class="flex flex-shrink-0 gap-0.5 items-center"
       :class="{
-        'border-l border-surface': depth !== 0,
+        'border-l border-base': depth !== 0,
       }"
     >
       <ListItem

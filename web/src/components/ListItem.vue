@@ -37,10 +37,10 @@ defineExpose({
 <template>
   <div
     ref="folderItemRef"
-    class="px-2 py-1 rounded flex gap-2 w-full items-center"
+    class="px-2 py-1 rounded flex gap-2 w-full transition-colors items-center"
     :class="{
-      'bg-surface-variant-1': active && type === 'normal',
-      'bg-surface-variant-2': hover || dragover,
+      'bg-container': active && type === 'normal',
+      'bg-elevated': hover || dragover,
     }"
     @dragover="onDragOver"
     @dragleave="onDragleave"
@@ -61,7 +61,7 @@ defineExpose({
     </div>
     <div
       v-if="extraInfo"
-      class="text-xs text-surface-dimmed font-mono flex-shrink-0"
+      class="text-dimmed text-xs font-mono flex-shrink-0"
     >
       {{ extraInfo }}
     </div>

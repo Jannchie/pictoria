@@ -199,7 +199,7 @@ onKeyStroke('Escape', () => {
 
 <template>
   <div
-    class="bg-surface-base flex flex-col inset-0 absolute z-10000"
+    class="bg-base flex flex-col inset-0 absolute z-10000"
   >
     <header class="py-2 flex flex-col items-center justify-center">
       <div class="flex flex-grow gap-2 w-full items-center justify-between">
@@ -305,7 +305,7 @@ onKeyStroke('Escape', () => {
       >
       <div
         ref="miniMapRef"
-        class="outline-white outline bg-white bottom-4 left-4 absolute z-200"
+        class="bg-base border-base border bottom-4 left-4 absolute z-200"
         @pointerdown.stop="onMiniMapPointerDown"
         @pointerup.stop="onMiniMapPointerUp"
         @pointermove.stop="onMiniMapPointerMove"
@@ -330,7 +330,7 @@ onKeyStroke('Escape', () => {
           >
           <!-- 显示视口框 -->
           <div
-            class="border-2 border-primary absolute"
+            class="border-primary border-2 absolute"
             :style="{
               width: `${miniMapViewBox.width}px`,
               height: `${miniMapViewBox.height}px`,

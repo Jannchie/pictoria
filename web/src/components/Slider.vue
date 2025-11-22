@@ -91,8 +91,8 @@ function optionToIndex(option: any) {
 const color = computed(() => props.color)
 const colors = useColors(color.value)
 const filledColor = computed(() => colors.value[4])
-const indicatorOuterCls = 'dark:bg-white bg-[var(--i-bg)]'
-const indicatorInnerCls = 'dark:bg-[var(--i-bg)] bg-white'
+const indicatorOuterCls = 'bg-[var(--i-bg)] border border-base'
+const indicatorInnerCls = 'bg-base'
 const containerFilledCS = useContainerFilledCS(color)
 
 watchEffect(() => {
@@ -217,7 +217,7 @@ const animateCls = computed(() => props.animate
       @touchmove.prevent
     >
       <div
-        class="rounded-full bg-surface-3 w-full transition-background-color,border-color,color dark:bg-surface-7"
+        class="bg-base rounded-full w-full transition-background-color,border-color,color"
         :class="sizeCls.innerWrapper"
       >
         <div
@@ -234,7 +234,7 @@ const animateCls = computed(() => props.animate
             :style="{
               left: `${props.reverse ? 100 - (optionToIndex(option) / (length - 1)) * 100 : (optionToIndex(option) / (length - 1)) * 100}%`,
             }"
-            class="rounded-full bg-surface-0 top-50% absolute"
+            class="bg-container rounded-full top-50% absolute"
             :class="sizeCls.tick"
           />
           <div
@@ -273,7 +273,7 @@ const animateCls = computed(() => props.animate
     </div>
     <div
       v-if="ticks.length > 0"
-      class="text-xs text-surface-dimmed mx-1 h-1em relative"
+      class="text-dimmed text-xs mx-1 h-1em relative"
       :style="{
         width: `${props.width}rem`,
       }"

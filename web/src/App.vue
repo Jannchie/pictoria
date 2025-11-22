@@ -92,7 +92,7 @@ const folderStr = computed(() => {
     <DropOverlay />
     <div class="flex flex-col h-100vh w-100vw select-none overflow-hidden">
       <FloatWindow v-model="showMenu">
-        <div class="text-sm rounded-lg bg-surface-base overflow-hidden">
+        <div class="bg-base text-sm rounded-lg overflow-hidden">
           <ListItem
             title="New Folder"
             icon="i-tabler-folder-plus"
@@ -110,7 +110,7 @@ const folderStr = computed(() => {
           :min-size="8"
           :size="12"
           :max-size="36"
-          class="p-2 border-r border-surface flex flex-col min-w-64"
+          class="border-base p-2 border-r flex flex-col min-w-64"
         >
           <div class="text-xl font-black flex shrink-0 h-36px items-center justify-center">
             Pictoria
@@ -124,10 +124,10 @@ const folderStr = computed(() => {
               <template #collapse="{ data, level }">
                 <RouterLink
                   :to="`/dir/${data.value}`"
-                  class="py-1 pr-1 rounded-full flex gap-2 h-8 w-full cursor-pointer items-center relative focus-visible:bg-surface-variant-1 focus-visible:outline-none"
+                  class="py-1 pr-1 rounded-full flex gap-2 h-8 w-full cursor-pointer items-center relative focus-visible:bg-container focus-visible:outline-none"
                   :class="[{
-                    'hover:bg-surface-variant-1 hover:text-surface text-surface-dimmed': folderStr !== data.value,
-                    'text-primary bg-surface-variant-2': folderStr === data.value,
+                    'hover:bg-container hover:text-default text-dimmed': folderStr !== data.value,
+                    'text-primary bg-elevated': folderStr === data.value,
                   }]"
                   :style="{
                     paddingLeft: `${32 + level * 8}px`,
@@ -154,11 +154,11 @@ const folderStr = computed(() => {
               </template>
               <template #link="{ data, level }">
                 <RouterLink
-                  class="hover-source py-1 pr-1 rounded-full flex flex gap-2 h-8 w-full cursor-pointer items-center relative focus-visible:bg-surface-variant-1 focus-visible:outline-none"
+                  class="hover-source py-1 pr-1 rounded-full flex flex gap-2 h-8 w-full cursor-pointer items-center relative focus-visible:bg-container focus-visible:outline-none"
                   :class="[
                     {
-                      'hover:bg-surface-variant-1 hover:text-surface text-surface-dimmed': folderStr !== data.value,
-                      'text-primary bg-surface-variant-2': folderStr === data.value,
+                      'hover:bg-container hover:text-default text-dimmed': folderStr !== data.value,
+                      'text-primary bg-elevated': folderStr === data.value,
                     },
                     indicatorClass,
                   ]"
@@ -206,7 +206,7 @@ const folderStr = computed(() => {
           :min-size="12"
           :size="12"
           :max-size="36"
-          class="p-1 border-l border-surface min-w-64"
+          class="border-base p-1 border-l min-w-64"
         >
           <RightPanel />
         </Pane>

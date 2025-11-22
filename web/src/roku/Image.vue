@@ -69,7 +69,7 @@ const rounded = useRounded(props)
     <template v-if="!loaded">
       <div
         v-if="!props.lazySrc"
-        class="bg-surface h-full w-full top-0 absolute animate-pulse object-cover"
+        class="bg-base h-full w-full top-0 absolute animate-pulse object-cover"
         :class="[
           props.class,
         ]"

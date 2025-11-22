@@ -15,7 +15,7 @@ const scrollAreaRef = ref<HTMLElement>()
 
 function getPostColor(post: { colors: { color: number, order: number }[] }) {
   if (post.colors && post.colors.length > 0) {
-    return colorNumToHex([...post.colors].sort((a, b) => {
+    return colorNumToHex(post.colors.toSorted((a, b) => {
       return a.order - b.order
     })[0].color)
   }
@@ -39,7 +39,7 @@ watchEffect(() => {
     class="flex flex-col h-full"
   >
     <div
-      class="border-b bg-surface-base flex items-center justify-between"
+      class="bg-base border-base border-b flex items-center justify-between"
     >
       <div class="grow-1 basis-0">
         <Btn

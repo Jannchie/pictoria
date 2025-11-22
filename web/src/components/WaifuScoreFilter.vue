@@ -95,7 +95,7 @@ function selectLevel(level: 'S' | 'A' | 'B' | 'C' | 'D') {
         </span>
       </Btn>
       <template #content>
-        <div class="p-4 border border-surface rounded bg-surface min-w-80 space-y-4">
+        <div class="bg-base border-base p-4 border rounded min-w-80 space-y-4">
           <div class="flex items-center justify-between">
             <span class="text-sm font-medium">Waifu Score Range</span>
             <Btn
@@ -109,41 +109,46 @@ function selectLevel(level: 'S' | 'A' | 'B' | 'C' | 'D') {
 
           <!-- Quick Level Selection -->
           <div class="space-y-3">
-            <div class="text-xs text-zinc-400">
+            <div class="text-muted text-xs">
               Quick Select:
             </div>
             <div class="flex gap-2 justify-center">
               <Btn
                 size="sm"
-                class="text-red-400 hover:bg-red-500/20"
+                color="success"
+                variant="light"
                 @click="selectLevel('S')"
               >
                 S (8-10)
               </Btn>
               <Btn
                 size="sm"
-                class="text-orange-400 hover:bg-orange-500/20"
+                color="warning"
+                variant="light"
                 @click="selectLevel('A')"
               >
                 A (6-8)
               </Btn>
               <Btn
                 size="sm"
-                class="text-purple-400 hover:bg-purple-500/20"
+                color="secondary"
+                variant="light"
                 @click="selectLevel('B')"
               >
                 B (4-6)
               </Btn>
               <Btn
                 size="sm"
-                class="text-white hover:bg-white/20"
+                color="info"
+                variant="light"
                 @click="selectLevel('C')"
               >
                 C (2-4)
               </Btn>
               <Btn
                 size="sm"
-                class="text-gray-400 hover:bg-gray-500/20"
+                color="error"
+                variant="light"
                 @click="selectLevel('D')"
               >
                 D (0-2)
@@ -153,7 +158,7 @@ function selectLevel(level: 'S' | 'A' | 'B' | 'C' | 'D') {
 
           <!-- Custom Range -->
           <div class="space-y-3">
-            <div class="text-xs text-zinc-400">
+            <div class="text-muted text-xs">
               Custom Range:
             </div>
             <div class="flex gap-2 items-center">
@@ -163,17 +168,17 @@ function selectLevel(level: 'S' | 'A' | 'B' | 'C' | 'D') {
                 min="0"
                 max="10"
                 step="0.1"
-                class="text-xs text-white px-2 py-1 border border-surface-3 rounded bg-surface-1 w-20"
+                class="text-xs custom-input-colors px-2 py-1 rounded w-20"
                 @blur="applyRange"
               >
-              <span class="text-xs text-zinc-400">to</span>
+              <span class="text-muted text-xs">to</span>
               <input
                 v-model.number="maxScore"
                 type="number"
                 min="0"
                 max="10"
                 step="0.1"
-                class="text-xs text-white px-2 py-1 border border-surface-3 rounded bg-surface-1 w-20"
+                class="text-xs custom-input-colors px-2 py-1 rounded w-20"
                 @blur="applyRange"
               >
               <Btn
@@ -186,7 +191,7 @@ function selectLevel(level: 'S' | 'A' | 'B' | 'C' | 'D') {
           </div>
 
           <!-- Current Range Display -->
-          <div class="text-xs text-zinc-400 text-center">
+          <div class="text-muted text-xs text-center">
             Current: {{ waifuScoreRange[0].toFixed(1) }} - {{ waifuScoreRange[1].toFixed(1) }}
           </div>
         </div>

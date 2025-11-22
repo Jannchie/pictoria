@@ -8,7 +8,7 @@ const route = useRoute()
 
 <template>
   <div
-    class="text-xs text-surface-dimmed px-1 border-t border-surface bg-surface flex h-24px items-center"
+    class="text-dimmed bg-base border-base text-xs px-1 border-t flex h-24px items-center"
   >
     <template v-if="route.name === 'all' || route.name === 'dir'">
       Display: {{ posts.length }}, Selected: {{ selectedPostIdSet.size }}

@@ -64,19 +64,19 @@ const show = ref(false)
       </Btn>
       <template #content>
         <div
-          class="p-1 border border-surface rounded bg-surface min-w-36"
+          class="bg-base border-base p-1 border rounded min-w-36"
         >
           <div
             class="flex flex-col gap-1"
           >
-            <div class="border-surface-hover mt-1 p-2 border rounded flex gap-2 items-center">
+            <div class="border-base mt-1 p-2 border rounded flex gap-2 items-center">
               <div class="flex-grow">
-                <div class="text-xs text-gray-400 mb-1">
+                <div class="text-muted text-xs mb-1">
                   Sort Color
                 </div>
                 <div class="flex gap-2 items-center">
                   <div
-                    class="border-surface-hover border rounded h-6 w-6 overflow-hidden"
+                    class="border-base border rounded h-6 w-6 overflow-hidden"
                     :style="{ backgroundColor: postSortColor || '#ffffff' }"
                   >
                     <input

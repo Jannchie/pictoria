@@ -24,7 +24,7 @@ const unselectable = computed(() => {
 const hoverIndex = ref(-1)
 const defaultIcon = 'i-tabler-star'
 const defaultActionIcon = 'i-tabler-star-filled'
-const defaultColor = '#EA580C'
+const defaultColor = 'rgb(var(--r-text-primary))'
 
 type IconType = string | { active: string, normal: string } | (string | { active: string, normal: string })[] | undefined
 const iconData = computed(() => {
@@ -89,9 +89,10 @@ function unifyInput(
   // Create an array with `n` elements, all being `baseObject`
   return Array.from<{ active: string, normal: string }>({ length: n }).fill(baseObject)
 }
-const activeCls = 'text-orange-6'
-const inactiveCls = 'text-surface-dimmed'
-const hoverCls = 'text-orange-6'
+const activeCls = 'text-primary'
+const inactiveCls = 'text-dimmed'
+const hoverCls = 'text-highlight'
+const inactiveColor = 'rgb(var(--r-text-muted))'
 function getCls(index: number) {
   const normalIcon = iconData.value[index].normal
   const activeIcon = iconData.value[index].active
@@ -138,23 +139,23 @@ function getStyle(index: number) {
       if (model.value === index + 1) {
         return { color: activeColor }
       }
-      return { color: '#666F' }
+      return { color: inactiveColor }
     }
     else {
       if (hoverIndex.value === index + 1) {
         return { color: activeColor }
       }
-      return { color: '#666F' }
+      return { color: inactiveColor }
     }
   }
   if (hoverIndex.value === -1) {
     if (model.value >= index + 1) {
       return { color: activeColor }
     }
-    return { color: '#666F' }
+    return { color: inactiveColor }
   }
   else {
-    return hoverIndex.value > index ? { color: activeColor } : { color: '#666F' }
+    return hoverIndex.value > index ? { color: activeColor } : { color: inactiveColor }
   }
 }
 function onPointerDown(index: number) {

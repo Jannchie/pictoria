@@ -33,7 +33,7 @@ const subFolders = computed(() => {
     <RouterLink
       v-for="f in subFolders"
       :key="f.value"
-      class="bg-surface-variant-1 text-xs px-3 py-2 rounded flex basis-[calc(10%-0.5rem)] gap-1 truncate items-center hover:bg-surface-variant-1 hover:bg-surface-variant-2"
+      class="bg-container text-xs px-3 py-2 rounded flex basis-[calc(10%-0.5rem)] gap-1 truncate transition-colors items-center hover:bg-elevated"
       :to="`/dir/${f.value}`"
     >
       <i class="i-tabler-folder shrink-0" />

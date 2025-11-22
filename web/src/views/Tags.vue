@@ -66,7 +66,7 @@ const tagGroupByFirstChar = computed(() => {
       >
         <template #default="{ item }">
           <div
-            class="py-3 border-b"
+            class="border-base py-3 border-b"
           >
             <div class="flex flex-col">
               <div class="mb-3 px-4 flex items-baseline">
@@ -84,7 +84,7 @@ const tagGroupByFirstChar = computed(() => {
                   class="mb-2 flex gap-2 items-center"
                 >
                   <template v-if="i === 20">
-                    <div class="text-surface-dimmed px-2 italic">
+                    <div class="text-dimmed px-2 italic">
                       ...
                     </div>
                   </template>
@@ -97,7 +97,7 @@ const tagGroupByFirstChar = computed(() => {
                       >
                         {{ tag.name }}
                       </PostTag>
-                      <span class="text-xs text-surface-dimmed">
+                      <span class="text-dimmed text-xs">
                         ({{ tag.count }})
                       </span>
                     </div>

@@ -319,7 +319,7 @@ const mainSectionRef = ref<HTMLElement>()
         </div>
       </div>
       <div v-else-if="isTextSearchActive && textSearchQueryResult.error.value">
-        <div class="text-red-400 p-16 text-center op-50 flex flex-col gap-2 items-center">
+        <div class="text-error p-16 text-center op-50 flex flex-col gap-2 items-center">
           <i class="i-tabler-alert-circle text-2xl" />
           <div class="text-sm">
             Failed to run text search. Please try again.

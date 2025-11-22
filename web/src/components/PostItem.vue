@@ -123,7 +123,7 @@ const primaryColor = computed(() => {
     if (dominantColor) {
       return labToRgbaString(dominantColor[0], dominantColor[1], dominantColor[2])
     }
-    return colorNumToHex([...post.value.colors].sort((a, b) => {
+    return colorNumToHex(post.value.colors.toSorted((a, b) => {
       return a.order - b.order
     })[0].color)
   }
@@ -151,7 +151,7 @@ function onContextmenu(e: MouseEvent) {
     <AspectRatio
       v-if="post.width && post.height"
       :ratio="post.width / post.height"
-      class="bg-surface-high rounded-lg bg-primary w-full"
+      class="bg-primary rounded-lg w-full"
       :style="{ backgroundColor: primaryColor !== 'primary' ? primaryColor : '' }"
     >
       <div class="post-content rounded-lg">
@@ -174,7 +174,7 @@ function onContextmenu(e: MouseEvent) {
     <AspectRatio
       v-else
       :ratio="1"
-      class="post-content rounded-lg bg-surface h-full w-full"
+      class="post-content bg-base rounded-lg h-full w-full"
     >
       <div class="p-12">
         <i
@@ -183,7 +183,7 @@ function onContextmenu(e: MouseEvent) {
         />
       </div>
     </AspectRatio>
-    <div class="text-zinc-4 text-xs text-center flex flex-col w-full">
+    <div class="text-default text-xs text-center flex flex-col w-full">
       <div class="text-xs w-full truncate">
         <div class="filename-wrapper px-1 rounded inline">
           {{ `${post.fileName}.${post.extension}` }}
@@ -201,10 +201,10 @@ function onContextmenu(e: MouseEvent) {
 
 <style lang="css" scoped>
 .selected .post-content {
-  outline: 4px solid var(--r-primary-background-color) !important;
+  outline: 4px solid rgb(var(--r-bg-primary)) !important;
 }
 .selected .filename-wrapper {
-  background-color: var(--r-primary-background-color) !important;
-  color: white !important;
+  background-color: rgb(var(--r-bg-primary)) !important;
+  color: rgb(var(--r-text-inverted)) !important;
 }
 </style>
