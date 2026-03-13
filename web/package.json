@@ -20,6 +20,7 @@
     "culori": "^4.0.2",
     "filesize": "^11.0.13",
     "splitpanes": "^4.0.4",
+    "thumbhash": "^0.1.1",
     "vue": "^3.5.24",
     "vue-router": "^4.6.3",
     "vue-wf": "^0.7.0"

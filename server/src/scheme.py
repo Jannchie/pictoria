@@ -79,6 +79,7 @@ class PostPublic(DTOBaseModel):
     colors: list[PostHasColorPublic]
     published_at: datetime | None
     dominant_color: list[float] | None
+    thumbhash: str | None
     waifu_score: WaifuScorePublic | None
 
 

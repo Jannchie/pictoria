@@ -2234,6 +2234,7 @@ dependencies = [
     { name = "rich" },
     { name = "scikit-image" },
     { name = "sqlalchemy" },
+    { name = "thumbhash" },
     { name = "torch" },
     { name = "torchvision" },
     { name = "transformers" },
@@ -2272,6 +2273,7 @@ requires-dist = [
     { name = "rich", specifier = ">=13.9.4" },
     { name = "scikit-image", specifier = ">=0.25.2" },
     { name = "sqlalchemy", specifier = ">=2.0.38" },
+    { name = "thumbhash", specifier = ">=0.1.2" },
     { name = "torch", specifier = ">=2.5.1", index = "https://download.pytorch.org/whl/cu124" },
     { name = "torchvision", specifier = ">=0.20.1", index = "https://download.pytorch.org/whl/cu124" },
     { name = "transformers", specifier = ">=4.46.3" },
@@ -3415,6 +3417,15 @@ dependencies = [
 sdist = { url = "https://files.pythonhosted.org/packages/ca/99/5a5b6f19ff9f083671ddf7b9632028436167cd3d33e11015754e41b249a4/sympy-1.13.1.tar.gz", hash = "sha256:9cebf7e04ff162015ce31c9c6c9144daa34a93bd082f54fd8f12deca4f47515f", size = 7533040, upload-time = "2024-07-19T09:26:51.238Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/b2/fe/81695a1aa331a842b582453b605175f419fe8540355886031328089d840a/sympy-1.13.1-py3-none-any.whl", hash = "sha256:db36cdc64bf61b9b24578b6f7bab1ecdd2452cf008f34faa33776680c26d66f8", size = 6189177, upload-time = "2024-07-19T09:26:48.863Z" },
+]
+
+[[package]]
+name = "thumbhash"
+version = "0.1.2"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/d1/17/fc026b10f448e25413e4cc692c9ca00cc8ef0e4022a1dd8d7b90761c9be9/thumbhash-0.1.2.tar.gz", hash = "sha256:ef4e6398f93f3b5ad480dc8e3a3b3a200813c86a8857fb069f8478be809f8247", size = 13766, upload-time = "2023-03-26T20:37:10.822Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/9a/64/0b5d39612708e892ca67934a0d98b2a2b06aabe8261be800b5db54f9702e/thumbhash-0.1.2-py3-none-any.whl", hash = "sha256:5dbddde2349c35c65d70af11637e9c89a97a2b5a134f3e14bcf2a5dd82522a22", size = 5112, upload-time = "2023-03-26T20:37:09.146Z" },
 ]
 
 [[package]]

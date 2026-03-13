@@ -174,6 +174,7 @@ class PostSimplePublic(DTOBaseModel):
     height: int
     aspect_ratio: float | None = None
     dominant_color: list[float] | None = None
+    thumbhash: str | None = None
     colors: list[PostHasColorPublic]
     sha256: str
 
@@ -193,6 +194,7 @@ class PostController(Controller):
             Post.height,
             Post.aspect_ratio,
             Post.dominant_color,
+            Post.thumbhash,
             Post.sha256,
         ),
     )

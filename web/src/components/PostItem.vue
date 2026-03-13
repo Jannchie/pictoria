@@ -1,7 +1,8 @@
 <script setup lang="ts">
 import type { PostSimplePublic } from '@/api'
 import { AspectRatio } from '@roku-ui/vue'
-import { computed } from 'vue'
+import { thumbHashToDataURL } from 'thumbhash'
+import { computed, ref } from 'vue'
 import { hideNSFW, selectedPostIdSet, selectingPostIdSet, unselectedPostIdSet } from '@/shared'
 import { getPostThumbnailURL } from '@/utils'
 import { colorNumToHex, labToRgbaString } from '@/utils/color'
@@ -130,6 +131,35 @@ const primaryColor = computed(() => {
   return 'primary'
 })
 
+const thumbhashDataUrl = computed(() => {
+  const hash = post.value.thumbhash
+  if (!hash) {
+    return null
+  }
+  try {
+    const bytes = Uint8Array.from(atob(hash), char => char.charCodeAt(0))
+    return thumbHashToDataURL(bytes)
+  }
+  catch (error) {
+    console.warn(`Failed to decode thumbhash for post ${post.value.id}:`, error)
+    return null
+  }
+})
+
+const placeholderStyle = computed(() => {
+  const backgroundColor = primaryColor.value !== 'primary' ? primaryColor.value : ''
+  if (thumbhashDataUrl.value) {
+    return {
+      backgroundImage: `url(${thumbhashDataUrl.value})`,
+      backgroundSize: 'cover',
+      backgroundPosition: 'center',
+      backgroundRepeat: 'no-repeat',
+      backgroundColor,
+    }
+  }
+  return backgroundColor ? { backgroundColor } : {}
+})
+
 function onContextmenu(e: MouseEvent) {
   e.preventDefault()
   // if shift key is pressed, select or unselect this post
@@ -152,9 +182,11 @@ function onContextmenu(e: MouseEvent) {
       v-if="post.width && post.height"
       :ratio="post.width / post.height"
       class="bg-primary rounded-lg w-full"
-      :style="{ backgroundColor: primaryColor !== 'primary' ? primaryColor : '' }"
     >
-      <div class="post-content rounded-lg">
+      <div
+        class="post-content rounded-lg"
+        :style="placeholderStyle"
+      >
         <Transition
           enter-active-class="transition-opacity duration-300"
           enter-from-class="opacity-0"

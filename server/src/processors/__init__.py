@@ -6,7 +6,7 @@ import numpy as np
 from PIL import Image
 from rich.progress import Progress
 from skimage import color  # 使用 scikit-image 库
-from sqlalchemy import select
+from sqlalchemy import or_, select
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -20,6 +20,7 @@ from utils import (
     async_session,
     attach_tags_to_post,
     calculate_sha256,
+    calculate_thumbhash,
     compute_image_properties,
     find_files_in_directory,
     from_rating_to_int,
@@ -61,7 +62,13 @@ async def process_posts(session: AsyncSession, *, all_posts: bool = False):
         all (bool, optional): Process all posts or only those without an SHA256 hash. Defaults to False.
     """
     target_dir = shared.target_dir
-    posts = (await session.scalars(select(Post))).all() if all_posts else (await session.scalars(select(Post).where(Post.sha256 == ""))).all()
+    needs_processing_stmt = select(Post)
+    if not all_posts:
+        needs_processing_stmt = needs_processing_stmt.where(
+            or_(Post.sha256 == "", Post.thumbhash.is_(None), Post.thumbhash == ""),  # type: ignore[comparison-overlap]
+        )
+
+    posts = (await session.scalars(needs_processing_stmt)).all()
     with Progress(console=shared.console) as progress:
         if not posts:
             logger.info("No posts to process")
@@ -84,10 +91,13 @@ async def process_post(session: AsyncSession, file_abs_path: Path | None = None)
     if post is None:
         logger.info(f"Post not found in database: {file_abs_path}")
         return
-    if post.sha256:
+    needs_sha256 = not post.sha256
+    needs_thumbhash = not post.thumbhash
+    if not needs_sha256 and not needs_thumbhash:
         logger.info(f"Skipping post: {file_abs_path}")
         return
     file_data = None
+    thumbhash_value: str | None = None
     try:
         if file_abs_path is None:
             file_abs_path = shared.target_dir / post.file_path / post.file_name
@@ -104,12 +114,15 @@ async def process_post(session: AsyncSession, file_abs_path: Path | None = None)
             return
         logger.info(f"Processing post: {file_abs_path}")
         with file_abs_path.open("rb") as file:
-            file_data = file.read()
-            file.seek(0)  # 重置文件指针位置
+            if needs_sha256:
+                file_data = file.read()
+                file.seek(0)  # 重置文件指针位置
             with Image.open(file) as img:
                 compute_image_properties(img, post, file_abs_path)
             file.seek(0)
             set_post_colors(post, file)
+        if needs_thumbhash:
+            thumbhash_value = calculate_thumbhash(file_abs_path)
     except Exception as e:
         if file_data and file_abs_path:
             file_abs_path.unlink()
@@ -118,33 +131,35 @@ async def process_post(session: AsyncSession, file_abs_path: Path | None = None)
         await session.rollback()
         return
 
-    if file_data:
+    if file_data and needs_sha256:
         post.sha256 = calculate_sha256(file_data)
         post.size = file_abs_path.stat().st_size
+    if needs_thumbhash and thumbhash_value:
+        post.thumbhash = thumbhash_value
     session.add(post)
 
-    # calculate features
-    features = await asyncio.to_thread(calculate_image_features, file_abs_path)
-    embedding = features.cpu().numpy()[0]
-    # session.add(PostVector(post_id=post.id, embedding=features.cpu().numpy()[0]))
-    await session.execute(
-        insert(PostVector)
-        .values(post_id=post.id, embedding=embedding)
-        .on_conflict_do_update(
-            index_elements=["post_id"],
-            set_={
-                "embedding": embedding,
-            },
-        ),
-    )
-    # calculate tags
-    tagger = get_tagger()
-    resp = tagger.tag(file_abs_path)
-    logger.debug(resp)
-    if post.rating == 0:
-        post.rating = from_rating_to_int(resp.rating)
-    await attach_tags_to_post(session, post, resp, is_auto=True)
-    await session.flush()
+    if needs_sha256:
+        # calculate features
+        features = await asyncio.to_thread(calculate_image_features, file_abs_path)
+        embedding = features.cpu().numpy()[0]
+        await session.execute(
+            insert(PostVector)
+            .values(post_id=post.id, embedding=embedding)
+            .on_conflict_do_update(
+                index_elements=["post_id"],
+                set_={
+                    "embedding": embedding,
+                },
+            ),
+        )
+        # calculate tags
+        tagger = get_tagger()
+        resp = tagger.tag(file_abs_path)
+        logger.debug(resp)
+        if post.rating == 0:
+            post.rating = from_rating_to_int(resp.rating)
+        await attach_tags_to_post(session, post, resp, is_auto=True)
+        await session.flush()
 
 
 def rgb_to_lab_skimage(rgb_tuple: tuple[int, int, int]):

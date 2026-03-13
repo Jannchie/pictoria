@@ -74,6 +74,7 @@ export type PostDetailPublic = {
     colors: Array<PostHasColorPublic>;
     publishedAt?: string | null;
     dominantColor?: Array<number> | null;
+    thumbhash?: string | null;
     waifuScore?: WaifuScorePublic | null;
     tags: Array<PostHasTagPublic>;
 };
@@ -191,6 +192,7 @@ export type PostSimplePublic = {
     height: number;
     aspectRatio?: number | null;
     dominantColor?: Array<number> | null;
+    thumbhash?: string | null;
     colors: Array<PostHasColorPublic>;
     sha256: string;
 };

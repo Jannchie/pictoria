@@ -121,6 +121,7 @@ class Post(BaseWithTime):
     source: Mapped[str] = mapped_column(String, nullable=False, default="", server_default="", index=True)
     caption: Mapped[str] = mapped_column(String, nullable=False, default="", server_default="")
     dominant_color: Mapped[np.ndarray | None] = mapped_column("dominant_color", Vector(3), nullable=True, default=None)
+    thumbhash: Mapped[str | None] = mapped_column(String, nullable=True, default=None)
     tags: Mapped[list["PostHasTag"]] = relationship(default_factory=list, lazy="selectin")
     colors: Mapped[list["PostHasColor"]] = relationship(default_factory=list, lazy="selectin")
     waifu_score: Mapped[PostWaifuScore | None] = relationship(default=None, lazy="selectin")
@@ -134,7 +135,7 @@ class Post(BaseWithTime):
         return shared.thumbnails_dir / self.full_path
 
     def rotate(self, *, clockwise: bool = True) -> None:
-        from utils import calculate_sha256, create_thumbnail_by_image
+        from utils import calculate_sha256, calculate_thumbhash, create_thumbnail_by_image
 
         image = Image.open(self.absolute_path)
         image = image.rotate(-90 if clockwise else 90, expand=True)
@@ -142,6 +143,8 @@ class Post(BaseWithTime):
         create_thumbnail_by_image(image, self.thumbnail_path)
         file_data = image.tobytes()
         self.sha256 = calculate_sha256(file_data)
+        if new_thumbhash := calculate_thumbhash(self.absolute_path):
+            self.thumbhash = new_thumbhash
         self.width, self.height = image.size
 
     def move(self, session: Session, new_path: str) -> None:

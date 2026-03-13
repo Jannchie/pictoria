@@ -1,4 +1,5 @@
 import argparse
+import base64
 import hashlib
 import os
 import sys
@@ -12,6 +13,7 @@ from typing import Any, TypeVar
 import wdtagger
 from dotenv import load_dotenv
 from PIL import Image
+import thumbhash
 from sqlalchemy import create_engine, select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 from sqlalchemy.orm import Session, sessionmaker
@@ -168,6 +170,15 @@ def calculate_sha256(file: bytes) -> str:
     sha256 = hashlib.sha256()
     sha256.update(file)
     return sha256.hexdigest()
+
+
+def calculate_thumbhash(file_path: Path) -> str | None:
+    try:
+        thumb_hash = thumbhash.image_to_thumb_hash(file_path)
+        return base64.b64encode(bytes(thumb_hash)).decode("ascii")
+    except Exception as exc:  # noqa: BLE001
+        logger.warning(f"Failed to generate thumbhash for {file_path}: {exc}")
+        return None
 
 
 def create_thumbnail(input_image_path: Path, output_image_path: Path, max_width: int = 400):
