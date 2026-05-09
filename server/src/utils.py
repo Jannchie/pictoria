@@ -113,7 +113,7 @@ def init_thumbnails_directory():
 @cache
 def get_engine():
     db_url = os.environ.get("DB_URL", "")
-    return create_engine(db_url, echo=False, pool_size=100, max_overflow=200)
+    return create_engine(db_url, echo=False, pool_size=10, max_overflow=20, pool_timeout=30)
 
 
 def get_session():
@@ -125,7 +125,7 @@ def get_session():
 @cache
 def get_async_engine():
     db_url = os.environ.get("DB_URL", "")
-    return create_async_engine(db_url, echo=False, pool_size=100, max_overflow=200)
+    return create_async_engine(db_url, echo=False, pool_size=10, max_overflow=20, pool_timeout=30)
 
 
 async def async_session():

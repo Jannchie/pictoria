@@ -58,14 +58,14 @@ MySession = async_sessionmaker(expire_on_commit=False)
 
 async def provide_async_transaction(state: State) -> AsyncGenerator[AsyncSession, None]:
     async with MySession(bind=state.engine) as session:
-        try:
-            async with session.begin():
+        async with session.begin():
+            try:
                 yield session
-        except IntegrityError as e:
-            raise ClientException(
-                status_code=HTTP_409_CONFLICT,
-                detail=str(e),
-            ) from e
+            except IntegrityError as e:
+                raise ClientException(
+                    status_code=HTTP_409_CONFLICT,
+                    detail=str(e),
+                ) from e
 
 
 async def provide_async_session(state: State) -> AsyncGenerator[AsyncSession, None]:
@@ -77,9 +77,6 @@ async def provide_async_session(state: State) -> AsyncGenerator[AsyncSession, No
                 status_code=HTTP_409_CONFLICT,
                 detail=str(e),
             ) from e
-        finally:
-            await session.commit()
-            await session.close()
 
 
 @asynccontextmanager
@@ -87,7 +84,7 @@ async def db_connection(app: Litestar) -> AsyncGenerator[None, None]:
     engine = getattr(app.state, "engine", None)
     if engine is None:
         db_url = os.environ.get("DB_URL", "")
-        engine = create_async_engine(db_url, echo=False, pool_size=100, max_overflow=200)
+        engine = create_async_engine(db_url, echo=False, pool_size=20, max_overflow=30, pool_timeout=30)
         app.state.engine = engine
 
         # 设置慢查询日志，可以通过环境变量配置阈值
