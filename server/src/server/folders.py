@@ -1,3 +1,4 @@
+import asyncio
 import os
 import pathlib
 from typing import ClassVar
@@ -57,4 +58,4 @@ class FoldersController(Controller):
         if not target_path.is_dir():
             raise HTTPException(status_code=400, detail="Path is not a directory")
 
-        return get_directory_summary(target_path)
+        return await asyncio.to_thread(get_directory_summary, target_path)

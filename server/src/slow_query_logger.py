@@ -3,7 +3,6 @@ from typing import Any
 
 from sqlalchemy import event
 from sqlalchemy.engine import Engine
-from sqlalchemy.pool import Pool
 
 from utils import logger
 
@@ -26,9 +25,6 @@ class SlowQueryLogger:
         event.listen(self.engine, "before_cursor_execute", self._before_cursor_execute)
         # 监听查询结束事件
         event.listen(self.engine, "after_cursor_execute", self._after_cursor_execute)
-        # 监听连接池事件（可选）
-        event.listen(Pool, "connect", self._on_connect)
-        event.listen(Pool, "checkout", self._on_checkout)
 
     def _before_cursor_execute(  # noqa: PLR0913
         self,
@@ -80,13 +76,6 @@ class SlowQueryLogger:
                         f"[VERY SLOW QUERY] Duration: {duration_ms:.2f}ms | "
                         f"This query took more than 1 second!",
                     )
-
-    def _on_connect(self, dbapi_conn: Any, connection_record: Any) -> None:  # noqa: ARG002
-        """连接建立时的回调(可选)"""
-        logger.debug("Database connection established")
-
-    def _on_checkout(self, dbapi_conn: Any, connection_record: Any, connection_proxy: Any) -> None:
-        """从连接池获取连接时的回调(可选)"""
 
     def set_threshold(self, threshold_ms: float) -> None:
         """动态设置慢查询阈值"""

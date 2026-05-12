@@ -14,9 +14,9 @@ from litestar.params import Body
 from litestar.status_codes import HTTP_409_CONFLICT
 from msgspec import Meta, Struct
 from pydantic import BaseModel, ConfigDict
-from sqlalchemy import Select, delete, func, nulls_last, select, text
+from sqlalchemy import Select, and_, delete, exists, func, nulls_last, select, text, update
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy.orm import InstrumentedAttribute, load_only
+from sqlalchemy.orm import InstrumentedAttribute, load_only, noload
 
 import shared
 from models import Post, PostHasTag, PostWaifuScore
@@ -115,7 +115,11 @@ def apply_body_filter(filter: PostFilter, stmt: Select) -> Select:  # noqa: A002
     if filter.score:
         stmt = stmt.filter(Post.score.in_(filter.score))
     if filter.tags:
-        stmt = stmt.join(Post.tags).filter(PostHasTag.tag_name.in_(filter.tags))
+        stmt = stmt.filter(
+            exists().where(
+                and_(PostHasTag.post_id == Post.id, PostHasTag.tag_name.in_(filter.tags)),
+            ),
+        )
     if filter.extension:
         stmt = stmt.filter(Post.extension.in_(filter.extension))
     if filter.folder and filter.folder != ".":
@@ -197,12 +201,12 @@ class PostController(Controller):
             Post.thumbhash,
             Post.sha256,
         ),
+        noload(Post.tags),
+        noload(Post.waifu_score),
     )
 
     @litestar.post("/search", status_code=200, description="Search for posts by filters.")
     async def search_posts(self, session: AsyncSession, data: PostFilterWithOrder, limit: int = 100, offset: int = 0) -> list[PostSimplePublic]:
-        await session.execute(text("SELECT setseed(0.47)"))
-
         if data.lab:
             l, a, b = data.lab  # noqa: E741
             lab_vec = [l, a, b]
@@ -214,6 +218,7 @@ class PostController(Controller):
         if data.order_by:
             order_column: MappedColumn = getattr(Post, data.order_by)
             if data.order == "random":
+                await session.execute(text("SELECT setseed(0.47)"))
                 stmt = stmt.order_by(func.random())
             elif data.order == "asc":
                 stmt = stmt.order_by(order_column.asc().nullslast())
@@ -420,13 +425,9 @@ class PostController(Controller):
         if not 0 <= score <= max_score:
             msg = f"Score must be between 0 and 5, got {score}."
             raise HTTPException(detail=msg, status_code=HTTP_409_CONFLICT)
-
-        for post_id in ids:
-            p = await session.get(Post, post_id)
-            if p:
-                p.score = score
-                session.add(p)
-
+        if not ids:
+            return
+        await session.execute(update(Post).where(Post.id.in_(ids)).values(score=score))
         await session.commit()
 
     @litestar.put("/bulk/rating")
@@ -436,13 +437,9 @@ class PostController(Controller):
         if not 0 <= rating <= max_rating:
             msg = f"Rating must be between 0 and 4, got {rating}."
             raise HTTPException(detail=msg, status_code=HTTP_409_CONFLICT)
-
-        for post_id in ids:
-            p = await session.get(Post, post_id)
-            if p:
-                p.rating = rating
-                session.add(p)
-
+        if not ids:
+            return
+        await session.execute(update(Post).where(Post.id.in_(ids)).values(rating=rating))
         await session.commit()
 
     async def _count_by_column(self, session: AsyncSession, data: PostFilter, column: InstrumentedAttribute, result_class: type) -> list:
@@ -476,7 +473,7 @@ class PostController(Controller):
             }
             if data.url and "pximg.net" in data.url:
                 headers["referer"] = "https://www.pixiv.net/"
-            with httpx.AsyncClient() as client:
+            async with httpx.AsyncClient() as client:
                 resp = await client.get(data.url, headers=headers)
 
             file_io = io.BytesIO(resp.content)

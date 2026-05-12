@@ -1,3 +1,4 @@
+import asyncio
 import mimetypes
 from typing import ClassVar
 
@@ -71,7 +72,7 @@ class ImageController(Controller):
         if not original_file_path.exists():
             raise NotFoundException(detail="Original image not found")
         if not thumbnail_file_path.exists():
-            create_thumbnail(original_file_path, thumbnail_file_path)
+            await asyncio.to_thread(create_thumbnail, original_file_path, thumbnail_file_path)
         media_type, _ = mimetypes.guess_type(thumbnail_file_path)
         return File(thumbnail_file_path, media_type=media_type, filename=thumbnail_file_path.name, content_disposition_type="inline")
 
@@ -124,7 +125,7 @@ class ImageController(Controller):
             raise NotFoundException(detail=f"Original image for post {post_id} not found")
 
         if not thumbnail_file_path.exists():
-            create_thumbnail(original_file_path, thumbnail_file_path)
+            await asyncio.to_thread(create_thumbnail, original_file_path, thumbnail_file_path)
 
         media_type, _ = mimetypes.guess_type(thumbnail_file_path)
         return File(thumbnail_file_path, media_type=media_type, filename=thumbnail_file_path.name, content_disposition_type="inline")

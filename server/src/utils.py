@@ -284,33 +284,34 @@ def from_rating_to_int(rating: str) -> int:
     return 0
 
 
-tag_groups = {
-    "general": {"names": [], "color": "#006192"},
-    "character": {"names": [], "color": "#8243ca"},
-    "artist": {"names": [], "color": "#f30000"},
-    "copyright": {"names": [], "color": "#00b300"},
+TAG_GROUP_COLORS: dict[str, str] = {
+    "general": "#006192",
+    "character": "#8243ca",
+    "artist": "#f30000",
+    "copyright": "#00b300",
 }
 
 
 async def attach_tags_to_posts(session: AsyncSession, post: list[Post], resp: list[wdtagger.Result], *, is_auto: bool = False):
     # Bulk process all posts and responses together for better efficiency
-    all_tag_names = set()
-    # Collect all tags from all responses
+    all_tag_names: set[str] = set()
+    general_names: set[str] = set()
+    character_names: set[str] = set()
     for result in resp:
         all_tag_names.update(result.general_tags)
         all_tag_names.update(result.character_tags)
-        tag_groups["general"]["names"].extend(result.general_tags)
-        tag_groups["character"]["names"].extend(result.character_tags)
+        general_names.update(result.general_tags)
+        character_names.update(result.character_tags)
 
     # Fetch all tag groups in a single query
-    group_names = list(tag_groups.keys())
+    group_names = list(TAG_GROUP_COLORS.keys())
     existing_groups = (await session.scalars(select(TagGroup).where(TagGroup.name.in_(group_names)))).all()
     existing_group_dict = {group.name: group for group in existing_groups}
 
     # Create missing groups
-    for tag_group_name, group_info in tag_groups.items():
+    for tag_group_name, color in TAG_GROUP_COLORS.items():
         if tag_group_name not in existing_group_dict:
-            tag_group = TagGroup(name=tag_group_name, color=group_info["color"])
+            tag_group = TagGroup(name=tag_group_name, color=color)
             session.add(tag_group)
             existing_group_dict[tag_group_name] = tag_group
 
@@ -326,7 +327,7 @@ async def attach_tags_to_posts(session: AsyncSession, post: list[Post], resp: li
     post_tag_map = {(pt.post_id, pt.tag_name): pt for pt in existing_post_tags}
 
     # Process tags and create any missing tags
-    upsert_tags(session, all_tag_names, existing_group_dict, existing_tag_dict)
+    upsert_tags(session, all_tag_names, general_names, character_names, existing_group_dict, existing_tag_dict)
 
     # Link tags to posts
     for p, r in zip(post, resp, strict=False):
@@ -337,11 +338,18 @@ async def attach_tags_to_posts(session: AsyncSession, post: list[Post], resp: li
         session.add(p)
 
 
-def upsert_tags(session: AsyncSession, all_tag_names: set[str], existing_group_dict: dict[str, TagGroup], existing_tag_dict: dict[str, Tag]):
+def upsert_tags(  # noqa: PLR0913
+    session: AsyncSession,
+    all_tag_names: set[str],
+    general_names: set[str],
+    character_names: set[str],
+    existing_group_dict: dict[str, TagGroup],
+    existing_tag_dict: dict[str, Tag],
+):
     for tag_name in all_tag_names:
-        if tag_name in tag_groups["general"]["names"]:
+        if tag_name in general_names:
             group_name = "general"
-        elif tag_name in tag_groups["character"]["names"]:
+        elif tag_name in character_names:
             group_name = "character"
         else:
             continue  # Skip if not in any group
