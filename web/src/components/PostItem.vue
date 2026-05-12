@@ -137,7 +137,7 @@ const thumbhashDataUrl = computed(() => {
     return null
   }
   try {
-    const bytes = Uint8Array.from(atob(hash), char => char.charCodeAt(0))
+    const bytes = Uint8Array.from(atob(hash), char => char.codePointAt(0) ?? 0)
     return thumbHashToDataURL(bytes)
   }
   catch (error) {
@@ -147,7 +147,7 @@ const thumbhashDataUrl = computed(() => {
 })
 
 const placeholderStyle = computed(() => {
-  const backgroundColor = primaryColor.value !== 'primary' ? primaryColor.value : ''
+  const backgroundColor = primaryColor.value === 'primary' ? '' : primaryColor.value
   if (thumbhashDataUrl.value) {
     return {
       backgroundImage: `url(${thumbhashDataUrl.value})`,

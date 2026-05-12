@@ -1,26 +1,29 @@
 import asyncio
 import os
-from datetime import UTC, datetime
 from typing import ClassVar
 
 import litestar
 from litestar import Controller
 from litestar.exceptions import HTTPException, NotFoundException
-from sqlalchemy import select
-from sqlalchemy.dialects.postgresql import insert
-from sqlalchemy.ext.asyncio import AsyncSession
 
 import shared
 from ai.make_captions import OpenAIImageAnnotator
 from ai.waifu_scorer import get_waifu_scorer
 from danbooru import DanbooruClient
-from models import Post, PostHasTag, PostVector, PostWaifuScore, Tag, TagGroup
-from processors import process_posts
+from db.repositories.posts import PostRepo
+from db.repositories.tags import TagGroupRepo
+from db.repositories.vectors import VectorRepo
 from scheme import PostDetailPublic, Result
 from server.utils import is_image
-from server.utils.vec import get_img_vec
+from server.utils.vec import get_image_vec
 from services.waifu import waifu_score_all_posts
-from utils import attach_tags_to_post, from_rating_to_int, get_tagger, logger
+from utils import (
+    TAG_GROUP_COLORS,
+    attach_wdtagger_results,
+    from_rating_to_int,
+    get_tagger,
+    logger,
+)
 
 
 class CommandController(Controller):
@@ -28,183 +31,184 @@ class CommandController(Controller):
     tags: ClassVar[list[str]] = ["Commands"]
 
     @litestar.put("/auto-caption/{post_id:int}")
-    async def auto_caption(self, session: AsyncSession, post_id: int) -> PostDetailPublic:
-        post: Post = await session.get(Post, post_id)
-        if shared.openai_key is None:
-            raise HTTPException(status_code=400, detail="OpenAI API key is not set")
-
-        if shared.caption_annotator is None:
-            shared.caption_annotator = OpenAIImageAnnotator(shared.openai_key)
-
-        post.caption = shared.caption_annotator.annotate_image(post.absolute_path)
-        session.add(post)
-        await session.commit()
-        await session.refresh(post)
-        return PostDetailPublic.model_validate(post)
-
-    @litestar.put("/auto-tags/{post_id:int}", description="Auto tag a post")
-    async def auto_tags(self, post_id: int, session: AsyncSession) -> PostDetailPublic:
-        post = await session.get(Post, post_id)
+    async def auto_caption(self, posts: PostRepo, post_id: int) -> PostDetailPublic:
+        post = await posts.get(post_id)
         if post is None:
             msg = f"Post with ID {post_id} not found."
             raise NotFoundException(msg)
-        abs_path = post.absolute_path
+        if shared.openai_key is None:
+            raise HTTPException(status_code=400, detail="OpenAI API key is not set")
+        if shared.caption_annotator is None:
+            shared.caption_annotator = OpenAIImageAnnotator(shared.openai_key)
+
+        caption = await asyncio.to_thread(shared.caption_annotator.annotate_image, post.absolute_path)
+        await posts.update_field(post_id, "caption", caption)
+        return PostDetailPublic.model_validate(await posts.get_detail(post_id))
+
+    @litestar.put("/auto-tags/{post_id:int}", description="Auto tag a post")
+    async def auto_tags(
+        self,
+        posts: PostRepo,
+        tag_group_repo: TagGroupRepo,
+        post_id: int,
+    ) -> PostDetailPublic:
+        post = await posts.get(post_id)
+        if post is None:
+            msg = f"Post with ID {post_id} not found."
+            raise NotFoundException(msg)
+
         tagger = get_tagger()
-        resp = tagger.tag(abs_path)
-        post.rating = from_rating_to_int(resp.rating)
-        await attach_tags_to_post(session, post, resp, is_auto=True)
-        session.add(post)
-        await session.flush()
-        await session.refresh(post)
-        return PostDetailPublic.model_validate(post)
+        resp = await asyncio.to_thread(tagger.tag, post.absolute_path)
+        await posts.update_field(post_id, "rating", from_rating_to_int(resp.rating))
+        await attach_wdtagger_results(posts, tag_group_repo, post_id, resp, is_auto=True)
+        return PostDetailPublic.model_validate(await posts.get_detail(post_id))
 
     @litestar.put("/auto-tags")
-    async def auto_tags_all(self, session: AsyncSession) -> None:
+    async def auto_tags_all(self, posts: PostRepo, tag_group_repo: TagGroupRepo) -> None:
+        """Batch auto-tag every post that hasn't been rated yet."""
         batch_size = 32
         tagger = get_tagger()
         last_id = 0
 
         while True:
-            query = select(Post).where(Post.rating == 0, Post.id > last_id).order_by(Post.id).limit(batch_size)
-            posts = (await session.scalars(query)).all()
+            def _next_batch(_last_id: int = last_id) -> list[dict]:
+                posts.cur.execute(
+                    "SELECT id, file_path, file_name, extension FROM posts "
+                    "WHERE rating = 0 AND id > ? ORDER BY id LIMIT ?",
+                    [_last_id, batch_size],
+                )
+                cols = ["id", "file_path", "file_name", "extension"]
+                return [dict(zip(cols, r, strict=True)) for r in posts.cur.fetchall()]
 
-            # Exit loop when no more posts are found
-            if not posts:
+            batch = await asyncio.to_thread(_next_batch)
+            if not batch:
                 break
-
-            if valid_posts := [post for post in posts if is_image(post.absolute_path) and post.rating == 0]:
+            for row in batch:
+                abs_path = shared.target_dir / row["file_path"] / f"{row['file_name']}.{row['extension']}"
+                if not is_image(abs_path):
+                    continue
                 try:
-                    await self.process_tag_batch(session, tagger, valid_posts)
-                except Exception as e:
-                    logger.error(f"Error processing batch starting with post {valid_posts[0].id}: {e}")
-            last_id = posts[-1].id
+                    resp = await asyncio.to_thread(tagger.tag, abs_path)
+                    await posts.update_field(row["id"], "rating", from_rating_to_int(resp.rating))
+                    await attach_wdtagger_results(posts, tag_group_repo, row["id"], resp, is_auto=True)
+                except Exception:
+                    logger.exception(f"Failed to tag post {row['id']}")
+            last_id = batch[-1]["id"]
             logger.info(f"Processed batch up to ID: {last_id}")
 
     @litestar.put("/waifu-scorer")
-    async def auto_waifu_scorer(self, session: AsyncSession) -> None:
-        """
-        Use Waifu Scorer to tag posts with a rating of 0.
-        """
-        await session.run_sync(waifu_score_all_posts)
+    async def auto_waifu_scorer(self, posts: PostRepo) -> None:
+        """Batch-score all posts that don't have a waifu score."""
+        await waifu_score_all_posts(posts)
 
     @litestar.get("/waifu-scorer/{post_id:int}")
-    async def get_waifu_scorer(self, post_id: int, session: AsyncSession) -> float:
-        """
-        Get Waifu Scorer result for a post.
-        """
-        post = await session.get(Post, post_id)
-        waifu_scorer = get_waifu_scorer()
+    async def get_waifu_scorer_one(self, posts: PostRepo, post_id: int) -> float:
+        """Compute (and persist) the waifu score for a single post."""
+        post = await posts.get(post_id)
         if post is None:
             msg = f"Post with ID {post_id} not found."
             raise NotFoundException(msg)
         if not is_image(post.absolute_path):
-            msg = f"Post {post_id} is not an image."
-            raise HTTPException(status_code=400, detail=msg)
-        if post.waifu_score is None:
-            score = waifu_scorer(post.absolute_path)
-            post.waifu_score = PostWaifuScore(post_id=post.id, score=score[0])
-            session.add(post)
-            await session.commit()
-            return score[0]
-        return 0.0
+            raise HTTPException(status_code=400, detail=f"Post {post_id} is not an image.")
+        existing = await posts.get_waifu_score(post_id)
+        if existing is not None:
+            return existing
+        scorer = get_waifu_scorer()
+        result = await asyncio.to_thread(scorer, post.absolute_path)
+        score = float(result[0]) if isinstance(result, (list, tuple)) else float(result)
+        await posts.upsert_waifu_score(post_id, score)
+        return score
 
-    @litestar.post("/posts/embedding", description="Calculate embedding for all posts")
-    async def calculate_embedding(self, session: AsyncSession) -> Result:
-        stmt = select(Post).join(PostVector).where(PostVector.embedding.is_(None))
-        posts = (await session.scalars(stmt)).all()
-        if not posts:
+    @litestar.post("/posts/embedding", description="Calculate embedding for posts that don't have one yet")
+    async def calculate_embedding(
+        self,
+        posts: PostRepo,
+        vectors: VectorRepo,
+    ) -> Result:
+        ids = await vectors.list_missing_post_ids()
+        if not ids:
             return Result(msg="Embedding already calculated.")
-        for post in posts:
-            logger.info("Calculating embedding for post ID: %s", post.id)
-            vector = await get_img_vec(session, post)
-            post_vector = PostVector(post_id=post.id, vector=vector)
-            session.add(post_vector)
-            await session.commit()
-        return Result(msg=f"Calculated embedding for {len(posts)} posts.")
+        done = 0
+        for pid in ids:
+            post = await posts.get(pid)
+            if not post or not is_image(post.absolute_path):
+                continue
+            try:
+                emb = await get_image_vec(post.absolute_path)
+                await vectors.upsert(pid, emb)
+                done += 1
+            except Exception:
+                logger.exception(f"Failed to calculate embedding for post {pid}")
+        return Result(msg=f"Calculated embedding for {done} posts.")
 
     @litestar.post("/download-from-danbooru", description="Download posts from Danbooru")
-    async def download_from_danbooru(self, session: AsyncSession, tags: str) -> None:
-        """
-        Download posts from https://danbooru.donmai.us/ and save them to the database.
-        """
+    async def download_from_danbooru(
+        self,
+        posts: PostRepo,
+        tag_group_repo: TagGroupRepo,
+        tags: str,
+    ) -> None:
+        """Download posts from Danbooru and persist them."""
         client = DanbooruClient(os.getenv("DANBOORU_API_KEY", ""), os.getenv("DANBOORU_USER_NAME", ""))
         danbooru_dir = shared.target_dir / "danbooru"
         save_dir = danbooru_dir / tags
         posts_orig = client.get_posts(tags=tags, limit=99999)
-        posts = [post for post in posts_orig if post.file_url]
-        logger.info(f"Fetched {len(posts)} available posts ({len(posts_orig)} total)")
-        type_to_group_id = await self.fetch_tag_group_ids(session)
-        types = type_to_group_id.keys()
-        posts = [
-            post for post in posts if post.file_ext and post.file_ext.lower() in {"jpg", "jpeg", "png", "gif", "webp", "avif", "bmp", "tiff", "tif", "svg"}
+        posts_with_url = [p for p in posts_orig if p.file_url]
+        logger.info(f"Fetched {len(posts_with_url)} available posts ({len(posts_orig)} total)")
+
+        # ensure canonical tag groups exist
+        type_to_group_id = await _fetch_or_create_canonical_groups(tag_group_repo)
+        types = list(type_to_group_id.keys())
+
+        filtered = [
+            p for p in posts_with_url
+            if p.file_ext and p.file_ext.lower()
+            in {"jpg", "jpeg", "png", "gif", "webp", "avif", "bmp", "tiff", "tif", "svg"}
         ]
-        for post in posts:
-            if not post.file_url:
+        for d_post in filtered:
+            if not d_post.file_url:
                 continue
-            now = datetime.now(UTC)
             file_path = save_dir.relative_to(shared.target_dir).as_posix()
             if not save_dir.exists():
                 save_dir.mkdir(parents=True, exist_ok=True)
-            resp = await session.execute(
-                insert(Post)
-                .values(
-                    {
-                        "file_path": file_path,
-                        "file_name": str(post.id),
-                        "extension": post.file_ext,
-                        "source": f"https://danbooru.donmai.us/posts/{post.id}",
-                        "rating": from_rating_to_int(post.rating),
-                        "updated_at": now,
-                        "created_at": now,
-                        "published_at": post.created_at,
-                    },
-                )
-                .on_conflict_do_update(
-                    index_elements=["file_path", "file_name", "extension"],
-                    set_={
-                        "published_at": post.created_at,
-                        "source": f"https://danbooru.donmai.us/posts/{post.id}",
-                    },
-                )
-                .returning(Post.id),
+            post_id = await posts.upsert_from_danbooru(
+                file_path=file_path,
+                file_name=str(d_post.id),
+                extension=d_post.file_ext,
+                source=f"https://danbooru.donmai.us/posts/{d_post.id}",
+                rating=from_rating_to_int(d_post.rating),
+                published_at=d_post.created_at,
             )
-            post_id = resp.scalar()
             if post_id is None:
                 continue
             for t in types:
-                for tag_str in getattr(post, f"tag_string_{t}").split(" "):
-                    await session.execute(
-                        insert(Tag)
-                        .values(
-                            {
-                                "name": tag_str,
-                                "group_id": type_to_group_id[t],
-                            },
-                        )
-                        .on_conflict_do_nothing(),
-                    )
-                    await session.execute(
-                        insert(PostHasTag)
-                        .values(
-                            {
-                                "post_id": post_id,
-                                "tag_name": tag_str,
-                                "is_auto": False,
-                            },
-                        )
-                        .on_conflict_do_nothing(),
-                    )
-        await asyncio.to_thread(client.download_posts, posts, save_dir)
-        await process_posts(session=session)
+                for tag_str in getattr(d_post, f"tag_string_{t}").split(" "):
+                    if not tag_str:
+                        continue
 
-    async def fetch_tag_group_ids(self, session: AsyncSession) -> dict[str, int]:
-        general_group_id = (await session.scalar(select(TagGroup).filter(TagGroup.name == "general"))).id
-        character_group_id = (await session.scalar(select(TagGroup).filter(TagGroup.name == "character"))).id
-        artist_group_id = (await session.scalar(select(TagGroup).filter(TagGroup.name == "artist"))).id
-        meta_group_id = (await session.scalar(select(TagGroup).filter(TagGroup.name == "meta"))).id
-        return {
-            "general": general_group_id,
-            "character": character_group_id,
-            "artist": artist_group_id,
-            "meta": meta_group_id,
-        }
+                    def _insert_tag_and_link(_t: str = tag_str, _gid: int = type_to_group_id[t], _pid: int = post_id) -> None:
+                        cur = posts.cur
+                        cur.execute(
+                            "INSERT INTO tags(name, group_id) VALUES (?, ?) ON CONFLICT DO NOTHING",
+                            [_t, _gid],
+                        )
+                        cur.execute(
+                            "INSERT INTO post_has_tag(post_id, tag_name, is_auto) VALUES (?, ?, FALSE) "
+                            "ON CONFLICT DO NOTHING",
+                            [_pid, _t],
+                        )
+
+                    await asyncio.to_thread(_insert_tag_and_link)
+
+        await asyncio.to_thread(client.download_posts, filtered, save_dir)
+        # Defer heavy processing to background; can be called explicitly via /cmd/posts/embedding etc.
+
+
+async def _fetch_or_create_canonical_groups(tag_group_repo: TagGroupRepo) -> dict[str, int]:
+    """Ensure the four canonical groups exist and return name → id mapping."""
+    result: dict[str, int] = {}
+    for name in ("general", "character", "artist", "meta"):
+        color = TAG_GROUP_COLORS.get(name, "#000000")
+        group = await tag_group_repo.ensure(name, color=color)
+        result[name] = group.id
+    return result

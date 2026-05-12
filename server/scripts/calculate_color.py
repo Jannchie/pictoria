@@ -1,120 +1,85 @@
-import queue
-import threading
-from concurrent.futures import ThreadPoolExecutor
+"""Compute and persist dominant Lab color for posts that don't have one yet.
 
+Run from server/ dir:
+    uv run python scripts/calculate_color.py
+
+Reads from the DuckDB at ``illustration/images/.pictoria/pictoria.duckdb``.
+Workers read image bytes + compute dominant_color in parallel; the main
+thread serializes all UPDATEs (DuckDB writes can't be concurrent).
+"""
+
+from __future__ import annotations
+
+import sys
+from concurrent.futures import ThreadPoolExecutor, as_completed
+from pathlib import Path
+
+if hasattr(sys.stdout, "reconfigure"):
+    sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+    sys.stderr.reconfigure(encoding="utf-8", errors="replace")
+
+SERVER_ROOT = Path(__file__).resolve().parent.parent
+sys.path.insert(0, str(SERVER_ROOT / "src"))
+
+import duckdb
 import numpy as np
-from dotenv import load_dotenv
 from rich.progress import track
-from sqlalchemy import select
-from sqlalchemy.orm import Session
+from skimage import color
 
-from models import Post
-from processors import rgb_to_lab_skimage
-from shared import logger
 from tools.colors import get_dominant_color
-from utils import get_session
 
-# 线程本地存储，为每个线程创建独立的数据库会话
-thread_local = threading.local()
-
-# 用于安全输出进度的队列
-progress_queue = queue.Queue()
+DEFAULT_DB = SERVER_ROOT / "illustration" / "images" / ".pictoria" / "pictoria.duckdb"
+TARGET_DIR = SERVER_ROOT / "illustration" / "images"
+MAX_WORKERS = 8
 
 
-def get_thread_session():
-    """为每个线程获取独立的数据库会话"""
-    if not hasattr(thread_local, "session"):
-        thread_local.session = get_session()
-    return thread_local.session
-
-
-def process_post(post_id: int):
-    """处理单个帖子的函数"""
-    session = get_thread_session()
+def _compute_lab(post_id: int, full_path: str) -> tuple[int, list[float] | None]:
+    abs_path = TARGET_DIR / full_path
+    if not abs_path.is_file():
+        return post_id, None
     try:
-        return _update_post_dominant_color(session, post_id)
-    except Exception as e:
-        # 将错误消息放入队列
-        progress_queue.put(("error", f"Error processing post {post_id}: {e!s}"))
-        # 如果出错，回滚会话
-        session.rollback()
-        return False
+        rgb = get_dominant_color(abs_path)
+        rgb_norm = np.array(rgb, dtype=np.float64) / 255.0
+        lab = color.rgb2lab(rgb_norm.reshape(1, 1, 3)).reshape(3)
+        return post_id, [float(x) for x in lab]
+    except Exception as exc:
+        print(f"  post {post_id}: {exc!r}")
+        return post_id, None
 
 
-def _update_post_dominant_color(session: Session, post_id: int) -> bool:
-    # 获取帖子
-    post = session.get(Post, post_id)
+def main() -> int:
+    db_path = Path(sys.argv[1]) if len(sys.argv) > 1 else DEFAULT_DB
+    if not db_path.exists():
+        print(f"ERROR: DB not found at {db_path}")
+        return 1
 
-    # 确保帖子存在且检查dominant_color
-    if post is None:
-        return True
+    conn = duckdb.connect(str(db_path))
+    rows = conn.execute(
+        "SELECT id, full_path FROM posts WHERE dominant_color IS NULL",
+    ).fetchall()
+    print(f"posts missing dominant_color: {len(rows)}")
+    if not rows:
+        conn.close()
+        return 0
 
-    # 检查是否已有dominant_color - 正确处理NumPy数组
-    if post.dominant_color is not None and ((isinstance(post.dominant_color, np.ndarray) and post.dominant_color.size > 0) or post.dominant_color):
-        return True
+    pending: dict[int, list[float]] = {}
+    with ThreadPoolExecutor(max_workers=MAX_WORKERS) as ex:
+        futures = [ex.submit(_compute_lab, pid, fp) for pid, fp in rows]
+        for fut in track(as_completed(futures), total=len(futures), description="Computing dominant_color"):
+            pid, lab = fut.result()
+            if lab is not None:
+                pending[pid] = lab
 
-    path = f"./demo/{post.absolute_path}"
-    dominant_color = get_dominant_color(path)
-    lab_color = rgb_to_lab_skimage(dominant_color)
-
-    # 如果lab_color是NumPy数组，可能需要将其转换为可存储的格式
-    if isinstance(lab_color, np.ndarray):
-        # 转换为列表或字符串，具体取决于你的数据库字段类型
-        lab_color_list = lab_color.tolist()
-        post.dominant_color = lab_color_list
-    else:
-        post.dominant_color = lab_color
-
-    session.commit()
-    # 将成功消息放入队列
-    progress_queue.put(("info", f"Updated post {post.id}"))
-    return True
-
-
-def progress_reporter():
-    """从队列中获取进度消息并记录"""
-    while True:
-        try:
-            msg_type, msg = progress_queue.get(timeout=0.1)
-            if msg_type == "info":
-                logger.info(msg)
-            elif msg_type == "error":
-                logger.error(msg)
-            progress_queue.task_done()
-        except queue.Empty:
-            # 队列为空时，检查是否应该退出
-            if progress_reporter.should_exit:
-                break
-
-
-def main():
-    load_dotenv()
-    session = get_session()
-
-    # 获取所有帖子的ID
-    posts = session.scalars(select(Post)).all()
-    post_ids = [post.id for post in posts]
-
-    # 启动进度报告线程
-    progress_reporter.should_exit = False
-    reporter_thread = threading.Thread(target=progress_reporter)
-    reporter_thread.daemon = True
-    reporter_thread.start()
-
-    # 使用线程池执行任务
-    max_workers = min(8, len(post_ids))  # 限制线程数量
-    with ThreadPoolExecutor(max_workers=max_workers) as executor:
-        # 使用rich.progress跟踪进度
-        results = list(track(executor.map(process_post, post_ids), total=len(post_ids), description="Processing posts"))
-
-    # 通知进度报告线程退出
-    progress_reporter.should_exit = True
-    reporter_thread.join(timeout=1.0)
-
-    # 汇总结果
-    success_count = sum(bool(r) for r in results)
-    logger.info(f"Processed {len(post_ids)} posts, {success_count} succeeded.")
+    print(f"writing {len(pending)} updates...")
+    for pid, lab in pending.items():
+        conn.execute(
+            "UPDATE posts SET dominant_color = ?, updated_at = now() WHERE id = ?",
+            [lab, pid],
+        )
+    conn.close()
+    print("done")
+    return 0
 
 
 if __name__ == "__main__":
-    main()
+    sys.exit(main())

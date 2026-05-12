@@ -5,6 +5,7 @@ from logging import getLogger
 from pathlib import Path
 from threading import Thread
 from types import TracebackType
+from typing import Self
 
 import httpx
 from pydantic import BaseModel, HttpUrl
@@ -201,7 +202,7 @@ class Downloader:
         self.n_workers: int = n_workers
         self.executor: concurrent.futures.ThreadPoolExecutor | None = None
 
-    def __enter__(self) -> "Downloader":
+    def __enter__(self) -> Self:
         self.executor = concurrent.futures.ThreadPoolExecutor(max_workers=self.n_workers)
         return self
 

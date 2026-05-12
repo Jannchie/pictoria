@@ -11,93 +11,91 @@ from litestar import Litestar, Router
 from litestar.config.compression import CompressionConfig
 from litestar.config.cors import CORSConfig
 from litestar.datastructures import State
-from litestar.exceptions import ClientException
 from litestar.handlers.http_handlers import HTTPRouteHandler
 from litestar.openapi import OpenAPIConfig
 from litestar.openapi.plugins import ScalarRenderPlugin
 from litestar.plugins.pydantic import PydanticPlugin
-from litestar.status_codes import HTTP_409_CONFLICT
 from litestar.types import Method
 from litestar.types.internal_types import PathParameterDefinition
-from psycopg import IntegrityError
 from rich import get_console
-from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
+import shared
+from db import DB, run_migrations
+from db.repositories.posts import PostRepo
+from db.repositories.tags import TagGroupRepo, TagRepo
+from db.repositories.vectors import VectorRepo
 from server.commands import CommandController
 from server.folders import FoldersController
 from server.images import ImageController
 from server.posts import PostController
 from server.statistics import StatisticsController
 from server.tags import TagsController
-from slow_query_logger import setup_slow_query_logging
 from utils import initialize, logger, parse_arguments
 
 console = get_console()
 
-
 with pathlib.Path("pyproject.toml").open("rb") as f:
     pyproject = tomllib.load(f)
 
+MIGRATIONS_DIR = pathlib.Path(__file__).resolve().parent.parent / "migrations"
+
 
 @asynccontextmanager
-async def my_lifespan(_: Litestar):
+async def my_lifespan(app: Litestar):
     load_dotenv()
     args = parse_arguments()
     initialize(target_dir=args.target_dir)
-    # await sync_metadata()
-    # watch_target_dir()
+
+    db_path_env = os.environ.get("DB_PATH")
+    db_path = pathlib.Path(db_path_env) if db_path_env else (shared.pictoria_dir / "pictoria.duckdb")
+    memory_limit = os.environ.get("DUCKDB_MEMORY_LIMIT", "4GB")
+    threads = int(os.environ.get("DUCKDB_THREADS", "4"))
+
+    logger.info(f"Opening DuckDB at {db_path}")
+    db = DB(db_path, memory_limit=memory_limit, threads=threads)
+    run_migrations(db.cursor(), MIGRATIONS_DIR)
+    app.state.db = db
+
     host = "localhost"
     port = 4777
     doc_url = f"http://{host}:{port}/schema"
     logger.info(f"API Document: {doc_url}")
-    yield
-
-
-MySession = async_sessionmaker(expire_on_commit=False)
-
-
-async def provide_async_transaction(state: State) -> AsyncGenerator[AsyncSession, None]:
-    async with MySession(bind=state.engine) as session:
-        async with session.begin():
-            try:
-                yield session
-            except IntegrityError as e:
-                raise ClientException(
-                    status_code=HTTP_409_CONFLICT,
-                    detail=str(e),
-                ) from e
-
-
-async def provide_async_session(state: State) -> AsyncGenerator[AsyncSession, None]:
-    async with MySession(bind=state.engine) as session:
-        try:
-            yield session
-        except IntegrityError as e:
-            raise ClientException(
-                status_code=HTTP_409_CONFLICT,
-                detail=str(e),
-            ) from e
-
-
-@asynccontextmanager
-async def db_connection(app: Litestar) -> AsyncGenerator[None, None]:
-    engine = getattr(app.state, "engine", None)
-    if engine is None:
-        db_url = os.environ.get("DB_URL", "")
-        engine = create_async_engine(db_url, echo=False, pool_size=20, max_overflow=30, pool_timeout=30)
-        app.state.engine = engine
-
-        # 设置慢查询日志，可以通过环境变量配置阈值
-        slow_query_threshold = float(os.environ.get("SLOW_QUERY_THRESHOLD_MS", "100"))
-        # 注意：对于异步引擎，我们需要使用同步引擎来设置事件监听器
-        # SQLAlchemy 的事件系统主要是为同步引擎设计的
-        sync_engine = engine.sync_engine
-        app.state.slow_query_logger = setup_slow_query_logging(sync_engine, slow_query_threshold)
-
     try:
         yield
     finally:
-        await engine.dispose()
+        db.close()
+
+
+async def provide_post_repo(state: State) -> AsyncGenerator[PostRepo, None]:
+    cur = state.db.cursor()
+    try:
+        yield PostRepo(cur)
+    finally:
+        cur.close()
+
+
+async def provide_tag_repo(state: State) -> AsyncGenerator[TagRepo, None]:
+    cur = state.db.cursor()
+    try:
+        yield TagRepo(cur)
+    finally:
+        cur.close()
+
+
+async def provide_tag_group_repo(state: State) -> AsyncGenerator[TagGroupRepo, None]:
+    cur = state.db.cursor()
+    try:
+        yield TagGroupRepo(cur)
+    finally:
+        cur.close()
+
+
+async def provide_vector_repo(state: State) -> AsyncGenerator[VectorRepo, None]:
+    cur = state.db.cursor()
+    try:
+        yield VectorRepo(cur)
+    finally:
+        cur.close()
 
 
 v2 = Router(
@@ -113,17 +111,6 @@ def default_operation_id_creator(
     http_method: Method,
     path_components: list[str | PathParameterDefinition],
 ) -> str:
-    """Create a unique 'operationId' for an OpenAPI PathItem entry.
-
-    Args:
-        route_handler: The HTTP Route Handler instance.
-        http_method: The HTTP method for the given PathItem.
-        path_components: A list of path components.
-
-    Returns:
-        A camelCased operationId created from the handler function name,
-        http method and path components.
-    """
     handler_namespace = http_method.title() + route_handler.handler_name.title() if len(route_handler.http_methods) > 1 else route_handler.handler_name.title()
     return SEPARATORS_CLEANUP_PATTERN.sub("", f"{path_components[0]}{handler_namespace}")
 
@@ -132,8 +119,13 @@ cors_config = CORSConfig(allow_origins=["*"])
 
 app = Litestar(
     [v2],
-    dependencies={"session": provide_async_session, "transaction": provide_async_transaction},
-    lifespan=[my_lifespan, db_connection],
+    dependencies={
+        "posts": provide_post_repo,
+        "tag_repo": provide_tag_repo,
+        "tag_group_repo": provide_tag_group_repo,
+        "vectors": provide_vector_repo,
+    },
+    lifespan=[my_lifespan],
     debug=True,
     logging_config=None,
     openapi_config=OpenAPIConfig(

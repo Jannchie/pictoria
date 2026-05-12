@@ -11,19 +11,15 @@ dependencies = [
     "diffusers>=0.31.0",
     "openai>=1.55.1",
     "watchdog>=6.0.0",
-    "alembic>=1.14.0",
     "python-multipart>=0.0.17",
     "torch>=2.5.1",
     "torchvision>=0.20.1",
-    "sqlalchemy>=2.0.38",
     "transformers>=4.46.3",
     "pillow-avif-plugin>=1.4.6",
     "datasets>=3.1.0",
     "python-dotenv>=1.0.1",
-    "psycopg[binary]>=3.2.4",
-    "pgvector>=0.3.6",
     "scikit-image>=0.25.2",
-    "litestar[sqlalchemy,standard]>=2.15.2",
+    "litestar[standard]>=2.15.2",
     "diffusion-prompt-embedder>=0.2.0",
     "accelerate>=1.6.0",
     "waifu-scorer[cu124]>=0.1.1",
@@ -32,6 +28,8 @@ dependencies = [
     "minio>=7.2.15",
     "boto3>=1.40.16",
     "thumbhash>=0.1.2",
+    "duckdb>=1.5.2",
+    "pytz>=2026.2",
 ]
 
 requires-python = ">=3.11"
@@ -57,7 +55,7 @@ enabled = true
 reportGeneralTypeIssues = true
 
 [tool.ruff]
-exclude = ["alembic", ".venv"]
+exclude = [".venv"]
 line-length = 160
 
 [tool.ruff.lint]

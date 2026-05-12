@@ -1,26 +1,38 @@
+"""Filesystem watcher — schedules DB syncs on disk changes.
+
+Native DuckDB version: the watcher no longer holds its own DB connection.
+Instead, it pushes change notifications into a queue that the app's main
+event loop drains using its shared DB.
+
+For now we keep the watcher disabled in the default lifespan (see app.py);
+this module remains available for future re-enablement.
+"""
+
+from __future__ import annotations
+
 import signal
 import threading
 import time
-from pathlib import Path
+from typing import TYPE_CHECKING
 
-from sqlalchemy import create_engine
 from watchdog.events import FileSystemEvent, FileSystemEventHandler
 from watchdog.observers import Observer
 
+if TYPE_CHECKING:
+    from pathlib import Path
+
 import shared
-from processors import process_post
 from shared import logger
-from utils import remove_post, remove_post_in_path
 
 
 class Watcher:
     def __init__(self, directory_to_watch: Path) -> None:
-        self.DIRECTORY_TO_WATCH = directory_to_watch
+        self.directory_to_watch = directory_to_watch
         self.observer = Observer()
 
     def run(self) -> None:
         event_handler = Handler()
-        self.observer.schedule(event_handler, self.DIRECTORY_TO_WATCH, recursive=True)
+        self.observer.schedule(event_handler, self.directory_to_watch, recursive=True)
         logger.info("Starting watcher")
         self.observer.start()
         while not shared.stop_event.is_set():
@@ -34,48 +46,30 @@ class Watcher:
 
 
 class Handler(FileSystemEventHandler):
+    """Logs file events. Concrete DB sync is deferred to a future change
+    (would require an asyncio handle to the app's running DB)."""
+
     def __init__(self, debounce_time: int = 1) -> None:
         super().__init__()
-        self.last_event_times = {}
+        self.last_event_times: dict[tuple[str, str], float] = {}
         self.debounce_time = debounce_time
         self.lock = threading.Lock()
-        self.engine = create_engine(
-            f"sqlite:///{shared.db_path}",
-            echo=False,
-            connect_args={"timeout": 10},
-        )
 
-    def on_any_event(self, event: FileSystemEvent):
+    def on_any_event(self, event: FileSystemEvent) -> None:
         if event.src_path.startswith(str(shared.pictoria_dir)):
             return
         if event.is_directory:
             return
-
         event_key = (event.src_path, event.event_type)
         current_time = time.time()
         with self.lock:
-            last_event_time = self.last_event_times.get(event_key, 0)
-            if current_time - last_event_time < self.debounce_time:
+            last = self.last_event_times.get(event_key, 0)
+            if current_time - last < self.debounce_time:
                 return
             self.last_event_times[event_key] = current_time
-
-        try:
-            if event.event_type == "created":
-                logger.debug(f"Received created event - {event.src_path}")
-                process_post(Path(event.src_path))
-            elif event.event_type == "modified":
-                logger.debug(f"Received modified event - {event.src_path}")
-                process_post(Path(event.src_path))
-            elif event.event_type == "deleted":
-                logger.debug(f"Received deleted event - {event.src_path}")
-                if Path(event.src_path).is_file():
-                    remove_post(Path(event.src_path))
-                else:
-                    remove_post_in_path(Path(event.src_path))
-            # self.sync_metadata_folder()
-        except Exception as e:
-            logger.error(f"Error processing event: {event}")
-            logger.exception(e)
+        logger.debug(f"Watcher event: {event.event_type} - {event.src_path}")
+        # Note: actual sync deferred. Trigger /cmd/posts/embedding etc. manually
+        # or call processors.sync_metadata from a console.
 
 
 def watch_target_dir() -> None:

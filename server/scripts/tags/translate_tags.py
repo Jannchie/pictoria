@@ -49,7 +49,7 @@ def translate_chunk(chunk: list[str]) -> dict[str, str]:
                 "content": [
                     {
                         "type": "text",
-                        "text": "Translate these tags into Chinese. These tags may contain characters, organizations, entities from games, comics, anime and other works. Please try to identify and use official translation names when possible",  # noqa: E501
+                        "text": "Translate these tags into Chinese. These tags may contain characters, organizations, entities from games, comics, anime and other works. Please try to identify and use official translation names when possible",
                     },
                 ],
             },

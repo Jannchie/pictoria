@@ -1,0 +1,656 @@
+"""PostRepo — async Repository over the `posts` table (and joined tables).
+
+Each public method is ``async def`` and uses ``asyncio.to_thread`` to push
+the synchronous DuckDB call onto a worker thread, preserving Litestar's
+event loop responsiveness even though duckdb-engine has no native async
+driver.
+"""
+
+from __future__ import annotations
+
+import asyncio
+from typing import TYPE_CHECKING, Any
+
+from db.entities import (
+    POST_COLUMNS,
+    Post,
+)
+from db.helpers import fetch_all_dicts, fetch_one_as, fetch_one_dict
+
+if TYPE_CHECKING:
+    import duckdb
+
+
+SIMPLE_POST_COLUMNS = (
+    "id, file_path, file_name, extension, rating, width, height, "
+    "aspect_ratio, dominant_color, thumbhash, sha256"
+)
+
+
+_ORDERABLE_COLUMNS = {"id", "score", "rating", "created_at", "published_at", "file_name"}
+
+
+class PostRepo:
+    def __init__(self, cur: duckdb.DuckDBPyConnection) -> None:
+        self.cur = cur
+
+    # ─── Read single ──────────────────────────────────────────────────
+    async def get(self, post_id: int) -> Post | None:
+        def _impl() -> Post | None:
+            self.cur.execute(
+                f"SELECT {POST_COLUMNS} FROM posts WHERE id = ?",  # noqa: S608
+                [post_id],
+            )
+            return fetch_one_as(self.cur, Post)
+
+        return await asyncio.to_thread(_impl)
+
+    async def get_detail(self, post_id: int) -> dict | None:
+        """Return a dict ready for ``PostDetailPublic.model_validate`` —
+        includes joined tags (ordered by group_name_order), colors, and
+        waifu_score. Returns ``None`` if the post doesn't exist.
+        """
+
+        def _impl() -> dict | None:
+            self.cur.execute(
+                f"SELECT {POST_COLUMNS} FROM posts WHERE id = ?",  # noqa: S608
+                [post_id],
+            )
+            post = fetch_one_dict(self.cur)
+            if post is None:
+                return None
+            # tags (ordered by canonical group order)
+            self.cur.execute(
+                """
+                SELECT
+                    pht.is_auto                  AS is_auto,
+                    t.name                       AS name,
+                    t.created_at                 AS created_at,
+                    t.updated_at                 AS updated_at,
+                    tg.id                        AS group_id,
+                    tg.name                      AS group_name,
+                    tg.color                     AS group_color
+                FROM post_has_tag pht
+                JOIN tags t ON t.name = pht.tag_name
+                LEFT JOIN tag_groups tg ON tg.id = t.group_id
+                WHERE pht.post_id = ?
+                ORDER BY
+                    CASE COALESCE(tg.name, '')
+                        WHEN 'artist'    THEN 0
+                        WHEN 'copyright' THEN 1
+                        WHEN 'character' THEN 2
+                        WHEN 'general'   THEN 3
+                        WHEN 'meta'      THEN 4
+                        ELSE 5
+                    END,
+                    t.name
+                """,
+                [post_id],
+            )
+            tag_rows = fetch_all_dicts(self.cur)
+            tags = [
+                {
+                    "is_auto": r["is_auto"],
+                    "tag_info": {
+                        "name": r["name"],
+                        "created_at": r["created_at"],
+                        "updated_at": r["updated_at"],
+                        "group": (
+                            {
+                                "id": r["group_id"],
+                                "name": r["group_name"],
+                                "color": r["group_color"],
+                            }
+                            if r["group_id"] is not None
+                            else None
+                        ),
+                    },
+                }
+                for r in tag_rows
+            ]
+            # colors
+            self.cur.execute(
+                'SELECT "order", color FROM post_has_color WHERE post_id = ? ORDER BY "order"',
+                [post_id],
+            )
+            colors = fetch_all_dicts(self.cur)
+            # waifu score
+            self.cur.execute(
+                "SELECT score FROM post_waifu_scores WHERE post_id = ?",
+                [post_id],
+            )
+            ws_row = self.cur.fetchone()
+            waifu_score = {"score": ws_row[0]} if ws_row else None
+
+            return {**post, "tags": tags, "colors": colors, "waifu_score": waifu_score}
+
+        return await asyncio.to_thread(_impl)
+
+    async def get_simple_by_id(self, post_id: int) -> dict | None:
+        def _impl() -> dict | None:
+            self.cur.execute(
+                f"SELECT {SIMPLE_POST_COLUMNS} FROM posts WHERE id = ?",  # noqa: S608
+                [post_id],
+            )
+            post = fetch_one_dict(self.cur)
+            if post is None:
+                return None
+            self.cur.execute(
+                'SELECT "order", color FROM post_has_color WHERE post_id = ? ORDER BY "order"',
+                [post_id],
+            )
+            return {**post, "colors": fetch_all_dicts(self.cur)}
+
+        return await asyncio.to_thread(_impl)
+
+    # ─── Read many ────────────────────────────────────────────────────
+    async def list_paginated(self, start: int, limit: int) -> tuple[list[dict], int | None]:
+        """Return (items_as_detail_dicts, next_cursor)."""
+
+        def _impl() -> tuple[list[dict], int | None]:
+            self.cur.execute(
+                f"SELECT {POST_COLUMNS} FROM posts WHERE id >= ? ORDER BY id ASC LIMIT ?",  # noqa: S608
+                [start, limit + 1],
+            )
+            posts = fetch_all_dicts(self.cur)
+            next_cursor: int | None = None
+            if len(posts) > limit:
+                next_cursor = posts[-1]["id"]
+                posts = posts[:-1]
+            # detail (tags, colors, waifu_score) per row
+            details: list[dict] = []
+            for p in posts:
+                pid = p["id"]
+                self.cur.execute(
+                    """
+                    SELECT pht.is_auto, t.name, t.created_at, t.updated_at,
+                           tg.id AS group_id, tg.name AS group_name, tg.color AS group_color
+                    FROM post_has_tag pht
+                    JOIN tags t ON t.name = pht.tag_name
+                    LEFT JOIN tag_groups tg ON tg.id = t.group_id
+                    WHERE pht.post_id = ?
+                    ORDER BY t.name
+                    """,
+                    [pid],
+                )
+                tag_rows = fetch_all_dicts(self.cur)
+                tags = [
+                    {
+                        "is_auto": r["is_auto"],
+                        "tag_info": {
+                            "name": r["name"],
+                            "created_at": r["created_at"],
+                            "updated_at": r["updated_at"],
+                            "group": (
+                                {"id": r["group_id"], "name": r["group_name"], "color": r["group_color"]}
+                                if r["group_id"] is not None
+                                else None
+                            ),
+                        },
+                    }
+                    for r in tag_rows
+                ]
+                self.cur.execute(
+                    'SELECT "order", color FROM post_has_color WHERE post_id = ? ORDER BY "order"',
+                    [pid],
+                )
+                colors = fetch_all_dicts(self.cur)
+                self.cur.execute(
+                    "SELECT score FROM post_waifu_scores WHERE post_id = ?",
+                    [pid],
+                )
+                ws = self.cur.fetchone()
+                details.append(
+                    {
+                        **p,
+                        "tags": tags,
+                        "colors": colors,
+                        "waifu_score": ({"score": ws[0]} if ws else None),
+                    },
+                )
+            return details, next_cursor
+
+        return await asyncio.to_thread(_impl)
+
+    async def search_simple(  # noqa: PLR0913
+        self,
+        *,
+        rating: tuple[int, ...] | None = None,
+        score: tuple[int, ...] | None = None,
+        tags: tuple[str, ...] | None = None,
+        extension: tuple[str, ...] | None = None,
+        folder: str | None = None,
+        lab: tuple[float, float, float] | None = None,
+        waifu_score_range: tuple[float, float] | None = None,
+        order_by: str | None = None,
+        order: str = "desc",
+        limit: int = 100,
+        offset: int = 0,
+    ) -> list[dict]:
+        """Search posts, returning rows ready for ``PostSimplePublic``.
+
+        ``lab`` triggers HNSW-backed L2 distance ordering over dominant_color.
+        ``order_by`` is one of the whitelisted columns; ``order`` is
+        'asc' | 'desc' | 'random' (random is reproducible via setseed(0.47)).
+        """
+
+        def _impl() -> list[dict]:
+            where_clauses, params, joins = _build_filter_clauses(
+                rating=rating,
+                score=score,
+                tags=tags,
+                extension=extension,
+                folder=folder,
+                waifu_score_range=waifu_score_range,
+            )
+
+            select_cols = (
+                "SELECT p.id, p.file_path, p.file_name, p.extension, p.rating, "
+                "p.width, p.height, p.aspect_ratio, p.dominant_color, "
+                "p.thumbhash, p.sha256"
+            )
+            from_clause = "FROM posts p" + ("\n" + "\n".join(joins) if joins else "")
+            where_sql = ("WHERE " + " AND ".join(where_clauses)) if where_clauses else ""
+
+            if lab is not None:
+                # HNSW L2 distance over dominant_color
+                sql = (
+                    f"{select_cols}, array_distance(p.dominant_color, CAST(? AS FLOAT[3])) AS _dist "
+                    f"{from_clause} {where_sql} "
+                    "ORDER BY p.dominant_color IS NULL, _dist "
+                    "LIMIT ? OFFSET ?"
+                )
+                self.cur.execute(sql, [list(lab), *params, limit, offset])
+            else:
+                order_sql = ""
+                if order_by and order_by in _ORDERABLE_COLUMNS:
+                    if order == "random":
+                        # setseed is per-connection; cosmetic reproducibility
+                        self.cur.execute("SELECT setseed(0.47)")
+                        order_sql = "ORDER BY random()"
+                    else:
+                        direction = "ASC" if order == "asc" else "DESC"
+                        order_sql = f"ORDER BY p.{order_by} {direction} NULLS LAST"
+                sql = (
+                    f"{select_cols} {from_clause} {where_sql} {order_sql} LIMIT ? OFFSET ?"
+                )
+                self.cur.execute(sql, [*params, limit, offset])
+
+            rows = fetch_all_dicts(self.cur)
+            # strip helper column
+            for r in rows:
+                r.pop("_dist", None)
+            # attach colors
+            ids = [r["id"] for r in rows]
+            colors_by_post = self._fetch_colors_by_ids(ids)
+            for r in rows:
+                r["colors"] = colors_by_post.get(r["id"], [])
+            return rows
+
+        return await asyncio.to_thread(_impl)
+
+    async def list_simple_by_ids_preserving_order(self, id_list: list[int]) -> list[dict]:
+        """Return PostSimplePublic-shape rows in the same order as id_list."""
+
+        def _impl() -> list[dict]:
+            if not id_list:
+                return []
+            placeholders = ",".join("?" * len(id_list))
+            self.cur.execute(
+                f"SELECT {SIMPLE_POST_COLUMNS} FROM posts WHERE id IN ({placeholders})",  # noqa: S608
+                id_list,
+            )
+            rows = fetch_all_dicts(self.cur)
+            by_id = {r["id"]: r for r in rows}
+            ordered = [by_id[i] for i in id_list if i in by_id]
+            ids = [r["id"] for r in ordered]
+            colors_by_post = self._fetch_colors_by_ids(ids)
+            for r in ordered:
+                r["colors"] = colors_by_post.get(r["id"], [])
+            return ordered
+
+        return await asyncio.to_thread(_impl)
+
+    def _fetch_colors_by_ids(self, ids: list[int]) -> dict[int, list[dict]]:
+        if not ids:
+            return {}
+        placeholders = ",".join("?" * len(ids))
+        self.cur.execute(
+            f'SELECT post_id, "order", color FROM post_has_color '  # noqa: S608
+            f'WHERE post_id IN ({placeholders}) ORDER BY post_id, "order"',
+            ids,
+        )
+        result: dict[int, list[dict]] = {}
+        for pid, order, color in self.cur.fetchall():
+            result.setdefault(pid, []).append({"order": order, "color": color})
+        return result
+
+    # ─── Counts / aggregates ──────────────────────────────────────────
+    async def count(self, **filters: Any) -> int:
+        def _impl() -> int:
+            where_clauses, params, joins = _build_filter_clauses(**filters)
+            joins_sql = "\n".join(joins)
+            where_sql = ("WHERE " + " AND ".join(where_clauses)) if where_clauses else ""
+            self.cur.execute(
+                f"SELECT count(p.id) FROM posts p {joins_sql} {where_sql}",  # noqa: S608
+                params,
+            )
+            row = self.cur.fetchone()
+            return int(row[0]) if row else 0
+
+        return await asyncio.to_thread(_impl)
+
+    async def count_by_column(self, column: str, **filters: Any) -> list[dict]:
+        if column not in {"rating", "score", "extension"}:
+            msg = f"Cannot group by unsafe column: {column}"
+            raise ValueError(msg)
+
+        def _impl() -> list[dict]:
+            where_clauses, params, joins = _build_filter_clauses(**filters)
+            joins_sql = "\n".join(joins)
+            where_sql = ("WHERE " + " AND ".join(where_clauses)) if where_clauses else ""
+            self.cur.execute(
+                f"SELECT p.{column} AS {column}, count(*) AS count "  # noqa: S608
+                f"FROM posts p {joins_sql} {where_sql} GROUP BY p.{column}",
+                params,
+            )
+            return fetch_all_dicts(self.cur)
+
+        return await asyncio.to_thread(_impl)
+
+    # ─── Mutation: single field ───────────────────────────────────────
+    async def update_field(self, post_id: int, field: str, value: Any) -> Post | None:
+        if field not in {"score", "rating", "caption", "source", "description", "meta"}:
+            msg = f"Field is not whitelisted for update: {field}"
+            raise ValueError(msg)
+
+        def _impl() -> Post | None:
+            self.cur.execute(
+                f"UPDATE posts SET {field} = ?, updated_at = now() WHERE id = ?",  # noqa: S608
+                [value, post_id],
+            )
+            self.cur.execute(
+                f"SELECT {POST_COLUMNS} FROM posts WHERE id = ?",  # noqa: S608
+                [post_id],
+            )
+            return fetch_one_as(self.cur, Post)
+
+        return await asyncio.to_thread(_impl)
+
+    async def bulk_update_field(self, ids: list[int], field: str, value: Any) -> None:
+        if field not in {"score", "rating"}:
+            msg = f"Field is not whitelisted for bulk update: {field}"
+            raise ValueError(msg)
+        if not ids:
+            return
+
+        def _impl() -> None:
+            placeholders = ",".join("?" * len(ids))
+            self.cur.execute(
+                f"UPDATE posts SET {field} = ?, updated_at = now() "  # noqa: S608
+                f"WHERE id IN ({placeholders})",
+                [value, *ids],
+            )
+
+        await asyncio.to_thread(_impl)
+
+    # ─── Mutation: rotate (geometry refresh after image rotation) ─────
+    async def update_for_rotate(
+        self,
+        post_id: int,
+        *,
+        sha256: str,
+        width: int,
+        height: int,
+        thumbhash: str | None,
+    ) -> None:
+        def _impl() -> None:
+            self.cur.execute(
+                """
+                UPDATE posts
+                SET sha256 = ?, width = ?, height = ?, thumbhash = ?, updated_at = now()
+                WHERE id = ?
+                """,
+                [sha256, width, height, thumbhash, post_id],
+            )
+
+        await asyncio.to_thread(_impl)
+
+    # ─── Mutation: delete (cascade via app layer) ─────────────────────
+    async def delete_many(self, ids: list[int]) -> None:
+        if not ids:
+            return
+
+        def _impl() -> None:
+            placeholders = ",".join("?" * len(ids))
+            # child tables first (DuckDB doesn't support ON DELETE CASCADE)
+            self.cur.execute(f"DELETE FROM post_has_tag    WHERE post_id IN ({placeholders})", ids)  # noqa: S608
+            self.cur.execute(f"DELETE FROM post_has_color  WHERE post_id IN ({placeholders})", ids)  # noqa: S608
+            self.cur.execute(f"DELETE FROM post_vectors    WHERE post_id IN ({placeholders})", ids)  # noqa: S608
+            self.cur.execute(f"DELETE FROM post_waifu_scores WHERE post_id IN ({placeholders})", ids)  # noqa: S608
+            self.cur.execute(f"DELETE FROM posts WHERE id IN ({placeholders})", ids)  # noqa: S608
+
+        await asyncio.to_thread(_impl)
+
+    async def delete_one(self, post_id: int) -> None:
+        await self.delete_many([post_id])
+
+    # ─── Tag association ─────────────────────────────────────────────
+    async def add_tag(self, post_id: int, tag_name: str) -> bool:
+        """Return True if inserted, False if already existed."""
+
+        def _impl() -> bool:
+            self.cur.execute(
+                "SELECT 1 FROM post_has_tag WHERE post_id = ? AND tag_name = ?",
+                [post_id, tag_name],
+            )
+            if self.cur.fetchone():
+                return False
+            # ensure tag row exists
+            self.cur.execute(
+                "INSERT INTO tags(name) VALUES(?) ON CONFLICT DO NOTHING",
+                [tag_name],
+            )
+            self.cur.execute(
+                "INSERT INTO post_has_tag(post_id, tag_name, is_auto) VALUES(?, ?, FALSE)",
+                [post_id, tag_name],
+            )
+            return True
+
+        return await asyncio.to_thread(_impl)
+
+    async def remove_tag(self, post_id: int, tag_name: str) -> bool:
+        """Return True if removed, False if didn't exist."""
+
+        def _impl() -> bool:
+            self.cur.execute(
+                "DELETE FROM post_has_tag WHERE post_id = ? AND tag_name = ? RETURNING post_id",
+                [post_id, tag_name],
+            )
+            return self.cur.fetchone() is not None
+
+        return await asyncio.to_thread(_impl)
+
+    async def set_tags_bulk(self, post_id: int, tag_names: list[str], *, is_auto: bool) -> None:
+        """Insert tag rows + post_has_tag rows, ignoring duplicates."""
+        if not tag_names:
+            return
+
+        def _impl() -> None:
+            for name in tag_names:
+                self.cur.execute(
+                    "INSERT INTO tags(name) VALUES(?) ON CONFLICT DO NOTHING",
+                    [name],
+                )
+                self.cur.execute(
+                    "INSERT INTO post_has_tag(post_id, tag_name, is_auto) VALUES(?, ?, ?) "
+                    "ON CONFLICT DO NOTHING",
+                    [post_id, name, is_auto],
+                )
+
+        await asyncio.to_thread(_impl)
+
+    # ─── Create ───────────────────────────────────────────────────────
+    async def create(  # noqa: PLR0913
+        self,
+        *,
+        file_path: str,
+        file_name: str,
+        extension: str,
+        source: str = "",
+        width: int = 0,
+        height: int = 0,
+        size: int = 0,
+        sha256: str = "",
+        meta: str = "",
+        caption: str = "",
+        description: str = "",
+        thumbhash: str | None = None,
+        dominant_color: list[float] | None = None,
+        published_at: Any = None,
+    ) -> Post:
+        def _impl() -> Post:
+            self.cur.execute(
+                """
+                INSERT INTO posts(
+                    file_path, file_name, extension, source, width, height,
+                    size, sha256, meta, caption, description, thumbhash,
+                    dominant_color, published_at
+                )
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                RETURNING id
+                """,
+                [
+                    file_path, file_name, extension, source, width, height,
+                    size, sha256, meta, caption, description, thumbhash,
+                    dominant_color, published_at,
+                ],
+            )
+            row = self.cur.fetchone()
+            if row is None:
+                msg = "Post insert did not return an id"
+                raise RuntimeError(msg)
+            new_id = row[0]
+            self.cur.execute(
+                f"SELECT {POST_COLUMNS} FROM posts WHERE id = ?",  # noqa: S608
+                [new_id],
+            )
+            post = fetch_one_as(self.cur, Post)
+            if post is None:
+                msg = "Newly inserted post not found"
+                raise RuntimeError(msg)
+            return post
+
+        return await asyncio.to_thread(_impl)
+
+    async def upsert_from_danbooru(  # noqa: PLR0913
+        self,
+        *,
+        file_path: str,
+        file_name: str,
+        extension: str,
+        source: str,
+        rating: int,
+        published_at: Any,
+    ) -> int | None:
+        """INSERT or UPDATE-source-and-published-at; return the post id."""
+
+        def _impl() -> int | None:
+            self.cur.execute(
+                """
+                INSERT INTO posts(file_path, file_name, extension, source, rating, published_at)
+                VALUES (?, ?, ?, ?, ?, ?)
+                ON CONFLICT (file_path, file_name, extension)
+                DO UPDATE SET source = excluded.source,
+                              published_at = excluded.published_at,
+                              updated_at = now()
+                RETURNING id
+                """,
+                [file_path, file_name, extension, source, rating, published_at],
+            )
+            row = self.cur.fetchone()
+            return int(row[0]) if row else None
+
+        return await asyncio.to_thread(_impl)
+
+    # ─── Lookup helpers ──────────────────────────────────────────────
+    async def get_by_path(
+        self,
+        file_path: str,
+        file_name: str,
+        extension: str,
+    ) -> Post | None:
+        def _impl() -> Post | None:
+            self.cur.execute(
+                f"SELECT {POST_COLUMNS} FROM posts "  # noqa: S608
+                "WHERE file_path = ? AND file_name = ? AND extension = ?",
+                [file_path, file_name, extension],
+            )
+            return fetch_one_as(self.cur, Post)
+
+        return await asyncio.to_thread(_impl)
+
+    # ─── Waifu score ─────────────────────────────────────────────────
+    async def get_waifu_score(self, post_id: int) -> float | None:
+        def _impl() -> float | None:
+            self.cur.execute(
+                "SELECT score FROM post_waifu_scores WHERE post_id = ?",
+                [post_id],
+            )
+            row = self.cur.fetchone()
+            return float(row[0]) if row else None
+
+        return await asyncio.to_thread(_impl)
+
+    async def upsert_waifu_score(self, post_id: int, score: float) -> None:
+        def _impl() -> None:
+            self.cur.execute(
+                "INSERT INTO post_waifu_scores(post_id, score) VALUES (?, ?) "
+                "ON CONFLICT (post_id) DO UPDATE SET score = excluded.score",
+                [post_id, score],
+            )
+
+        await asyncio.to_thread(_impl)
+
+
+# ─── Helpers ────────────────────────────────────────────────────────────
+def _build_filter_clauses(  # noqa: PLR0913
+    *,
+    rating: tuple[int, ...] | None = None,
+    score: tuple[int, ...] | None = None,
+    tags: tuple[str, ...] | None = None,
+    extension: tuple[str, ...] | None = None,
+    folder: str | None = None,
+    waifu_score_range: tuple[float, float] | None = None,
+) -> tuple[list[str], list[Any], list[str]]:
+    where: list[str] = []
+    params: list[Any] = []
+    joins: list[str] = []
+    if rating:
+        ph = ",".join("?" * len(rating))
+        where.append(f"p.rating IN ({ph})")
+        params.extend(rating)
+    if score:
+        ph = ",".join("?" * len(score))
+        where.append(f"p.score IN ({ph})")
+        params.extend(score)
+    if tags:
+        ph = ",".join("?" * len(tags))
+        where.append(
+            f"EXISTS (SELECT 1 FROM post_has_tag pht "  # noqa: S608
+            f"WHERE pht.post_id = p.id AND pht.tag_name IN ({ph}))",
+        )
+        params.extend(tags)
+    if extension:
+        ph = ",".join("?" * len(extension))
+        where.append(f"p.extension IN ({ph})")
+        params.extend(extension)
+    if folder and folder != ".":
+        # GLOB is case-sensitive and uses default index, unlike LIKE in DuckDB
+        where.append("p.file_path GLOB ?")
+        params.append(f"{folder}*")
+    if waifu_score_range:
+        joins.append("JOIN post_waifu_scores pws ON pws.post_id = p.id")
+        where.append("pws.score >= ? AND pws.score <= ?")
+        params.extend([waifu_score_range[0], waifu_score_range[1]])
+    return where, params, joins

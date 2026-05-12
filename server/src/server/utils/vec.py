@@ -1,50 +1,31 @@
-import asyncio
-from pathlib import Path
+"""CLIP feature extraction helpers (DB-free).
 
-from pgvector import HalfVector
-from sqlalchemy import select
-from sqlalchemy.ext.asyncio import AsyncSession
+Database access for embeddings lives in ``db.repositories.vectors.VectorRepo``;
+this module only handles the CLIP forward pass for text and image inputs.
+"""
+
+from __future__ import annotations
+
+import asyncio
+from typing import TYPE_CHECKING
+
+import numpy as np
 
 from ai.clip import calculate_image_features, calculate_text_features
-from db import SimilarImageResult
-from models import Post, PostVector
+
+if TYPE_CHECKING:
+    from pathlib import Path
 
 
-async def find_similar_posts(session: AsyncSession, vec: HalfVector | None, *, limit: int = 100, skip_self: bool = True) -> list[SimilarImageResult]:
-    if vec is None:
-        return []
-    distance = PostVector.embedding.cosine_distance(vec)
-    stmt = select(PostVector.post_id, distance.label("distance")).order_by(distance).limit(limit)
-    if skip_self:
-        stmt = stmt.offset(1)
-    result = (await session.execute(stmt)).all()
-    return [SimilarImageResult(post_id=row[0], distance=row[1]) for row in result]
-
-
-async def insert_img_vec(session: AsyncSession, post_id: int, image_path: Path):
-    features = await asyncio.to_thread(calculate_image_features, image_path)
-    features_np = features.cpu().numpy()
-    session.add(PostVector(post_id=post_id, embedding=features_np[0]))
-    await session.flush()
-    return features_np
-
-
-async def get_img_vec(session: AsyncSession, post: Post):
-    post_id = post.id
-    return await session.scalar(
-        select(PostVector).where(PostVector.post_id == post_id),
-    )
-
-
-async def get_img_vec_by_id(session: AsyncSession, post_id: int):
-    post_vector = await session.scalar(
-        select(PostVector).where(PostVector.post_id == post_id),
-    )
-    return None if post_vector is None else post_vector.embedding
-
-
-async def get_text_vec(prompt: str) -> HalfVector:
-    """Convert a text prompt into a HalfVector compatible with pgvector."""
+async def get_text_vec(prompt: str) -> np.ndarray:
+    """Encode a text prompt into a 768-d float32 array compatible with
+    ``post_vectors.embedding``.
+    """
     features = await asyncio.to_thread(calculate_text_features, prompt)
-    features_np = features.cpu().numpy()
-    return HalfVector(features_np[0].tolist())
+    return features.cpu().numpy()[0].astype(np.float32)
+
+
+async def get_image_vec(image_path: Path) -> np.ndarray:
+    """Encode an image file into a 768-d float32 array."""
+    features = await asyncio.to_thread(calculate_image_features, image_path)
+    return features.cpu().numpy()[0].astype(np.float32)

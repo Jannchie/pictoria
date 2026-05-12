@@ -1,112 +1,116 @@
-from collections.abc import Sequence
+"""Walk all posts and emit their canonical tag list (sorted by group + name,
+with artist/character/copyright/period/rating/score prefixes).
 
+Used as the human-readable dataset preview. Run from server/ dir:
+
+    uv run python scripts/output_dataset.py
+"""
+
+from __future__ import annotations
+
+import sys
+from pathlib import Path
+from typing import Any
+
+if hasattr(sys.stdout, "reconfigure"):
+    sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+    sys.stderr.reconfigure(encoding="utf-8", errors="replace")
+
+SERVER_ROOT = Path(__file__).resolve().parent.parent
+sys.path.insert(0, str(SERVER_ROOT / "src"))
+
+import duckdb
 from rich import get_console
-from sqlalchemy import func, select
 
-from db import Session
-from models import Post, PostHasTag
 from progress import get_progress
 
+DEFAULT_DB = SERVER_ROOT / "illustration" / "images" / ".pictoria" / "pictoria.duckdb"
 
-def get_tag(tag: PostHasTag):
-    if not tag.tag_info.group:
-        return tag.tag_info.name
-    if tag.tag_info.group.name == "character":
-        return f"character:{tag.tag_info.name}"
-    if tag.tag_info.group.name == "copyright":
-        return f"copyright:{tag.tag_info.name}"
-    if tag.tag_info.group.name == "artist":
-        return f"artist:{tag.tag_info.name}"
-    return tag.tag_info.name
+GROUP_ORDER = {"artist": 0, "character": 1, "copyright": 2, "other": 3}
+PREFIX_GROUPS = {"artist", "character", "copyright"}
+
+RATING_MAP = {1: "rating:general", 2: "rating:sensitive", 3: "rating:questionable", 4: "rating:explicit"}
+SCORE_MAP = {1: "score:5", 2: "score:6", 3: "score:7", 4: "score:8", 5: "score:9"}
 
 
-def sort_tags(tags: Sequence[PostHasTag]) -> Sequence[PostHasTag]:
-    """
-    Sort tags by group and name. First is artist, then character, then copyright, then other tags.
-    """
+def _period_tag(year: int | None) -> str | None:
+    if year is None:
+        return None
+    if year < 2011:
+        return "period:old"
+    if year < 2014:
+        return "period:early"
+    if year < 2018:
+        return "period:mid"
+    if year < 2021:
+        return "period:recent"
+    return "period:newest"
 
-    group_order = {
-        "artist": 0,
-        "character": 1,
-        "copyright": 2,
-        "other": 3,
-    }
 
-    return sorted(
-        tags,
-        key=lambda tag: (
-            group_order.get(tag.tag_info.group.name if tag.tag_info.group else "other", 3),
-            tag.tag_info.name,
-        ),
+def _decorate(post: dict[str, Any]) -> list[str]:
+    raw = post["tags"] or []
+    pairs = [(t.get("name"), t.get("group")) for t in raw if t.get("name")]
+    pairs.sort(key=lambda p: (GROUP_ORDER.get(p[1] or "other", 3), p[0]))
+    tags: list[str] = []
+    for name, group in pairs:
+        tags.append(f"{group}:{name}" if group in PREFIX_GROUPS else name)
+    if (rt := RATING_MAP.get(post["rating"])):
+        tags.insert(0, rt)
+    if (st := SCORE_MAP.get(post["score"])):
+        tags.insert(0, st)
+    year = post["published_at"].year if post["published_at"] else None
+    if (pt := _period_tag(year)):
+        tags.insert(0, pt)
+    return tags
+
+
+def main() -> int:
+    db_path = Path(sys.argv[1]) if len(sys.argv) > 1 else DEFAULT_DB
+    if not db_path.exists():
+        print(f"ERROR: DB not found at {db_path}")
+        return 1
+
+    console = get_console()
+    conn = duckdb.connect(str(db_path), read_only=True)
+    total = conn.execute("SELECT count(*) FROM posts").fetchone()[0]
+
+    # Stream rows; one correlated LIST aggregation per post.
+    conn.execute(
+        """
+        SELECT
+            p.id,
+            p.published_at,
+            p.rating,
+            p.score,
+            COALESCE((
+                SELECT list({name: t.name, group: tg.name})
+                FROM post_has_tag pht
+                JOIN tags t ON t.name = pht.tag_name
+                LEFT JOIN tag_groups tg ON tg.id = t.group_id
+                WHERE pht.post_id = p.id
+            ), []) AS tags
+        FROM posts p
+        ORDER BY p.id
+        """,
     )
 
-
-def get_period_tag(post: Post) -> str | None:
-    """
-    Get the period tag for a post.
-    """
-    if published_at := post.published_at:
-        if published_at.year < 2011:  # noqa: PLR2004
-            return "period:old"
-        if published_at.year < 2014:  # noqa: PLR2004
-            return "period:early"
-        if published_at.year < 2018:  # noqa: PLR2004
-            return "period:mid"
-        if published_at.year < 2021:  # noqa: PLR2004
-            return "period:recent"
-        return "period:newest"
-    return None
-
-
-def get_rating_tag(post: Post) -> str | None:
-    """
-    Get the rating tag for a post.
-    """
-
-    rating_map = {
-        1: "rating:general",
-        2: "rating:sensitive",
-        3: "rating:questionable",
-        4: "rating:explicit",
-    }
-    return rating_map.get(post.rating)
-
-
-def get_score_tag(post: Post) -> str | None:
-    """
-    Get the score tag for a post.
-    """
-
-    score_map = {
-        1: "score:5",
-        2: "score:6",
-        3: "score:7",
-        4: "score:8",
-        5: "score:9",
-    }
-    return score_map.get(post.score)
-
-
-def output_dataset():
-    console = get_console()
     progress = get_progress(console)
-    with Session() as session:
-        task = progress.add_task("Outputting dataset...", total=session.scalar(select(func.count(Post.id))))
-        console.log("Starting to output dataset...")
-        stmt = select(Post).execution_options(yield_per=1000)
-        with progress:
-            for post in session.scalars(stmt):
-                sorted_tags = sort_tags(post.tags)
-                tags = [get_tag(tag) for tag in sorted_tags]
-                if period_tag := get_period_tag(post):
-                    tags.insert(0, period_tag)
-                if rating_tag := get_rating_tag(post):
-                    tags.insert(0, rating_tag)
-                if score_tag := get_score_tag(post):
-                    tags.insert(0, score_tag)
+    with progress:
+        task = progress.add_task("Outputting dataset...", total=total)
+        while chunk := conn.fetchmany(500):
+            for pid, published_at, rating, score, tag_list in chunk:
+                tags = _decorate({
+                    "tags": tag_list,
+                    "published_at": published_at,
+                    "rating": rating,
+                    "score": score,
+                })
                 console.log(tags)
                 progress.update(task, advance=1)
 
+    conn.close()
+    return 0
+
 
 if __name__ == "__main__":
-    output_dataset()
+    sys.exit(main())
