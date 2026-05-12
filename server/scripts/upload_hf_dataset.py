@@ -26,6 +26,7 @@ import hashlib
 import json
 import logging
 import os
+import shutil
 import sys
 import tempfile
 from collections.abc import Iterable, Iterator
@@ -36,6 +37,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any, Literal
 
 import duckdb
+import httpx
 import pyarrow as pa
 import pyarrow.parquet as pq
 from dotenv import load_dotenv
@@ -63,6 +65,7 @@ METADATA_DIR = "metadata"
 IMAGES_DIR = "images"
 SCHEMA_VERSION = 1
 DEFAULT_DB = SERVER_ROOT / "illustration" / "images" / ".pictoria" / "pictoria.duckdb"
+DEFAULT_SERVER_URL = "http://localhost:4777"
 
 logger = logging.getLogger("pictoria.hf-upload")
 
@@ -79,8 +82,8 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--db-path", type=Path, default=None, help=f"DuckDB path (default: {DEFAULT_DB})")
     p.add_argument("--token", default=os.environ.get("HF_TOKEN"), help="HF token (defaults to $HF_TOKEN or cached login)")
     p.add_argument("--shard-size", type=int, default=1000, help="Posts per metadata shard (default 1000)")
-    p.add_argument("--commit-batch", type=int, default=200, help="Max file operations per commit (default 200)")
     p.add_argument("--private", action="store_true", help="Create repo as private (only used on first creation)")
+    p.add_argument("--server", default=DEFAULT_SERVER_URL, help=f"Pictoria server URL for DB snapshot (default {DEFAULT_SERVER_URL})")
     p.add_argument("--no-images", action="store_true", help="Metadata-only run; do not upload image files")
     p.add_argument("--limit", type=int, default=None, help="Process at most N posts (smoke testing)")
     p.add_argument("--dry-run", action="store_true", help="Print plan without uploading anything")
@@ -446,11 +449,6 @@ ds = ds.cast_column("image_path", Image())
 """
 
 
-def chunked(items: list[Any], size: int) -> Iterator[list[Any]]:
-    for i in range(0, len(items), size):
-        yield items[i : i + size]
-
-
 # --------------------------------------------------------------------------------------
 # Image source: local FS + S3 fallback
 # --------------------------------------------------------------------------------------
@@ -544,13 +542,37 @@ def _resolve_all(pending: list[PendingImage], cfg: ImageSourceConfig, s3: Minio 
     return resolved, missing
 
 
+def _stage_image(src: Path, dst: Path) -> None:
+    """Materialise src at dst — hardlink if possible, else copy.
+
+    Hardlink avoids extra disk IO but only works on the same volume; copy is
+    the cross-volume fallback. dst is left alone if it already exists.
+    """
+    if dst.exists():
+        return
+    dst.parent.mkdir(parents=True, exist_ok=True)
+    try:
+        os.link(src, dst)
+    except OSError:
+        shutil.copy2(src, dst)
+
+
+def _stage_resolved_images(resolved: list[tuple[PendingImage, Path]], stage_dir: Path) -> None:
+    progress = get_progress()
+    with progress:
+        task = progress.add_task("Staging images for upload", total=len(resolved))
+        for pending, src in resolved:
+            _stage_image(src, stage_dir / pending.repo_path)
+            progress.advance(task)
+
+
 def _upload_new_images(
     target: RepoTarget,
     plan: Plan,
     *,
-    commit_batch: int,
     cfg: ImageSourceConfig,
     s3: Minio | None,
+    stage_dir: Path,
 ) -> list[PendingImage]:
     if not plan.image_uploads:
         return []
@@ -560,25 +582,28 @@ def _upload_new_images(
         logger.info("Skipping %d images already present in repo", skipped)
     if not needed:
         return []
+
     resolved, missing = _resolve_all(needed, cfg, s3)
     logger.info("Resolved %d / %d images (%d missing)", len(resolved), len(needed), len(missing))
+    if not resolved:
+        return missing
 
-    for batch_idx, batch in enumerate(chunked(resolved, commit_batch), start=1):
-        ops = [CommitOperationAdd(path_in_repo=p.repo_path, path_or_fileobj=str(path)) for p, path in batch]
-        logger.info("Uploading image batch %d (%d files)", batch_idx, len(batch))
-        target.api.create_commit(
-            repo_id=target.repo_id,
-            repo_type="dataset",
-            operations=ops,
-            commit_message=f"upload images batch {batch_idx} ({len(batch)} files)",
-            token=target.token,
-        )
-        for _p, path in batch:
-            try:
-                if path.is_relative_to(cfg.tmp_dir):
-                    path.unlink(missing_ok=True)
-            except OSError:
-                pass
+    _stage_resolved_images(resolved, stage_dir)
+    logger.info("Uploading %d images via upload_large_folder...", len(resolved))
+    target.api.upload_large_folder(
+        repo_id=target.repo_id,
+        repo_type="dataset",
+        folder_path=str(stage_dir),
+        allow_patterns=f"{IMAGES_DIR}/**",
+    )
+
+    # Best-effort cleanup of S3 temp downloads (the stage dir gets wiped with tempdir)
+    for _p, src in resolved:
+        try:
+            if src.is_relative_to(cfg.tmp_dir):
+                src.unlink(missing_ok=True)
+        except OSError:
+            pass
 
     return missing
 
@@ -617,7 +642,6 @@ def _build_final_ops(
 
 @dataclass
 class ExecuteOptions:
-    commit_batch: int
     upload_images: bool
     write_readme: bool
     source_mode: SourceMode
@@ -632,12 +656,14 @@ def execute_plan(target: RepoTarget, plan: Plan, opts: ExecuteOptions) -> list[P
         tmp = Path(tmp_str)
         s3_cache = tmp / "s3_cache"
         s3_cache.mkdir()
+        image_stage = tmp / "image_stage"
+        image_stage.mkdir()
 
         cfg = ImageSourceConfig(mode=opts.source_mode, target_dir=opts.target_dir, tmp_dir=s3_cache, s3_workers=opts.s3_workers)
         s3 = get_s3_client() if opts.source_mode != "local-only" and shared.s3_endpoint else None
 
         if opts.upload_images:
-            missing = _upload_new_images(target, plan, commit_batch=opts.commit_batch, cfg=cfg, s3=s3)
+            missing = _upload_new_images(target, plan, cfg=cfg, s3=s3, stage_dir=image_stage)
 
         ops = _build_final_ops(tmp, plan, target.repo_id, write_readme=opts.write_readme)
         logger.info(
@@ -746,6 +772,52 @@ def _collect_plan(args: argparse.Namespace, previous: Manifest, conn: duckdb.Duc
     return build_plan(collected, previous, shard_size=args.shard_size)
 
 
+def _request_server_snapshot(server_url: str) -> tuple[Path, Path] | None:
+    """Ask the running pictoria server for a DB snapshot.
+
+    Returns (snapshot_db_path, snapshot_dir) on success, or None if the server
+    isn't reachable. The dir is what we hand to shutil.rmtree afterwards.
+
+    A 404 means the server is running but doesn't know the snapshot endpoint —
+    almost always "old code is loaded; restart needed". We treat that as a
+    fatal error rather than falling back, since the live DB will be locked.
+    """
+    url = server_url.rstrip("/") + "/v2/cmd/db/snapshot"
+    try:
+        resp = httpx.post(url, timeout=600.0)
+    except (httpx.ConnectError, httpx.ConnectTimeout):
+        return None
+    if resp.status_code == 404:
+        msg = (
+            f"Server at {server_url} returned 404 for the snapshot endpoint. "
+            "The server is running an older build — restart it (just server-dev) "
+            "to pick up the new /cmd/db/snapshot route."
+        )
+        raise SystemExit(msg)
+    resp.raise_for_status()
+    data = resp.json()
+    return Path(data["path"]), Path(data["dir"])
+
+
+def _open_db_readonly(args: argparse.Namespace) -> tuple[duckdb.DuckDBPyConnection, Path | None]:
+    """Open the DB read-only. Prefer a server-side snapshot (works while server runs);
+    fall back to opening the live file directly (only works if no one holds the write lock).
+    Returns (connection, cleanup_dir_or_None).
+    """
+    snap = _request_server_snapshot(args.server)
+    if snap is not None:
+        snap_path, snap_dir = snap
+        logger.info("Using DB snapshot from server: %s", snap_path)
+        return duckdb.connect(str(snap_path), read_only=True), snap_dir
+
+    db_path = args.db_path or DEFAULT_DB
+    if not db_path.exists():
+        msg = f"DuckDB not found at {db_path}"
+        raise SystemExit(msg)
+    logger.info("Server unreachable at %s; opening DB file directly (will fail if server is running)", args.server)
+    return duckdb.connect(str(db_path), read_only=True), None
+
+
 def _report_missing(missing: list[PendingImage]) -> None:
     if not missing:
         return
@@ -770,14 +842,9 @@ def main() -> None:
     prepare_s3()
     _validate_s3_config(args)
 
-    db_path = args.db_path or DEFAULT_DB
-    if not db_path.exists():
-        msg = f"DuckDB not found at {db_path}"
-        raise SystemExit(msg)
-    conn = duckdb.connect(str(db_path), read_only=True)
-
+    conn, snapshot_dir = _open_db_readonly(args)
     try:
-        target = RepoTarget(api=HfApi(), repo_id=args.repo, token=args.token)
+        target = RepoTarget(api=HfApi(token=args.token), repo_id=args.repo, token=args.token)
         created = False if args.dry_run else ensure_repo(target, private=args.private)
 
         previous = Manifest(shard_size=args.shard_size) if args.dry_run else load_remote_manifest(args.repo, args.token, args.shard_size)
@@ -805,7 +872,6 @@ def main() -> None:
             target,
             plan,
             ExecuteOptions(
-                commit_batch=args.commit_batch,
                 upload_images=not args.no_images,
                 write_readme=created,
                 source_mode=args.source,
@@ -817,6 +883,8 @@ def main() -> None:
         logger.info("Done. Visit https://huggingface.co/datasets/%s", args.repo)
     finally:
         conn.close()
+        if snapshot_dir is not None:
+            shutil.rmtree(snapshot_dir, ignore_errors=True)
 
 
 if __name__ == "__main__":

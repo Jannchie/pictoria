@@ -5,10 +5,12 @@ from logging import getLogger
 from pathlib import Path
 from threading import Thread
 from types import TracebackType
-from typing import Self
+from typing import Literal, Self
 
 import httpx
 from pydantic import BaseModel, HttpUrl
+
+DownloadStatus = Literal["downloaded", "skipped", "failed"]
 
 logger = getLogger("danbooru")
 
@@ -150,19 +152,19 @@ class DanbooruClient:
                 logger.exception("Failed to parse posts")
         return res
 
-    def download_image(self, post: DanbooruPost, target_dir: str, retries: int = 3) -> None:
+    def download_image(self, post: DanbooruPost, target_dir: str, retries: int = 3) -> DownloadStatus:
         if post.file_url is None:
-            return
+            return "failed"
         url = str(post.file_url)
         post_id: int = post.id
+        ext = post.file_ext
+        file_path = Path(target_dir) / f"{post_id}.{ext}"
+        if file_path.exists():
+            logger.debug("File %s already exists, skipping", file_path)
+            return "skipped"
         for attempt in range(retries):
             try:
                 logger.debug("Downloading post %s, attempt %d", post.id, attempt + 1)
-                ext = post.file_ext
-                file_path = Path(target_dir) / f"{post_id}.{ext}"
-                if file_path.exists():
-                    logger.debug("File %s already exists, skipping", file_path)
-                    return
                 with self.client.stream("GET", url) as response:
                     response.raise_for_status()
                     with file_path.open("wb") as f:
@@ -172,8 +174,9 @@ class DanbooruClient:
                 logger.warning("Failed to download post %s on attempt %d", post_id, attempt + 1)
             else:
                 logger.info("Successfully downloaded post %s", post_id)
-                return
+                return "downloaded"
         logger.exception("All attempts to download post %s have failed", post_id)
+        return "failed"
 
     def download_by_id(self, post_id: int, target_dir: str) -> None:
         post = self.get_post(post_id)
@@ -182,19 +185,27 @@ class DanbooruClient:
             return
         Thread(target=self.download_image, args=(post, target_dir)).start()
 
-    def download_posts(self, posts: list[DanbooruPost], target_dir: os.PathLike, n_worker: int = 16) -> None:
+    def download_posts(
+        self, posts: list[DanbooruPost], target_dir: os.PathLike, n_worker: int = 16,
+    ) -> dict[DownloadStatus, int]:
         target_dir = Path(target_dir)
         target_dir.mkdir(exist_ok=True, parents=True)
         logger.info("Download started!")
+        stats: dict[DownloadStatus, int] = {"downloaded": 0, "skipped": 0, "failed": 0}
         with concurrent.futures.ThreadPoolExecutor(max_workers=n_worker) as executor:
             futures = []
             for post in posts:
                 logger.debug("Downloading post %s", post.id)
                 future = executor.submit(self.download_image, post, str(target_dir))
                 futures.append(future)
-            # 等待所有下载任务完成
-            concurrent.futures.wait(futures)
-        logger.info("Download completed!")
+            for fut in concurrent.futures.as_completed(futures):
+                try:
+                    stats[fut.result()] += 1
+                except Exception:
+                    logger.exception("Download worker raised")
+                    stats["failed"] += 1
+        logger.info("Download completed: %s", stats)
+        return stats
 
 
 class Downloader:

@@ -6,15 +6,10 @@ These are the *internal* DB entities, separate from the API DTOs in
 that ``PostDetailPublic`` / ``PostPublic`` validate from.
 """
 
-from __future__ import annotations
-
-from typing import TYPE_CHECKING
+from datetime import datetime
+from pathlib import Path
 
 from pydantic import BaseModel, ConfigDict
-
-if TYPE_CHECKING:
-    from datetime import datetime
-    from pathlib import Path
 
 import shared
 

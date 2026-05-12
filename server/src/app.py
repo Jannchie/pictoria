@@ -10,12 +10,13 @@ from dotenv import load_dotenv
 from litestar import Litestar, Router
 from litestar.config.compression import CompressionConfig
 from litestar.config.cors import CORSConfig
+from litestar.connection import Request
 from litestar.datastructures import State
 from litestar.handlers.http_handlers import HTTPRouteHandler
 from litestar.openapi import OpenAPIConfig
 from litestar.openapi.plugins import ScalarRenderPlugin
 from litestar.plugins.pydantic import PydanticPlugin
-from litestar.types import Method
+from litestar.types import Method, Scope
 from litestar.types.internal_types import PathParameterDefinition
 from rich import get_console
 
@@ -117,6 +118,17 @@ def default_operation_id_creator(
 
 cors_config = CORSConfig(allow_origins=["*"])
 
+
+async def log_unhandled_exception(exc: Exception, scope: Scope) -> None:
+    request = Request(scope)
+    logger.exception(
+        "Unhandled exception in %s %s: %r",
+        request.method,
+        request.url.path,
+        exc,
+    )
+
+
 app = Litestar(
     [v2],
     dependencies={
@@ -128,6 +140,7 @@ app = Litestar(
     lifespan=[my_lifespan],
     debug=True,
     logging_config=None,
+    after_exception=[log_unhandled_exception],
     openapi_config=OpenAPIConfig(
         render_plugins=[ScalarRenderPlugin()],
         title="Pictoria",

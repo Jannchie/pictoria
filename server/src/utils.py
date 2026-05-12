@@ -12,7 +12,6 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any, TypeVar
 
 import thumbhash
-import wdtagger
 from dotenv import load_dotenv
 from PIL import Image
 
@@ -20,6 +19,8 @@ import shared
 from shared import logger
 
 if TYPE_CHECKING:
+    import wdtagger
+
     from db.repositories.posts import PostRepo
     from db.repositories.tags import TagGroupRepo
 
@@ -239,7 +240,8 @@ async def attach_wdtagger_results(
 
 # ─── wdtagger model loader (lazy) ──────────────────────────────────────
 @cache
-def _get_tagger() -> wdtagger.Tagger:
+def _get_tagger() -> "wdtagger.Tagger":
+    import wdtagger  # noqa: PLC0415  # lazy: defer ML stack load until first use
     return wdtagger.Tagger(model_repo="SmilingWolf/wd-vit-large-tagger-v3")
 
 

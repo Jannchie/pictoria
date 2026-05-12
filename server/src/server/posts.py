@@ -20,9 +20,7 @@ import shared
 from db.repositories.posts import PostRepo
 from db.repositories.tags import TagGroupRepo
 from db.repositories.vectors import VectorRepo
-from processors import process_post
 from scheme import DTOBaseModel, PostDetailPublic, PostHasColorPublic
-from server.utils.vec import get_text_vec
 from utils import calculate_sha256, calculate_thumbhash, create_thumbnail_by_image, get_path_name_and_extension
 
 MAX_POST_SCORE = 5
@@ -158,6 +156,8 @@ class PostController(Controller):
         prompt = data.query.strip()
         if not prompt:
             return []
+        from server.utils.vec import get_text_vec  # noqa: PLC0415  # lazy: defer ML stack load until first use
+
         vec = await get_text_vec(prompt)
         sims = await vectors.similar(vec, limit=limit, skip_self=False)
         id_list = [s.post_id for s in sims]
@@ -364,6 +364,6 @@ class PostController(Controller):
         )
         with abs_path.open("wb") as f:
             await asyncio.to_thread(shutil.copyfileobj, file_io, f)
-        # Post-processing (sha256, thumbhash, embedding, tags) is handled
-        # by the existing background pipeline in processors/__init__.py.
+        from processors import process_post  # noqa: PLC0415  # lazy: defer ML stack load until first use
+
         await process_post(posts, vectors, tag_group_repo, abs_path)

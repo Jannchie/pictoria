@@ -15,7 +15,6 @@ from rich.progress import Progress
 from skimage import color
 
 import shared
-from ai.clip import calculate_image_features
 from services.file_management import add_new_files, remove_deleted_files
 from shared import logger
 from tools.colors import get_dominant_color, get_palette_ints
@@ -211,6 +210,8 @@ async def process_post(  # noqa: C901, PLR0915
     await asyncio.to_thread(_persist_basics)
 
     if needs_sha256:
+        from ai.clip import calculate_image_features  # noqa: PLC0415  # lazy: defer ML stack load until first use
+
         features = await asyncio.to_thread(calculate_image_features, file_abs_path)
         embedding = features.cpu().numpy()[0].astype(np.float32)
         await vectors.upsert(post.id, embedding)

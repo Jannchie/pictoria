@@ -1,22 +1,22 @@
 import asyncio
 import os
+import tempfile
+from dataclasses import dataclass
+from pathlib import Path
 from typing import ClassVar
 
 import litestar
 from litestar import Controller
+from litestar.datastructures import State
 from litestar.exceptions import HTTPException, NotFoundException
 
 import shared
-from ai.make_captions import OpenAIImageAnnotator
-from ai.waifu_scorer import get_waifu_scorer
 from danbooru import DanbooruClient
 from db.repositories.posts import PostRepo
 from db.repositories.tags import TagGroupRepo
 from db.repositories.vectors import VectorRepo
 from scheme import PostDetailPublic, Result
 from server.utils import is_image
-from server.utils.vec import get_image_vec
-from services.waifu import waifu_score_all_posts
 from utils import (
     TAG_GROUP_COLORS,
     attach_wdtagger_results,
@@ -24,6 +24,22 @@ from utils import (
     get_tagger,
     logger,
 )
+
+
+@dataclass
+class DanbooruDownloadStats:
+    total: int
+    with_url: int
+    filtered: int
+    downloaded: int
+    skipped: int
+    failed: int
+
+
+@dataclass
+class SnapshotResult:
+    path: str
+    dir: str
 
 
 class CommandController(Controller):
@@ -39,6 +55,8 @@ class CommandController(Controller):
         if shared.openai_key is None:
             raise HTTPException(status_code=400, detail="OpenAI API key is not set")
         if shared.caption_annotator is None:
+            from ai.make_captions import OpenAIImageAnnotator  # noqa: PLC0415  # lazy: defer ML stack load until first use
+
             shared.caption_annotator = OpenAIImageAnnotator(shared.openai_key)
 
         caption = await asyncio.to_thread(shared.caption_annotator.annotate_image, post.absolute_path)
@@ -99,6 +117,8 @@ class CommandController(Controller):
     @litestar.put("/waifu-scorer")
     async def auto_waifu_scorer(self, posts: PostRepo) -> None:
         """Batch-score all posts that don't have a waifu score."""
+        from services.waifu import waifu_score_all_posts  # noqa: PLC0415  # lazy: defer ML stack load until first use
+
         await waifu_score_all_posts(posts)
 
     @litestar.get("/waifu-scorer/{post_id:int}")
@@ -113,6 +133,8 @@ class CommandController(Controller):
         existing = await posts.get_waifu_score(post_id)
         if existing is not None:
             return existing
+        from ai.waifu_scorer import get_waifu_scorer  # noqa: PLC0415  # lazy: defer ML stack load until first use
+
         scorer = get_waifu_scorer()
         result = await asyncio.to_thread(scorer, post.absolute_path)
         score = float(result[0]) if isinstance(result, (list, tuple)) else float(result)
@@ -128,6 +150,8 @@ class CommandController(Controller):
         ids = await vectors.list_missing_post_ids()
         if not ids:
             return Result(msg="Embedding already calculated.")
+        from server.utils.vec import get_image_vec  # noqa: PLC0415  # lazy: defer ML stack load until first use
+
         done = 0
         for pid in ids:
             post = await posts.get(pid)
@@ -147,12 +171,12 @@ class CommandController(Controller):
         posts: PostRepo,
         tag_group_repo: TagGroupRepo,
         tags: str,
-    ) -> None:
+    ) -> DanbooruDownloadStats:
         """Download posts from Danbooru and persist them."""
         client = DanbooruClient(os.getenv("DANBOORU_API_KEY", ""), os.getenv("DANBOORU_USER_NAME", ""))
         danbooru_dir = shared.target_dir / "danbooru"
         save_dir = danbooru_dir / tags
-        posts_orig = client.get_posts(tags=tags, limit=99999)
+        posts_orig = await asyncio.to_thread(client.get_posts, tags=tags, limit=99999)
         posts_with_url = [p for p in posts_orig if p.file_url]
         logger.info(f"Fetched {len(posts_with_url)} available posts ({len(posts_orig)} total)")
 
@@ -162,52 +186,134 @@ class CommandController(Controller):
 
         filtered = [
             p for p in posts_with_url
-            if p.file_ext and p.file_ext.lower()
+            if p.file_url and p.file_ext and p.file_ext.lower()
             in {"jpg", "jpeg", "png", "gif", "webp", "avif", "bmp", "tiff", "tif", "svg"}
         ]
-        for d_post in filtered:
-            if not d_post.file_url:
-                continue
-            file_path = save_dir.relative_to(shared.target_dir).as_posix()
-            if not save_dir.exists():
-                save_dir.mkdir(parents=True, exist_ok=True)
-            post_id = await posts.upsert_from_danbooru(
-                file_path=file_path,
-                file_name=str(d_post.id),
-                extension=d_post.file_ext,
-                source=f"https://danbooru.donmai.us/posts/{d_post.id}",
-                rating=from_rating_to_int(d_post.rating),
-                published_at=d_post.created_at,
-            )
-            if post_id is None:
-                continue
-            for t in types:
-                for tag_str in getattr(d_post, f"tag_string_{t}").split(" "):
-                    if not tag_str:
-                        continue
+        save_dir.mkdir(parents=True, exist_ok=True)
+        file_path_str = save_dir.relative_to(shared.target_dir).as_posix()
 
-                    def _insert_tag_and_link(_t: str = tag_str, _gid: int = type_to_group_id[t], _pid: int = post_id) -> None:
-                        cur = posts.cur
-                        cur.execute(
+        def _existing_post_names() -> set[str]:
+            posts.cur.execute(
+                "SELECT file_name FROM posts WHERE file_path = ?",
+                [file_path_str],
+            )
+            return {row[0] for row in posts.cur.fetchall()}
+
+        existing_names = await asyncio.to_thread(_existing_post_names)
+        to_persist = [p for p in filtered if str(p.id) not in existing_names]
+        logger.info(f"Persisting {len(to_persist)} new posts ({len(filtered) - len(to_persist)} already in DB)")
+
+        def _persist_all() -> None:
+            if not to_persist:
+                return
+            cur = posts.cur
+            cur.execute("BEGIN")
+            try:
+                for d_post in to_persist:
+                    cur.execute(
+                        """
+                        INSERT INTO posts(file_path, file_name, extension, source, rating, published_at)
+                        VALUES (?, ?, ?, ?, ?, ?)
+                        ON CONFLICT (file_path, file_name, extension)
+                        DO UPDATE SET source = excluded.source,
+                                      published_at = excluded.published_at,
+                                      updated_at = now()
+                        RETURNING id
+                        """,
+                        [
+                            file_path_str,
+                            str(d_post.id),
+                            d_post.file_ext,
+                            f"https://danbooru.donmai.us/posts/{d_post.id}",
+                            from_rating_to_int(d_post.rating),
+                            d_post.created_at,
+                        ],
+                    )
+                    row = cur.fetchone()
+                    if not row:
+                        continue
+                    post_id = int(row[0])
+
+                    # `types` is ordered by priority; setdefault keeps the
+                    # first (highest-priority) group when a tag appears in
+                    # multiple tag_string_* fields. Also dedupes within a
+                    # single post — DuckDB's ON CONFLICT does not handle
+                    # duplicates inside one executemany batch.
+                    tag_to_group: dict[str, int] = {}
+                    for t in types:
+                        gid = type_to_group_id[t]
+                        # str.split() with no args also drops empty entries
+                        for tag_str in getattr(d_post, f"tag_string_{t}").split():
+                            tag_to_group.setdefault(tag_str, gid)
+                    if tag_to_group:
+                        cur.executemany(
                             "INSERT INTO tags(name, group_id) VALUES (?, ?) ON CONFLICT DO NOTHING",
-                            [_t, _gid],
+                            list(tag_to_group.items()),
                         )
-                        cur.execute(
+                        cur.executemany(
                             "INSERT INTO post_has_tag(post_id, tag_name, is_auto) VALUES (?, ?, FALSE) "
                             "ON CONFLICT DO NOTHING",
-                            [_pid, _t],
+                            [(post_id, name) for name in tag_to_group],
                         )
+                cur.execute("COMMIT")
+            except Exception:
+                cur.execute("ROLLBACK")
+                raise
 
-                    await asyncio.to_thread(_insert_tag_and_link)
+        await asyncio.to_thread(_persist_all)
 
-        await asyncio.to_thread(client.download_posts, filtered, save_dir)
+        stats = await asyncio.to_thread(client.download_posts, filtered, save_dir)
         # Defer heavy processing to background; can be called explicitly via /cmd/posts/embedding etc.
+        return DanbooruDownloadStats(
+            total=len(posts_orig),
+            with_url=len(posts_with_url),
+            filtered=len(filtered),
+            downloaded=stats.get("downloaded", 0),
+            skipped=stats.get("skipped", 0),
+            failed=stats.get("failed", 0),
+        )
+
+    @litestar.post("/db/snapshot", description="Create a point-in-time DuckDB snapshot for offline tooling")
+    async def db_snapshot(self, state: State) -> SnapshotResult:
+        """Snapshot the live DB to a tempfile so external readers can open it.
+
+        DuckDB locks the live file exclusively (especially on Windows), so
+        external processes can't even open it read-only while the server is
+        running. Here we use ATTACH + COPY FROM DATABASE inside the server's
+        own connection — the result is a self-contained DB file the caller
+        can open, query, and then delete (along with its parent dir).
+        """
+        tmp_dir = Path(tempfile.mkdtemp(prefix="pictoria-snapshot-"))
+        snap_path = tmp_dir / "snapshot.duckdb"
+
+        def _run() -> None:
+            cur = state.db.cursor()
+            try:
+                cur.execute("CHECKPOINT")
+                cur.execute("SELECT current_database()")
+                source = cur.fetchone()[0]
+                # snap_path is server-controlled (tempfile); source comes from DuckDB itself.
+                cur.execute(f"ATTACH '{snap_path.as_posix()}' AS pictoria_snap")
+                try:
+                    cur.execute(f'COPY FROM DATABASE "{source}" TO pictoria_snap')
+                finally:
+                    cur.execute("DETACH pictoria_snap")
+            finally:
+                cur.close()
+
+        await asyncio.to_thread(_run)
+        logger.info(f"Created DB snapshot at {snap_path}")
+        return SnapshotResult(path=str(snap_path), dir=str(tmp_dir))
 
 
 async def _fetch_or_create_canonical_groups(tag_group_repo: TagGroupRepo) -> dict[str, int]:
-    """Ensure the four canonical groups exist and return name → id mapping."""
+    """Ensure canonical groups exist and return name → id mapping, ordered by priority.
+
+    Order matters: when a tag appears under multiple types in a Danbooru post,
+    the first-listed group wins (see `_persist_all` in `download_from_danbooru`).
+    """
     result: dict[str, int] = {}
-    for name in ("general", "character", "artist", "meta"):
+    for name in ("artist", "character", "copyright", "general", "meta"):
         color = TAG_GROUP_COLORS.get(name, "#000000")
         group = await tag_group_repo.ensure(name, color=color)
         result[name] = group.id
