@@ -28,22 +28,18 @@ const subFolders = computed(() => {
 <template>
   <div
     v-if="subFolders.length > 0"
-    class="px-1 py-2 flex shrink-0 flex-wrap gap-2 overflow-y-auto"
+    class="flex shrink-0 flex-wrap gap-2 border-b border-border-subtle px-2 py-2"
   >
     <RouterLink
       v-for="f in subFolders"
       :key="f.value"
-      class="bg-container text-xs px-3 py-2 rounded flex basis-[calc(10%-0.5rem)] gap-1 truncate transition-colors items-center hover:bg-elevated"
+      class="max-w-56 min-w-32 flex flex-1 items-center gap-1.5 truncate border border-border-subtle rounded-md bg-surface-1 px-3 py-1.5 text-xs text-fg-muted transition-colors hover:border-border-strong hover:bg-surface-2 hover:text-fg"
       :to="`/dir/${f.value}`"
     >
-      <i class="i-tabler-folder shrink-0" />
+      <i class="i-tabler-folder shrink-0 text-primary/70" />
       <span class="flex-grow truncate">
         {{ f.title }}
       </span>
     </RouterLink>
   </div>
-  <div
-    v-if="subFolders.length > 0"
-    class="border-b-1"
-  />
 </template>

@@ -1,3 +1,5 @@
+import asyncio
+import contextlib
 import os
 import pathlib
 import re
@@ -21,11 +23,12 @@ from litestar.types.internal_types import PathParameterDefinition
 from rich import get_console
 
 import shared
+from danbooru import DanbooruClient
 from db import DB, run_migrations
 from db.repositories.posts import PostRepo
 from db.repositories.tags import TagGroupRepo, TagRepo
 from db.repositories.vectors import VectorRepo
-from server.commands import CommandController
+from server.commands import CommandController, ensure_canonical_tag_groups_sync
 from server.folders import FoldersController
 from server.images import ImageController
 from server.posts import PostController
@@ -55,7 +58,33 @@ async def my_lifespan(app: Litestar):
     logger.info(f"Opening DuckDB at {db_path}")
     db = DB(db_path, memory_limit=memory_limit, threads=threads)
     run_migrations(db.cursor(), MIGRATIONS_DIR)
+    if os.environ.get("REBUILD_HNSW") == "1":
+        _rebuild_hnsw_indexes(db)
     app.state.db = db
+
+    # One-shot upsert of the five canonical tag groups; cache the resulting
+    # name -> id map so every /download-from-danbooru request can skip the
+    # five INSERT-then-SELECT round-trips it would otherwise repeat.
+    setup_cur = db.cursor()
+    try:
+        app.state.canonical_tag_groups = ensure_canonical_tag_groups_sync(setup_cur)
+    finally:
+        setup_cur.close()
+
+    # Single long-lived DanbooruClient so httpx keeps the TCP/TLS connection
+    # to danbooru.donmai.us alive across tag downloads.
+    app.state.danbooru_client = DanbooruClient(
+        os.environ.get("DANBOORU_API_KEY", ""),
+        os.environ.get("DANBOORU_USER_NAME", ""),
+    )
+
+    # Backfill metadata + waifu scores for posts added (or partially processed)
+    # while the server was offline. Pre-DuckDB-migration `main.py` did this in
+    # its lifespan via `await sync_metadata()`; the migration in 983d71a
+    # dropped that line. Run as fire-and-forget tasks so a large initial scan
+    # doesn't block the server from accepting requests.
+    app.state.background_tasks = set()
+    _spawn_startup_backfill(app, db)
 
     host = "localhost"
     port = 4777
@@ -64,7 +93,79 @@ async def my_lifespan(app: Litestar):
     try:
         yield
     finally:
+        for task in list(app.state.background_tasks):
+            task.cancel()
+        app.state.danbooru_client.client.close()
         db.close()
+
+
+# Each entry: (index_name, table, column, metric). Mirrors migrations/0001_initial.sql.
+_HNSW_INDEXES: tuple[tuple[str, str, str, str], ...] = (
+    ("hnsw_post_vectors_embedding", "post_vectors", "embedding", "cosine"),
+    ("hnsw_posts_dominant_color", "posts", "dominant_color", "l2sq"),
+)
+
+
+def _rebuild_hnsw_indexes(db: DB) -> None:
+    """DROP + CREATE the VSS HNSW indexes from underlying table data.
+
+    DuckDB VSS HNSW does not gracefully tolerate DELETE/UPDATE on the
+    indexed column — failed inserts can corrupt the on-disk index with
+    ghost entries that then fatally invalidate the connection on any
+    subsequent write ("Failed to add to the HNSW index: Duplicate keys
+    not allowed"). Rebuilding from the underlying table data is the only
+    reliable way to clean those ghost entries.
+
+    Gated behind ``REBUILD_HNSW=1`` because the rebuild scans the full
+    vector tables — fast for small libraries, but wasteful on every
+    startup once writes have been hardened. Set the env var, restart
+    once to repair, then unset.
+    """
+    cur = db.cursor()
+    try:
+        for name, table, column, metric in _HNSW_INDEXES:
+            logger.info(f"Rebuilding HNSW index {name}")
+            cur.execute(f"DROP INDEX IF EXISTS {name}")
+            cur.execute(
+                f"CREATE INDEX {name} ON {table} USING HNSW({column}) "
+                f"WITH (metric = '{metric}')",
+            )
+    finally:
+        cur.close()
+
+
+def _spawn_startup_backfill(app: Litestar, db: DB) -> None:
+    """Kick off background metadata + waifu-score backfill on startup."""
+
+    async def _run_metadata_sync() -> None:
+        from processors import sync_metadata  # noqa: PLC0415  # lazy: defer ML stack load
+
+        cur_p, cur_v, cur_tg = db.cursor(), db.cursor(), db.cursor()
+        try:
+            await sync_metadata(PostRepo(cur_p), VectorRepo(cur_v), TagGroupRepo(cur_tg))
+        except Exception:
+            logger.exception("Startup metadata backfill failed")
+        finally:
+            for c in (cur_p, cur_v, cur_tg):
+                with contextlib.suppress(Exception):
+                    c.close()
+
+    async def _run_waifu_score_backfill() -> None:
+        from services.waifu import waifu_score_all_posts  # noqa: PLC0415  # lazy: defer ML stack load
+
+        cur = db.cursor()
+        try:
+            await waifu_score_all_posts(PostRepo(cur))
+        except Exception:
+            logger.exception("Startup waifu-score backfill failed")
+        finally:
+            with contextlib.suppress(Exception):
+                cur.close()
+
+    for coro in (_run_metadata_sync(), _run_waifu_score_backfill()):
+        task = asyncio.create_task(coro)
+        app.state.background_tasks.add(task)
+        task.add_done_callback(app.state.background_tasks.discard)
 
 
 async def provide_post_repo(state: State) -> AsyncGenerator[PostRepo, None]:

@@ -1,7 +1,6 @@
 <script setup lang="ts">
 import type { Area } from './SelectArea.vue'
 import type { PostSimplePublic } from '@/api'
-import { Btn, Menu } from '@roku-ui/vue'
 import { useQuery, useQueryClient } from '@tanstack/vue-query'
 import { refDebounced } from '@vueuse/core'
 import { logicAnd } from '@vueuse/math'
@@ -44,8 +43,8 @@ const posts = computed<Array<PostSimplePublic>>(() => {
   return isTextSearchActive.value ? textSearchResults.value : folderPosts.value
 })
 const items = computed(() => posts.value.map(post => ({
-  width: post.width ?? 1,
-  height: post.height ?? 1,
+  width: post.width || 1,
+  height: post.height || 1,
 })))
 
 const waterfallRef = ref<InstanceType<typeof Waterfall> | null>(null)
@@ -296,30 +295,30 @@ const mainSectionRef = ref<HTMLElement>()
 <template>
   <ScrollArea
     ref="mainSectionRef"
-    class="flex flex-grow basis-0 flex-col relative"
+    class="relative flex flex-grow basis-0 flex-col"
   >
     <SelectArea
       :target="mainSectionRef"
       @select-change="onSelectChange"
       @select-end="onSelectEnd"
     />
-    <Menu
+    <PMenu
       :data="menuData"
       trigger="contextmenu"
-      class="shrink-0 grow-1 basis-0 h-full w-full"
+      class="h-full w-full shrink-0 grow-1 basis-0"
       @select="onMenuSelect"
     >
       <FolderSection />
       <div v-if="isTextSearchActive && textSearchQueryResult.isLoading.value">
-        <div class="p-16 op-50 flex flex-col gap-2 items-center">
-          <i class="i-tabler-loader text-2xl animate-spin" />
+        <div class="flex flex-col items-center gap-2 p-16 op-50">
+          <i class="i-tabler-loader animate-spin text-2xl" />
           <div class="text-sm">
             Searching for “{{ textSearchPrompt }}”
           </div>
         </div>
       </div>
       <div v-else-if="isTextSearchActive && textSearchQueryResult.error.value">
-        <div class="text-error p-16 text-center op-50 flex flex-col gap-2 items-center">
+        <div class="flex flex-col items-center gap-2 p-16 text-center text-danger op-50">
           <i class="i-tabler-alert-circle text-2xl" />
           <div class="text-sm">
             Failed to run text search. Please try again.
@@ -327,7 +326,7 @@ const mainSectionRef = ref<HTMLElement>()
         </div>
       </div>
       <div v-else-if="isTextSearchActive && posts.length === 0">
-        <div class="p-16 text-center op-50 flex flex-col gap-2 items-center">
+        <div class="flex flex-col items-center gap-2 p-16 text-center op-50">
           <i class="i-tabler-mood-empty text-2xl" />
           <div class="text-sm">
             No images matched “{{ textSearchPrompt }}”.
@@ -338,18 +337,21 @@ const mainSectionRef = ref<HTMLElement>()
         </div>
       </div>
       <div v-else-if="!isTextSearchActive && infinityPostsQuery.isLoading.value && posts.length === 0">
-        <div class="p-16 op-50 flex flex-col items-center">
-          <i class="i-tabler-loader text-2xl animate-spin" />
+        <div class="flex flex-col items-center gap-2 p-16 text-center op-50">
+          <i class="i-tabler-loader animate-spin text-2xl" />
           <div class="text-sm">
             Loading posts...
           </div>
         </div>
       </div>
       <div v-else-if="posts.length === 0">
-        <div class="p-16 op-50 flex flex-col items-center">
-          <i class="i-tabler-alert-triangle text-2xl" />
+        <div class="flex flex-col items-center gap-2 p-16 text-center op-50">
+          <i class="i-tabler-photo-off text-2xl" />
           <div class="text-sm">
             No posts found
+          </div>
+          <div class="text-xs">
+            Try a different folder, or adjust the filters.
           </div>
         </div>
       </div>
@@ -376,15 +378,15 @@ const mainSectionRef = ref<HTMLElement>()
       </Waterfall>
       <div
         v-if="!isTextSearchActive && posts.length > 0 && infinityPostsQuery.hasNextPage.value"
-        class="p-4 flex justify-center"
+        class="flex justify-center p-4"
       >
-        <Btn
+        <PButton
           :loading="infinityPostsQuery.isLoading.value"
           @click="infinityPostsQuery.fetchNextPage()"
         >
           Load More
-        </Btn>
+        </PButton>
       </div>
-    </Menu>
+    </PMenu>
   </ScrollArea>
 </template>

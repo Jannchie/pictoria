@@ -22,6 +22,7 @@ interface PostFilter {
   extension: string[]
   folder?: string
   waifu_score_range?: [number, number]
+  waifu_score_levels: string[]
 }
 export type RightPanelDatum = PostSimplePublic | ImageDatum | InputDatum
 export const postFilter = ref<PostFilter>({
@@ -29,6 +30,7 @@ export const postFilter = ref<PostFilter>({
   score: [],
   tags: [],
   extension: [],
+  waifu_score_levels: [],
 })
 export const textSearchQuery = ref('')
 
@@ -73,6 +75,14 @@ export function useSyncFilterWithUrl() {
       delete query.waifu_score_range
     }
 
+    // Handle waifu score bucket filter
+    if (newFilter.waifu_score_levels.length > 0) {
+      query.waifu_score_levels = newFilter.waifu_score_levels.join(',')
+    }
+    else {
+      delete query.waifu_score_levels
+    }
+
     // Update URL without reloading the page
     router.replace({ query })
   }, { deep: true })
@@ -95,6 +105,10 @@ export function useSyncFilterWithUrl() {
     if (newQuery.waifu_score_range !== undefined) {
       const range = (newQuery.waifu_score_range as string).split(',').map(Number) as [number, number]
       postFilter.value.waifu_score_range = range
+    }
+
+    if (newQuery.waifu_score_levels !== undefined) {
+      postFilter.value.waifu_score_levels = (newQuery.waifu_score_levels as string).split(',')
     }
   }, { immediate: true })
 }

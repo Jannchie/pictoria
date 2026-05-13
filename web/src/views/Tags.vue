@@ -1,6 +1,5 @@
 <script setup lang="ts">
 import type { TagWithCountPublic } from '@/api'
-import { TextField } from '@roku-ui/vue'
 import { useQuery } from '@tanstack/vue-query'
 import { v2ListTags } from '@/api'
 
@@ -51,13 +50,17 @@ const tagGroupByFirstChar = computed(() => {
 </script>
 
 <template>
-  <div class="flex flex-col h-full">
-    <div class="px-4 py-3 shadow-sm top-0 sticky z-10">
-      <TextField
+  <div class="h-full flex flex-col">
+    <div class="sticky top-0 z-10 border-b border-border-default bg-bg/85 px-4 py-3 backdrop-blur">
+      <PInput
         v-model="search"
         placeholder="Search tags"
         class="w-full"
-      />
+      >
+        <template #leftSection>
+          <i class="i-tabler-search text-fg-muted" />
+        </template>
+      </PInput>
     </div>
     <div class="flex-1 overflow-hidden">
       <VirtualScroll
@@ -65,44 +68,43 @@ const tagGroupByFirstChar = computed(() => {
         class="h-full"
       >
         <template #default="{ item }">
-          <div
-            class="border-base py-3 border-b"
-          >
+          <div class="border-b border-border-subtle py-4">
             <div class="flex flex-col">
-              <div class="mb-3 px-4 flex items-baseline">
-                <span class="text-3xl font-bold">
+              <div class="mb-3 flex items-baseline gap-2 px-4">
+                <span class="text-2xl font-semibold tracking-tight">
                   {{ item[0] }}
                 </span>
-                <span class="text-lg ml-2">
-                  ({{ item[1].length }})
+                <span class="text-sm text-fg-subtle tabular-nums">
+                  {{ item[1].length }}
                 </span>
               </div>
-              <div class="px-4 flex flex-wrap gap-3">
-                <div
+              <div class="flex flex-wrap gap-x-3 gap-y-2 px-4">
+                <template
                   v-for="tag, i of item[1]"
                   :key="tag.name"
-                  class="mb-2 flex gap-2 items-center"
                 >
-                  <template v-if="i === 20">
-                    <div class="text-dimmed px-2 italic">
-                      ...
-                    </div>
-                  </template>
-                  <template v-else>
-                    <div class="flex gap-2 items-end">
-                      <PostTag
-                        class="cursor-pointer"
-                        rounded="lg"
-                        :data="tag"
-                      >
-                        {{ tag.name }}
-                      </PostTag>
-                      <span class="text-dimmed text-xs">
-                        ({{ tag.count }})
-                      </span>
-                    </div>
-                  </template>
-                </div>
+                  <div
+                    v-if="i === 20"
+                    class="self-center px-2 text-xs text-fg-subtle"
+                  >
+                    …
+                  </div>
+                  <div
+                    v-else
+                    class="flex items-center gap-1.5"
+                  >
+                    <PostTag
+                      class="cursor-pointer"
+                      rounded="lg"
+                      :data="tag"
+                    >
+                      {{ tag.name }}
+                    </PostTag>
+                    <span class="text-xs text-fg-subtle tabular-nums">
+                      {{ tag.count }}
+                    </span>
+                  </div>
+                </template>
               </div>
             </div>
           </div>

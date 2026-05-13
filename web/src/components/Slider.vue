@@ -1,5 +1,4 @@
 <script setup lang="ts">
-import { useColors, useContainerFilledCS } from '@roku-ui/vue'
 import { useElementBounding, useEventListener } from '@vueuse/core'
 import { computed, onMounted, ref, watchEffect } from 'vue'
 
@@ -28,6 +27,13 @@ const props = withDefaults(
     reverse: false,
   },
 )
+
+const COLOR_VAR_MAP: Record<string, string> = {
+  primary: 'var(--p-primary)',
+  secondary: 'var(--p-fg-muted)',
+  tertiary: 'var(--p-info)',
+  error: 'var(--p-danger)',
+}
 
 function minMaxStepToOptions(min: number, max: number, step: number) {
   const options = []
@@ -88,12 +94,10 @@ function optionToIndex(option: any) {
   return res
 }
 
-const color = computed(() => props.color)
-const colors = useColors(color.value)
-const filledColor = computed(() => colors.value[4])
-const indicatorOuterCls = 'bg-[var(--i-bg)] border border-base'
-const indicatorInnerCls = 'bg-base'
-const containerFilledCS = useContainerFilledCS(color)
+const filledColor = computed(() => COLOR_VAR_MAP[props.color] ?? COLOR_VAR_MAP.primary)
+const indicatorOuterCls = 'bg-[var(--i-bg)] border border-border-default'
+const indicatorInnerCls = 'bg-bg'
+const progressBg = computed(() => filledColor.value)
 
 watchEffect(() => {
   if (currentIndex.value < 0) {
@@ -208,20 +212,20 @@ const animateCls = computed(() => props.animate
 </script>
 
 <template>
-  <div class="w-full relative">
+  <div class="relative w-full">
     <div
       ref="wrapper"
       type="size"
-      class="flex w-full cursor-pointer items-center"
+      class="w-full flex cursor-pointer items-center"
       :class="sizeCls.wrapper"
       @touchmove.prevent
     >
       <div
-        class="bg-base rounded-full w-full transition-background-color,border-color,color"
+        class="w-full rounded-full bg-surface-1 transition-background-color,border-color,color"
         :class="sizeCls.innerWrapper"
       >
         <div
-          class="flex relative"
+          class="relative flex"
           :class="sizeCls.content"
           :style="{
             width: `${props.width}rem`,
@@ -234,13 +238,13 @@ const animateCls = computed(() => props.animate
             :style="{
               left: `${props.reverse ? 100 - (optionToIndex(option) / (length - 1)) * 100 : (optionToIndex(option) / (length - 1)) * 100}%`,
             }"
-            class="bg-container rounded-full top-50% absolute"
+            class="absolute top-50% rounded-full bg-surface-3"
             :class="sizeCls.tick"
           />
           <div
             v-if="currentIndex !== -1"
             ref="indicator"
-            class="rounded-full cursor-pointer transition-background-color,border-color,color top-50% absolute"
+            class="absolute top-50% cursor-pointer rounded-full transition-background-color,border-color,color"
             :class="[sizeCls.indicator, animateCls.indicator, indicatorOuterCls]"
             :style="[
               `--i-bg: ${filledColor}`,
@@ -250,20 +254,19 @@ const animateCls = computed(() => props.animate
             ]"
           >
             <div
-              class="rounded-full pointer-events-none left-50% top-50% absolute"
+              class="pointer-events-none absolute left-50% top-50% rounded-full"
               :class="[sizeCls.indicatorInner, indicatorInnerCls]"
             />
           </div>
           <div
-            class="rounded-full h-full pointer-events-none"
+            class="pointer-events-none h-full rounded-full"
             :class="[
-              containerFilledCS.class,
               sizeCls.progress,
               animateCls.progress,
             ]"
             :style="[
-              containerFilledCS.style,
               {
+                backgroundColor: progressBg,
                 width: `${props.reverse ? 100 - (currentIndex / (length - 1)) * 100 : (currentIndex / (length - 1)) * 100}%`,
               },
             ]"
@@ -273,7 +276,7 @@ const animateCls = computed(() => props.animate
     </div>
     <div
       v-if="ticks.length > 0"
-      class="text-dimmed text-xs mx-1 h-1em relative"
+      class="relative mx-1 h-1em text-xs text-fg-muted"
       :style="{
         width: `${props.width}rem`,
       }"
@@ -284,7 +287,7 @@ const animateCls = computed(() => props.animate
         :style="{
           left: `${(optionToIndex(option) / (length - 1)) * 100}%`,
         }"
-        class="rounded-full flex w-auto absolute -translate-x-50%"
+        class="absolute w-auto flex rounded-full -translate-x-50%"
         :class="sizeCls.tick"
       >
         {{ option }}

@@ -1,4 +1,50 @@
-:root {
-    color-scheme: light dark;
-    font-family: "Sarasa Gothic SC", "Noto Sans SC", "Microsoft YaHei", sans-serif;
+html,
+body,
+#app {
+  height: 100%;
+  margin: 0;
+  padding: 0;
+}
+
+body {
+  font-family: var(--p-font-sans);
+  font-size: var(--p-text-base);
+  line-height: var(--p-leading-normal);
+  color: var(--p-fg);
+  background-color: var(--p-bg);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+::selection {
+  background: rgb(var(--p-primary-rgb) / 0.32);
+  color: var(--p-fg);
+}
+
+/* Scrollbar — subtle, surface-tinted track to fit the dark gallery. */
+* {
+  scrollbar-color: var(--p-surface-3) transparent;
+  scrollbar-width: thin;
+}
+*::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+*::-webkit-scrollbar-track {
+  background: transparent;
+}
+*::-webkit-scrollbar-thumb {
+  background: var(--p-surface-3);
+  border-radius: var(--p-radius-full);
+  border: 2px solid transparent;
+  background-clip: padding-box;
+}
+*::-webkit-scrollbar-thumb:hover {
+  background: var(--p-border-strong);
+  background-clip: padding-box;
+  border: 2px solid transparent;
+}
+
+button {
+  font-family: inherit;
 }

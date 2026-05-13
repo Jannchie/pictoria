@@ -22,12 +22,12 @@ dependencies = [
     "litestar[standard]>=2.21.1",
     "diffusion-prompt-embedder>=0.2.0",
     "accelerate>=1.13.0",
-    "waifu-scorer[cu124]>=0.2.1",
+    "waifu-scorer>=0.2.2",
     "inch>=0.2.0",
     "pyarrow>=24.0.0",
     "minio>=7.2.20",
     "boto3>=1.43.6",
-    "thumbhash>=0.1.2",
+    "thash>=1.0.0",
     "duckdb>=1.5.2",
     "pytz>=2026.2",
 ]
@@ -40,7 +40,7 @@ url = "https://pypi.org/simple"
 
 [[tool.uv.index]]
 name = "pytorch"
-url = "https://download.pytorch.org/whl/cu124"
+url = "https://download.pytorch.org/whl/cu128"
 explicit = true
 
 [tool.uv.sources]

@@ -22,6 +22,18 @@ export type CursorResponse = {
 };
 
 /**
+ * DanbooruDownloadStats
+ */
+export type DanbooruDownloadStats = {
+    total: number;
+    with_url: number;
+    filtered: number;
+    downloaded: number;
+    skipped: number;
+    failed: number;
+};
+
+/**
  * DirectorySummary
  */
 export type DirectorySummary = {
@@ -84,24 +96,24 @@ export type PostDetailPublic = {
  */
 export type PostFilter = {
     /**
-     * Rating to filter by.
+     * Rating filter.
      */
     rating?: Array<number> | null;
     /**
-     * Score to filter by.
+     * Score filter.
      */
     score?: Array<number> | null;
     /**
-     * Tags to filter by.
+     * Tag filter.
      */
     tags?: Array<string> | null;
     /**
-     * File extensions to filter by.
+     * Extension filter.
      */
     extension?: Array<string> | null;
     folder?: string | null;
     /**
-     * Lab color space values for filtering.
+     * LAB color filter.
      */
     lab?: [
         number,
@@ -109,12 +121,16 @@ export type PostFilter = {
         number
     ] | null;
     /**
-     * Waifu score range for filtering (min, max).
+     * Waifu score range filter.
      */
     waifu_score_range?: [
         number,
         number
     ] | null;
+    /**
+     * Waifu-score bucket filter. Each value is one of 'S' (8-10), 'A' (6-8), 'B' (4-6), 'C' (2-4), 'D' (0-2), or 'UNSCORED' (no waifu score yet). Multiple values OR together.
+     */
+    waifu_score_levels?: Array<string> | null;
 };
 
 /**
@@ -122,24 +138,24 @@ export type PostFilter = {
  */
 export type PostFilterWithOrder = {
     /**
-     * Rating to filter by.
+     * Rating filter.
      */
     rating?: Array<number> | null;
     /**
-     * Score to filter by.
+     * Score filter.
      */
     score?: Array<number> | null;
     /**
-     * Tags to filter by.
+     * Tag filter.
      */
     tags?: Array<string> | null;
     /**
-     * File extensions to filter by.
+     * Extension filter.
      */
     extension?: Array<string> | null;
     folder?: string | null;
     /**
-     * Lab color space values for filtering.
+     * LAB color filter.
      */
     lab?: [
         number,
@@ -147,14 +163,18 @@ export type PostFilterWithOrder = {
         number
     ] | null;
     /**
-     * Waifu score range for filtering (min, max).
+     * Waifu score range filter.
      */
     waifu_score_range?: [
         number,
         number
     ] | null;
     /**
-     * Field to order by.
+     * Waifu-score bucket filter. Each value is one of 'S' (8-10), 'A' (6-8), 'B' (4-6), 'C' (2-4), 'D' (0-2), or 'UNSCORED' (no waifu score yet). Multiple values OR together.
+     */
+    waifu_score_levels?: Array<string> | null;
+    /**
+     * Order column.
      */
     order_by?: 'id' | 'score' | 'rating' | 'created_at' | 'published_at' | 'file_name' | null;
     /**
@@ -231,6 +251,14 @@ export type ScoreUpdate = {
 };
 
 /**
+ * SnapshotResult
+ */
+export type SnapshotResult = {
+    path: string;
+    dir: string;
+};
+
+/**
  * TagBatchDelete
  */
 export type TagBatchDelete = {
@@ -293,7 +321,7 @@ export type TagWithGroupPublic = {
  */
 export type TextSearchRequest = {
     /**
-     * Natural language prompt describing the desired image.
+     * Natural-language search prompt.
      */
     query: string;
 };
@@ -1083,6 +1111,22 @@ export type V2CalculateEmbeddingResponses = {
 
 export type V2CalculateEmbeddingResponse = V2CalculateEmbeddingResponses[keyof V2CalculateEmbeddingResponses];
 
+export type V2DbSnapshotData = {
+    body?: never;
+    path?: never;
+    query?: never;
+    url: '/v2/cmd/db/snapshot';
+};
+
+export type V2DbSnapshotResponses = {
+    /**
+     * Document created, URL follows
+     */
+    201: SnapshotResult;
+};
+
+export type V2DbSnapshotResponse = V2DbSnapshotResponses[keyof V2DbSnapshotResponses];
+
 export type V2DownloadFromDanbooruData = {
     body?: never;
     path?: never;
@@ -1111,10 +1155,12 @@ export type V2DownloadFromDanbooruResponses = {
     /**
      * Document created, URL follows
      */
-    201: unknown;
+    201: DanbooruDownloadStats;
 };
 
-export type V2GetWaifuScorerData = {
+export type V2DownloadFromDanbooruResponse = V2DownloadFromDanbooruResponses[keyof V2DownloadFromDanbooruResponses];
+
+export type V2GetWaifuScorerOneData = {
     body?: never;
     path: {
         post_id: number;
@@ -1123,7 +1169,7 @@ export type V2GetWaifuScorerData = {
     url: '/v2/cmd/waifu-scorer/{post_id}';
 };
 
-export type V2GetWaifuScorerErrors = {
+export type V2GetWaifuScorerOneErrors = {
     /**
      * Validation Exception
      */
@@ -1136,16 +1182,16 @@ export type V2GetWaifuScorerErrors = {
     };
 };
 
-export type V2GetWaifuScorerError = V2GetWaifuScorerErrors[keyof V2GetWaifuScorerErrors];
+export type V2GetWaifuScorerOneError = V2GetWaifuScorerOneErrors[keyof V2GetWaifuScorerOneErrors];
 
-export type V2GetWaifuScorerResponses = {
+export type V2GetWaifuScorerOneResponses = {
     /**
      * Request fulfilled, document follows
      */
     200: number;
 };
 
-export type V2GetWaifuScorerResponse = V2GetWaifuScorerResponses[keyof V2GetWaifuScorerResponses];
+export type V2GetWaifuScorerOneResponse = V2GetWaifuScorerOneResponses[keyof V2GetWaifuScorerOneResponses];
 
 export type V2GetOriginalData = {
     body?: never;
@@ -1175,7 +1221,7 @@ export type V2GetOriginalResponses = {
     /**
      * File Download
      */
-    200: string;
+    200: Blob | File;
 };
 
 export type V2GetOriginalResponse = V2GetOriginalResponses[keyof V2GetOriginalResponses];
@@ -1239,7 +1285,7 @@ export type V2GetThumbnailResponses = {
     /**
      * File Download
      */
-    200: string;
+    200: Blob | File;
 };
 
 export type V2GetThumbnailResponse = V2GetThumbnailResponses[keyof V2GetThumbnailResponses];
@@ -1272,7 +1318,7 @@ export type V2GetThumbnailByIdResponses = {
     /**
      * File Download
      */
-    200: string;
+    200: Blob | File;
 };
 
 export type V2GetThumbnailByIdResponse = V2GetThumbnailByIdResponses[keyof V2GetThumbnailByIdResponses];

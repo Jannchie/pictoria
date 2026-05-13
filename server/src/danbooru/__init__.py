@@ -1,5 +1,6 @@
 import concurrent.futures
 import os
+import time
 from datetime import datetime
 from logging import getLogger
 from pathlib import Path
@@ -13,6 +14,11 @@ from pydantic import BaseModel, HttpUrl
 DownloadStatus = Literal["downloaded", "skipped", "failed"]
 
 logger = getLogger("danbooru")
+
+# Danbooru's /posts.json can be slow under load (tag-string queries, cold
+# caches). The httpx default of 5s reliably times out tag pages like
+# `gainoob`. Connect stays tight; reads get the long budget.
+_HTTP_TIMEOUT = httpx.Timeout(connect=10.0, read=60.0, write=30.0, pool=10.0)
 
 
 class Variant(BaseModel):
@@ -94,11 +100,39 @@ class DanbooruClient:
         self.api_key: str = api_key
         self.user_id: str = user_id
         self.base_url: str = base_url
-        self.client = httpx.Client(base_url=base_url, headers={"User-Agent": "curl/8.5.0"})
+        self.client = httpx.Client(
+            base_url=base_url,
+            headers={"User-Agent": "curl/8.5.0"},
+            timeout=_HTTP_TIMEOUT,
+        )
+
+    def _get_with_retry(
+        self,
+        url: str,
+        params: dict,
+        *,
+        retries: int = 3,
+        backoff: float = 1.5,
+    ) -> httpx.Response:
+        for attempt in range(1, retries + 1):
+            try:
+                return self.client.get(url, params=params)
+            except (httpx.TimeoutException, httpx.TransportError) as exc:
+                if attempt == retries:
+                    raise
+                sleep_s = backoff ** attempt
+                logger.warning(
+                    "Danbooru GET %s timed out/failed (attempt %d/%d): %s; retrying in %.1fs",
+                    url, attempt, retries, exc, sleep_s,
+                )
+                time.sleep(sleep_s)
+        # Unreachable: the loop either returns or raises.
+        msg = "retry loop exited without returning"
+        raise RuntimeError(msg)
 
     def get_post(self, post_id: int) -> DanbooruPost:
         url: str = f"posts/{post_id}.json"
-        response = self.client.get(url, params={"api_key": self.api_key, "login": self.user_id})
+        response = self._get_with_retry(url, {"api_key": self.api_key, "login": self.user_id})
         response.raise_for_status()
         return DanbooruPost(**response.json())
 
@@ -131,7 +165,7 @@ class DanbooruClient:
             }
             params = {k: v for k, v in params.items() if v is not None}
 
-            response = self.client.get(url, params=params)
+            response = self._get_with_retry(url, params)
             response.raise_for_status()
             logger.debug(response.url)
 
@@ -140,6 +174,11 @@ class DanbooruClient:
                 break
 
             all_posts.extend(posts)
+            # A short page means we've reached the tail of the result set —
+            # any further `before_id` query is guaranteed to return 0 rows,
+            # so skip the wasted round trip.
+            if len(posts) < current_limit:
+                break
             before_id = min(post["id"] for post in posts)
             if len(all_posts) >= limit:
                 break

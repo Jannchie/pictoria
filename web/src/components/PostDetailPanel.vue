@@ -1,6 +1,5 @@
 <script setup lang="ts">
 import type { PostDetailPublic, PostHasTagPublic } from '@/api'
-import { Btn, ColorSwatch, Tag, TextField } from '@roku-ui/vue'
 import { useQueryClient } from '@tanstack/vue-query'
 import { filesize } from 'filesize'
 import { v2GetWaifuScorer, v2UpdatePostCaption, v2UpdatePostRating, v2UpdatePostScore, v2UpdatePostSource } from '@/api'
@@ -146,41 +145,42 @@ async function calculateWaifuScore() {
 
 <template>
   <ScrollArea
-    class="text-xs flex flex-col gap-2 h-full overflow-x-hidden overflow-y-auto"
+    class="h-full flex flex-col gap-2 overflow-x-hidden overflow-y-auto text-xs"
   >
     <div
       v-if="isImage(post.extension)"
       class="flex justify-center"
     >
-      <div class="rounded overflow-hidden">
+      <div class="overflow-hidden rounded">
         <img
           :src="getPostThumbnailURL(post)"
-          class="rounded h-40 overflow-hidden object-contain"
+          class="h-40 overflow-hidden rounded object-contain"
           :class="{
             blur: (post?.rating ?? 0) >= 3 && hideNSFW,
           }"
         >
       </div>
     </div>
-    <div class="flex gap-1 items-center justify-center">
-      <ColorSwatch
+    <div class="flex items-center justify-center gap-1">
+      <PColorSwatch
         v-if="post.dominantColor"
-        class="mr-2 h-8 w-8"
-        with-border
+        class="mr-2"
+        :size="32"
+        bordered
         :color="labToRgbaString(post.dominantColor[0], post.dominantColor[1], post.dominantColor[2]) ?? '#000000'"
       />
-      <ColorSwatch
+      <PColorSwatch
         v-for="color in post.colors"
         :key="color.color"
         :color="colorNumToHex(color.color)"
       />
     </div>
     <div>
-      <div class="text-default font-black py-2">
+      <div class="py-2 text-fg font-semibold">
         Basic Info
       </div>
       <div
-        class="grid grid-cols-2 even:children:text-muted"
+        class="grid grid-cols-[auto_1fr] gap-x-3 gap-y-1.5 children:break-words odd:children:text-fg-subtle"
       >
         <div>Rating</div>
         <div>
@@ -258,58 +258,58 @@ async function calculateWaifuScore() {
             <WaifuScoreLevel :score="post.waifuScore.score" />
           </template>
           <template v-else>
-            <Btn
+            <PButton
               size="sm"
-              variant="light"
+              variant="subtle"
               :loading="isCalculatingWaifuScore"
               @click="calculateWaifuScore"
             >
               {{ isCalculatingWaifuScore ? 'Computing...' : 'Compute' }}
-            </Btn>
+            </PButton>
           </template>
         </div>
       </div>
     </div>
     <div>
-      <div class="text-default font-black py-2">
+      <div class="py-2 text-fg font-semibold">
         Folder
       </div>
       <div class="flex gap-2">
         <div
           v-if="folders.length === 0"
-          class="text-dimmed flex flex-col h-8 w-full items-center justify-center"
+          class="h-8 w-full flex flex-col items-center justify-center text-fg-muted"
         >
-          <div class="op50 flex flex-col items-center">
+          <div class="flex flex-col items-center op50">
             <i class="i-tabler-folder-off" />
             <div>
               No folder
             </div>
           </div>
         </div>
-        <Btn
+        <PButton
           v-for="folder in folders"
           :key="folder.path"
           size="sm"
           @pointerup="$router.push(`/dir/${folder.path}?post_id=${post.id}`); showPostDetail = null"
         >
           {{ folder.name }}
-        </Btn>
+        </PButton>
       </div>
     </div>
     <div class="flex flex-col gap-1">
       <div
-        class="text-default font-black py-2 flex gap-2 items-center"
+        class="flex items-center gap-2 py-2 text-fg font-black"
       >
         <span>Tags</span>
-        <Btn
+        <PButton
           v-if="post.tags && post.tags.length > 0"
           size="sm"
           icon
-          variant="light"
+          variant="subtle"
           @click="onCopyTags"
         >
           <i class="i-tabler-copy" />
-        </Btn>
+        </PButton>
       </div>
       <div
         v-if="post.tags && post.tags.length > 0"
@@ -318,7 +318,7 @@ async function calculateWaifuScore() {
         <PostTag
           v-for="tag of tagSorted"
           :key="tag.tagInfo.name"
-          class="bg-elevated px-1 py-0.5 rounded cursor-pointer"
+          class="cursor-pointer rounded bg-surface-2 px-1 py-0.5"
           rounded="lg"
           :data="tag"
           :color="tag.tagInfo.group?.color"
@@ -326,60 +326,64 @@ async function calculateWaifuScore() {
         >
           {{ tag.tagInfo.name }}
         </PostTag>
-        <Tag
-          rounded="lg"
-          variant="light"
+        <PTag
+          variant="soft"
+          tone="primary"
+          class="cursor-pointer"
           @pointerup="openTagSelectorWindow()"
         >
           <i class="i-tabler-plus" />
-        </Tag>
+        </PTag>
       </div>
       <div
         v-else
-        class="text-dimmed flex flex-col h-14 items-center justify-center"
+        class="h-14 flex flex-col items-center justify-center text-fg-muted"
       >
-        <div class="op50 flex flex-col items-center">
+        <div class="flex flex-col items-center op50">
           <i class="i-tabler-bookmark-off" />
           <div>
             No Tag
           </div>
         </div>
-        <Btn
+        <PButton
           size="sm"
-          class="my-2 flex w-full"
+          block
+          class="my-2"
           @pointerup="openTagSelectorWindow()"
         >
           <i class="i-tabler-bookmark-plus" />
           Add Tag
-        </Btn>
+        </PButton>
       </div>
     </div>
     <div>
-      <div class="text-default font-black py-2">
+      <div class="py-2 text-fg font-semibold">
         Caption
       </div>
       <div>
-        <TextField
-          :model-value="post.caption"
+        <PInput
+          :model-value="post.caption ?? ''"
           size="sm"
+          class="w-full"
           @update:model-value="updateCaption"
         />
       </div>
     </div>
     <div>
-      <div class="text-default font-black py-2">
+      <div class="py-2 text-fg font-semibold">
         Source
       </div>
       <div>
-        <TextField
-          :model-value="post.source"
+        <PInput
+          :model-value="post.source ?? ''"
           size="sm"
+          class="w-full"
           @update:model-value="updateSource"
         />
       </div>
     </div>
     <div>
-      <div class="text-default font-black py-2">
+      <div class="py-2 text-fg font-semibold">
         Command
       </div>
       <div class="flex flex-col gap-2">

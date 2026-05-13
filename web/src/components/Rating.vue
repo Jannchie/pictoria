@@ -24,7 +24,7 @@ const unselectable = computed(() => {
 const hoverIndex = ref(-1)
 const defaultIcon = 'i-tabler-star'
 const defaultActionIcon = 'i-tabler-star-filled'
-const defaultColor = 'rgb(var(--r-text-primary))'
+const defaultColor = 'var(--p-primary)'
 
 type IconType = string | { active: string, normal: string } | (string | { active: string, normal: string })[] | undefined
 const iconData = computed(() => {
@@ -90,9 +90,9 @@ function unifyInput(
   return Array.from<{ active: string, normal: string }>({ length: n }).fill(baseObject)
 }
 const activeCls = 'text-primary'
-const inactiveCls = 'text-dimmed'
-const hoverCls = 'text-highlight'
-const inactiveColor = 'rgb(var(--r-text-muted))'
+const inactiveCls = 'text-fg-muted'
+const hoverCls = 'text-fg'
+const inactiveColor = 'var(--p-fg-subtle)'
 function getCls(index: number) {
   const normalIcon = iconData.value[index].normal
   const activeIcon = iconData.value[index].active

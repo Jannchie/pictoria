@@ -1,6 +1,5 @@
 <script setup lang="ts">
 import type { PostSimplePublic } from '@/api'
-import { AspectRatio } from '@roku-ui/vue'
 import { thumbHashToDataURL } from 'thumbhash'
 import { computed, ref } from 'vue'
 import { hideNSFW, selectedPostIdSet, selectingPostIdSet, unselectedPostIdSet } from '@/shared'
@@ -52,6 +51,15 @@ function onPointerDown(e: PointerEvent) {
 }
 const selected = computed(() => {
   return (selectedPostIdSet.value.has(post.value.id) || selectingPostIdSet.value.has(post.value.id)) && !unselectedPostIdSet.value.has(post.value.id)
+})
+
+const IMAGE_EXTS = new Set(['jpg', 'jpeg', 'png', 'gif', 'webp', 'avif', 'bmp', 'tiff', 'tif', 'svg'])
+const isImage = computed(() => IMAGE_EXTS.has(post.value.extension.toLowerCase()))
+const aspectRatio = computed(() => {
+  if (post.value.width && post.value.height) {
+    return post.value.width / post.value.height
+  }
+  return 1
 })
 
 function getIconByExtension(extension: string) {
@@ -169,7 +177,7 @@ function onContextmenu(e: MouseEvent) {
 
 <template>
   <div
-    class="post-item flex flex-col gap-1 items-center"
+    class="post-item flex flex-col items-center gap-1"
     :class="{ selected }"
     draggable="true"
     @dragstart.stop
@@ -178,10 +186,10 @@ function onContextmenu(e: MouseEvent) {
     @dblclick="$router.push(`/post/${post.id}`)"
     @contextmenu.capture="onContextmenu"
   >
-    <AspectRatio
-      v-if="post.width && post.height"
-      :ratio="post.width / post.height"
-      class="bg-primary rounded-lg w-full"
+    <PAspectRatio
+      v-if="isImage"
+      :ratio="aspectRatio"
+      class="w-full rounded-lg bg-primary"
     >
       <div
         class="post-content rounded-lg"
@@ -195,18 +203,18 @@ function onContextmenu(e: MouseEvent) {
           <img
             v-show="imageLoaded"
             :src="getPostThumbnailURL(post)"
-            class="rounded-lg w-inherit"
+            class="w-inherit rounded-lg"
             draggable="true"
             :class="{ blur: ((post.rating ?? 0) >= 3) && hideNSFW }"
             @load="onImageLoad"
           >
         </Transition>
       </div>
-    </AspectRatio>
-    <AspectRatio
+    </PAspectRatio>
+    <PAspectRatio
       v-else
       :ratio="1"
-      class="post-content bg-base rounded-lg h-full w-full"
+      class="post-content h-full w-full rounded-lg bg-bg"
     >
       <div class="p-12">
         <i
@@ -214,16 +222,16 @@ function onContextmenu(e: MouseEvent) {
           :class="getIconByExtension(post.extension)"
         />
       </div>
-    </AspectRatio>
-    <div class="text-default text-xs text-center flex flex-col w-full">
-      <div class="text-xs w-full truncate">
-        <div class="filename-wrapper px-1 rounded inline">
+    </PAspectRatio>
+    <div class="w-full flex flex-col text-center text-xs text-fg">
+      <div class="w-full truncate text-xs">
+        <div class="filename-wrapper inline rounded px-1">
           {{ `${post.fileName}.${post.extension}` }}
         </div>
       </div>
       <div
         v-if="post.width && post.height"
-        class="text-11px font-bold font-mono w-full truncate"
+        class="w-full truncate text-11px font-bold font-mono"
       >
         {{ post.width }} x {{ post.height }}
       </div>
@@ -232,11 +240,25 @@ function onContextmenu(e: MouseEvent) {
 </template>
 
 <style lang="css" scoped>
+.post-item {
+  transition: transform var(--p-duration-fast) var(--p-ease);
+}
+.post-content {
+  transition:
+    outline-color var(--p-duration-fast) var(--p-ease),
+    box-shadow var(--p-duration-fast) var(--p-ease);
+  outline: 2px solid transparent;
+  outline-offset: 2px;
+}
+.post-item:hover .post-content {
+  box-shadow: var(--p-shadow-md);
+}
 .selected .post-content {
-  outline: 4px solid rgb(var(--r-bg-primary)) !important;
+  outline-color: var(--p-primary);
+  box-shadow: 0 0 0 4px rgb(var(--p-primary-rgb) / 0.18);
 }
 .selected .filename-wrapper {
-  background-color: rgb(var(--r-bg-primary)) !important;
-  color: rgb(var(--r-text-inverted)) !important;
+  background-color: var(--p-primary) !important;
+  color: var(--p-on-primary) !important;
 }
 </style>

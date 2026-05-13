@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { useQuery } from '@tanstack/vue-query'
+import { Waterfall } from 'vue-wf'
 import { v2GetSimilarPosts } from '@/api'
 
 const props = defineProps<{
@@ -28,16 +29,14 @@ const cols = computed(() => Math.floor(width.value / 300))
 
 <template>
   <template v-if="query.status.value === 'pending'">
-    <div class="text-dimmed text-sm flex flex-col gap-2 h-64 items-center justify-center">
-      <i
-        class="i-svg-spinners-90-ring-with-bg text-highlight text-3xl"
-      />
+    <div class="h-64 flex flex-col items-center justify-center gap-2 text-sm text-fg-muted op-50">
+      <i class="i-tabler-loader animate-spin text-2xl" />
       <span>
         Loading similar posts...
       </span>
     </div>
   </template>
-  <LazyWaterfall
+  <Waterfall
     v-else
     :scroll-element="scrollElement"
     :items="data.map(p => ({ width: p.width ?? 1, height: p.height ?? 1 }))"
@@ -53,5 +52,5 @@ const cols = computed(() => Math.floor(width.value / 300))
       :key="p.id"
       :post="p"
     />
-  </LazyWaterfall>
+  </Waterfall>
 </template>

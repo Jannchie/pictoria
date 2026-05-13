@@ -144,7 +144,7 @@ useEventListener(globalThis, 'dragleave', (event: DragEvent) => {
     :class="{
       'op-0': dragEnterCount === 0 || !isDraggingFiles,
     }"
-    class="text-lg bg-primary-5/25 flex h-100vh w-100vw pointer-events-none items-center justify-center fixed z-10"
+    class="pointer-events-none fixed z-10 h-100vh w-100vw flex items-center justify-center bg-primary/25 text-lg"
   >
     <div class="text-black">
       Drop files here to save them.

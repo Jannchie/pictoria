@@ -1,5 +1,4 @@
 <script setup lang="ts">
-import { Btn } from '@roku-ui/vue'
 import { useRoute } from 'vue-router'
 import PostDetail from '@/components/PostDetail.vue'
 import Image from '@/roku/Image.vue'
@@ -36,31 +35,31 @@ watchEffect(() => {
   />
   <div
     v-if="post"
-    class="flex flex-col h-full"
+    class="h-full flex flex-col"
   >
     <div
-      class="bg-base border-base border-b flex items-center justify-between"
+      class="flex items-center justify-between gap-2 border-b border-border-default bg-bg px-2 py-1"
     >
-      <div class="grow-1 basis-0">
-        <Btn
+      <div class="flex flex-1 basis-0 items-center">
+        <PButton
           icon
-          variant="transparent"
-          color="surface"
+          size="sm"
+          variant="ghost"
           @click="$router.back()"
         >
           <i class="i-tabler-arrow-left" />
-        </Btn>
+        </PButton>
       </div>
-      <span class="text-sm">
+      <span class="min-w-0 truncate text-sm text-fg font-medium">
         {{ post.fileName }}
       </span>
-      <span class="grow-1 basis-0" />
+      <span class="flex-1 basis-0" />
     </div>
     <ScrollArea
       ref="scrollAreaRef"
-      class="flex flex-grow flex-basis-0 flex-col gap-4 h-full w-full items-center relative"
+      class="relative h-full w-full flex flex-grow flex-basis-0 flex-col gap-4"
     >
-      <div class="px-2 pt-3 max-h-80%">
+      <div class="mx-auto max-h-80% px-2 pt-3">
         <Image
           :key="post.id"
           :src="getPostImageURL(post)"
@@ -73,6 +72,7 @@ watchEffect(() => {
       </div>
       <SimilarPosts
         v-if="scrollAreaRef"
+        class="w-full"
         :post-id="post.id"
         :scroll-element="scrollAreaRef"
       />

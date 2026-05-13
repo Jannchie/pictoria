@@ -222,6 +222,7 @@ class PostRepo:
         folder: str | None = None,
         lab: tuple[float, float, float] | None = None,
         waifu_score_range: tuple[float, float] | None = None,
+        waifu_score_levels: tuple[str, ...] | None = None,
         order_by: str | None = None,
         order: str = "desc",
         limit: int = 100,
@@ -242,6 +243,7 @@ class PostRepo:
                 extension=extension,
                 folder=folder,
                 waifu_score_range=waifu_score_range,
+                waifu_score_levels=waifu_score_levels,
             )
 
             select_cols = (
@@ -337,6 +339,48 @@ class PostRepo:
             )
             row = self.cur.fetchone()
             return int(row[0]) if row else 0
+
+        return await asyncio.to_thread(_impl)
+
+    async def count_by_waifu_bucket(self, **filters: Any) -> list[dict]:
+        """Group posts into the 5 waifu-score buckets (S/A/B/C/D) plus UNSCORED.
+
+        UNSCORED counts posts with no row in ``post_waifu_scores`` yet.
+        Filters apply as usual; callers should drop their own
+        ``waifu_score_levels`` / ``waifu_score_range`` from filters first if
+        they want "count for buckets the user hasn't selected" semantics
+        (matches ScoreFilter / RatingFilter UI behaviour).
+        """
+
+        def _impl() -> list[dict]:
+            where_clauses, params, joins = _build_filter_clauses(**filters)
+            # Always join post_waifu_scores so the bucket CASE can reference
+            # pws.score / pws.post_id; if filter logic already added the join,
+            # don't duplicate it.
+            if not any("post_waifu_scores" in j for j in joins):
+                joins.append("LEFT JOIN post_waifu_scores pws ON pws.post_id = p.id")
+            joins_sql = "\n".join(joins)
+            where_sql = ("WHERE " + " AND ".join(where_clauses)) if where_clauses else ""
+            self.cur.execute(
+                f"""
+                SELECT
+                    CASE
+                        WHEN pws.post_id IS NULL THEN 'UNSCORED'
+                        WHEN pws.score >= 8 THEN 'S'
+                        WHEN pws.score >= 6 THEN 'A'
+                        WHEN pws.score >= 4 THEN 'B'
+                        WHEN pws.score >= 2 THEN 'C'
+                        ELSE 'D'
+                    END AS bucket,
+                    count(*) AS count
+                FROM posts p
+                {joins_sql}
+                {where_sql}
+                GROUP BY bucket
+                """,  # noqa: S608
+                params,
+            )
+            return fetch_all_dicts(self.cur)
 
         return await asyncio.to_thread(_impl)
 
@@ -614,7 +658,19 @@ class PostRepo:
 
 
 # ─── Helpers ────────────────────────────────────────────────────────────
-def _build_filter_clauses(  # noqa: PLR0913
+# Half-open intervals [min, max). 'D' covers [0, 2), 'S' actually [8, 10] —
+# the upper edge is enforced by the source domain (scores clamp to [0, 10]).
+WAIFU_SCORE_BUCKETS: dict[str, tuple[float, float]] = {
+    "D": (0.0, 2.0),
+    "C": (2.0, 4.0),
+    "B": (4.0, 6.0),
+    "A": (6.0, 8.0),
+    "S": (8.0, 10.001),
+}
+WAIFU_SCORE_BUCKET_UNSCORED = "UNSCORED"
+
+
+def _build_filter_clauses(  # noqa: PLR0913, C901, PLR0912
     *,
     rating: tuple[int, ...] | None = None,
     score: tuple[int, ...] | None = None,
@@ -622,6 +678,7 @@ def _build_filter_clauses(  # noqa: PLR0913
     extension: tuple[str, ...] | None = None,
     folder: str | None = None,
     waifu_score_range: tuple[float, float] | None = None,
+    waifu_score_levels: tuple[str, ...] | None = None,
 ) -> tuple[list[str], list[Any], list[str]]:
     where: list[str] = []
     params: list[Any] = []
@@ -649,8 +706,33 @@ def _build_filter_clauses(  # noqa: PLR0913
         # GLOB is case-sensitive and uses default index, unlike LIKE in DuckDB
         where.append("p.file_path GLOB ?")
         params.append(f"{folder}*")
+
+    # Either form of waifu filter requires the post_waifu_scores table reachable.
+    # Use LEFT JOIN so unscored posts don't get dropped pre-WHERE — the WHERE
+    # clauses below decide whether to keep them.
+    needs_waifu_join = bool(waifu_score_range) or bool(waifu_score_levels)
+    if needs_waifu_join:
+        joins.append("LEFT JOIN post_waifu_scores pws ON pws.post_id = p.id")
+
     if waifu_score_range:
-        joins.append("JOIN post_waifu_scores pws ON pws.post_id = p.id")
         where.append("pws.score >= ? AND pws.score <= ?")
         params.extend([waifu_score_range[0], waifu_score_range[1]])
+
+    if waifu_score_levels:
+        clauses: list[str] = []
+        include_unscored = False
+        for lvl in waifu_score_levels:
+            if lvl == WAIFU_SCORE_BUCKET_UNSCORED:
+                include_unscored = True
+                continue
+            if lvl not in WAIFU_SCORE_BUCKETS:
+                continue  # silently ignore unknown bucket names
+            lo, hi = WAIFU_SCORE_BUCKETS[lvl]
+            clauses.append("(pws.score >= ? AND pws.score < ?)")
+            params.extend([lo, hi])
+        if include_unscored:
+            clauses.append("pws.post_id IS NULL")
+        if clauses:
+            where.append("(" + " OR ".join(clauses) + ")")
+
     return where, params, joins

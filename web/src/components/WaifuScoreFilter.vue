@@ -1,198 +1,143 @@
 <script setup lang="ts">
-import { Btn } from '@roku-ui/vue'
-import { computed, ref, watchEffect } from 'vue'
+import { useQuery } from '@tanstack/vue-query'
+import { computed } from 'vue'
+import { v2GetWaifuBucketCount } from '@/api'
 import { postFilter } from '@/shared'
 
-const minScore = ref(0)
-const maxScore = ref(10)
+interface BucketDef {
+  level: string // 'S' | 'A' | 'B' | 'C' | 'D' | 'UNSCORED'
+  label: string
+  range: string // e.g. '8 – 10'
+}
 
-const waifuScoreRange = computed({
+// Order matches the popover row order (top → bottom).
+const BUCKETS: BucketDef[] = [
+  { level: 'S', label: 'Excellent', range: '8 – 10' },
+  { level: 'A', label: 'Good', range: '6 – 8' },
+  { level: 'B', label: 'Average', range: '4 – 6' },
+  { level: 'C', label: 'Fair', range: '2 – 4' },
+  { level: 'D', label: 'Poor', range: '0 – 2' },
+  { level: 'UNSCORED', label: 'Unscored', range: '' },
+]
+
+// Continuous green gradient — picked to read "from very good to so-so" without
+// triggering "danger" semantics for low scores. Each entry is one of @roku-ui's
+// chip color tokens; the dot below uses the same set via CSS vars.
+const LEVEL_DOT_RGB: Record<string, string> = {
+  S: 'var(--p-success-rgb)', // saturated green
+  A: '120 200 80', // lime
+  B: '180 180 80', // olive
+  C: '170 130 60', // muted ochre
+  D: '140 110 90', // dusty brown
+  UNSCORED: 'var(--p-fg-muted-rgb)',
+}
+
+const waifuLevels = computed({
   get() {
-    return postFilter.value.waifu_score_range || [0, 10]
+    return postFilter.value.waifu_score_levels
   },
-  set(value: [number, number]) {
-    // Only set filter if range is not [0, 10] (the full range)
-    postFilter.value.waifu_score_range = value[0] === 0 && value[1] === 10 ? undefined : value
+  set(value: string[]) {
+    postFilter.value.waifu_score_levels = value
   },
 })
 
-// Sync local refs with computed value
-watchEffect(() => {
-  const range = waifuScoreRange.value
-  minScore.value = range[0]
-  maxScore.value = range[1]
+function hasLevel(level: string) {
+  return waifuLevels.value.includes(level)
+}
+
+function onPointerDown(level: string) {
+  waifuLevels.value = hasLevel(level)
+    ? waifuLevels.value.filter(l => l !== level)
+    : [...waifuLevels.value, level]
+}
+
+const filterWithoutWaifu = computed(() => {
+  return {
+    ...postFilter.value,
+    waifu_score_levels: [],
+  }
+})
+
+const bucketCountQuery = useQuery({
+  queryKey: ['count', 'waifu', filterWithoutWaifu],
+  queryFn: async () => {
+    const resp = await v2GetWaifuBucketCount({
+      body: filterWithoutWaifu.value,
+    })
+    return resp.data
+  },
+})
+
+const bucketCounts = computed<Record<string, number>>(() => {
+  const out: Record<string, number> = { S: 0, A: 0, B: 0, C: 0, D: 0, UNSCORED: 0 }
+  const data = bucketCountQuery.data
+  if (data.value) {
+    for (const d of data.value) {
+      out[d.bucket] = d.count
+    }
+  }
+  return out
 })
 
 const btnText = computed(() => {
-  const range = waifuScoreRange.value
-  if (range[0] === 0 && range[1] === 10) {
-    return 'Waifu Score'
-  }
-  return `Waifu: ${range[0].toFixed(1)}-${range[1].toFixed(1)}`
+  const item = waifuLevels.value
+  return item.length === 0 ? 'Waifu Score' : `Waifu: ${item.join(', ')}`
 })
-
-const isActive = computed(() => {
-  const range = waifuScoreRange.value
-  return !(range[0] === 0 && range[1] === 10)
-})
-
-function applyRange() {
-  // Ensure min <= max
-  const min = Math.min(minScore.value, maxScore.value)
-  const max = Math.max(minScore.value, maxScore.value)
-  waifuScoreRange.value = [min, max]
-}
-
-function resetFilter() {
-  minScore.value = 0
-  maxScore.value = 10
-  waifuScoreRange.value = [0, 10]
-}
-
-// Quick preset buttons for different levels
-function selectLevel(level: 'S' | 'A' | 'B' | 'C' | 'D') {
-  switch (level) {
-    case 'S': {
-      minScore.value = 8
-      maxScore.value = 10
-      break
-    }
-    case 'A': {
-      minScore.value = 6
-      maxScore.value = 8
-      break
-    }
-    case 'B': {
-      minScore.value = 4
-      maxScore.value = 6
-      break
-    }
-    case 'C': {
-      minScore.value = 2
-      maxScore.value = 4
-      break
-    }
-    case 'D': {
-      minScore.value = 0
-      maxScore.value = 2
-      break
-    }
-  }
-  applyRange()
-}
 </script>
 
 <template>
   <div class="relative">
     <Popover position="bottom-start">
-      <Btn
+      <PButton
         size="sm"
-        :variant="isActive ? 'default' : undefined"
       >
         <i class="i-tabler-crown" />
-        <span>
-          {{ btnText }}
-        </span>
-      </Btn>
+        <span>{{ btnText }}</span>
+      </PButton>
       <template #content>
-        <div class="bg-base border-base p-4 border rounded min-w-80 space-y-4">
-          <div class="flex items-center justify-between">
-            <span class="text-sm font-medium">Waifu Score Range</span>
-            <Btn
-              v-if="isActive"
-              size="sm"
-              @click="resetFilter"
+        <div
+          class="min-w-56 border border-border-default rounded bg-surface p-1 shadow-lg"
+        >
+          <div
+            v-for="bucket in BUCKETS"
+            :key="bucket.level"
+            class="w-full flex cursor-pointer items-center gap-2 rounded px-2 py-1 text-xs hover:bg-surface-2"
+            @pointerdown="onPointerDown(bucket.level)"
+          >
+            <Checkbox
+              class="pointer-events-none flex-shrink-0"
+              :model-value="hasLevel(bucket.level)"
+            />
+            <div class="flex flex-grow items-center gap-2">
+              <span
+                class="h-3 w-3 flex-shrink-0 rounded-full"
+                :style="{ backgroundColor: `rgb(${LEVEL_DOT_RGB[bucket.level]})` }"
+              />
+              <span
+                class="font-bold"
+                :class="{ 'text-fg-subtle italic font-normal': bucket.level === 'UNSCORED' }"
+              >
+                {{ bucket.level === 'UNSCORED' ? 'Unscored' : bucket.level }}
+              </span>
+              <span
+                v-if="bucket.range"
+                class="text-fg-muted"
+              >
+                {{ bucket.label }} ({{ bucket.range }})
+              </span>
+            </div>
+            <div
+              v-if="bucketCounts[bucket.level]"
+              class="flex-shrink-0 text-fg-muted tabular-nums"
             >
-              Reset
-            </Btn>
-          </div>
-
-          <!-- Quick Level Selection -->
-          <div class="space-y-3">
-            <div class="text-muted text-xs">
-              Quick Select:
+              {{ bucketCounts[bucket.level] }}
             </div>
-            <div class="flex gap-2 justify-center">
-              <Btn
-                size="sm"
-                color="success"
-                variant="light"
-                @click="selectLevel('S')"
-              >
-                S (8-10)
-              </Btn>
-              <Btn
-                size="sm"
-                color="warning"
-                variant="light"
-                @click="selectLevel('A')"
-              >
-                A (6-8)
-              </Btn>
-              <Btn
-                size="sm"
-                color="secondary"
-                variant="light"
-                @click="selectLevel('B')"
-              >
-                B (4-6)
-              </Btn>
-              <Btn
-                size="sm"
-                color="info"
-                variant="light"
-                @click="selectLevel('C')"
-              >
-                C (2-4)
-              </Btn>
-              <Btn
-                size="sm"
-                color="error"
-                variant="light"
-                @click="selectLevel('D')"
-              >
-                D (0-2)
-              </Btn>
+            <div
+              v-else-if="hasLevel(bucket.level)"
+              class="flex-shrink-0 text-fg-subtle tabular-nums"
+            >
+              0
             </div>
-          </div>
-
-          <!-- Custom Range -->
-          <div class="space-y-3">
-            <div class="text-muted text-xs">
-              Custom Range:
-            </div>
-            <div class="flex gap-2 items-center">
-              <input
-                v-model.number="minScore"
-                type="number"
-                min="0"
-                max="10"
-                step="0.1"
-                class="text-xs custom-input-colors px-2 py-1 rounded w-20"
-                @blur="applyRange"
-              >
-              <span class="text-muted text-xs">to</span>
-              <input
-                v-model.number="maxScore"
-                type="number"
-                min="0"
-                max="10"
-                step="0.1"
-                class="text-xs custom-input-colors px-2 py-1 rounded w-20"
-                @blur="applyRange"
-              >
-              <Btn
-                size="sm"
-                @click="applyRange"
-              >
-                Apply
-              </Btn>
-            </div>
-          </div>
-
-          <!-- Current Range Display -->
-          <div class="text-muted text-xs text-center">
-            Current: {{ waifuScoreRange[0].toFixed(1) }} - {{ waifuScoreRange[1].toFixed(1) }}
           </div>
         </div>
       </template>

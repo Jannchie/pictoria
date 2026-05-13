@@ -18,7 +18,7 @@ if TYPE_CHECKING:
     from db.repositories.posts import PostRepo
 
 
-async def waifu_score_all_posts(posts: PostRepo) -> None:
+async def waifu_score_all_posts(posts: PostRepo) -> None:  # noqa: C901
     """Score all posts that don't yet have a waifu score."""
     batch_size = 32
     scorer = get_waifu_scorer()
@@ -43,30 +43,41 @@ async def waifu_score_all_posts(posts: PostRepo) -> None:
         task = progress.add_task("Waifu Scorer", total=len(pending))
         for i in range(0, len(pending), batch_size):
             batch = pending[i:i + batch_size]
-            try:
-                # Filter to actual image files
-                _candidates = []
-                _now = _dt.datetime.now(tz=_dt.UTC)
-                for pid, fp, fn, ext in batch:
-                    p = Post(
-                        id=pid, file_path=fp, file_name=fn, extension=ext,
-                        full_path=f"{fp}/{fn}.{ext}",
-                        width=0, height=0, score=0, rating=0,
-                        description="", meta="", sha256="", size=0, source="",
-                        caption="", created_at=_now,
-                        updated_at=_now,
-                    )
-                    if is_image(p.absolute_path):
-                        _candidates.append((pid, p.absolute_path))
-                if not _candidates:
-                    progress.update(task, advance=len(batch))
-                    continue
-
-                images = [path for _, path in _candidates]
-                results = await asyncio.to_thread(scorer, images)
-                for (pid, _), result in zip(_candidates, results, strict=True):
-                    await posts.upsert_waifu_score(pid, float(result))
+            # Filter to actual image files
+            _candidates = []
+            _now = _dt.datetime.now(tz=_dt.UTC)
+            for pid, fp, fn, ext in batch:
+                p = Post(
+                    id=pid, file_path=fp, file_name=fn, extension=ext,
+                    full_path=f"{fp}/{fn}.{ext}",
+                    width=0, height=0, score=0, rating=0,
+                    description="", meta="", sha256="", size=0, source="",
+                    caption="", created_at=_now,
+                    updated_at=_now,
+                )
+                if is_image(p.absolute_path):
+                    _candidates.append((pid, p.absolute_path))
+            if not _candidates:
                 progress.update(task, advance=len(batch))
-            except Exception as exc:
-                progress.console.log(f"Error processing batch: {exc!s}")
                 continue
+
+            images = [path for _, path in _candidates]
+            try:
+                results = await asyncio.to_thread(scorer, images)
+            except Exception as exc:
+                # Batch decoding failed (e.g. one file is corrupt or PIL
+                # rejects it). Fall back to scoring images one-by-one so a
+                # single bad file doesn't drop the other 31 in this batch.
+                progress.console.log(f"Batch scoring failed ({exc!s}); retrying per-image")
+                for pid, path in _candidates:
+                    try:
+                        single = await asyncio.to_thread(scorer, [path])
+                        await posts.upsert_waifu_score(pid, float(single[0]))
+                    except Exception as inner:
+                        progress.console.log(f"  skip post {pid} ({path.name}): {inner!s}")
+                progress.update(task, advance=len(batch))
+                continue
+
+            for (pid, _), result in zip(_candidates, results, strict=True):
+                await posts.upsert_waifu_score(pid, float(result))
+            progress.update(task, advance=len(batch))

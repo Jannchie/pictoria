@@ -1,6 +1,6 @@
-<script setup lang="tsx">
+<script setup lang="ts">
 import type { PostHasTagPublic, TagWithCountPublic } from '@/api'
-import { Tag } from '@roku-ui/vue'
+import { computed } from 'vue'
 
 const props = defineProps<{
   data: TagWithCountPublic | PostHasTagPublic
@@ -11,28 +11,41 @@ function isTagWithCount(datum: any): datum is TagWithCountPublic {
 function isPostHasTag(datum: any): datum is PostHasTagPublic {
   return 'tagInfo' in datum
 }
-const data = computed(() => {
-  return props.data
+const data = computed(() => props.data)
+
+const colorStyle = computed(() => {
+  const tagColor = isTagWithCount(data.value)
+    ? data.value.group?.color
+    : isPostHasTag(data.value)
+      ? data.value.tagInfo.group?.color
+      : null
+  if (!tagColor) {
+    return
+  }
+  return {
+    backgroundColor: `color-mix(in srgb, ${tagColor} 22%, transparent)`,
+    color: tagColor,
+  }
+})
+
+const label = computed(() => {
+  if (isTagWithCount(data.value)) {
+    return data.value.name
+  }
+  if (isPostHasTag(data.value)) {
+    return data.value.tagInfo.name
+  }
+  return ''
 })
 </script>
 
 <template>
-  <Tag
-    v-if="isTagWithCount(data)"
-    variant="light"
+  <PTag
+    variant="soft"
+    tone="primary"
     size="sm"
-    rounded="lg"
-    :color="data.group?.color"
+    :style="colorStyle"
   >
-    {{ data.name }}
-  </Tag>
-  <Tag
-    v-else-if="isPostHasTag(data)"
-    variant="light"
-    size="sm"
-    rounded="lg"
-    :color="data.tagInfo.group?.color"
-  >
-    {{ data.tagInfo.name }}
-  </Tag>
+    {{ label }}
+  </PTag>
 </template>

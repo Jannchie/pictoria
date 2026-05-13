@@ -1,5 +1,4 @@
 <script setup lang="ts">
-import { Btn } from '@roku-ui/vue'
 import { useMutation, useQueryClient } from '@tanstack/vue-query'
 import { computed } from 'vue'
 import { v2AutoCaption } from '@/api'
@@ -28,9 +27,9 @@ async function onAutoTag() {
 </script>
 
 <template>
-  <Btn
+  <PButton
     size="sm"
-    class="w-full"
+    block
     @pointerdown="onAutoTag"
   >
     <i
@@ -41,8 +40,8 @@ async function onAutoTag() {
       v-else
       class="i-tabler-message-2-bolt"
     />
-    <div class="w-full text-nowrap text-ellipsis overflow-hidden">
+    <div class="w-full overflow-hidden text-ellipsis text-nowrap">
       Auto Generate Caption
     </div>
-  </Btn>
+  </PButton>
 </template>

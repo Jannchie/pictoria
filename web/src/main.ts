@@ -8,12 +8,22 @@ import { highlightDirective } from '@/utils'
 import { client } from './api/client.gen'
 import '@unocss/reset/tailwind.css'
 import 'virtual:uno.css'
+import '@/styles/tokens.css'
 import '@/style.css'
 
 client.setConfig({
   baseURL,
   throwOnError: true,
 })
+
+// Apply persisted color scheme before mount so it survives full-page reloads
+// outside of <PSchemeSwitch> (which only mounts on /settings).
+const storedScheme = localStorage.getItem('pictoria-color-scheme') ?? 'dark'
+const resolvedScheme = storedScheme === 'auto'
+  ? (globalThis.matchMedia('(prefers-color-scheme: light)').matches ? 'light' : 'dark')
+  : storedScheme
+document.documentElement.dataset.scheme = resolvedScheme
+
 const routes: RouteRecordRaw[] = [
   { path: '/', component: () => import('./views/Home.vue') },
   { path: '/all', component: () => import('./views/Home.vue'), name: 'all' },

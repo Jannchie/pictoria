@@ -37,26 +37,18 @@ if TYPE_CHECKING:
     from db.repositories.tags import TagGroupRepo
     from db.repositories.vectors import VectorRepo
 
-_background_tasks: set[asyncio.Task] = set()
-
-
 async def sync_metadata(
     posts: PostRepo,
     vectors: VectorRepo,
     tag_groups: TagGroupRepo,
 ) -> None:
-    """Schedule a background reconciliation of disk files vs DB rows."""
-    loop = asyncio.get_event_loop()
-    task = loop.create_task(_sync_metadata(posts, vectors, tag_groups))
-    _background_tasks.add(task)
-    task.add_done_callback(_background_tasks.discard)
+    """Reconcile disk files vs DB rows, then backfill metadata for unprocessed posts.
 
-
-async def _sync_metadata(
-    posts: PostRepo,
-    vectors: VectorRepo,
-    tag_groups: TagGroupRepo,
-) -> None:
+    This coroutine runs the full sync inline. Callers who want fire-and-forget
+    behavior (e.g. the app's startup lifespan) should wrap the call in
+    ``asyncio.create_task`` themselves so they control task lifetime and
+    cursor cleanup.
+    """
     os_tuples = find_files_in_directory(shared.target_dir)
 
     def _existing() -> set[tuple[str, str, str]]:
@@ -195,8 +187,15 @@ async def process_post(  # noqa: C901, PLR0915
                 [basics["thumbhash"], post.id],
             )
         if basics["dominant_lab"] is not None:
+            # `posts.dominant_color` carries an HNSW index. DuckDB VSS HNSW
+            # corrupts itself on UPDATE of the indexed column (rowid stays in
+            # the index after the implicit delete, the re-insert then trips
+            # "Duplicate keys not allowed" and invalidates the connection for
+            # the rest of the process). Restrict the UPDATE to NULL → value;
+            # already-set rows are left alone.
             cur.execute(
-                "UPDATE posts SET dominant_color = ? WHERE id = ?",
+                "UPDATE posts SET dominant_color = ? "
+                "WHERE id = ? AND dominant_color IS NULL",
                 [list(basics["dominant_lab"]), post.id],
             )
         if basics["colors"]:

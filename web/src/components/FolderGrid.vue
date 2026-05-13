@@ -1,6 +1,5 @@
 <script setup lang="ts">
 import type { DirectorySummary } from '@/api'
-import { Btn } from '@roku-ui/vue'
 import { useQuery } from '@tanstack/vue-query'
 import { computed } from 'vue'
 import { useRoute } from 'vue-router'
@@ -56,11 +55,11 @@ const childFolders = computed(() => {
 
 <template>
   <div class="flex flex-wrap gap-2 children:w-[calc(25%-0.5rem)]">
-    <Btn
+    <PButton
       v-for="folder in childFolders"
       :key="folder.path"
     >
       {{ folder.name }}
-    </Btn>
+    </PButton>
   </div>
 </template>

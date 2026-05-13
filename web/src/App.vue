@@ -1,7 +1,6 @@
 <script setup lang="ts">
 import type { TreeListItemData } from './roku/TreeList.vue'
 import type { DirectorySummary } from '@/api'
-import { Btn, RokuProvider } from '@roku-ui/vue'
 import { Pane, Splitpanes } from 'splitpanes'
 import { RouterLink, useRoute } from 'vue-router'
 import { useWatchRoute } from './composables'
@@ -63,7 +62,7 @@ const folderPath2Count = computed(() => {
 })
 
 const indicatorClass = computed(() => {
-  return ['before:absolute before:left-4 before:h-full before:border-r before:content-[""]']
+  return ['before:absolute before:left-4 before:h-full before:border-r before:border-border-default before:content-[""]']
 })
 const numberFormater = new Intl.NumberFormat('en-US')
 const route = useRoute()
@@ -79,147 +78,138 @@ const folderStr = computed(() => {
 </script>
 
 <template>
-  <!-- <ToastSystem /> -->
-  <RokuProvider
-    :theme-obj="{ colors: {
-      primary: '#9a76c2',
-      secondary: '#5999A6',
-      tertiary: '#F76C22',
-      error: '#F95858',
-      surface: '#121212',
-    } }"
-  >
-    <DropOverlay />
-    <div class="flex flex-col h-100vh w-100vw select-none overflow-hidden">
-      <FloatWindow v-model="showMenu">
-        <div class="bg-base text-sm rounded-lg overflow-hidden">
-          <ListItem
-            title="New Folder"
-            icon="i-tabler-folder-plus"
-          />
-          <ListItem
-            title="Delete Folder"
-            icon="i-tabler-folder-x"
-          />
+  <DropOverlay />
+  <div class="h-100vh w-100vw flex flex-col select-none overflow-hidden bg-bg text-fg">
+    <FloatWindow v-model="showMenu">
+      <div class="overflow-hidden border border-border-default rounded-lg bg-surface text-sm shadow-lg">
+        <ListItem
+          title="New Folder"
+          icon="i-tabler-folder-plus"
+        />
+        <ListItem
+          title="Delete Folder"
+          icon="i-tabler-folder-x"
+        />
+      </div>
+    </FloatWindow>
+    <TagSelectorWindow />
+    <Splitpanes class="max-h-[calc(100vh-24px)]">
+      <Pane
+        :min-size="8"
+        :size="12"
+        :max-size="36"
+        class="min-w-64 flex flex-col border-r border-border-default p-2"
+      >
+        <div class="h-36px flex shrink-0 items-center justify-center gap-2 text-xl font-semibold tracking-tight">
+          <img
+            src="/Pictoria.svg"
+            alt=""
+            class="h-5 w-5"
+          >
+          <span>Pictoria</span>
         </div>
-      </FloatWindow>
-      <TagSelectorWindow />
-      <!-- <DialogContainer /> -->
-      <Splitpanes class="max-h-[calc(100vh-24px)]">
-        <Pane
-          :min-size="8"
-          :size="12"
-          :max-size="36"
-          class="border-base p-2 border-r flex flex-col min-w-64"
-        >
-          <div class="text-xl font-black flex shrink-0 h-36px items-center justify-center">
-            Pictoria
-          </div>
-          <SpecialPathList />
-          <ScrollArea class="py-2 flex-grow">
-            <TreeList
-              :model-value="currentFolder"
-              :items="folderTree"
-            >
-              <template #collapse="{ data, level }">
-                <RouterLink
-                  :to="`/dir/${data.value}`"
-                  class="py-1 pr-1 rounded-full flex gap-2 h-8 w-full cursor-pointer items-center relative focus-visible:bg-container focus-visible:outline-none"
-                  :class="[{
-                    'hover:bg-container hover:text-default text-dimmed': folderStr !== data.value,
-                    'text-primary bg-elevated': folderStr === data.value,
-                  }]"
-                  :style="{
-                    paddingLeft: `${32 + level * 8}px`,
-                  }"
-                  @click="data.open = true"
-                >
-                  <i
-                    class="i-tabler-chevron-down py-1 h-4 w-4 transition-transform left-2 absolute"
-                    :class="[
-                      data.open ? 'rotate-0' : '-rotate-90',
-                    ]"
-                  />
-                  <i
-                    v-if="data.icon"
-                    class="py-1 h-4 w-4"
-                    :class="[
-                      data.icon,
-                    ]"
-                  />
-                  <span class="truncate">
-                    {{ data.title }}
-                  </span>
-                </RouterLink>
-              </template>
-              <template #link="{ data, level }">
-                <RouterLink
-                  class="hover-source py-1 pr-1 rounded-full flex flex gap-2 h-8 w-full cursor-pointer items-center relative focus-visible:bg-container focus-visible:outline-none"
+        <SpecialPathList />
+        <ScrollArea class="flex-grow py-2">
+          <TreeList
+            :model-value="currentFolder"
+            :items="folderTree"
+          >
+            <template #collapse="{ data, level }">
+              <RouterLink
+                :to="`/dir/${data.value}`"
+                class="relative h-8 w-full flex cursor-pointer items-center gap-2 rounded-full py-1 pr-1 focus-visible:bg-surface-1 focus-visible:outline-none"
+                :class="[{
+                  'hover:bg-surface-1 hover:text-fg text-fg-muted': folderStr !== data.value,
+                  'text-primary bg-surface-2': folderStr === data.value,
+                }]"
+                :style="{
+                  paddingLeft: `${32 + level * 8}px`,
+                }"
+                @click="data.open = true"
+              >
+                <i
+                  class="i-tabler-chevron-down absolute left-2 h-4 w-4 py-1 transition-transform"
                   :class="[
-                    {
-                      'hover:bg-container hover:text-default text-dimmed': folderStr !== data.value,
-                      'text-primary bg-elevated': folderStr === data.value,
-                    },
-                    indicatorClass,
+                    data.open ? 'rotate-0' : '-rotate-90',
                   ]"
-                  :style="{
-                    paddingLeft: `${32 + level * 8}px`,
-                  }"
-                  :to="`/dir/${data.value}`"
-                >
-                  <span class="w-full truncate">
-                    {{ data.title }}
-                  </span>
+                />
+                <i
+                  v-if="data.icon"
+                  class="h-4 w-4 py-1"
+                  :class="[
+                    data.icon,
+                  ]"
+                />
+                <span class="truncate">
+                  {{ data.title }}
+                </span>
+              </RouterLink>
+            </template>
+            <template #link="{ data, level }">
+              <RouterLink
+                class="hover-source relative h-8 w-full flex cursor-pointer items-center gap-2 rounded-full py-1 pr-1 focus-visible:bg-surface-1 focus-visible:outline-none"
+                :class="[
+                  {
+                    'hover:bg-surface-1 hover:text-fg text-fg-muted': folderStr !== data.value,
+                    'text-primary bg-surface-2': folderStr === data.value,
+                  },
+                  indicatorClass,
+                ]"
+                :style="{
+                  paddingLeft: `${32 + level * 8}px`,
+                }"
+                :to="`/dir/${data.value}`"
+              >
+                <span class="w-full truncate">
+                  {{ data.title }}
+                </span>
 
-                  <span class="text-xs mx-2">
-                    {{ numberFormater.format(folderPath2Count[data.value] ?? 0) }}
-                  </span>
+                <span class="mx-2 text-xs">
+                  {{ numberFormater.format(folderPath2Count[data.value] ?? 0) }}
+                </span>
 
-                  <div class="hover-target">
-                    <Btn
-                      icon
-                      size="sm"
-                      rounded="full"
-                      variant="transparent"
-                      hover-variant="light"
-                      color="surface"
-                    >
-                      <i class="i-tabler-dots-vertical" />
-                    </Btn>
-                  </div>
-                </RouterLink>
-              </template>
-            </TreeList>
-          </ScrollArea>
-          <ListItem
-            class="text-sm"
-            icon="i-tabler-settings"
-            :active="$route.path === '/settings'"
-            title="Settings"
-            @click="$router.push('/settings')"
-          />
-        </Pane>
-        <Pane class="relative">
-          <RouterView />
-        </Pane>
-        <Pane
-          :min-size="12"
-          :size="12"
-          :max-size="36"
-          class="border-base p-1 border-l min-w-64"
-        >
-          <RightPanel />
-        </Pane>
-      </Splitpanes>
-      <BottomBar />
-    </div>
-  </RokuProvider>
+                <div class="hover-target">
+                  <PButton
+                    icon
+                    size="sm"
+                    rounded="full"
+                    variant="ghost"
+                  >
+                    <i class="i-tabler-dots-vertical" />
+                  </PButton>
+                </div>
+              </RouterLink>
+            </template>
+          </TreeList>
+        </ScrollArea>
+        <ListItem
+          class="text-sm"
+          icon="i-tabler-settings"
+          :active="$route.path === '/settings'"
+          title="Settings"
+          @click="$router.push('/settings')"
+        />
+      </Pane>
+      <Pane class="relative">
+        <RouterView />
+      </Pane>
+      <Pane
+        :min-size="12"
+        :size="12"
+        :max-size="36"
+        class="min-w-64 border-l border-border-default p-1"
+      >
+        <RightPanel />
+      </Pane>
+    </Splitpanes>
+    <BottomBar />
+  </div>
 </template>
 
 <style>
 .splitpanes__splitter:hover:before {
   opacity: 1;
-  background-color: #e0e0e0;
+  background-color: var(--p-border-strong);
 }
 .splitpanes--vertical > .splitpanes__splitter:before {left: -4px;right: -4px;height: 100%;}
 .splitpanes--vertical .splitpanes__pane {

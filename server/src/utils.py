@@ -6,12 +6,13 @@ import os
 import sys
 import threading
 import time
+import warnings
 from collections.abc import Callable
 from functools import cache, wraps
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, TypeVar
 
-import thumbhash
+import thash
 from dotenv import load_dotenv
 from PIL import Image
 
@@ -23,6 +24,18 @@ if TYPE_CHECKING:
 
     from db.repositories.posts import PostRepo
     from db.repositories.tags import TagGroupRepo
+
+# PIL emits a UserWarning ("Corrupt EXIF data. Expecting to read N bytes but
+# only got M") when a JPEG/TIFF has a malformed EXIF block. PIL recovers and
+# decodes the image fine, so this is pure log noise; suppress it.
+warnings.filterwarnings("ignore", message="Corrupt EXIF data", category=UserWarning)
+
+# PIL's decompression-bomb protection caps single-image pixel count at ~178M
+# pixels (~13k x 13k) and raises `Image.DecompressionBombError` past that.
+# That's a sensible default for servers that ingest untrusted uploads, but
+# this app is a personal gallery managing the user's own files — large
+# illustrations and scans (16k+) are routine. Disable the cap.
+Image.MAX_IMAGE_PIXELS = None
 
 load_dotenv()
 
@@ -143,7 +156,7 @@ def calculate_sha256(file: bytes) -> str:
 
 def calculate_thumbhash(file_path: Path) -> str | None:
     try:
-        thumb_hash = thumbhash.image_to_thumb_hash(file_path)
+        thumb_hash = thash.image_to_thumb_hash(file_path)
         return base64.b64encode(bytes(thumb_hash)).decode("ascii")
     except Exception as exc:
         logger.warning(f"Failed to generate thumbhash for {file_path}: {exc}")

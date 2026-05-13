@@ -1,5 +1,4 @@
 <script setup lang="ts">
-import { Btn, TextField } from '@roku-ui/vue'
 import { useQuery, useQueryClient } from '@tanstack/vue-query'
 import { computed, ref } from 'vue'
 import { v2AddTagToPost, v2ListTagGroup, v2ListTags, v2RemoveTagFromPost } from '@/api'
@@ -222,42 +221,42 @@ const searchingInitCurrentTags = computed(() => {
 <template>
   <div
     v-if="!postQuery.data.value"
-    class="text-default bg-base border-base text-sm border rounded flex flex-col h-96 max-h-96 max-w-96 w-96 shadow-md relative"
+    class="relative h-96 max-h-96 max-w-96 w-96 flex flex-col border border-border-default rounded bg-bg text-sm text-fg shadow-md"
   >
-    <div class="text-dimmed flex flex-grow flex-col h-full w-full items-center justify-center">
-      <i class="i-tabler-tag text-2xl p-4" />
-      <span class="text-xs mt-2">
+    <div class="h-full w-full flex flex-grow flex-col items-center justify-center text-fg-muted">
+      <i class="i-tabler-tag p-4 text-2xl" />
+      <span class="mt-2 text-xs">
         No Post Selected
       </span>
     </div>
   </div>
   <div
     v-else
-    class="text-default bg-base border-base text-sm border rounded flex flex-col h-96 max-h-96 max-w-96 w-96 shadow-md"
+    class="h-96 max-h-96 max-w-96 w-96 flex flex-col border border-border-default rounded bg-bg text-sm text-fg shadow-md"
   >
-    <div class="border-base p-2 border-b flex gap-2">
-      <TextField
+    <div class="flex gap-2 border-b border-border-default p-2">
+      <PInput
         ref="searchRef"
         v-model="search"
         size="sm"
         placeholder="Search"
         class="flex-grow"
       />
-      <Btn
+      <PButton
         icon
         size="sm"
-        :variant="pinned ? 'filled' : 'default'"
+        :variant="pinned ? 'primary' : 'secondary'"
         @pointerup="pinned = !pinned"
       >
         <i class="i-tabler-pin" />
-      </Btn>
+      </PButton>
     </div>
     <div class="flex flex-grow overflow-auto">
-      <div class="border-base border-r flex-shrink-0 w-36">
+      <div class="w-32 flex-shrink-0 border-r border-border-default p-1">
         <ListItem
           v-for="group, i in finalTagGroups"
           :key="i"
-          class="p-2 cursor-pointer"
+          class="cursor-pointer"
           :title="group.name"
           icon="i-tabler-bookmark"
           :active="group.id === currentGroupId"
@@ -269,7 +268,7 @@ const searchingInitCurrentTags = computed(() => {
       >
         <div
           v-if="showAddTag"
-          class="border-base border-b"
+          class="border-b border-border-default"
         >
           <ListItem
             ref="addTagRef"
@@ -277,7 +276,7 @@ const searchingInitCurrentTags = computed(() => {
             :title="addTagText"
             icon="i-tabler-plus"
             :class="{
-              'bg-elevated': currentHoverIndex === 0,
+              'bg-surface-2': currentHoverIndex === 0,
             }"
             @pointerup="addTag(search)"
             @pointermove="currentHoverIndex = 0"
@@ -285,10 +284,10 @@ const searchingInitCurrentTags = computed(() => {
         </div>
         <div
           v-if="initCurrentTags.some(tag => isSearchMatch(tag.tagInfo.name))"
-          class="border-base border-b"
+          class="border-b border-border-default"
         >
-          <div class="text-dimmed p-2">
-            Already Selected ({{ searchingInitCurrentTags.length }})
+          <div class="px-3 py-1.5 text-xs text-fg-subtle font-medium tracking-wider uppercase">
+            Already Selected · {{ searchingInitCurrentTags.length }}
           </div>
           <template
             v-for="tag, i in initCurrentTags"
@@ -303,7 +302,7 @@ const searchingInitCurrentTags = computed(() => {
               :active="currentTags.some(predicate => predicate.tagInfo.name === tag.tagInfo.name)"
               type="checkbox"
               :class="{
-                'bg-elevated': currentHoverIndex === getIndexOfRef('current', i),
+                'bg-surface-2': currentHoverIndex === getIndexOfRef('current', i),
               }"
               @pointerup="onPointerUp(tag.tagInfo.name)"
               @pointermove="currentHoverIndex = getIndexOfRef('current', i)"
@@ -311,8 +310,8 @@ const searchingInitCurrentTags = computed(() => {
           </template>
         </div>
         <div>
-          <div class="text-dimmed p-2">
-            All ({{ currentGroupTags.filter(tag => isSearchMatch(tag.name)).length }})
+          <div class="px-3 py-1.5 text-xs text-fg-subtle font-medium tracking-wider uppercase">
+            All · {{ currentGroupTags.filter(tag => isSearchMatch(tag.name)).length }}
           </div>
           <template
             v-for="tag, i in displayCurrentGroupTags"
@@ -326,7 +325,7 @@ const searchingInitCurrentTags = computed(() => {
               :active="currentTags.some(predicate => predicate.tagInfo.name === tag.name)"
               type="checkbox"
               :class="{
-                'bg-elevated': currentHoverIndex === getIndexOfRef('group', i),
+                'bg-surface-2': currentHoverIndex === getIndexOfRef('group', i),
               }"
               @pointerup="onPointerUp(tag.name)"
               @pointermove="currentHoverIndex = getIndexOfRef('group', i)"
@@ -335,33 +334,44 @@ const searchingInitCurrentTags = computed(() => {
         </div>
         <div
           v-if="displayCurrentGroupTags.length === 100"
-          class="text-xs p-1 text-center op50"
+          class="p-1 text-center text-xs op50"
         >
           Only Show Top 100
         </div>
       </ScrollArea>
     </div>
-    <div class="border-base text-xs p-2 border-t">
-      <kbd>↑</kbd> <kbd>↓</kbd> to navigate, <kbd>Enter</kbd> to select, <kbd>Tab</kbd> to switch group
+    <div class="flex flex-wrap items-center gap-x-3 gap-y-1 border-t border-border-default px-3 py-2 text-xs text-fg-muted">
+      <span class="flex items-center gap-1">
+        <kbd>↑</kbd><kbd>↓</kbd>
+        <span>navigate</span>
+      </span>
+      <span class="flex items-center gap-1">
+        <kbd>↵</kbd>
+        <span>select</span>
+      </span>
+      <span class="flex items-center gap-1">
+        <kbd>Tab</kbd>
+        <span>switch group</span>
+      </span>
     </div>
   </div>
 </template>
 
 <style>
 .highlight{
-  color: rgb(var(--r-text-primary));
+  color: var(--p-primary);
   font-weight: bolder;
 }
 </style>
 
 <style>
 kbd {
-  background-color: rgb(var(--r-bg-base));
-  color: rgb(var(--r-text-default));
+  background-color: var(--p-bg);
+  color: var(--p-fg);
   padding: 0.1em 0.3em;
   border-radius: 0.2em;
   margin: 0 0.2em;
-  box-shadow: 0 0 0 1px rgb(var(--r-border-elevated));
-  border-bottom: 1px solid rgb(var(--r-border-elevated));
+  box-shadow: 0 0 0 1px var(--p-border-strong);
+  border-bottom: 1px solid var(--p-border-strong);
 }
 </style>

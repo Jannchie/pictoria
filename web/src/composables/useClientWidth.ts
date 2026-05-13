@@ -4,21 +4,21 @@ import { computed, ref, watch } from 'vue'
 
 export function useClientWidth(target: MaybeComputedElementRef, options: {
   initialWidth?: number
-  initialHeight?: number
   listenOrientation?: boolean
 } = {}) {
   const {
-    initialHeight = Number.POSITIVE_INFINITY,
+    initialWidth = 0,
     listenOrientation = true,
   } = options
 
-  const clientWidth = ref(initialHeight)
+  const clientWidth = ref(initialWidth)
   const element = computed(() => unrefElement(target))
   const update = () => {
     if (element.value) {
       clientWidth.value = element.value.clientWidth
     }
   }
+  watch(element, update, { immediate: true })
 
   update()
   tryOnMounted(update)

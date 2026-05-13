@@ -1,5 +1,4 @@
 <script setup lang="ts">
-import { Btn } from '@roku-ui/vue'
 import { useQuery } from '@tanstack/vue-query'
 import { computed } from 'vue'
 import { v2GetScoreCount } from '@/api'
@@ -56,49 +55,49 @@ const btnText = computed(() => {
 <template>
   <div class="relative">
     <Popover position="bottom-start">
-      <Btn
+      <PButton
         size="sm"
       >
         <i class="i-tabler-star" />
         <span>
           {{ btnText }}
         </span>
-      </Btn>
+      </PButton>
       <template #content>
         <div
-          class="bg-base border-base p-1 border rounded min-w-52"
+          class="min-w-52 border border-border-default rounded bg-surface p-1 shadow-lg"
         >
           <div
             v-for="score in [5, 4, 3, 2, 1, 0]"
             :key="score"
-            class="text-xs px-2 py-1 rounded flex gap-2 w-full cursor-pointer items-center hover:bg-container"
+            class="w-full flex cursor-pointer items-center gap-2 rounded px-2 py-1 text-xs hover:bg-surface-2"
             @pointerdown="onPointerDown(score)"
           >
             <Checkbox
-              class="flex-shrink-0 pointer-events-none"
+              class="pointer-events-none flex-shrink-0"
               :model-value="hasScore(score)"
             />
-            <div class="flex flex-grow gap-1 h-16px">
+            <div class="flex flex-grow items-center gap-1">
               <template v-if="score === 0">
-                Not Scored Yet
+                <span class="text-fg-subtle italic">Unscored</span>
               </template>
               <template v-else>
                 <i
                   v-for="i in score"
                   :key="i"
-                  class="i-tabler-star-filled"
+                  class="i-tabler-star-filled text-warning"
                 />
               </template>
             </div>
             <div
               v-if="scoreCountList[score]"
-              class="flex-shrink-0"
+              class="flex-shrink-0 text-fg-muted tabular-nums"
             >
               {{ scoreCountList[score] }}
             </div>
             <div
               v-else-if="hasScore(score)"
-              class="text-muted flex-shrink-0"
+              class="flex-shrink-0 text-fg-subtle tabular-nums"
             >
               0
             </div>

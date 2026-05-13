@@ -1,0 +1,198 @@
+/* Pictoria design tokens. All colors are RGB triplets so UnoCSS theme
+   colors can interpolate alpha via rgb(var(--p-*-rgb) / <alpha-value>).
+   Semantic aliases (--p-primary, --p-surface, ...) wrap the triplets so
+   plain CSS (scoped <style> blocks, inline) can use them directly. */
+
+html.is-theme-switching,
+html.is-theme-switching *,
+html.is-theme-switching *::before,
+html.is-theme-switching *::after {
+  transition: none !important;
+  animation-duration: 0s !important;
+  animation-delay: 0s !important;
+}
+
+:root {
+  /* Brand — Pictoria violet, anchored on #9a76c2 (current primary). */
+  --p-brand-50-rgb:  244 240 250;
+  --p-brand-100-rgb: 232 222 242;
+  --p-brand-200-rgb: 213 196 230;
+  --p-brand-300-rgb: 188 162 213;
+  --p-brand-400-rgb: 169 138 200;
+  --p-brand-500-rgb: 154 118 194;   /* #9a76c2 — base */
+  --p-brand-600-rgb: 132  94 175;
+  --p-brand-700-rgb: 108  72 146;
+  --p-brand-800-rgb:  82  53 113;
+  --p-brand-900-rgb:  56  36  78;
+
+  /* Radius */
+  --p-radius-xs: 4px;
+  --p-radius-sm: 6px;
+  --p-radius-md: 8px;
+  --p-radius-lg: 10px;
+  --p-radius-xl: 14px;
+  --p-radius-2xl: 18px;
+  --p-radius-full: 9999px;
+
+  /* Spacing */
+  --p-space-1: 4px;
+  --p-space-2: 8px;
+  --p-space-3: 12px;
+  --p-space-4: 16px;
+  --p-space-5: 20px;
+  --p-space-6: 24px;
+  --p-space-8: 32px;
+  --p-space-10: 40px;
+  --p-space-12: 48px;
+
+  /* Typography */
+  --p-font-sans-latin: 'Inter', 'Segoe UI', system-ui, sans-serif;
+  --p-font-mono-latin: ui-monospace, SFMono-Regular, Menlo, Consolas, 'Share Tech Mono';
+  --p-font-sans: 'HarmonyOS Sans SC', 'PingFang SC', 'Microsoft YaHei UI', 'Sarasa Gothic SC', 'Noto Sans SC', var(--p-font-sans-latin);
+  --p-font-mono: var(--p-font-mono-latin), 'HarmonyOS Sans SC', 'PingFang SC', 'Microsoft YaHei UI', monospace;
+
+  --p-text-xs:   12px;
+  --p-text-sm:   13px;
+  --p-text-base: 14px;
+  --p-text-md:   15px;
+  --p-text-lg:   16px;
+  --p-text-xl:   18px;
+  --p-text-2xl:  22px;
+  --p-text-3xl:  28px;
+  --p-text-4xl:  36px;
+
+  --p-leading-tight:   1.25;
+  --p-leading-snug:    1.4;
+  --p-leading-normal:  1.55;
+  --p-leading-relaxed: 1.7;
+
+  --p-tracking-tight:  -0.01em;
+  --p-tracking-normal: 0;
+  --p-tracking-wide:   0.02em;
+
+  --p-weight-regular:  400;
+  --p-weight-medium:   500;
+  --p-weight-semibold: 600;
+  --p-weight-bold:     700;
+
+  /* Motion */
+  --p-duration-fast: 120ms;
+  --p-duration-base: 180ms;
+  --p-duration-slow: 260ms;
+  --p-ease: cubic-bezier(.2, .8, .2, 1);
+
+  /* Layering */
+  --p-z-base: 1;
+  --p-z-overlay: 40;
+  --p-z-modal: 50;
+  --p-z-popover: 55;
+  --p-z-toast: 60;
+}
+
+/* Dark scheme — default for Pictoria (gallery viewer is dark by design). */
+:root,
+html[data-scheme="dark"] {
+  --p-primary-rgb:        var(--p-brand-500-rgb);
+  --p-primary-hover-rgb:  var(--p-brand-400-rgb);
+  --p-primary-active-rgb: var(--p-brand-300-rgb);
+  --p-on-primary-rgb:     14 8 22;
+
+  --p-bg-rgb:        20 20 23;
+  --p-surface-rgb:   27 27 31;
+  --p-surface-1-rgb: 34 35 39;
+  --p-surface-2-rgb: 43 44 49;
+  --p-surface-3-rgb: 56 57 63;
+
+  --p-border-rgb:        52 53 58;
+  --p-border-strong-rgb: 78 79 86;
+  --p-border-subtle-rgb: 42 43 48;
+
+  --p-fg-rgb:          244 244 245;
+  --p-fg-muted-rgb:    161 161 170;
+  --p-fg-subtle-rgb:   113 113 122;
+  --p-fg-disabled-rgb:  82  82  91;
+  --p-fg-on-brand-rgb:  14   8  22;
+
+  --p-success-rgb: 16 185 129;
+  --p-warning-rgb: 245 158 11;
+  --p-danger-rgb:  239 68 68;
+  --p-info-rgb:    var(--p-brand-400-rgb);
+
+  --p-shadow-sm: 0 1px 2px rgb(0 0 0 / 0.4);
+  --p-shadow-md: 0 1px 2px rgb(0 0 0 / 0.4), 0 4px 12px rgb(0 0 0 / 0.45);
+  --p-shadow-lg: 0 8px 24px rgb(0 0 0 / 0.55);
+
+  color-scheme: dark;
+}
+
+/* Light scheme — opt-in via html[data-scheme="light"]. */
+html[data-scheme="light"] {
+  --p-primary-rgb:        var(--p-brand-600-rgb);
+  --p-primary-hover-rgb:  var(--p-brand-700-rgb);
+  --p-primary-active-rgb: var(--p-brand-800-rgb);
+  --p-on-primary-rgb:     255 255 255;
+
+  --p-bg-rgb:        241 242 245;
+  --p-surface-rgb:   251 251 253;
+  --p-surface-1-rgb: 235 236 240;
+  --p-surface-2-rgb: 225 227 232;
+  --p-surface-3-rgb: 210 213 220;
+
+  --p-border-rgb:        212 216 224;
+  --p-border-strong-rgb: 180 186 198;
+  --p-border-subtle-rgb: 226 228 234;
+
+  --p-fg-rgb:           26  29  36;
+  --p-fg-muted-rgb:     82  90 107;
+  --p-fg-subtle-rgb:   110 118 137;
+  --p-fg-disabled-rgb: 163 169 182;
+  --p-fg-on-brand-rgb: 255 255 255;
+
+  --p-success-rgb:   4 120  87;
+  --p-warning-rgb: 180  83   9;
+  --p-danger-rgb:  185  28  28;
+  --p-info-rgb:    var(--p-brand-700-rgb);
+
+  --p-shadow-sm: 0 1px 2px rgb(15 23 42 / 0.04);
+  --p-shadow-md: 0 1px 2px rgb(15 23 42 / 0.04), 0 4px 12px rgb(15 23 42 / 0.06);
+  --p-shadow-lg: 0 12px 32px rgb(15 23 42 / 0.08);
+
+  color-scheme: light;
+}
+
+/* Semantic aliases — plain colors for use in scoped <style> blocks
+   and inline styles. UnoCSS-generated classes go through the *-rgb
+   variables and the theme.colors mapping in uno.config.ts. */
+:root,
+html[data-scheme="dark"],
+html[data-scheme="light"] {
+  --p-primary:        rgb(var(--p-primary-rgb));
+  --p-primary-hover:  rgb(var(--p-primary-hover-rgb));
+  --p-primary-active: rgb(var(--p-primary-active-rgb));
+  --p-on-primary:     rgb(var(--p-on-primary-rgb));
+
+  --p-bg:        rgb(var(--p-bg-rgb));
+  --p-surface:   rgb(var(--p-surface-rgb));
+  --p-surface-1: rgb(var(--p-surface-1-rgb));
+  --p-surface-2: rgb(var(--p-surface-2-rgb));
+  --p-surface-3: rgb(var(--p-surface-3-rgb));
+
+  --p-border:        rgb(var(--p-border-rgb));
+  --p-border-strong: rgb(var(--p-border-strong-rgb));
+  --p-border-subtle: rgb(var(--p-border-subtle-rgb));
+
+  --p-fg:          rgb(var(--p-fg-rgb));
+  --p-fg-muted:    rgb(var(--p-fg-muted-rgb));
+  --p-fg-subtle:   rgb(var(--p-fg-subtle-rgb));
+  --p-fg-disabled: rgb(var(--p-fg-disabled-rgb));
+
+  --p-success: rgb(var(--p-success-rgb));
+  --p-warning: rgb(var(--p-warning-rgb));
+  --p-danger:  rgb(var(--p-danger-rgb));
+  --p-info:    rgb(var(--p-info-rgb));
+
+  --p-primary-soft: rgb(var(--p-primary-rgb) / 0.18);
+  --p-success-soft: rgb(var(--p-success-rgb) / 0.16);
+  --p-warning-soft: rgb(var(--p-warning-rgb) / 0.18);
+  --p-danger-soft:  rgb(var(--p-danger-rgb) / 0.18);
+}

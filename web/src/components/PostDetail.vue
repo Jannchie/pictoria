@@ -1,6 +1,5 @@
 <script setup lang="ts">
 import type { PostSimplePublic } from '@/api'
-import { Btn, Paper } from '@roku-ui/vue'
 import { useElementBounding, useMouse } from '@vueuse/core'
 import { computed, ref, watchEffect } from 'vue'
 import { showPostDetail } from '@/shared'
@@ -199,91 +198,91 @@ onKeyStroke('Escape', () => {
 
 <template>
   <div
-    class="bg-base flex flex-col inset-0 absolute z-10000"
+    class="absolute inset-0 z-10000 flex flex-col bg-bg"
   >
-    <header class="py-2 flex flex-col items-center justify-center">
-      <div class="flex flex-grow gap-2 w-full items-center justify-between">
+    <header class="flex items-center justify-between gap-2 border-b border-border-default px-2 py-2">
+      <div class="flex flex-1 basis-0 items-center gap-2 overflow-hidden">
         <Popover
           position="bottom"
           trigger="hover"
         >
-          <Btn
+          <PButton
             icon
             size="sm"
-            variant="transparent"
-            color="surface"
+            variant="ghost"
             @click="showPostDetail = null"
           >
             <i class="i-tabler-arrow-left" />
-          </Btn>
+          </PButton>
           <template #content>
-            <Paper
-              class="text-xs py-2 text-center w-20 !p-1 !py-3"
-              with-border
+            <PSurface
+              level="1"
+              bordered
+              class="px-2 py-1 text-center text-xs"
             >
               <kbd>Esc</kbd>
-              <span>
-                back
-              </span>
-            </Paper>
+              <span class="ml-1 text-fg-muted">to close</span>
+            </PSurface>
           </template>
         </Popover>
-        <div class="flex gap-2 items-center justify-center">
-          <div class="text-xs font-mono w-27px">
-            {{ scaleStr }}%
-          </div>
-          <Slider
-            :model-value="scale"
-            size="sm"
-            :min="0.10"
-            :max="8.00"
-            :step="0.01"
-            :min-width="8"
-            @update:model-value="scaleWithSlider"
-          />
-
-          <Popover
-            position="bottom"
-            trigger="hover"
-          >
-            <Btn
-              icon
-              size="sm"
-              @click="toInit"
-            >
-              <i class="i-tabler-focus-centered" />
-            </Btn>
-
-            <template #content>
-              <Paper
-                class="text-xs text-center w-20 !p-1"
-                with-border
-              >
-                initial scale
-              </Paper>
-            </template>
-          </Popover>
-          <Btn
-            icon
-            size="sm"
-            @click="to1x"
-          >
-            <i class="i-tabler-multiplier-1x" />
-          </Btn>
-          <Btn
-            icon
-            size="sm"
-            @click="toggleFlipVertical"
-          >
-            <i class="i-tabler-flip-vertical" />
-          </Btn>
-        </div>
-        <div />
+        <span class="truncate text-sm text-fg-muted">
+          {{ `${post.fileName}.${post.extension}` }}
+        </span>
       </div>
+      <div class="flex items-center justify-center gap-2">
+        <div class="w-32px text-xs text-fg-muted font-mono tabular-nums">
+          {{ scaleStr }}%
+        </div>
+        <Slider
+          :model-value="scale"
+          size="sm"
+          :min="0.10"
+          :max="8.00"
+          :step="0.01"
+          :min-width="8"
+          @update:model-value="scaleWithSlider"
+        />
+        <Popover
+          position="bottom"
+          trigger="hover"
+        >
+          <PButton
+            icon
+            size="sm"
+            @click="toInit"
+          >
+            <i class="i-tabler-focus-centered" />
+          </PButton>
+          <template #content>
+            <PSurface
+              level="1"
+              bordered
+              class="px-2 py-1 text-center text-xs"
+            >
+              initial scale
+            </PSurface>
+          </template>
+        </Popover>
+        <PButton
+          icon
+          size="sm"
+          @click="to1x"
+        >
+          <i class="i-tabler-multiplier-1x" />
+        </PButton>
+        <PButton
+          icon
+          size="sm"
+          @click="toggleFlipVertical"
+        >
+          <i class="i-tabler-flip-vertical" />
+        </PButton>
+      </div>
+      <div class="flex-1 basis-0" />
     </header>
     <div
       ref="imgWrapperRef"
-      class="flex-grow h-full w-full relative overflow-hidden"
+      class="relative h-full w-full flex-grow overflow-hidden"
       @pointerdown.stop="onPointerDown"
       @pointermove.stop="onPointermove"
       @pointerup.stop="onPointerUp"
@@ -305,7 +304,7 @@ onKeyStroke('Escape', () => {
       >
       <div
         ref="miniMapRef"
-        class="bg-base border-base border bottom-4 left-4 absolute z-200"
+        class="absolute bottom-4 left-4 z-200 overflow-hidden border border-border-strong rounded bg-bg shadow-lg"
         @pointerdown.stop="onMiniMapPointerDown"
         @pointerup.stop="onMiniMapPointerUp"
         @pointermove.stop="onMiniMapPointerMove"
@@ -330,7 +329,7 @@ onKeyStroke('Escape', () => {
           >
           <!-- 显示视口框 -->
           <div
-            class="border-primary border-2 absolute"
+            class="absolute border-2 border-primary"
             :style="{
               width: `${miniMapViewBox.width}px`,
               height: `${miniMapViewBox.height}px`,

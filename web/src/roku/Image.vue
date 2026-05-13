@@ -1,7 +1,6 @@
 <script setup lang="ts">
 import type { Component } from 'vue'
-import { useRounded } from '@roku-ui/vue'
-import { onMounted, ref } from 'vue'
+import { computed, onMounted, ref } from 'vue'
 
 const props = withDefaults(
   defineProps<{
@@ -33,14 +32,34 @@ onMounted(() => {
     onload()
   }
 })
-const rounded = useRounded(props)
+
+const roundedToken = computed(() => {
+  const r = props.rounded
+  if (typeof r === 'number') {
+    return `${r}px`
+  }
+  switch (r) {
+    case 'none': { return '0'
+    }
+    case 'sm': { return 'var(--p-radius-sm)'
+    }
+    case 'md': { return 'var(--p-radius-md)'
+    }
+    case 'lg': { return 'var(--p-radius-lg)'
+    }
+    case 'full': { return 'var(--p-radius-full)'
+    }
+    default: { return r
+    }
+  }
+})
+const roundedStyle = computed(() => ({ borderRadius: roundedToken.value }))
 </script>
 
 <template>
   <div
-    class="inline relative"
-    :style="[rounded.style]"
-    :class="[rounded.class]"
+    class="relative inline"
+    :style="[roundedStyle]"
   >
     <Transition
       enter-active-class="transition-opacity duration-300"
@@ -51,16 +70,10 @@ const rounded = useRounded(props)
         :is="is"
         v-show="loaded"
         ref="img"
-        :style="[
-          style,
-          rounded.style,
-        ]"
+        :style="[style, roundedStyle]"
         :src="src"
         class="h-full w-full object-cover"
-        :class="[
-          props.class,
-          rounded.class,
-        ]"
+        :class="[props.class]"
         :alt="props.alt"
         v-bind="$attrs"
         @load="onload"
@@ -69,13 +82,9 @@ const rounded = useRounded(props)
     <template v-if="!loaded">
       <div
         v-if="!props.lazySrc"
-        class="bg-base h-full w-full top-0 absolute animate-pulse object-cover"
-        :class="[
-          props.class,
-        ]"
-        :style="[
-          style,
-        ]"
+        class="absolute top-0 h-full w-full animate-pulse bg-surface object-cover"
+        :class="[props.class]"
+        :style="[style, roundedStyle]"
       />
     </template>
   </div>

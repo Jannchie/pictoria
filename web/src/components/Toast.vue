@@ -9,23 +9,22 @@ defineProps<{
 </script>
 
 <template>
-  <div class="px-4 py-2 rounded-xl bg-black flex gap-2 h-auto w-96 inline-block items-center">
+  <div class="w-96 inline-flex items-center gap-2 border border-border-default rounded-xl bg-surface px-4 py-2 text-sm text-fg shadow-lg">
     <div
       v-if="icon"
       class="flex-shrink-0"
+      :style="iconColor ? { color: iconColor } : undefined"
     >
-      <i
-        :class="icon"
-      />
+      <i :class="icon" />
     </div>
     <div class="flex-grow">
       {{ message }}
     </div>
-    <div
+    <button
       v-if="closeable"
-      class="flex-shrink-0"
+      class="flex flex-shrink-0 items-center rounded p-0.5 text-fg-muted transition-colors hover:bg-surface-2 hover:text-fg"
     >
       <i class="i-tabler-x" />
-    </div>
+    </button>
   </div>
 </template>

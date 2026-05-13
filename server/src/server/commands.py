@@ -1,17 +1,21 @@
 import asyncio
-import os
+import contextlib
 import tempfile
+from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
 from typing import ClassVar
 
+import duckdb
 import litestar
 from litestar import Controller
 from litestar.datastructures import State
 from litestar.exceptions import HTTPException, NotFoundException
 
 import shared
-from danbooru import DanbooruClient
+from danbooru import DanbooruClient, DanbooruPost
+from db.entities import TagGroup
+from db.helpers import fetch_one_as
 from db.repositories.posts import PostRepo
 from db.repositories.tags import TagGroupRepo
 from db.repositories.vectors import VectorRepo
@@ -24,6 +28,23 @@ from utils import (
     get_tagger,
     logger,
 )
+
+# Canonical Danbooru tag categories, ordered by priority. When a tag appears
+# in multiple `tag_string_*` fields on a post, the first-listed group wins.
+CANONICAL_TAG_GROUPS: tuple[str, ...] = ("artist", "character", "copyright", "general", "meta")
+
+SUPPORTED_IMAGE_EXTS: frozenset[str] = frozenset(
+    {"jpg", "jpeg", "png", "gif", "webp", "avif", "bmp", "tiff", "tif", "svg"},
+)
+
+# Windows forbids these in filename components; Danbooru tags like `re:rin`
+# would otherwise fail mkdir on win32.
+_FS_ILLEGAL_CHARS: frozenset[str] = frozenset('<>:"/\\|?*')
+
+
+def _safe_dir_name(name: str) -> str:
+    sanitized = "".join("_" if c in _FS_ILLEGAL_CHARS or c < " " else c for c in name)
+    return sanitized.rstrip(". ") or "_"
 
 
 @dataclass
@@ -89,10 +110,10 @@ class CommandController(Controller):
         last_id = 0
 
         while True:
+
             def _next_batch(_last_id: int = last_id) -> list[dict]:
                 posts.cur.execute(
-                    "SELECT id, file_path, file_name, extension FROM posts "
-                    "WHERE rating = 0 AND id > ? ORDER BY id LIMIT ?",
+                    "SELECT id, file_path, file_name, extension FROM posts WHERE rating = 0 AND id > ? ORDER BY id LIMIT ?",
                     [_last_id, batch_size],
                 )
                 cols = ["id", "file_path", "file_name", "extension"]
@@ -168,28 +189,37 @@ class CommandController(Controller):
     @litestar.post("/download-from-danbooru", description="Download posts from Danbooru")
     async def download_from_danbooru(
         self,
+        state: State,
         posts: PostRepo,
-        tag_group_repo: TagGroupRepo,
         tags: str,
     ) -> DanbooruDownloadStats:
-        """Download posts from Danbooru and persist them."""
-        client = DanbooruClient(os.getenv("DANBOORU_API_KEY", ""), os.getenv("DANBOORU_USER_NAME", ""))
+        """Download posts from Danbooru and persist them.
+
+        Optimization notes:
+        - Shared `DanbooruClient` and the canonical tag-group map both come
+          from `state` (set up once at startup) so each call avoids the API-
+          client construction + five tag-group upsert round-trips it would
+          otherwise repeat.
+        - DB lookup, then download only the subset of `filtered` that's not
+          yet in the DB — under normal operation DB membership implies file-
+          on-disk, so this short-circuits the 16-worker threadpool entirely
+          when nothing is new.
+        """
+        client: DanbooruClient = state.danbooru_client
+        type_to_group_id: dict[str, int] = state.canonical_tag_groups
+
         danbooru_dir = shared.target_dir / "danbooru"
-        save_dir = danbooru_dir / tags
+        save_dir = danbooru_dir / _safe_dir_name(tags)
         posts_orig = await asyncio.to_thread(client.get_posts, tags=tags, limit=99999)
         posts_with_url = [p for p in posts_orig if p.file_url]
         logger.info(f"Fetched {len(posts_with_url)} available posts ({len(posts_orig)} total)")
 
-        # ensure canonical tag groups exist
-        type_to_group_id = await _fetch_or_create_canonical_groups(tag_group_repo)
-        types = list(type_to_group_id.keys())
-
         filtered = [
-            p for p in posts_with_url
-            if p.file_url and p.file_ext and p.file_ext.lower()
-            in {"jpg", "jpeg", "png", "gif", "webp", "avif", "bmp", "tiff", "tif", "svg"}
+            p
+            for p in posts_with_url
+            if p.file_url and p.file_ext and p.file_ext.lower() in SUPPORTED_IMAGE_EXTS
         ]
-        save_dir.mkdir(parents=True, exist_ok=True)
+        await asyncio.to_thread(save_dir.mkdir, parents=True, exist_ok=True)
         file_path_str = save_dir.relative_to(shared.target_dir).as_posix()
 
         def _existing_post_names() -> set[str]:
@@ -203,74 +233,34 @@ class CommandController(Controller):
         to_persist = [p for p in filtered if str(p.id) not in existing_names]
         logger.info(f"Persisting {len(to_persist)} new posts ({len(filtered) - len(to_persist)} already in DB)")
 
-        def _persist_all() -> None:
-            if not to_persist:
-                return
-            cur = posts.cur
-            cur.execute("BEGIN")
-            try:
-                for d_post in to_persist:
-                    cur.execute(
-                        """
-                        INSERT INTO posts(file_path, file_name, extension, source, rating, published_at)
-                        VALUES (?, ?, ?, ?, ?, ?)
-                        ON CONFLICT (file_path, file_name, extension)
-                        DO UPDATE SET source = excluded.source,
-                                      published_at = excluded.published_at,
-                                      updated_at = now()
-                        RETURNING id
-                        """,
-                        [
-                            file_path_str,
-                            str(d_post.id),
-                            d_post.file_ext,
-                            f"https://danbooru.donmai.us/posts/{d_post.id}",
-                            from_rating_to_int(d_post.rating),
-                            d_post.created_at,
-                        ],
-                    )
-                    row = cur.fetchone()
-                    if not row:
-                        continue
-                    post_id = int(row[0])
+        # Pre-compute per-post tag maps (in-memory, no DB calls).
+        precomputed_tag_maps = [_build_tag_to_group(p, type_to_group_id) for p in to_persist]
 
-                    # `types` is ordered by priority; setdefault keeps the
-                    # first (highest-priority) group when a tag appears in
-                    # multiple tag_string_* fields. Also dedupes within a
-                    # single post — DuckDB's ON CONFLICT does not handle
-                    # duplicates inside one executemany batch.
-                    tag_to_group: dict[str, int] = {}
-                    for t in types:
-                        gid = type_to_group_id[t]
-                        # str.split() with no args also drops empty entries
-                        for tag_str in getattr(d_post, f"tag_string_{t}").split():
-                            tag_to_group.setdefault(tag_str, gid)
-                    if tag_to_group:
-                        cur.executemany(
-                            "INSERT INTO tags(name, group_id) VALUES (?, ?) ON CONFLICT DO NOTHING",
-                            list(tag_to_group.items()),
-                        )
-                        cur.executemany(
-                            "INSERT INTO post_has_tag(post_id, tag_name, is_auto) VALUES (?, ?, FALSE) "
-                            "ON CONFLICT DO NOTHING",
-                            [(post_id, name) for name in tag_to_group],
-                        )
-                cur.execute("COMMIT")
-            except Exception:
-                cur.execute("ROLLBACK")
-                raise
+        await asyncio.to_thread(
+            _persist_danbooru_batch,
+            posts,
+            file_path_str,
+            to_persist,
+            precomputed_tag_maps,
+        )
 
-        await asyncio.to_thread(_persist_all)
+        # Pass `to_persist` (not `filtered`) to download_posts: every entry in
+        # `filtered \ to_persist` is already in the DB, which under normal
+        # operation means its file is on disk. Skipping it avoids a wasted
+        # exists() round trip per post, and short-circuits the 16-worker
+        # threadpool entirely when nothing new needs downloading.
+        if to_persist:
+            dl_stats = await asyncio.to_thread(client.download_posts, to_persist, save_dir)
+        else:
+            dl_stats = {"downloaded": 0, "skipped": 0, "failed": 0}
 
-        stats = await asyncio.to_thread(client.download_posts, filtered, save_dir)
-        # Defer heavy processing to background; can be called explicitly via /cmd/posts/embedding etc.
         return DanbooruDownloadStats(
             total=len(posts_orig),
             with_url=len(posts_with_url),
             filtered=len(filtered),
-            downloaded=stats.get("downloaded", 0),
-            skipped=stats.get("skipped", 0),
-            failed=stats.get("failed", 0),
+            downloaded=dl_stats.get("downloaded", 0),
+            skipped=(len(filtered) - len(to_persist)) + dl_stats.get("skipped", 0),
+            failed=dl_stats.get("failed", 0),
         )
 
     @litestar.post("/db/snapshot", description="Create a point-in-time DuckDB snapshot for offline tooling")
@@ -306,15 +296,169 @@ class CommandController(Controller):
         return SnapshotResult(path=str(snap_path), dir=str(tmp_dir))
 
 
-async def _fetch_or_create_canonical_groups(tag_group_repo: TagGroupRepo) -> dict[str, int]:
-    """Ensure canonical groups exist and return name → id mapping, ordered by priority.
+def _persist_danbooru_batch(
+    posts: PostRepo,
+    file_path_str: str,
+    to_persist: list[DanbooruPost],
+    precomputed_tag_maps: list[dict[str, int]],
+) -> None:
+    """Persist a batch of Danbooru posts + their tags in two transactions.
 
-    Order matters: when a tag appears under multiple types in a Danbooru post,
-    the first-listed group wins (see `_persist_all` in `download_from_danbooru`).
+    Split rationale: when concurrent /download-from-danbooru requests all
+    insert overlapping tags, the commit-time uniqueness check on `tags(name)`
+    aborts one of them. Running tag inserts in their own short transaction
+    keeps that retry surface tiny and prevents replay of the (much larger)
+    posts + post_has_tag work each time tags happen to conflict.
+
+    Each transaction uses ON CONFLICT for in-snapshot duplicates and a
+    bounded retry loop for commit-time conflicts that only show up against
+    rows committed by other transactions after our snapshot was taken.
+    """
+    if not to_persist:
+        return
+    cur = posts.cur
+
+    # Phase A: globally-deduped tag upsert in its own short transaction.
+    all_tags: dict[str, int] = {}
+    for tag_map in precomputed_tag_maps:
+        for name, gid in tag_map.items():
+            all_tags.setdefault(name, gid)
+    if all_tags:
+        _run_with_retry(cur, "tags", lambda: _insert_tags_tx(cur, all_tags))
+
+    # Phase B: posts + post_has_tag in their own transaction. The tags they
+    # reference are now committed by phase A, so concurrent writers can't
+    # make this transaction wait on them.
+    _run_with_retry(
+        cur,
+        "posts",
+        lambda: _insert_posts_and_links_tx(cur, file_path_str, to_persist, precomputed_tag_maps),
+    )
+
+
+def _run_with_retry(
+    cur: duckdb.DuckDBPyConnection,
+    label: str,
+    fn: Callable[[], None],
+    *,
+    max_attempts: int = 5,
+) -> None:
+    for attempt in range(1, max_attempts + 1):
+        try:
+            fn()
+        except duckdb.TransactionException as exc:
+            _safe_rollback(cur)
+            if attempt == max_attempts:
+                raise
+            logger.warning(
+                f"Danbooru {label} commit conflict (attempt {attempt}/{max_attempts}): {exc}; retrying",
+            )
+        except Exception:
+            _safe_rollback(cur)
+            raise
+        else:
+            return
+
+
+def _insert_tags_tx(cur: duckdb.DuckDBPyConnection, all_tags: dict[str, int]) -> None:
+    cur.execute("BEGIN")
+    cur.executemany(
+        "INSERT INTO tags(name, group_id) VALUES (?, ?) ON CONFLICT DO NOTHING",
+        list(all_tags.items()),
+    )
+    cur.execute("COMMIT")
+
+
+def _insert_posts_and_links_tx(
+    cur: duckdb.DuckDBPyConnection,
+    file_path_str: str,
+    to_persist: list[DanbooruPost],
+    precomputed_tag_maps: list[dict[str, int]],
+) -> None:
+    cur.execute("BEGIN")
+    post_tag_pairs: list[tuple[int, dict[str, int]]] = []
+    for d_post, tag_map in zip(to_persist, precomputed_tag_maps, strict=True):
+        cur.execute(
+            """
+            INSERT INTO posts(file_path, file_name, extension, source, rating, published_at)
+            VALUES (?, ?, ?, ?, ?, ?)
+            ON CONFLICT (file_path, file_name, extension)
+            DO UPDATE SET source = excluded.source,
+                          published_at = excluded.published_at,
+                          updated_at = now()
+            RETURNING id
+            """,
+            [
+                file_path_str,
+                str(d_post.id),
+                d_post.file_ext,
+                f"https://danbooru.donmai.us/posts/{d_post.id}",
+                from_rating_to_int(d_post.rating),
+                d_post.created_at,
+            ],
+        )
+        row = cur.fetchone()
+        if row:
+            post_tag_pairs.append((int(row[0]), tag_map))
+
+    # (post_id, tag_name) is unique within this batch — each post_id appears
+    # once and per-post names were deduped via dict in the pre-compute step.
+    post_tag_rows = [(post_id, name) for post_id, tag_map in post_tag_pairs for name in tag_map]
+    if post_tag_rows:
+        cur.executemany(
+            "INSERT INTO post_has_tag(post_id, tag_name, is_auto) VALUES (?, ?, FALSE) ON CONFLICT DO NOTHING",
+            post_tag_rows,
+        )
+    cur.execute("COMMIT")
+
+
+def _safe_rollback(cur: duckdb.DuckDBPyConnection) -> None:
+    """ROLLBACK that swallows the 'no transaction is active' case.
+
+    DuckDB auto-aborts a transaction when its commit fails, so an explicit
+    ROLLBACK in the except handler would raise a secondary TransactionException
+    that masks the original error.
+    """
+    with contextlib.suppress(duckdb.TransactionException):
+        cur.execute("ROLLBACK")
+
+
+def _build_tag_to_group(d_post: DanbooruPost, type_to_group_id: dict[str, int]) -> dict[str, int]:
+    """Collect (tag_name → group_id) from a Danbooru post's tag_string_* fields.
+
+    `type_to_group_id` is ordered by priority; setdefault keeps the first
+    (highest-priority) group when a tag appears under multiple types.
+    """
+    tag_to_group: dict[str, int] = {}
+    for t, gid in type_to_group_id.items():
+        # str.split() with no args also drops empty entries
+        for tag_str in getattr(d_post, f"tag_string_{t}").split():
+            tag_to_group.setdefault(tag_str, gid)
+    return tag_to_group
+
+
+def ensure_canonical_tag_groups_sync(cur: duckdb.DuckDBPyConnection) -> dict[str, int]:
+    """Upsert the five canonical tag groups and return name → id, ordered by priority.
+
+    Used at server startup so per-request handlers can read the cached map
+    from app.state instead of re-running INSERT-then-SELECT on every call.
     """
     result: dict[str, int] = {}
-    for name in ("artist", "character", "copyright", "general", "meta"):
+    for name in CANONICAL_TAG_GROUPS:
         color = TAG_GROUP_COLORS.get(name, "#000000")
-        group = await tag_group_repo.ensure(name, color=color)
-        result[name] = group.id
+        cur.execute(
+            "INSERT INTO tag_groups(name, color) VALUES (?, ?) ON CONFLICT DO NOTHING",
+            [name, color],
+        )
+        cur.execute(
+            "SELECT id, name, parent_id, color, created_at, updated_at FROM tag_groups WHERE name = ?",
+            [name],
+        )
+        tg = fetch_one_as(cur, TagGroup)
+        if tg is None:
+            msg = f"TagGroup upsert failed for: {name}"
+            raise RuntimeError(msg)
+        result[name] = tg.id
     return result
+
+

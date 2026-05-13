@@ -11,10 +11,29 @@ device = "cuda"
 
 @cache
 def get_clip_model() -> AutoModel:
-    return AutoModel.from_pretrained(
+    model = AutoModel.from_pretrained(
         "openai/clip-vit-large-patch14",
         device_map=device,
     )
+    # transformers 5.x changed `CLIPModel.get_{image,text}_features` to return
+    # a `BaseModelOutputWithPooling` instead of the bare projected-pooled tensor
+    # that 4.x returned. waifu_scorer (and our own code below) still expect the
+    # old tensor return shape, so unwrap `.pooler_output` here.
+    _patch_clip_features_to_tensor(model)
+    return model
+
+
+def _patch_clip_features_to_tensor(model: AutoModel) -> None:
+    for attr in ("get_image_features", "get_text_features"):
+        original = getattr(model, attr, None)
+        if original is None:
+            continue
+
+        def wrapper(*args: object, _orig: object = original, **kwargs: object) -> object:
+            out = _orig(*args, **kwargs)  # type: ignore[operator]
+            return getattr(out, "pooler_output", out)
+
+        setattr(model, attr, wrapper)
 
 
 @cache

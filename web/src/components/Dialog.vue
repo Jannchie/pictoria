@@ -1,22 +1,20 @@
 <script setup lang="ts">
-import { Btn, Paper } from '@roku-ui/vue'
 </script>
 
 <template>
-  <Paper
-    class="bg-base border-container text-sm border flex flex-col gap-2 min-w-86 shadow"
-    with-border
+  <PSurface
+    level="1"
+    bordered
+    shadow="md"
+    class="min-w-86 flex flex-col gap-2 p-4 text-sm"
   >
     <div>
       Dialog123
     </div>
     <div class="flex justify-end">
-      <Btn
-        color="primary"
-        variant="filled"
-      >
+      <PButton variant="primary">
         Primary
-      </Btn>
+      </PButton>
     </div>
-  </Paper>
+  </PSurface>
 </template>

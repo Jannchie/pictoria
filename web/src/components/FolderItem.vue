@@ -32,9 +32,9 @@ useEventListener(folderItemRef, 'drop', (e: DragEvent) => {
     @contextmenu.prevent.stop="onContextmenu"
   >
     <div
-      class="flex flex-shrink-0 gap-0.5 items-center"
+      class="flex flex-shrink-0 items-center gap-0.5"
       :class="{
-        'border-l border-base': depth !== 0,
+        'border-l border-border-default': depth !== 0,
       }"
     >
       <ListItem

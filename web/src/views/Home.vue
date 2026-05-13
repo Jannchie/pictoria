@@ -38,20 +38,21 @@ useEventListener('wheel', (event) => {
     v-if="showPostDetail"
     :post="showPostDetail"
   />
-  <div class="flex flex-col h-full">
-    <header
-      class="flex shrink-0 flex-col h-60px items-center justify-center"
-    >
-      <div class="flex flex-grow w-32 items-center justify-center">
-        <Slider
-          v-model="waterfallRowCount"
-          size="sm"
-          :min="1"
-          :max="16"
-          :min-width="0"
-          :tick-num="0"
-          reverse
-        />
+  <div class="h-full flex flex-col">
+    <header class="flex shrink-0 flex-col">
+      <div class="h-8 flex shrink-0 items-center justify-center px-2 pt-1">
+        <div class="w-40 flex items-center gap-2 text-fg-subtle">
+          <i class="i-tabler-grid-dots shrink-0 text-sm" />
+          <Slider
+            v-model="waterfallRowCount"
+            size="sm"
+            :min="1"
+            :max="16"
+            :min-width="0"
+            :tick-num="0"
+            reverse
+          />
+        </div>
       </div>
       <FilterRow />
     </header>

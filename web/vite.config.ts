@@ -13,7 +13,7 @@ export default defineConfig({
     vueJsx(),
     UnoCSS(),
     Components({
-      dirs: ['./src/components'],
+      dirs: ['./src/components', './src/ui'],
       dts: './src/components.d.ts',
     }),
     AutoImport({

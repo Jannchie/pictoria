@@ -37,12 +37,28 @@ class VectorRepo:
         return await asyncio.to_thread(_impl)
 
     async def upsert(self, post_id: int, embedding: np.ndarray | list[float]) -> None:
+        """Insert an embedding for ``post_id`` if one isn't already stored.
+
+        DuckDB VSS HNSW indexes corrupt themselves when an indexed column is
+        updated via ``ON CONFLICT DO UPDATE`` — the rowid stays in the HNSW
+        structure after the implicit delete, so the subsequent insert trips
+        ``Failed to add to the HNSW index: Duplicate keys not allowed`` and
+        the connection becomes invalidated for the rest of the process. To
+        side-step that, we treat upsert as insert-if-missing. Callers that
+        legitimately need to *replace* an embedding (e.g. after rotating an
+        image) must ``await delete(post_id)`` first.
+        """
         emb = embedding.tolist() if hasattr(embedding, "tolist") else list(embedding)
 
         def _impl() -> None:
             self.cur.execute(
-                "INSERT INTO post_vectors(post_id, embedding) VALUES (?, ?) "
-                "ON CONFLICT (post_id) DO UPDATE SET embedding = excluded.embedding",
+                "SELECT 1 FROM post_vectors WHERE post_id = ?",
+                [post_id],
+            )
+            if self.cur.fetchone() is not None:
+                return
+            self.cur.execute(
+                "INSERT INTO post_vectors(post_id, embedding) VALUES (?, ?)",
                 [post_id, emb],
             )
 

@@ -1,5 +1,4 @@
 <script setup lang="ts">
-import { Overlay } from '@roku-ui/vue'
 import { onClickOutside, useElementBounding, useElementHover } from '@vueuse/core'
 import { computed, ref } from 'vue'
 
@@ -146,13 +145,11 @@ onClickOutside(contentRef, (e) => {
     >
       <slot />
     </div>
-    <Overlay
+    <POverlay
       v-if="showContent && overlay"
       :opacity="0"
-      class="inset-0 fixed z-10"
-      :style="{
-        zIndex,
-      }"
+      class="fixed inset-0 z-10"
+      :style="{ zIndex }"
       @pointerup="active = false"
     />
     <div

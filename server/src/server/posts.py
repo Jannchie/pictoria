@@ -43,6 +43,17 @@ class PostFilter(Struct):
         Meta(description="Waifu score range filter.", examples=[(0.0, 10.0)],
              extra_json_schema={"min_length": 2, "max_length": 2}),
     ] = None
+    waifu_score_levels: Annotated[
+        tuple[str, ...] | None,
+        Meta(
+            description=(
+                "Waifu-score bucket filter. Each value is one of "
+                "'S' (8-10), 'A' (6-8), 'B' (4-6), 'C' (2-4), 'D' (0-2), "
+                "or 'UNSCORED' (no waifu score yet). Multiple values OR together."
+            ),
+            examples=[("S", "A")],
+        ),
+    ] = ()
 
 
 class PostFilterWithOrder(PostFilter):
@@ -85,6 +96,12 @@ class ExtensionCountItem:
     count: int
 
 
+@dataclass
+class WaifuBucketCountItem:
+    bucket: str  # one of 'S', 'A', 'B', 'C', 'D', 'UNSCORED'
+    count: int
+
+
 T = TypeVar("T")
 
 
@@ -120,6 +137,7 @@ def _filter_dict(data: PostFilter) -> dict:
         "extension": data.extension,
         "folder": data.folder,
         "waifu_score_range": data.waifu_score_range,
+        "waifu_score_levels": data.waifu_score_levels,
     }
 
 
@@ -219,6 +237,11 @@ class PostController(Controller):
     async def get_extension_count(self, posts: PostRepo, data: PostFilter) -> list[ExtensionCountItem]:
         rows = await posts.count_by_column("extension", **_filter_dict(data))
         return [ExtensionCountItem(extension=r["extension"], count=r["count"]) for r in rows]
+
+    @litestar.post("/count/waifu", status_code=200, description="Count posts by waifu-score bucket (S/A/B/C/D/UNSCORED).")
+    async def get_waifu_bucket_count(self, posts: PostRepo, data: PostFilter) -> list[WaifuBucketCountItem]:
+        rows = await posts.count_by_waifu_bucket(**_filter_dict(data))
+        return [WaifuBucketCountItem(bucket=r["bucket"], count=r["count"]) for r in rows]
 
     @litestar.put("/{post_id:int}/score")
     async def update_post_score(self, posts: PostRepo, post_id: int, data: ScoreUpdate) -> PostDetailPublic:

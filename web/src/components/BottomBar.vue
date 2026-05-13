@@ -8,10 +8,22 @@ const route = useRoute()
 
 <template>
   <div
-    class="text-dimmed bg-base border-base text-xs px-1 border-t flex h-24px items-center"
+    class="h-24px flex shrink-0 items-center gap-4 border-t border-border-default bg-bg px-3 text-xs text-fg-muted"
   >
     <template v-if="route.name === 'all' || route.name === 'dir'">
-      Display: {{ posts.length }}, Selected: {{ selectedPostIdSet.size }}
+      <span class="flex items-center gap-1">
+        <i class="i-tabler-photo text-fg-subtle" />
+        <span class="font-mono tabular-nums">{{ posts.length }}</span>
+        <span class="text-fg-subtle">displayed</span>
+      </span>
+      <span
+        v-if="selectedPostIdSet.size > 0"
+        class="flex items-center gap-1 text-primary"
+      >
+        <i class="i-tabler-checks" />
+        <span class="font-mono tabular-nums">{{ selectedPostIdSet.size }}</span>
+        <span>selected</span>
+      </span>
     </template>
     <template v-else>
       {{ bottomBarInfo }}

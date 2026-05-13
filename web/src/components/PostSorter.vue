@@ -1,9 +1,7 @@
 <script setup lang="ts">
-import { Btn, ColorSwatch } from '@roku-ui/vue'
 import { ref } from 'vue'
 import { postSort, postSortColor, postSortOrder } from '@/shared'
 
-// Sort options data
 const sortOptions: {
   id: 'created_at' | 'published_at' | 'score' | 'rating' | 'file_name'
   label: string
@@ -16,7 +14,6 @@ const sortOptions: {
   { id: 'file_name', label: 'File name', icon: 'i-tabler-file' },
 ]
 
-// Order options data
 const orderOptions: {
   id: 'asc' | 'desc'
   label: string
@@ -26,20 +23,20 @@ const orderOptions: {
   { id: 'desc', label: 'Desc', icon: 'i-tabler-arrow-down' },
 ]
 
-function underlineToSpace(string_: string) {
-  return string_.replaceAll('_', ' ')
+function underlineToSpace(s: string) {
+  return s.replaceAll('_', ' ')
 }
 
 const show = ref(false)
 </script>
 
 <template>
-  <div class="flex gap-2 relative">
+  <div class="relative flex gap-2">
     <Popover
       v-model="show"
       position="bottom-end"
     >
-      <Btn
+      <PButton
         size="sm"
       >
         <i class="i-tabler-arrows-sort" />
@@ -56,33 +53,28 @@ const show = ref(false)
           v-else
           class="flex-grow"
         >
-          <ColorSwatch
-            :color="postSortColor"
-          />
-
+          <PColorSwatch :color="postSortColor" />
         </span>
-      </Btn>
+      </PButton>
       <template #content>
         <div
-          class="bg-base border-base p-1 border rounded min-w-36"
+          class="min-w-36 border border-border-default rounded bg-surface p-1 shadow-lg"
         >
-          <div
-            class="flex flex-col gap-1"
-          >
-            <div class="border-base mt-1 p-2 border rounded flex gap-2 items-center">
+          <div class="flex flex-col gap-1">
+            <div class="mt-1 flex items-center gap-2 border border-border-default rounded p-2">
               <div class="flex-grow">
-                <div class="text-muted text-xs mb-1">
+                <div class="mb-1 text-xs text-fg-subtle">
                   Sort Color
                 </div>
-                <div class="flex gap-2 items-center">
+                <div class="flex items-center gap-2">
                   <div
-                    class="border-base border rounded h-6 w-6 overflow-hidden"
+                    class="h-6 w-6 overflow-hidden border border-border-default rounded"
                     :style="{ backgroundColor: postSortColor || '#ffffff' }"
                   >
                     <input
                       v-model="postSortColor"
                       type="color"
-                      class="opacity-0 h-full w-full cursor-pointer"
+                      class="h-full w-full cursor-pointer opacity-0"
                     >
                   </div>
                   <div class="text-xs font-mono">
@@ -90,46 +82,45 @@ const show = ref(false)
                   </div>
                 </div>
               </div>
-              <Btn
+              <PButton
                 v-if="postSortColor"
                 icon
-                variant="transparent"
-                color="surface"
+                variant="ghost"
                 @click="postSortColor = undefined"
               >
                 <i class="i-tabler-x" />
-              </Btn>
+              </PButton>
             </div>
             <div class="flex gap-1">
-              <Btn
+              <PButton
                 v-for="order in orderOptions"
                 :key="order.id"
                 :disabled="!!postSortColor"
                 size="sm"
-                class="w-full"
-                :variant="postSortOrder === order.id && !postSortColor ? 'filled' : 'default'"
+                block
+                :variant="postSortOrder === order.id && !postSortColor ? 'primary' : 'secondary'"
                 @click="postSortOrder = order.id; show = false"
               >
                 <i :class="order.icon" />
                 <span class="flex-grow">
                   {{ order.label }}
                 </span>
-              </Btn>
+              </PButton>
             </div>
-            <Btn
+            <PButton
               v-for="option in sortOptions"
               :key="option.id"
               size="sm"
-              class="w-full"
+              block
               :disabled="!!postSortColor"
-              :variant="postSort === option.id && !postSortColor ? 'filled' : 'default'"
+              :variant="postSort === option.id && !postSortColor ? 'primary' : 'secondary'"
               @click="postSort = option.id; show = false"
             >
               <i :class="option.icon" />
               <span class="flex-grow">
                 {{ option.label }}
               </span>
-            </Btn>
+            </PButton>
           </div>
         </div>
       </template>

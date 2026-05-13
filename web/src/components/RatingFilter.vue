@@ -1,5 +1,4 @@
 <script setup lang="ts">
-import { Btn } from '@roku-ui/vue'
 import { useQuery } from '@tanstack/vue-query'
 import { computed } from 'vue'
 import { v2GetRatingCount } from '@/api'
@@ -56,7 +55,7 @@ const btnText = computed(() => {
 function getRatingName(rating: number) {
   switch (rating) {
     case 0: {
-      return 'Not Rating Yet'
+      return 'Unrated'
     }
     case 1: {
       return 'General'
@@ -80,45 +79,42 @@ function getRatingName(rating: number) {
 <template>
   <div class="relative">
     <Popover position="bottom-start">
-      <Btn
+      <PButton
         size="sm"
       >
         <i class="i-tabler-star" />
         <span>
           {{ btnText }}
         </span>
-      </Btn>
+      </PButton>
       <template #content>
         <div
-          class="bg-base border-base p-1 border rounded min-w-52"
+          class="min-w-52 border border-border-default rounded bg-surface p-1 shadow-lg"
         >
           <div
             v-for="rating in [1, 2, 3, 4, 0]"
             :key="rating"
-            class="text-xs px-2 py-1 rounded flex gap-2 w-full cursor-pointer items-center hover:bg-container"
+            class="w-full flex cursor-pointer items-center gap-2 rounded px-2 py-1 text-xs hover:bg-surface-2"
             @pointerdown="onPointerDown(rating)"
           >
             <Checkbox
-              class="flex-shrink-0 pointer-events-none"
+              class="pointer-events-none flex-shrink-0"
               :model-value="hasRating(rating)"
             />
-            <div class="flex flex-grow gap-1 h-16px">
-              <template v-if="rating === 0">
-                Not Rated Yet
-              </template>
-              <template v-else>
+            <div class="flex flex-grow items-center gap-1">
+              <span :class="{ 'text-fg-subtle italic': rating === 0 }">
                 {{ getRatingName(rating) }}
-              </template>
+              </span>
             </div>
             <div
               v-if="scoreCountList[rating]"
-              class="flex-shrink-0"
+              class="flex-shrink-0 text-fg-muted tabular-nums"
             >
               {{ scoreCountList[rating] }}
             </div>
             <div
               v-else-if="hasRating(rating)"
-              class="text-muted flex-shrink-0"
+              class="flex-shrink-0 text-fg-subtle tabular-nums"
             >
               0
             </div>

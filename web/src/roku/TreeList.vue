@@ -1,9 +1,30 @@
 <script setup lang="tsx">
-import type { Rounded } from 'node_modules/@roku-ui/vue/dist/types'
 import type { VNode } from 'vue'
-import { useRounded } from '@roku-ui/vue'
 import { computed, h, ref, watchEffect } from 'vue'
 import AutoHeightTransition from './AutoHeightTransition.vue'
+
+type Rounded = 'none' | 'sm' | 'md' | 'lg' | 'full'
+
+const props = withDefaults(defineProps<{
+  items: TreeListItemData[]
+  rounded?: Rounded
+}>(), {
+  rounded: 'md',
+})
+
+const slots = defineSlots<{
+  link?: (properties_: { data: TreeListLeafData, level: number }) => any
+  collapse?: (properties_: { data: TreeListCollapseData, level: number }) => any
+  header?: (properties_: { data: TreeListHeaderData, level: number }) => any
+}>()
+
+const RADIUS_CLASS: Record<Rounded, string> = {
+  none: 'rounded-none',
+  sm: 'rounded-sm',
+  md: 'rounded-md',
+  lg: 'rounded-lg',
+  full: 'rounded-full',
+}
 
 export interface TreeListLeafData {
   icon?: string | VNode
@@ -28,20 +49,7 @@ export interface TreeListCollapseData {
 
 export type TreeListItemData = TreeListLeafData | TreeListHeaderData | TreeListCollapseData
 
-const props = withDefaults(defineProps<{
-  items: TreeListItemData[]
-  rounded?: Rounded
-}>(), {
-  rounded: 'md',
-})
-
-const slots = defineSlots<{
-  link?: (properties_: { data: TreeListLeafData, level: number }) => any
-  collapse?: (properties_: { data: TreeListCollapseData, level: number }) => any
-  header?: (properties_: { data: TreeListHeaderData, level: number }) => any
-}>()
-
-const rounded = useRounded(props)
+const roundedClass = computed(() => RADIUS_CLASS[props.rounded])
 
 const model = defineModel<string>()
 
@@ -52,12 +60,12 @@ function isLink(item: TreeListItemData): item is TreeListLeafData {
   return 'value' in item && !('children' in item)
 }
 
-const itemLeftIndicator = 'before:absolute before:left-4 before:h-full before:border-r before:content-[""]'
-const itemClass = 'relative h-8 py-1 pr-1 w-full flex items-center gap-2 cursor-pointer focus-visible:outline-none focus-visible:bg-container'
-const linkNormalItemClass = computed(() => `${itemClass} hover:bg-container hover:text-default text-dimmed`)
-const linkActiveItemClass = computed(() => `${itemClass} text-primary before:border-primary bg-elevated`)
-const titleNormalItemClass = computed(() => [itemClass, 'text-default font-bold hover:bg-container'])
-const titleActiveItemClass = computed(() => [itemClass, 'text-primary font-bold bg-container'])
+const itemLeftIndicator = 'before:absolute before:left-4 before:h-full before:border-r before:border-border-default before:content-[""]'
+const itemClass = 'relative h-8 py-1 pr-1 w-full flex items-center gap-2 cursor-pointer focus-visible:outline-none focus-visible:bg-surface-1'
+const linkNormalItemClass = computed(() => `${itemClass} hover:bg-surface-1 hover:text-fg text-fg-muted`)
+const linkActiveItemClass = computed(() => `${itemClass} text-primary before:border-primary bg-surface-2`)
+const titleNormalItemClass = computed(() => [itemClass, 'text-fg font-bold hover:bg-surface-1'])
+const titleActiveItemClass = computed(() => [itemClass, 'text-primary font-bold bg-surface-1'])
 const treeListRef = ref<HTMLUListElement | null>(null)
 const status = ref<Map<TreeListItemData, boolean>>(new Map())
 
@@ -98,21 +106,14 @@ function TreeListLink({ data, level }: { data: TreeListLeafData, level: number }
       <Comp
         tabindex={0}
         class={[
-          rounded.value.class,
+          roundedClass.value,
           itemLeftIndicator,
           {
             [linkNormalItemClass.value]: model.value !== data.value,
             [linkActiveItemClass.value]: model.value === data.value,
           },
         ]}
-        style={
-          [
-            {
-              paddingLeft: `${32 + level * 8}px`,
-            },
-            rounded.value.style,
-          ]
-        }
+        style={[{ paddingLeft: `${32 + level * 8}px` }]}
         onClick={() => model.value = data.value}
         onKeyup={(e: KeyboardEvent) => {
           if (e.key === 'Enter') {
@@ -129,19 +130,12 @@ function TreeListHeader({ data, level }: { data: TreeListHeaderData, level: numb
   return (
     <li
       class={[
-        'flex items-center relative py-2 text-dimmed font-bold tracking-widest text-xs',
+        'flex items-center relative py-2 text-fg-muted font-bold tracking-widest text-xs',
       ]}
-      style={
-        [
-          {
-            paddingLeft: `${32 + level * 8}px`,
-          },
-          rounded.value.style,
-        ]
-      }
+      style={[{ paddingLeft: `${32 + level * 8}px` }]}
     >
-      <div class="border-r h-1/2 translate-y-1/2 left-4 absolute" />
-      <div class="bg-container border-base border rounded-sm h-2 w-2 left-[calc(1rem+0.6px)] absolute -translate-x-1/2" />
+      <div class="absolute left-4 h-1/2 translate-y-1/2 border-r border-border-default" />
+      <div class="absolute left-[calc(1rem+0.6px)] h-2 w-2 border border-border-default rounded-sm bg-surface-1 -translate-x-1/2" />
 
       {
         slots.header
@@ -193,17 +187,10 @@ function TreeListCollapse({ data, level }: { data: TreeListCollapseData, level: 
                   }
                 }}
                 class={[
-                  rounded.value.class,
+                  roundedClass.value,
                   model.value === data.value ? titleActiveItemClass.value : titleNormalItemClass.value,
                 ]}
-                style={
-                  [
-                    {
-                      paddingLeft: `${32 + level * 8}px`,
-                    },
-                    rounded.value.style,
-                  ]
-                }
+                style={[{ paddingLeft: `${32 + level * 8}px` }]}
               >
                 <i class={[
                   'i-tabler-chevron-down absolute left-2 h-4 w-4 py-1 transition-transform',
@@ -230,7 +217,7 @@ function TreeListCollapse({ data, level }: { data: TreeListCollapseData, level: 
         {
           status.value.get(data)
           && (
-            <ul class="transition-height overflow-hidden">
+            <ul class="overflow-hidden transition-height">
               {
                 data.children?.map((child) => {
                   if (isLink(child)) {
@@ -268,7 +255,7 @@ function TreeListItem({ data, level }: { data: TreeListItemData, level: number }
 <template>
   <ul
     ref="treeListRef"
-    class="text-sm flex flex-col"
+    class="flex flex-col text-sm"
   >
     <TreeListItem
       v-for="item, i in items"

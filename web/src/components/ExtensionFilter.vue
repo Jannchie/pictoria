@@ -1,5 +1,4 @@
 <script setup lang="ts">
-import { Btn } from '@roku-ui/vue'
 import { useQuery } from '@tanstack/vue-query'
 import { computed } from 'vue'
 import { v2GetExtensionCount } from '@/api'
@@ -73,45 +72,45 @@ function getExtensionName(extension: string) {
 <template>
   <div class="relative">
     <Popover position="bottom-start">
-      <Btn
+      <PButton
         size="sm"
       >
         <i class="i-tabler-file" />
         <span class="flex-grow">
           {{ btnText }}
         </span>
-      </Btn>
+      </PButton>
       <template #content>
         <div
-          class="bg-base border-base p-1 border rounded min-w-52"
+          class="min-w-52 border border-border-default rounded bg-surface p-1 shadow-lg"
         >
           <div
             v-for="ext in extensions"
             :key="ext"
-            class="text-xs px-2 py-1 rounded flex gap-2 w-full cursor-pointer items-center hover:bg-container"
+            class="w-full flex cursor-pointer items-center gap-2 rounded px-2 py-1 text-xs hover:bg-surface-2"
             @pointerdown="onPointerDown(ext)"
           >
             <Checkbox
-              class="flex-shrink-0 pointer-events-none"
+              class="pointer-events-none flex-shrink-0"
               :model-value="hasExt(ext)"
             />
-            <div class="flex flex-grow gap-1 h-16px">
+            <div class="flex flex-grow items-center gap-1">
               <template v-if="ext === ''">
-                Not Scored Yet
+                <span class="text-fg-subtle italic">No extension</span>
               </template>
               <template v-else>
-                {{ getExtensionName(ext) }}
+                <span class="font-mono">.{{ getExtensionName(ext) }}</span>
               </template>
             </div>
             <div
               v-if="scoreCountList[ext]"
-              class="flex-shrink-0"
+              class="flex-shrink-0 text-fg-muted tabular-nums"
             >
               {{ scoreCountList[ext] }}
             </div>
             <div
               v-else-if="hasExt(ext)"
-              class="text-muted flex-shrink-0"
+              class="flex-shrink-0 text-fg-subtle tabular-nums"
             >
               0
             </div>
