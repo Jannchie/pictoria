@@ -327,6 +327,14 @@ export type TextSearchRequest = {
 };
 
 /**
+ * WaifuBucketCountItem
+ */
+export type WaifuBucketCountItem = {
+    bucket: string;
+    count: number;
+};
+
+/**
  * WaifuScorePublic
  */
 export type WaifuScorePublic = {
@@ -697,6 +705,37 @@ export type V2GetSimilarPostsResponses = {
 };
 
 export type V2GetSimilarPostsResponse = V2GetSimilarPostsResponses[keyof V2GetSimilarPostsResponses];
+
+export type V2GetWaifuBucketCountData = {
+    body: PostFilter;
+    path?: never;
+    query?: never;
+    url: '/v2/posts/count/waifu';
+};
+
+export type V2GetWaifuBucketCountErrors = {
+    /**
+     * Validation Exception
+     */
+    400: {
+        status_code: number;
+        detail: string;
+        extra?: null | {
+            [key: string]: unknown;
+        } | Array<unknown>;
+    };
+};
+
+export type V2GetWaifuBucketCountError = V2GetWaifuBucketCountErrors[keyof V2GetWaifuBucketCountErrors];
+
+export type V2GetWaifuBucketCountResponses = {
+    /**
+     * Request fulfilled, document follows
+     */
+    200: Array<WaifuBucketCountItem>;
+};
+
+export type V2GetWaifuBucketCountResponse = V2GetWaifuBucketCountResponses[keyof V2GetWaifuBucketCountResponses];
 
 export type V2ListPostsData = {
     body?: never;

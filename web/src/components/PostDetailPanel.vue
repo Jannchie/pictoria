@@ -2,7 +2,7 @@
 import type { PostDetailPublic, PostHasTagPublic } from '@/api'
 import { useQueryClient } from '@tanstack/vue-query'
 import { filesize } from 'filesize'
-import { v2GetWaifuScorer, v2UpdatePostCaption, v2UpdatePostRating, v2UpdatePostScore, v2UpdatePostSource } from '@/api'
+import { v2GetWaifuScorerOne, v2UpdatePostCaption, v2UpdatePostRating, v2UpdatePostScore, v2UpdatePostSource } from '@/api'
 import { hideNSFW, openTagSelectorWindow, showPostDetail } from '@/shared'
 import { getPostThumbnailURL } from '@/utils'
 import { colorNumToHex, labToRgbaString } from '@/utils/color'

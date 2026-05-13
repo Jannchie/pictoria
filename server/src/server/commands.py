@@ -279,7 +279,10 @@ class CommandController(Controller):
         def _run() -> None:
             cur = state.db.cursor()
             try:
-                cur.execute("CHECKPOINT")
+                # FORCE CHECKPOINT waits for concurrent write transactions
+                # (e.g. the startup metadata-sync backfill) to commit before
+                # flushing WAL — plain CHECKPOINT errors out instead.
+                cur.execute("FORCE CHECKPOINT")
                 cur.execute("SELECT current_database()")
                 source = cur.fetchone()[0]
                 # snap_path is server-controlled (tempfile); source comes from DuckDB itself.
