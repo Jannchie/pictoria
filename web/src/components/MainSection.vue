@@ -106,7 +106,6 @@ async function onSelectChange(selectArea: Area, { shift, ctrl }: { target: Event
     }
   }
   else {
-    selectedPostIdSet.value = currentSelectingId
     selectingPostIdSet.value = currentSelectingId
   }
 }
@@ -138,35 +137,23 @@ const notUsingInput = computed(() =>
 const { 1: one, 2: two, 3: three, 4: four, 5: five } = useMagicKeys()
 const queryClient = useQueryClient()
 
-// Watch for number key presses to apply ratings to all selected posts
-watchEffect(async () => {
-  // Only process keyboard input when not in a text field and having posts selected
-  if (!notUsingInput.value || selectedPostIdSet.value.size === 0) {
+async function applyScoreToSelection(score: number) {
+  if (selectedPostIdSet.value.size === 0) {
     return
   }
-
-  if (one.value) {
-    await updateScoreForSelectedPosts(1)
-  }
-  if (two.value) {
-    await updateScoreForSelectedPosts(2)
-  }
-  if (three.value) {
-    await updateScoreForSelectedPosts(3)
-  }
-  if (four.value) {
-    await updateScoreForSelectedPosts(4)
-  }
-  if (five.value) {
-    await updateScoreForSelectedPosts(5)
-  }
-  // Invalidate queries to refresh UI
   const selectedIds = [...selectedPostIdSet.value].filter(id => id !== undefined) as number[]
+  await updateScoreForSelectedPosts(score)
   queryClient.invalidateQueries({ queryKey: ['count', 'score'] })
   for (const postId of selectedIds) {
     queryClient.invalidateQueries({ queryKey: ['post', postId] })
   }
-})
+}
+
+whenever(logicAnd(one, notUsingInput), () => applyScoreToSelection(1))
+whenever(logicAnd(two, notUsingInput), () => applyScoreToSelection(2))
+whenever(logicAnd(three, notUsingInput), () => applyScoreToSelection(3))
+whenever(logicAnd(four, notUsingInput), () => applyScoreToSelection(4))
+whenever(logicAnd(five, notUsingInput), () => applyScoreToSelection(5))
 
 whenever(logicAnd(Ctrl_A, notUsingInput), () => {
   selectedPostIdSet.value = new Set(posts.value.map(post => post.id))

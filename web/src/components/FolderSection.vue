@@ -35,6 +35,7 @@ const subFolders = computed(() => {
       :key="f.value"
       class="max-w-56 min-w-32 flex flex-1 items-center gap-1.5 truncate border border-border-subtle rounded-md bg-surface-1 px-3 py-1.5 text-xs text-fg-muted transition-colors hover:border-border-strong hover:bg-surface-2 hover:text-fg"
       :to="`/dir/${f.value}`"
+      @pointerdown.stop
     >
       <i class="i-tabler-folder shrink-0 text-primary/70" />
       <span class="flex-grow truncate">
