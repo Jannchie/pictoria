@@ -14,12 +14,14 @@ from typing import TYPE_CHECKING, Any, TypeVar
 
 import thash
 from dotenv import load_dotenv
-from PIL import Image
+from PIL import Image, ImageFile
 
 import shared
 from shared import logger
 
 if TYPE_CHECKING:
+    import sqlite3
+
     import wdtagger
 
     from db.repositories.posts import PostRepo
@@ -36,6 +38,12 @@ warnings.filterwarnings("ignore", message="Corrupt EXIF data", category=UserWarn
 # this app is a personal gallery managing the user's own files — large
 # illustrations and scans (16k+) are routine. Disable the cap.
 Image.MAX_IMAGE_PIXELS = None
+
+# Allow loading partially-downloaded / interrupted images. Without this, PIL
+# raises OSError("Truncated File Read") and the post is permanently stuck in
+# the basics/embedding/tagger/waifu backlog. Personal-gallery semantics: do
+# the best we can with whatever bytes survived.
+ImageFile.LOAD_TRUNCATED_IMAGES = True
 
 load_dotenv()
 
@@ -136,14 +144,47 @@ def get_file_extension(file_path: Path) -> str:
 
 
 def find_files_in_directory(target_dir: Path) -> list[tuple[str, str, str]]:
+    """Walk ``target_dir`` and return (relative_path, stem, extension) tuples.
+
+    Uses ``os.scandir`` recursively because ``Path.rglob`` allocates a Path
+    object per entry and re-stats every node — when the target has 100k+
+    files that becomes the dominant cost (we measured ~1 minute for 155k
+    files; scandir does the same scan in seconds because DirEntry already
+    caches the type from the directory listing).
+
+    Skips any top-level entry whose name starts with ``.`` (e.g. the
+    ``.pictoria`` working dir).
+    """
     os_tuples: list[tuple[str, str, str]] = []
-    for file_path in target_dir.rglob("*"):
-        relative_path = file_path.relative_to(target_dir)
-        if file_path.is_file() and not relative_path.parts[0].startswith("."):
-            path = get_relative_path(file_path, target_dir)
-            name = get_file_name(file_path)
-            ext = get_file_extension(file_path)
-            os_tuples.append((path, name, ext))
+
+    def _split_name(name: str) -> tuple[str, str]:
+        dot = name.rfind(".")
+        if dot > 0:
+            return name[:dot], name[dot + 1:]
+        return name, ""
+
+    def _walk(dir_path: str, rel_dir: str, *, is_top: bool = False) -> None:
+        try:
+            it = os.scandir(dir_path)
+        except OSError as exc:
+            logger.warning(f"Skipping {dir_path}: {exc}")
+            return
+        with it:
+            for entry in it:
+                if is_top and entry.name.startswith("."):
+                    continue
+                try:
+                    if entry.is_dir(follow_symlinks=False):
+                        sub_rel = entry.name if rel_dir == "." else f"{rel_dir}/{entry.name}"
+                        _walk(entry.path, sub_rel)
+                    elif entry.is_file(follow_symlinks=False):
+                        stem, ext = _split_name(entry.name)
+                        os_tuples.append((rel_dir, stem, ext))
+                except OSError as exc:
+                    logger.debug(f"Skipping {entry.path}: {exc}")
+
+    _walk(str(target_dir), ".", is_top=True)
+
     logger.info(f"Found {len(os_tuples)} files in target directory")
     return os_tuples
 
@@ -154,12 +195,12 @@ def calculate_sha256(file: bytes) -> str:
     return sha256.hexdigest()
 
 
-def calculate_thumbhash(file_path: Path) -> str | None:
+def calculate_thumbhash(source: Path | Image.Image) -> str | None:
     try:
-        thumb_hash = thash.image_to_thumb_hash(file_path)
+        thumb_hash = thash.encode(source)
         return base64.b64encode(bytes(thumb_hash)).decode("ascii")
     except Exception as exc:
-        logger.warning(f"Failed to generate thumbhash for {file_path}: {exc}")
+        logger.warning(f"Failed to generate thumbhash for {source!r}: {exc}")
         return None
 
 
@@ -207,48 +248,109 @@ async def attach_wdtagger_results(
     *,
     is_auto: bool = False,
 ) -> None:
-    """Persist wdtagger output for a single post.
+    """Persist wdtagger output for a single post."""
+    group_objs = await _resolve_canonical_tag_groups(tag_groups)
+    await asyncio.to_thread(_persist_wdtagger_results, posts.cur, post_id, result, group_objs, is_auto)
 
-    Creates missing tag groups (general/character) and missing tags, then
-    links them via post_has_tag.
+
+async def attach_wdtagger_results_many(
+    posts: "PostRepo",
+    tag_groups: "TagGroupRepo",
+    items: list[tuple[int, "wdtagger.Result"]],
+    *,
+    is_auto: bool = False,
+) -> None:
+    """Persist wdtagger output for a batch of posts in a single DB round-trip.
+
+    Equivalent to calling :func:`attach_wdtagger_results` once per item, but
+    folds all the per-row ``INSERT`` calls into three ``executemany`` calls so
+    the batch only crosses the asyncio→thread boundary once.
     """
-    # Ensure canonical groups exist
+    if not items:
+        return
+    group_objs = await _resolve_canonical_tag_groups(tag_groups)
+    await asyncio.to_thread(_persist_wdtagger_results_many, posts.cur, items, group_objs, is_auto)
+
+
+async def _resolve_canonical_tag_groups(tag_groups: "TagGroupRepo") -> dict[str, int]:
+    """Return ``{group_name: id}`` for the four canonical groups.
+
+    On startup ``shared.canonical_tag_groups`` is filled once by
+    ``ensure_canonical_tag_groups_sync``; this fast-path skips the per-image
+    ``ensure`` round-trips (4 SQL ops x every post in the library) that used
+    to dominate tagger backfill time. Falls back to ``ensure`` if the cache
+    is empty (single-image upload before startup populated the cache, tests,
+    etc.).
+    """
+    cached = shared.canonical_tag_groups
+    if cached and all(name in cached for name in TAG_GROUP_COLORS):
+        return cached
     group_objs: dict[str, int] = {}
     for group_name, color in TAG_GROUP_COLORS.items():
         g = await tag_groups.ensure(group_name, color=color)
         group_objs[group_name] = g.id
+    return group_objs
 
-    def _persist_tags() -> None:
-        cur = posts.cur
-        # Bulk handle general + character tags
+
+def _persist_wdtagger_results(
+    cur: "sqlite3.Cursor",
+    post_id: int,
+    result: "wdtagger.Result",
+    group_objs: dict[str, int],
+    is_auto: bool,  # noqa: FBT001  # internal helper, keyword-only would force every caller to spell it
+) -> None:
+    general_set = set(result.general_tags)
+    character_set = set(result.character_tags)
+    all_names = general_set | character_set
+    if not all_names:
+        return
+
+    _executemany_tag_upsert(cur, general_set, group_objs["general"])
+    _executemany_tag_upsert(cur, character_set, group_objs["character"])
+    cur.executemany(
+        "INSERT INTO post_has_tag(post_id, tag_name, is_auto) VALUES (?, ?, ?) "
+        "ON CONFLICT (post_id, tag_name) DO NOTHING",
+        [(post_id, name, is_auto) for name in all_names],
+    )
+
+
+def _persist_wdtagger_results_many(
+    cur: "sqlite3.Cursor",
+    items: list[tuple[int, "wdtagger.Result"]],
+    group_objs: dict[str, int],
+    is_auto: bool,  # noqa: FBT001  # mirrors public attach_wdtagger_results_many signature
+) -> None:
+    # Deduplicate tag names across the whole batch so the upsert only touches
+    # each tag once even if many images share it.
+    general_seen: set[str] = set()
+    character_seen: set[str] = set()
+    link_rows: list[tuple[int, str, bool]] = []
+    for post_id, result in items:
         general_set = set(result.general_tags)
         character_set = set(result.character_tags)
-        all_names = list(general_set | character_set)
-        if not all_names:
-            return
+        general_seen |= general_set
+        character_seen |= character_set
+        link_rows.extend((post_id, name, is_auto) for name in general_set | character_set)
+    if not link_rows:
+        return
 
-        # Insert any missing tag rows with their group_id
-        for name in general_set:
-            cur.execute(
-                "INSERT INTO tags(name, group_id) VALUES (?, ?) ON CONFLICT (name) DO UPDATE "
-                "SET group_id = CASE WHEN tags.group_id IS NULL THEN excluded.group_id ELSE tags.group_id END",
-                [name, group_objs["general"]],
-            )
-        for name in character_set:
-            cur.execute(
-                "INSERT INTO tags(name, group_id) VALUES (?, ?) ON CONFLICT (name) DO UPDATE "
-                "SET group_id = CASE WHEN tags.group_id IS NULL THEN excluded.group_id ELSE tags.group_id END",
-                [name, group_objs["character"]],
-            )
-        # Link to post (idempotent)
-        for name in all_names:
-            cur.execute(
-                "INSERT INTO post_has_tag(post_id, tag_name, is_auto) VALUES (?, ?, ?) "
-                "ON CONFLICT (post_id, tag_name) DO NOTHING",
-                [post_id, name, is_auto],
-            )
+    _executemany_tag_upsert(cur, general_seen, group_objs["general"])
+    _executemany_tag_upsert(cur, character_seen, group_objs["character"])
+    cur.executemany(
+        "INSERT INTO post_has_tag(post_id, tag_name, is_auto) VALUES (?, ?, ?) "
+        "ON CONFLICT (post_id, tag_name) DO NOTHING",
+        link_rows,
+    )
 
-    await asyncio.to_thread(_persist_tags)
+
+def _executemany_tag_upsert(cur: "sqlite3.Cursor", names: set[str], group_id: int) -> None:
+    if not names:
+        return
+    cur.executemany(
+        "INSERT INTO tags(name, group_id) VALUES (?, ?) ON CONFLICT (name) DO UPDATE "
+        "SET group_id = CASE WHEN tags.group_id IS NULL THEN excluded.group_id ELSE tags.group_id END",
+        [(name, group_id) for name in names],
+    )
 
 
 # ─── wdtagger model loader (lazy) ──────────────────────────────────────

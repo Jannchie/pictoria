@@ -27,8 +27,8 @@ dependencies = [
     "pyarrow>=24.0.0",
     "minio>=7.2.20",
     "boto3>=1.43.6",
-    "thash>=1.0.0",
-    "duckdb>=1.5.2",
+    "thash>=1.1.0",
+    "sqlite-vec>=0.1.6",
     "pytz>=2026.2",
 ]
 
@@ -78,6 +78,8 @@ ignore = [
 ]
 [tool.ruff.lint.per-file-ignores]
 "**/test/**/*" = ["S101"]
+# CLI scripts: print is the output mechanism, ANN/DOC noise unhelpful here.
+"scripts/**/*" = ["T201", "T203", "ANN001", "ANN201", "ANN202", "S608", "PLR2004", "E402", "FBT003", "B007", "E501", "TC003"]
 
 [tool.uv]
 package = true

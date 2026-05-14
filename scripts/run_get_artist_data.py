@@ -14,9 +14,17 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+import sys
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
+
+# Force UTF-8 on stdout/stderr so the rich ✓/✗ glyphs don't crash on
+# Windows terminals whose default codec (e.g. cp932 / cp936) can't encode them.
+for _stream in (sys.stdout, sys.stderr):
+    reconfigure = getattr(_stream, "reconfigure", None)
+    if reconfigure is not None:
+        reconfigure(encoding="utf-8", errors="replace")
 
 import httpx
 from rich.console import Console
@@ -93,7 +101,7 @@ async def download_one(
 
 async def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--concurrency", type=int, default=8, help="同时处理的 tag 数（默认 8）")
+    parser.add_argument("--concurrency", type=int, default=2, help="同时处理的 tag 数（默认 2）")
     parser.add_argument("--tags-file", type=Path, default=TAGS_FILE, help="tag 列表文件路径")
     args = parser.parse_args()
 

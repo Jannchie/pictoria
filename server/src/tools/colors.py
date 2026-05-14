@@ -9,22 +9,25 @@ from matplotlib import pyplot as plt
 
 from .colorthief import ColorThief
 
+ImageSource = PathLike | BufferedReader | PIL.Image.Image
 
-def _prepare_image(image: PathLike | BufferedReader) -> tuple[PIL.Image.Image, int]:
-    image = PIL.Image.open(image)
+
+def _prepare_image(image: ImageSource) -> tuple[PIL.Image.Image, int]:
+    if not isinstance(image, PIL.Image.Image):
+        image = PIL.Image.open(image)
     width, height = image.size
     target_points = 10000
     quality = int(math.sqrt((width * height) / target_points))
     return image, quality
 
 
-def get_palette(image: PathLike | BufferedReader, *, colors: int = 5) -> tuple[tuple[int, int, int], ...]:
+def get_palette(image: ImageSource, *, colors: int = 5) -> tuple[tuple[int, int, int], ...]:
     image, quality = _prepare_image(image)
     color_thief = ColorThief(image)
     return tuple(color_thief.get_palette(color_count=colors, quality=quality))
 
 
-def get_dominant_color(image: PathLike | BufferedReader) -> tuple[int, int, int]:
+def get_dominant_color(image: ImageSource) -> tuple[int, int, int]:
     image, quality = _prepare_image(image)
     color_thief = ColorThief(image)
     return color_thief.get_color(quality=quality)
@@ -52,7 +55,7 @@ def show_palette(palette: tuple[tuple[int, int, int]]) -> None:
     plt.show()
 
 
-def get_palette_ints(image: PathLike | BufferedReader, *, colors: int = 5) -> tuple[int, ...]:
+def get_palette_ints(image: ImageSource, *, colors: int = 5) -> tuple[int, ...]:
     return tuple(rgb2int(rgb) for rgb in get_palette(image, colors=colors))
 
 

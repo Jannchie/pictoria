@@ -1,28 +1,40 @@
 """VectorRepo — async Repository over post_vectors (CLIP image embeddings).
 
-All similarity searches go through DuckDB's HNSW index on
-``post_vectors.embedding`` (cosine metric). The HNSW index activates
-automatically once the index exists and the query uses
-``array_cosine_distance(emb, CAST(? AS FLOAT[768]))`` in ORDER BY.
+``post_vectors`` is a sqlite-vec ``vec0`` virtual table; KNN queries use
+the ``MATCH`` operator with a ``k = N`` constraint, which sqlite-vec
+recognises and routes through its native nearest-neighbour search.
+
+Vector serialization goes through ``sqlite_vec.serialize_float32`` (a
+little-endian float32 BLOB); reads go through the inverse decoder below.
 """
 
 from __future__ import annotations
 
 import asyncio
+import struct
 from typing import TYPE_CHECKING
+
+import sqlite_vec
 
 from db import SimilarImageResult
 from db.helpers import fetch_all_dicts
 
 if TYPE_CHECKING:
-    import duckdb
+    import sqlite3
+
     import numpy as np
 
 EMBED_DIM = 768
 
 
+def _decode_vec_blob(value: bytes | bytearray | memoryview) -> list[float]:
+    raw = bytes(value)
+    n = len(raw) // 4
+    return list(struct.unpack(f"{n}f", raw))
+
+
 class VectorRepo:
-    def __init__(self, cur: duckdb.DuckDBPyConnection) -> None:
+    def __init__(self, cur: sqlite3.Cursor) -> None:
         self.cur = cur
 
     async def get(self, post_id: int) -> list[float] | None:
@@ -32,34 +44,31 @@ class VectorRepo:
                 [post_id],
             )
             row = self.cur.fetchone()
-            return list(row[0]) if row else None
+            if not row:
+                return None
+            return _decode_vec_blob(row[0])
 
         return await asyncio.to_thread(_impl)
 
     async def upsert(self, post_id: int, embedding: np.ndarray | list[float]) -> None:
-        """Insert an embedding for ``post_id`` if one isn't already stored.
+        """Insert or replace an embedding for ``post_id``.
 
-        DuckDB VSS HNSW indexes corrupt themselves when an indexed column is
-        updated via ``ON CONFLICT DO UPDATE`` — the rowid stays in the HNSW
-        structure after the implicit delete, so the subsequent insert trips
-        ``Failed to add to the HNSW index: Duplicate keys not allowed`` and
-        the connection becomes invalidated for the rest of the process. To
-        side-step that, we treat upsert as insert-if-missing. Callers that
-        legitimately need to *replace* an embedding (e.g. after rotating an
-        image) must ``await delete(post_id)`` first.
+        Unlike the DuckDB era (where HNSW tolerated neither DELETE nor UPDATE
+        on the indexed column without index corruption), sqlite-vec's vec0
+        handles INSERT-OR-REPLACE cleanly via DELETE + INSERT under the hood.
         """
         emb = embedding.tolist() if hasattr(embedding, "tolist") else list(embedding)
+        blob = sqlite_vec.serialize_float32(emb)
 
         def _impl() -> None:
+            # vec0 doesn't support ON CONFLICT, so emulate UPSERT manually.
             self.cur.execute(
-                "SELECT 1 FROM post_vectors WHERE post_id = ?",
+                "DELETE FROM post_vectors WHERE post_id = ?",
                 [post_id],
             )
-            if self.cur.fetchone() is not None:
-                return
             self.cur.execute(
                 "INSERT INTO post_vectors(post_id, embedding) VALUES (?, ?)",
-                [post_id, emb],
+                [post_id, blob],
             )
 
         await asyncio.to_thread(_impl)
@@ -82,18 +91,18 @@ class VectorRepo:
     ) -> list[SimilarImageResult]:
         """Top-N similar posts ordered by cosine distance ascending."""
         emb = embedding.tolist() if hasattr(embedding, "tolist") else list(embedding)
+        blob = sqlite_vec.serialize_float32(emb)
         fetch_limit = limit + (1 if skip_self else 0)
 
         def _impl() -> list[SimilarImageResult]:
             self.cur.execute(
-                f"""
-                SELECT post_id,
-                       array_cosine_distance(embedding, CAST(? AS FLOAT[{EMBED_DIM}])) AS distance
+                """
+                SELECT post_id, distance
                 FROM post_vectors
+                WHERE embedding MATCH ? AND k = ?
                 ORDER BY distance
-                LIMIT ?
-                """,  # noqa: S608
-                [emb, fetch_limit],
+                """,
+                [blob, fetch_limit],
             )
             rows = fetch_all_dicts(self.cur)
             if skip_self and rows:
@@ -102,16 +111,34 @@ class VectorRepo:
 
         return await asyncio.to_thread(_impl)
 
-    async def list_missing_post_ids(self) -> list[int]:
-        """Return post ids that don't yet have an embedding."""
+    async def list_missing_post_ids(self, *, image_exts: list[str] | None = None) -> list[int]:
+        """Return post ids that don't yet have an embedding.
+
+        ``image_exts`` (without leading dot, e.g. ``['jpg','png',...]``)
+        narrows the pending set to image rows — non-image posts would just
+        be filtered out one-by-one in the worker, but would still inflate
+        the progress total. Passing the list lets the DB do that filter.
+        """
 
         def _impl() -> list[int]:
-            self.cur.execute(
-                "SELECT p.id FROM posts p "
-                "LEFT JOIN post_vectors pv ON pv.post_id = p.id "
-                "WHERE pv.post_id IS NULL "
-                "ORDER BY p.id",
-            )
+            if image_exts:
+                # The `?` placeholder count is derived from len(image_exts);
+                # ext strings flow through cur.execute params, never into SQL.
+                placeholders = ",".join("?" * len(image_exts))
+                ext_clause = f"AND LOWER(p.extension) IN ({placeholders})"
+                self.cur.execute(
+                    "SELECT p.id FROM posts p "  # noqa: S608
+                    "LEFT JOIN post_vectors pv ON pv.post_id = p.id "
+                    "WHERE pv.post_id IS NULL " + ext_clause + " ORDER BY p.id",
+                    image_exts,
+                )
+            else:
+                self.cur.execute(
+                    "SELECT p.id FROM posts p "
+                    "LEFT JOIN post_vectors pv ON pv.post_id = p.id "
+                    "WHERE pv.post_id IS NULL "
+                    "ORDER BY p.id",
+                )
             return [r[0] for r in self.cur.fetchall()]
 
         return await asyncio.to_thread(_impl)

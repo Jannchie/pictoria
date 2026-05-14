@@ -1,0 +1,8 @@
+/* Companion styles for the v-highlight directive.
+   The directive injects <span class="highlight"> via document.createElement,
+   so these spans never receive Vue's scoped data-v attribute — the class
+   must be defined globally. Imported from main.ts. */
+.highlight {
+  color: var(--p-primary);
+  font-weight: bolder;
+}

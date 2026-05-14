@@ -288,7 +288,7 @@ class PostController(Controller):
             image.save(post.absolute_path)
             create_thumbnail_by_image(image, post.thumbnail_path)
             sha = calculate_sha256(image.tobytes())
-            th = calculate_thumbhash(post.absolute_path)
+            th = calculate_thumbhash(image)
             return sha, image.size[0], image.size[1], th
 
         sha, w, h, th = await asyncio.to_thread(_rotate_and_describe)

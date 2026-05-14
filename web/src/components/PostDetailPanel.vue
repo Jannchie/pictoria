@@ -111,6 +111,8 @@ function sortByGroup(a: PostHasTagPublic, b: PostHasTagPublic) {
 const tagSorted = computed(() => {
   return post.value.tags?.toSorted(sortByGroup) ?? []
 })
+const manualTags = computed(() => tagSorted.value.filter(t => !t.isAuto))
+const autoTags = computed(() => tagSorted.value.filter(t => t.isAuto))
 function onCopyTags() {
   const tags = tagSorted.value.map(tag => tag.tagInfo.name).join(', ')
   if (tags) {
@@ -127,7 +129,7 @@ async function calculateWaifuScore() {
 
   isCalculatingWaifuScore.value = true
   try {
-    await v2GetWaifuScorer({
+    await v2GetWaifuScorerOne({
       path: {
         post_id: post.value.id,
       },
@@ -312,11 +314,11 @@ async function calculateWaifuScore() {
         </PButton>
       </div>
       <div
-        v-if="post.tags && post.tags.length > 0"
+        v-if="manualTags.length > 0"
         class="flex flex-wrap gap-2"
       >
         <PostTag
-          v-for="tag of tagSorted"
+          v-for="tag of manualTags"
           :key="tag.tagInfo.name"
           class="cursor-pointer rounded bg-surface-2 px-1 py-0.5"
           rounded="lg"
@@ -337,23 +339,46 @@ async function calculateWaifuScore() {
       </div>
       <div
         v-else
-        class="h-14 flex flex-col items-center justify-center text-fg-muted"
+        class="flex flex-col gap-2 py-2 text-fg-muted"
       >
-        <div class="flex flex-col items-center op50">
+        <div class="flex flex-col items-center gap-1 op50">
           <i class="i-tabler-bookmark-off" />
-          <div>
+          <div class="text-xs">
             No Tag
           </div>
         </div>
         <PButton
           size="sm"
           block
-          class="my-2"
           @pointerup="openTagSelectorWindow()"
         >
           <i class="i-tabler-bookmark-plus" />
           Add Tag
         </PButton>
+      </div>
+    </div>
+    <div
+      v-if="autoTags.length > 0"
+      class="flex flex-col gap-1"
+    >
+      <div
+        class="flex items-center gap-2 py-2 text-fg font-black"
+      >
+        <i class="i-tabler-sparkles text-fg-muted" />
+        <span>Auto Tags</span>
+      </div>
+      <div class="flex flex-wrap gap-2">
+        <PostTag
+          v-for="tag of autoTags"
+          :key="tag.tagInfo.name"
+          class="cursor-pointer rounded bg-surface-2 px-1 py-0.5"
+          rounded="lg"
+          :data="tag"
+          :color="tag.tagInfo.group?.color"
+          @pointerup="openTagSelectorWindow()"
+        >
+          {{ tag.tagInfo.name }}
+        </PostTag>
       </div>
     </div>
     <div>

@@ -9,11 +9,11 @@ from db.entities import Tag, TagGroup
 from db.helpers import fetch_all_as, fetch_all_dicts, fetch_one_as
 
 if TYPE_CHECKING:
-    import duckdb
+    import sqlite3
 
 
 class TagRepo:
-    def __init__(self, cur: duckdb.DuckDBPyConnection) -> None:
+    def __init__(self, cur: sqlite3.Cursor) -> None:
         self.cur = cur
 
     async def get(self, name: str) -> Tag | None:
@@ -72,7 +72,7 @@ class TagRepo:
         def _impl() -> Tag:
             self.cur.execute(
                 "INSERT INTO tags(name, group_id) VALUES(?, ?) "
-                "ON CONFLICT (name) DO NOTHING",
+                "ON CONFLICT(name) DO NOTHING",
                 [name, group_id],
             )
             self.cur.execute(
@@ -90,7 +90,7 @@ class TagRepo:
     async def update_group(self, name: str, group_id: int | None) -> Tag | None:
         def _impl() -> Tag | None:
             self.cur.execute(
-                "UPDATE tags SET group_id = ?, updated_at = now() WHERE name = ?",
+                "UPDATE tags SET group_id = ?, updated_at = CURRENT_TIMESTAMP WHERE name = ?",
                 [group_id, name],
             )
             self.cur.execute(
@@ -103,7 +103,8 @@ class TagRepo:
 
     async def delete(self, name: str) -> None:
         def _impl() -> None:
-            self.cur.execute("DELETE FROM post_has_tag WHERE tag_name = ?", [name])
+            # post_has_tag.tag_name has ON DELETE CASCADE FK on tags.name,
+            # so deleting the tag row cascades the join rows.
             self.cur.execute("DELETE FROM tags WHERE name = ?", [name])
 
         await asyncio.to_thread(_impl)
@@ -114,14 +115,13 @@ class TagRepo:
 
         def _impl() -> None:
             ph = ",".join("?" * len(names))
-            self.cur.execute(f"DELETE FROM post_has_tag WHERE tag_name IN ({ph})", names)  # noqa: S608
             self.cur.execute(f"DELETE FROM tags WHERE name IN ({ph})", names)  # noqa: S608
 
         await asyncio.to_thread(_impl)
 
 
 class TagGroupRepo:
-    def __init__(self, cur: duckdb.DuckDBPyConnection) -> None:
+    def __init__(self, cur: sqlite3.Cursor) -> None:
         self.cur = cur
 
     async def get(self, group_id: int) -> TagGroup | None:
@@ -160,7 +160,7 @@ class TagGroupRepo:
         def _impl() -> TagGroup:
             self.cur.execute(
                 "INSERT INTO tag_groups(name, color) VALUES (?, ?) "
-                "ON CONFLICT DO NOTHING",
+                "ON CONFLICT(name) DO NOTHING",
                 [name, color],
             )
             self.cur.execute(

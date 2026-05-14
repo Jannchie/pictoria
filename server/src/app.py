@@ -51,121 +51,156 @@ async def my_lifespan(app: Litestar):
     initialize(target_dir=args.target_dir)
 
     db_path_env = os.environ.get("DB_PATH")
-    db_path = pathlib.Path(db_path_env) if db_path_env else (shared.pictoria_dir / "pictoria.duckdb")
-    memory_limit = os.environ.get("DUCKDB_MEMORY_LIMIT", "4GB")
-    threads = int(os.environ.get("DUCKDB_THREADS", "4"))
+    db_path = pathlib.Path(db_path_env) if db_path_env else (shared.pictoria_dir / "pictoria.sqlite")
 
-    logger.info(f"Opening DuckDB at {db_path}")
-    db = DB(db_path, memory_limit=memory_limit, threads=threads)
-    run_migrations(db.cursor(), MIGRATIONS_DIR)
-    if os.environ.get("REBUILD_HNSW") == "1":
-        _rebuild_hnsw_indexes(db)
+    logger.info(f"Opening SQLite at {db_path}")
+    db = DB(db_path)
     app.state.db = db
-
-    # One-shot upsert of the five canonical tag groups; cache the resulting
-    # name -> id map so every /download-from-danbooru request can skip the
-    # five INSERT-then-SELECT round-trips it would otherwise repeat.
-    setup_cur = db.cursor()
-    try:
-        app.state.canonical_tag_groups = ensure_canonical_tag_groups_sync(setup_cur)
-    finally:
-        setup_cur.close()
-
-    # Single long-lived DanbooruClient so httpx keeps the TCP/TLS connection
-    # to danbooru.donmai.us alive across tag downloads.
-    app.state.danbooru_client = DanbooruClient(
-        os.environ.get("DANBOORU_API_KEY", ""),
-        os.environ.get("DANBOORU_USER_NAME", ""),
-    )
-
-    # Backfill metadata + waifu scores for posts added (or partially processed)
-    # while the server was offline. Pre-DuckDB-migration `main.py` did this in
-    # its lifespan via `await sync_metadata()`; the migration in 983d71a
-    # dropped that line. Run as fire-and-forget tasks so a large initial scan
-    # doesn't block the server from accepting requests.
     app.state.background_tasks = set()
-    _spawn_startup_backfill(app, db)
+    # Serialises sync_metadata() so the startup backfill and any manual
+    # /v2/cmd/sync-metadata trigger can't race each other on the same pending
+    # ids — they would all eventually converge via UPSERT/COALESCE, but the
+    # GPU workers would burn cycles re-encoding the same images.
+    app.state.backfill_lock = asyncio.Lock()
 
-    host = "localhost"
-    port = 4777
-    doc_url = f"http://{host}:{port}/schema"
-    logger.info(f"API Document: {doc_url}")
     try:
+        run_migrations(db.cursor(), MIGRATIONS_DIR)
+
+        # One-shot upsert of the five canonical tag groups; cache the resulting
+        # name -> id map so every /download-from-danbooru request can skip the
+        # five INSERT-then-SELECT round-trips it would otherwise repeat. Also
+        # populate ``shared.canonical_tag_groups`` so the backfill workers
+        # (which don't see ``app.state``) can read the same cache.
+        setup_cur = db.cursor()
+        try:
+            app.state.canonical_tag_groups = ensure_canonical_tag_groups_sync(setup_cur)
+            shared.canonical_tag_groups = app.state.canonical_tag_groups
+        finally:
+            setup_cur.close()
+
+        # Single long-lived DanbooruClient so httpx keeps the TCP/TLS connection
+        # to danbooru.donmai.us alive across tag downloads.
+        app.state.danbooru_client = DanbooruClient(
+            os.environ.get("DANBOORU_API_KEY", ""),
+            os.environ.get("DANBOORU_USER_NAME", ""),
+        )
+
+        # Continuously reconcile disk vs DB and run every backfill worker
+        # (basics / embedding / tagger / waifu). The first iteration handles
+        # files added while the server was offline; subsequent iterations
+        # pick up files dropped into target_dir at runtime (e.g. by the
+        # /v2/cmd/download-from-danbooru flow, which currently doesn't
+        # invoke process_post on its writes). Fire-and-forget so a large
+        # initial scan doesn't block the server from accepting requests.
+        _spawn_backfill_poller(app, db)
+
+        host = "localhost"
+        port = 4777
+        doc_url = f"http://{host}:{port}/schema"
+        logger.info(f"API Document: {doc_url}")
         yield
     finally:
-        for task in list(app.state.background_tasks):
-            task.cancel()
-        app.state.danbooru_client.client.close()
-        db.close()
+        await _graceful_shutdown(app, db)
 
 
-# Each entry: (index_name, table, column, metric). Mirrors migrations/0001_initial.sql.
-_HNSW_INDEXES: tuple[tuple[str, str, str, str], ...] = (
-    ("hnsw_post_vectors_embedding", "post_vectors", "embedding", "cosine"),
-    ("hnsw_posts_dominant_color", "posts", "dominant_color", "l2sq"),
-)
+# How long to let in-flight backfill batches finish before we force-cancel
+# their asyncio tasks. The slowest single batch we have is "basics" at 32
+# images (PIL decode + sha256 + thumbhash); under load that can be ~10 s on
+# a cold cache. 30 s gives a comfortable margin without making Ctrl+C feel
+# unresponsive.
+_BACKFILL_DRAIN_TIMEOUT_S = 30.0
+
+# How often the poller re-runs sync_metadata when no sync is currently in
+# flight. The dominant cost of an empty pass is one find_files_in_directory
+# walk + four cheap "WHERE … IS NULL" pending queries — both fast enough
+# (~seconds) on a 100k-file library that polling every minute is cheap. If
+# a sync is still running when the tick fires, this iteration is skipped
+# rather than queued, so a long initial scan doesn't pile up backlog.
+_BACKFILL_POLL_INTERVAL_S = 60.0
 
 
-def _rebuild_hnsw_indexes(db: DB) -> None:
-    """DROP + CREATE the VSS HNSW indexes from underlying table data.
+async def _graceful_shutdown(app: Litestar, db: DB) -> None:
+    """Tear down the app in a deterministic order.
 
-    DuckDB VSS HNSW does not gracefully tolerate DELETE/UPDATE on the
-    indexed column — failed inserts can corrupt the on-disk index with
-    ghost entries that then fatally invalidate the connection on any
-    subsequent write ("Failed to add to the HNSW index: Duplicate keys
-    not allowed"). Rebuilding from the underlying table data is the only
-    reliable way to clean those ghost entries.
-
-    Gated behind ``REBUILD_HNSW=1`` because the rebuild scans the full
-    vector tables — fast for small libraries, but wasteful on every
-    startup once writes have been hardened. Set the env var, restart
-    once to repair, then unset.
+    Order matters: we ask workers to stop first (so they exit at a batch
+    boundary), then we wait for them to actually finish, then we close the
+    httpx client, and only *then* close DB connections. Closing DB first
+    would race the workers' in-flight writes.
     """
-    cur = db.cursor()
-    try:
-        for name, table, column, metric in _HNSW_INDEXES:
-            logger.info(f"Rebuilding HNSW index {name}")
-            cur.execute(f"DROP INDEX IF EXISTS {name}")
-            cur.execute(
-                f"CREATE INDEX {name} ON {table} USING HNSW({column}) "
-                f"WITH (metric = '{metric}')",
-            )
-    finally:
-        cur.close()
+    logger.info("Shutdown: signaling backfill workers to stop at next batch boundary")
+    shared.shutdown_event.set()
+
+    tasks = list(getattr(app.state, "background_tasks", ()))
+    if tasks:
+        logger.info(f"Shutdown: draining {len(tasks)} background task(s) (timeout {_BACKFILL_DRAIN_TIMEOUT_S:.0f}s)")
+        done, pending = await asyncio.wait(tasks, timeout=_BACKFILL_DRAIN_TIMEOUT_S)
+        if pending:
+            logger.warning(f"Shutdown: {len(pending)} task(s) did not finish in time; cancelling")
+            for task in pending:
+                task.cancel()
+            # Wait briefly for cancellation to propagate. The underlying
+            # ``asyncio.to_thread`` threads may keep running, but at this
+            # point we've given up on letting them finish cleanly.
+            await asyncio.gather(*pending, return_exceptions=True)
+        # Drain done tasks too so their exceptions get logged rather than
+        # turning into "Task exception was never retrieved" warnings.
+        for task in done:
+            if not task.cancelled() and task.exception() is not None:
+                logger.error("Background task crashed during shutdown", exc_info=task.exception())
+
+    danbooru_client = getattr(app.state, "danbooru_client", None)
+    if danbooru_client is not None:
+        with contextlib.suppress(Exception):
+            danbooru_client.client.close()
+
+    with contextlib.suppress(Exception):
+        db.close()
+    logger.info("Shutdown: complete")
 
 
-def _spawn_startup_backfill(app: Litestar, db: DB) -> None:
-    """Kick off background metadata + waifu-score backfill on startup."""
+def _spawn_backfill_poller(app: Litestar, db: DB) -> None:
+    """Kick off the startup backfill and, separately, a periodic poller.
 
-    async def _run_metadata_sync() -> None:
+    These are deliberately two distinct tasks rather than one ``while True``:
+    the startup task matches the original "run sync_metadata once on boot"
+    behaviour exactly, so its scheduling vs. lifespan-yield ordering is
+    unchanged. The poller is a separate task whose first action is
+    ``asyncio.sleep`` — that puts its first DB/GPU work strictly after
+    lifespan startup completes and the HTTP port opens, so a slow first
+    poll can never block the server from coming up.
+    """
+
+    async def _run_sync_once(label: str) -> None:
         from processors import sync_metadata  # noqa: PLC0415  # lazy: defer ML stack load
 
-        cur_p, cur_v, cur_tg = db.cursor(), db.cursor(), db.cursor()
-        try:
-            await sync_metadata(PostRepo(cur_p), VectorRepo(cur_v), TagGroupRepo(cur_tg))
-        except Exception:
-            logger.exception("Startup metadata backfill failed")
-        finally:
-            for c in (cur_p, cur_v, cur_tg):
-                with contextlib.suppress(Exception):
-                    c.close()
+        async with app.state.backfill_lock:
+            try:
+                await sync_metadata(db)
+            except Exception:
+                logger.exception(f"{label} metadata sync failed")
 
-    async def _run_waifu_score_backfill() -> None:
-        from services.waifu import waifu_score_all_posts  # noqa: PLC0415  # lazy: defer ML stack load
+    async def _poll_loop() -> None:
+        # Sleep BEFORE the first poll so this task doesn't compete with the
+        # startup task or with Litestar/uvicorn finishing lifespan startup.
+        while not shared.shutdown_event.is_set():
+            try:
+                await asyncio.sleep(_BACKFILL_POLL_INTERVAL_S)
+            except asyncio.CancelledError:
+                break
+            if shared.shutdown_event.is_set() or app.state.backfill_lock.locked():
+                # Either we're shutting down, or the previous iteration is
+                # still running (or a manual /v2/cmd/sync-metadata is in
+                # flight). Skip this tick — don't queue work behind it.
+                continue
+            await _run_sync_once("Periodic")
 
-        cur = db.cursor()
-        try:
-            await waifu_score_all_posts(PostRepo(cur))
-        except Exception:
-            logger.exception("Startup waifu-score backfill failed")
-        finally:
-            with contextlib.suppress(Exception):
-                cur.close()
+    startup_task = asyncio.create_task(_run_sync_once("Startup"))
+    app.state.background_tasks.add(startup_task)
+    startup_task.add_done_callback(app.state.background_tasks.discard)
 
-    for coro in (_run_metadata_sync(), _run_waifu_score_backfill()):
-        task = asyncio.create_task(coro)
-        app.state.background_tasks.add(task)
-        task.add_done_callback(app.state.background_tasks.discard)
+    poll_task = asyncio.create_task(_poll_loop())
+    app.state.background_tasks.add(poll_task)
+    poll_task.add_done_callback(app.state.background_tasks.discard)
 
 
 async def provide_post_repo(state: State) -> AsyncGenerator[PostRepo, None]:
@@ -258,4 +293,17 @@ app = Litestar(
 if __name__ == "__main__":
     import uvicorn
 
-    uvicorn.run("app:app", host="0.0.0.0", port=4777, reload=True, reload_dirs=["src"], reload_excludes=[".venv"], log_config=None)  # noqa: S104
+    uvicorn.run(
+        "app:app",
+        host="0.0.0.0",  # noqa: S104
+        port=4777,
+        reload=True,
+        reload_dirs=["src"],
+        reload_excludes=[".venv"],
+        log_config=None,
+        # On SIGINT/SIGTERM, stop accepting new connections and give in-flight
+        # HTTP requests up to this many seconds to complete before forcing the
+        # lifespan shutdown. The lifespan finalizer separately drains backfill
+        # workers (see ``_graceful_shutdown``).
+        timeout_graceful_shutdown=20,
+    )

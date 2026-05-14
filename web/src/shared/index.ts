@@ -171,7 +171,12 @@ export function useInfinityPostsQuery() {
       })
       return resp.data
     },
-    enabled: computed(() => !!route.params.folder),
+    enabled: computed(() =>
+      route.name === 'all'
+      || route.name === 'dir'
+      || route.path === '/'
+      || route.path === '/random',
+    ),
     initialPageParam: 0,
     staleTime: 1000 * 60 * 60,
     getNextPageParam: (lastPage, allPages) => {

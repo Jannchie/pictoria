@@ -357,14 +357,7 @@ const searchingInitCurrentTags = computed(() => {
   </div>
 </template>
 
-<style>
-.highlight{
-  color: var(--p-primary);
-  font-weight: bolder;
-}
-</style>
-
-<style>
+<style scoped>
 kbd {
   background-color: var(--p-bg);
   color: var(--p-fg);

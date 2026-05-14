@@ -1,7 +1,9 @@
 """Cursor → Pydantic conversion helpers.
 
-DuckDB cursors expose ``description`` (column metadata) after ``execute()``,
+sqlite3 cursors expose ``description`` (column metadata) after ``execute()``,
 which lets us zip rows into dicts and validate them into entity models.
+``Connection.row_factory = sqlite3.Row`` is set on every connection so plain
+``cur.fetchone()`` indexing also works by both position and name.
 """
 
 from __future__ import annotations
@@ -11,21 +13,20 @@ from typing import TYPE_CHECKING, TypeVar
 from pydantic import BaseModel
 
 if TYPE_CHECKING:
+    import sqlite3
     from collections.abc import Iterable
-
-    import duckdb
 
 T = TypeVar("T", bound=BaseModel)
 
 
-def _column_names(cur: duckdb.DuckDBPyConnection) -> list[str]:
+def _column_names(cur: sqlite3.Cursor) -> list[str]:
     desc = cur.description
     if desc is None:
         return []
     return [d[0] for d in desc]
 
 
-def fetch_one_as(cur: duckdb.DuckDBPyConnection, model_cls: type[T]) -> T | None:
+def fetch_one_as(cur: sqlite3.Cursor, model_cls: type[T]) -> T | None:
     row = cur.fetchone()
     if row is None:
         return None
@@ -33,7 +34,7 @@ def fetch_one_as(cur: duckdb.DuckDBPyConnection, model_cls: type[T]) -> T | None
     return model_cls.model_validate(dict(zip(cols, row, strict=False)))
 
 
-def fetch_all_as(cur: duckdb.DuckDBPyConnection, model_cls: type[T]) -> list[T]:
+def fetch_all_as(cur: sqlite3.Cursor, model_cls: type[T]) -> list[T]:
     rows = cur.fetchall()
     if not rows:
         return []
@@ -41,7 +42,7 @@ def fetch_all_as(cur: duckdb.DuckDBPyConnection, model_cls: type[T]) -> list[T]:
     return [model_cls.model_validate(dict(zip(cols, row, strict=False))) for row in rows]
 
 
-def fetch_all_dicts(cur: duckdb.DuckDBPyConnection) -> list[dict]:
+def fetch_all_dicts(cur: sqlite3.Cursor) -> list[dict]:
     rows = cur.fetchall()
     if not rows:
         return []
@@ -49,7 +50,7 @@ def fetch_all_dicts(cur: duckdb.DuckDBPyConnection) -> list[dict]:
     return [dict(zip(cols, row, strict=False)) for row in rows]
 
 
-def fetch_one_dict(cur: duckdb.DuckDBPyConnection) -> dict | None:
+def fetch_one_dict(cur: sqlite3.Cursor) -> dict | None:
     row = cur.fetchone()
     if row is None:
         return None

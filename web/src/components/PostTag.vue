@@ -22,9 +22,12 @@ const colorStyle = computed(() => {
   if (!tagColor) {
     return
   }
+  // Foreground mixes the tag color with the theme foreground so dark tag
+  // colors stay readable in dark mode and bright ones stay readable in light.
   return {
-    backgroundColor: `color-mix(in srgb, ${tagColor} 22%, transparent)`,
-    color: tagColor,
+    backgroundColor: `color-mix(in oklab, ${tagColor} 24%, transparent)`,
+    color: `color-mix(in oklab, ${tagColor} 55%, var(--p-fg) 45%)`,
+    borderColor: `color-mix(in oklab, ${tagColor} 32%, transparent)`,
   }
 })
 

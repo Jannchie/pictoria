@@ -1,12 +1,12 @@
 import asyncio
 import contextlib
+import sqlite3
 import tempfile
 from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
 from typing import ClassVar
 
-import duckdb
 import litestar
 from litestar import Controller
 from litestar.datastructures import State
@@ -14,6 +14,7 @@ from litestar.exceptions import HTTPException, NotFoundException
 
 import shared
 from danbooru import DanbooruClient, DanbooruPost
+from db import DB
 from db.entities import TagGroup
 from db.helpers import fetch_one_as
 from db.repositories.posts import PostRepo
@@ -190,7 +191,6 @@ class CommandController(Controller):
     async def download_from_danbooru(
         self,
         state: State,
-        posts: PostRepo,
         tags: str,
     ) -> DanbooruDownloadStats:
         """Download posts from Danbooru and persist them.
@@ -207,6 +207,7 @@ class CommandController(Controller):
         """
         client: DanbooruClient = state.danbooru_client
         type_to_group_id: dict[str, int] = state.canonical_tag_groups
+        db: DB = state.db
 
         danbooru_dir = shared.target_dir / "danbooru"
         save_dir = danbooru_dir / _safe_dir_name(tags)
@@ -223,11 +224,19 @@ class CommandController(Controller):
         file_path_str = save_dir.relative_to(shared.target_dir).as_posix()
 
         def _existing_post_names() -> set[str]:
-            posts.cur.execute(
-                "SELECT file_name FROM posts WHERE file_path = ?",
-                [file_path_str],
-            )
-            return {row[0] for row in posts.cur.fetchall()}
+            # Worker-thread-local cursor: ``db.cursor()`` returns a cursor on
+            # *this* thread's connection. The event-loop-thread connection is
+            # shared by every concurrent request, so doing BEGIN/COMMIT on it
+            # makes concurrent imports trample each other's transactions.
+            cur = db.cursor()
+            try:
+                cur.execute(
+                    "SELECT file_name FROM posts WHERE file_path = ?",
+                    [file_path_str],
+                )
+                return {row[0] for row in cur.fetchall()}
+            finally:
+                cur.close()
 
         existing_names = await asyncio.to_thread(_existing_post_names)
         to_persist = [p for p in filtered if str(p.id) not in existing_names]
@@ -238,7 +247,7 @@ class CommandController(Controller):
 
         await asyncio.to_thread(
             _persist_danbooru_batch,
-            posts,
+            db,
             file_path_str,
             to_persist,
             precomputed_tag_maps,
@@ -263,34 +272,52 @@ class CommandController(Controller):
             failed=dl_stats.get("failed", 0),
         )
 
-    @litestar.post("/db/snapshot", description="Create a point-in-time DuckDB snapshot for offline tooling")
+    @litestar.post("/sync-metadata", description="Rescan target_dir and run every backfill worker")
+    async def sync_metadata_endpoint(self, state: State) -> Result:
+        """Trigger the same disk-scan + all-workers pipeline that runs at startup.
+
+        Fire-and-forget: returns immediately so the HTTP client doesn't sit
+        waiting on a multi-minute scan. The ``backfill_lock`` makes a second
+        call a no-op while the first is still running, so spam-clicking this
+        endpoint (or hitting it while the startup backfill is mid-flight)
+        won't kick off duplicate GPU work.
+        """
+        lock: asyncio.Lock = state.backfill_lock
+        if lock.locked():
+            return Result(msg="Sync already running")
+
+        async def _run() -> None:
+            from processors import sync_metadata  # noqa: PLC0415  # lazy: defer ML stack load
+
+            async with lock:
+                try:
+                    await sync_metadata(state.db)
+                except Exception:
+                    logger.exception("Manual metadata sync failed")
+
+        task = asyncio.create_task(_run())
+        state.background_tasks.add(task)
+        task.add_done_callback(state.background_tasks.discard)
+        return Result(msg="Sync started")
+
+    @litestar.post("/db/snapshot", description="Create a point-in-time SQLite snapshot for offline tooling")
     async def db_snapshot(self, state: State) -> SnapshotResult:
         """Snapshot the live DB to a tempfile so external readers can open it.
 
-        DuckDB locks the live file exclusively (especially on Windows), so
-        external processes can't even open it read-only while the server is
-        running. Here we use ATTACH + COPY FROM DATABASE inside the server's
-        own connection — the result is a self-contained DB file the caller
-        can open, query, and then delete (along with its parent dir).
+        SQLite supports ``VACUUM INTO`` which produces a self-contained,
+        consistent copy of the live database into a new file — works while
+        writers are active (it transparently uses a read transaction).
+        Caller can open, query, and then delete the snapshot dir.
         """
         tmp_dir = Path(tempfile.mkdtemp(prefix="pictoria-snapshot-"))
-        snap_path = tmp_dir / "snapshot.duckdb"
+        snap_path = tmp_dir / "snapshot.sqlite"
 
         def _run() -> None:
             cur = state.db.cursor()
             try:
-                # FORCE CHECKPOINT waits for concurrent write transactions
-                # (e.g. the startup metadata-sync backfill) to commit before
-                # flushing WAL — plain CHECKPOINT errors out instead.
-                cur.execute("FORCE CHECKPOINT")
-                cur.execute("SELECT current_database()")
-                source = cur.fetchone()[0]
-                # snap_path is server-controlled (tempfile); source comes from DuckDB itself.
-                cur.execute(f"ATTACH '{snap_path.as_posix()}' AS pictoria_snap")
-                try:
-                    cur.execute(f'COPY FROM DATABASE "{source}" TO pictoria_snap')
-                finally:
-                    cur.execute("DETACH pictoria_snap")
+                # snap_path is server-controlled (tempfile); single-quote-safe
+                # because mkdtemp returns a path with no quotes.
+                cur.execute(f"VACUUM INTO '{snap_path.as_posix()}'")
             finally:
                 cur.close()
 
@@ -300,12 +327,20 @@ class CommandController(Controller):
 
 
 def _persist_danbooru_batch(
-    posts: PostRepo,
+    db: DB,
     file_path_str: str,
     to_persist: list[DanbooruPost],
     precomputed_tag_maps: list[dict[str, int]],
 ) -> None:
     """Persist a batch of Danbooru posts + their tags in two transactions.
+
+    Called from ``asyncio.to_thread`` — ``db.cursor()`` therefore returns a
+    cursor on *this worker thread's* SQLite connection, not the event-loop
+    thread's. That isolation matters: transactions in sqlite3 are
+    connection-scoped, so if all concurrent requests shared one connection,
+    one worker's ``_safe_rollback`` could (and did) rip a sibling worker's
+    in-flight BEGIN out from under it — the ``cannot commit - no transaction
+    is active`` failure mode.
 
     Split rationale: when concurrent /download-from-danbooru requests all
     insert overlapping tags, the commit-time uniqueness check on `tags(name)`
@@ -319,42 +354,53 @@ def _persist_danbooru_batch(
     """
     if not to_persist:
         return
-    cur = posts.cur
+    cur = db.cursor()
+    try:
+        # Phase A: globally-deduped tag upsert in its own short transaction.
+        all_tags: dict[str, int] = {}
+        for tag_map in precomputed_tag_maps:
+            for name, gid in tag_map.items():
+                all_tags.setdefault(name, gid)
+        if all_tags:
+            _run_with_retry(cur, "tags", lambda: _insert_tags_tx(cur, all_tags))
 
-    # Phase A: globally-deduped tag upsert in its own short transaction.
-    all_tags: dict[str, int] = {}
-    for tag_map in precomputed_tag_maps:
-        for name, gid in tag_map.items():
-            all_tags.setdefault(name, gid)
-    if all_tags:
-        _run_with_retry(cur, "tags", lambda: _insert_tags_tx(cur, all_tags))
-
-    # Phase B: posts + post_has_tag in their own transaction. The tags they
-    # reference are now committed by phase A, so concurrent writers can't
-    # make this transaction wait on them.
-    _run_with_retry(
-        cur,
-        "posts",
-        lambda: _insert_posts_and_links_tx(cur, file_path_str, to_persist, precomputed_tag_maps),
-    )
+        # Phase B: posts + post_has_tag in their own transaction. The tags they
+        # reference are now committed by phase A, so concurrent writers can't
+        # make this transaction wait on them.
+        _run_with_retry(
+            cur,
+            "posts",
+            lambda: _insert_posts_and_links_tx(cur, file_path_str, to_persist, precomputed_tag_maps),
+        )
+    finally:
+        cur.close()
 
 
 def _run_with_retry(
-    cur: duckdb.DuckDBPyConnection,
+    cur: sqlite3.Cursor,
     label: str,
     fn: Callable[[], None],
     *,
     max_attempts: int = 5,
 ) -> None:
+    """Retry on SQLite ``database is locked`` while another writer holds it.
+
+    With WAL mode and a single backend process the writer lock is short-lived,
+    but the startup backfill task can collide with download_from_danbooru
+    requests; retry a few times before giving up.
+    """
     for attempt in range(1, max_attempts + 1):
         try:
             fn()
-        except duckdb.TransactionException as exc:
+        except sqlite3.OperationalError as exc:
             _safe_rollback(cur)
+            msg = str(exc).lower()
+            if "locked" not in msg and "busy" not in msg:
+                raise
             if attempt == max_attempts:
                 raise
             logger.warning(
-                f"Danbooru {label} commit conflict (attempt {attempt}/{max_attempts}): {exc}; retrying",
+                f"Danbooru {label} write contention (attempt {attempt}/{max_attempts}): {exc}; retrying",
             )
         except Exception:
             _safe_rollback(cur)
@@ -363,17 +409,17 @@ def _run_with_retry(
             return
 
 
-def _insert_tags_tx(cur: duckdb.DuckDBPyConnection, all_tags: dict[str, int]) -> None:
+def _insert_tags_tx(cur: sqlite3.Cursor, all_tags: dict[str, int]) -> None:
     cur.execute("BEGIN")
     cur.executemany(
-        "INSERT INTO tags(name, group_id) VALUES (?, ?) ON CONFLICT DO NOTHING",
+        "INSERT INTO tags(name, group_id) VALUES (?, ?) ON CONFLICT(name) DO NOTHING",
         list(all_tags.items()),
     )
     cur.execute("COMMIT")
 
 
 def _insert_posts_and_links_tx(
-    cur: duckdb.DuckDBPyConnection,
+    cur: sqlite3.Cursor,
     file_path_str: str,
     to_persist: list[DanbooruPost],
     precomputed_tag_maps: list[dict[str, int]],
@@ -388,7 +434,7 @@ def _insert_posts_and_links_tx(
             ON CONFLICT (file_path, file_name, extension)
             DO UPDATE SET source = excluded.source,
                           published_at = excluded.published_at,
-                          updated_at = now()
+                          updated_at = CURRENT_TIMESTAMP
             RETURNING id
             """,
             [
@@ -409,20 +455,16 @@ def _insert_posts_and_links_tx(
     post_tag_rows = [(post_id, name) for post_id, tag_map in post_tag_pairs for name in tag_map]
     if post_tag_rows:
         cur.executemany(
-            "INSERT INTO post_has_tag(post_id, tag_name, is_auto) VALUES (?, ?, FALSE) ON CONFLICT DO NOTHING",
+            "INSERT INTO post_has_tag(post_id, tag_name, is_auto) VALUES (?, ?, 0) "
+            "ON CONFLICT DO NOTHING",
             post_tag_rows,
         )
     cur.execute("COMMIT")
 
 
-def _safe_rollback(cur: duckdb.DuckDBPyConnection) -> None:
-    """ROLLBACK that swallows the 'no transaction is active' case.
-
-    DuckDB auto-aborts a transaction when its commit fails, so an explicit
-    ROLLBACK in the except handler would raise a secondary TransactionException
-    that masks the original error.
-    """
-    with contextlib.suppress(duckdb.TransactionException):
+def _safe_rollback(cur: sqlite3.Cursor) -> None:
+    """ROLLBACK that swallows the 'no transaction is active' case."""
+    with contextlib.suppress(sqlite3.OperationalError):
         cur.execute("ROLLBACK")
 
 
@@ -440,7 +482,7 @@ def _build_tag_to_group(d_post: DanbooruPost, type_to_group_id: dict[str, int]) 
     return tag_to_group
 
 
-def ensure_canonical_tag_groups_sync(cur: duckdb.DuckDBPyConnection) -> dict[str, int]:
+def ensure_canonical_tag_groups_sync(cur: sqlite3.Cursor) -> dict[str, int]:
     """Upsert the five canonical tag groups and return name → id, ordered by priority.
 
     Used at server startup so per-request handlers can read the cached map
@@ -450,7 +492,8 @@ def ensure_canonical_tag_groups_sync(cur: duckdb.DuckDBPyConnection) -> dict[str
     for name in CANONICAL_TAG_GROUPS:
         color = TAG_GROUP_COLORS.get(name, "#000000")
         cur.execute(
-            "INSERT INTO tag_groups(name, color) VALUES (?, ?) ON CONFLICT DO NOTHING",
+            "INSERT INTO tag_groups(name, color) VALUES (?, ?) "
+            "ON CONFLICT(name) DO NOTHING",
             [name, color],
         )
         cur.execute(

@@ -1,17 +1,46 @@
-"""Pydantic models that map 1:1 to DuckDB rows.
+"""Pydantic models that map 1:1 to SQLite rows.
 
 These are the *internal* DB entities, separate from the API DTOs in
 ``scheme.py``. Each entity covers exactly one table's columns; joined data
 (tags, colors, waifu score) is composed at the Repository layer into dicts
 that ``PostDetailPublic`` / ``PostPublic`` validate from.
+
+Storage notes:
+- Timestamps are stored as ISO 8601 strings (SQLite has no native timestamp).
+  Pydantic's ``datetime`` validator parses ISO strings transparently.
+- ``posts.dominant_color`` is stored as a sqlite-vec BLOB (3 x float32).
+  The validator below decodes BLOB bytes / JSON strings (from
+  ``vec_to_json``) / pre-decoded lists into ``list[float]``.
 """
 
-from datetime import datetime
-from pathlib import Path
+from __future__ import annotations
 
-from pydantic import BaseModel, ConfigDict
+import json
+import struct
+from datetime import datetime  # noqa: TC003  # Pydantic needs runtime types
+from pathlib import Path  # noqa: TC003  # Pydantic needs runtime types
+from typing import Annotated, Any
+
+from pydantic import BaseModel, BeforeValidator, ConfigDict
 
 import shared
+
+
+def _decode_dominant_color(v: Any) -> list[float] | None:
+    if v is None or isinstance(v, list):
+        return v
+    if isinstance(v, str):
+        # JSON form (e.g. `vec_to_json(dominant_color)` in SELECT)
+        return json.loads(v)
+    if isinstance(v, (bytes, bytearray, memoryview)):
+        b = bytes(v)
+        n = len(b) // 4
+        return list(struct.unpack(f"{n}f", b))
+    msg = f"Cannot decode dominant_color from {type(v).__name__}"
+    raise ValueError(msg)
+
+
+DominantColor = Annotated[list[float] | None, BeforeValidator(_decode_dominant_color)]
 
 
 class _Entity(BaseModel):
@@ -55,7 +84,7 @@ class Post(_Entity):
     size: int = 0
     source: str = ""
     caption: str = ""
-    dominant_color: list[float] | None = None
+    dominant_color: DominantColor = None
     thumbhash: str | None = None
     created_at: datetime
     updated_at: datetime

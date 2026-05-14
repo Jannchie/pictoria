@@ -1,26 +1,32 @@
-"""Quick inspection of an existing DuckDB file."""
+"""Quick inspection of an existing Pictoria SQLite DB file."""
+import sqlite3
 import sys
 from pathlib import Path
+
+import sqlite_vec
 
 if hasattr(sys.stdout, "reconfigure"):
     sys.stdout.reconfigure(encoding="utf-8", errors="replace")
 
-import duckdb
-
-DB_PATH = sys.argv[1] if len(sys.argv) > 1 else r"E:\pictoria\server\illustration\images\.pictoria\pictoria.duckdb"
+DB_PATH = sys.argv[1] if len(sys.argv) > 1 else r"E:\pictoria\server\illustration\images\.pictoria\pictoria.sqlite"
 print(f"Inspecting: {DB_PATH}")
 print(f"Size: {Path(DB_PATH).stat().st_size} bytes\n")
 
-con = duckdb.connect(DB_PATH, read_only=True)
+con = sqlite3.connect(DB_PATH, timeout=10.0)
+con.enable_load_extension(True)
+sqlite_vec.load(con)
+con.enable_load_extension(False)
 
 print("--- Tables ---")
 tables = con.execute(
-    "SELECT table_name FROM information_schema.tables "
-    "WHERE table_schema='main' ORDER BY table_name",
+    "SELECT name FROM sqlite_master WHERE type IN ('table', 'virtual') AND name NOT LIKE 'sqlite_%' ORDER BY name",
 ).fetchall()
 for (t,) in tables:
-    cnt = con.execute(f"SELECT count(*) FROM {t}").fetchone()[0]
-    print(f"  {t:25} {cnt:>10} rows")
+    try:
+        cnt = con.execute(f"SELECT count(*) FROM {t}").fetchone()[0]
+        print(f"  {t:30} {cnt:>10} rows")
+    except sqlite3.OperationalError as e:
+        print(f"  {t:30} (skip: {e})")
 
 print("\n--- Schema versions ---")
 try:
@@ -29,17 +35,6 @@ try:
         print(f"  {v}  @ {ts}")
 except Exception as e:
     print(f"  (no _schema_versions table: {e})")
-
-print("\n--- HNSW indexes ---")
-try:
-    idx = con.execute(
-        "SELECT index_name, table_name FROM duckdb_indexes "
-        "WHERE index_name LIKE 'hnsw_%'",
-    ).fetchall()
-    for n, t in idx:
-        print(f"  {n} on {t}")
-except Exception as e:
-    print(f"  error: {e}")
 
 print("\n--- Backfill backlog ---")
 try:

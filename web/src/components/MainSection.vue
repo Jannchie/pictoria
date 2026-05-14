@@ -10,6 +10,7 @@ import { v2DeletePosts, v2SearchPostsByText } from '@/api'
 import { useRotateImageMutation } from '@/composables/mutations/useRotateImageMutation'
 import { useElementOffset } from '@/composables/useElementOffset'
 import { selectedPostIdSet, selectingPostIdSet, textSearchQuery, unselectedPostIdSet as unselectingPostId, updateScoreForSelectedPosts, useInfinityPostsQuery, waterfallRowCount } from '@/shared'
+import { isImageExtension } from '@/utils'
 
 const route = useRoute()
 const router = useRouter()
@@ -42,10 +43,12 @@ const folderPosts = computed<Array<PostSimplePublic>>(() => {
 const posts = computed<Array<PostSimplePublic>>(() => {
   return isTextSearchActive.value ? textSearchResults.value : folderPosts.value
 })
-const items = computed(() => posts.value.map(post => ({
-  width: post.width || 1,
-  height: post.height || 1,
-})))
+const items = computed(() => posts.value.map((post) => {
+  if (!isImageExtension(post.extension) || !post.width || !post.height) {
+    return { width: 1, height: 1 }
+  }
+  return { width: post.width, height: post.height }
+}))
 
 const waterfallRef = ref<InstanceType<typeof Waterfall> | null>(null)
 const waterfallWrapperDom = computed(() => waterfallRef.value?.wrapper)

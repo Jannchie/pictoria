@@ -1,24 +1,35 @@
 """PostRepo — async Repository over the `posts` table (and joined tables).
 
 Each public method is ``async def`` and uses ``asyncio.to_thread`` to push
-the synchronous DuckDB call onto a worker thread, preserving Litestar's
-event loop responsiveness even though duckdb-engine has no native async
-driver.
+synchronous SQLite calls onto a worker thread, preserving Litestar's event
+loop responsiveness even though sqlite3 has no native async driver.
+
+Cursor model (post-DuckDB → SQLite migration):
+- ``self.cur`` is a real ``sqlite3.Cursor`` issued by ``DB.cursor()`` for the
+  thread that constructed this repository (typically the ``provide_post_repo``
+  DI provider in ``app.py``).
+- ``DB._new_connection`` sets ``check_same_thread=False`` so the cursor can be
+  used from worker threads spawned by ``asyncio.to_thread``. SQLite serializes
+  access internally; the WAL journal makes that cheap for our read-heavy
+  workload.
 """
 
 from __future__ import annotations
 
 import asyncio
+import struct
 from typing import TYPE_CHECKING, Any
+
+import sqlite_vec
 
 from db.entities import (
     POST_COLUMNS,
     Post,
 )
-from db.helpers import fetch_all_dicts, fetch_one_as, fetch_one_dict
+from db.helpers import fetch_all_as, fetch_all_dicts, fetch_one_as, fetch_one_dict
 
 if TYPE_CHECKING:
-    import duckdb
+    import sqlite3
 
 
 SIMPLE_POST_COLUMNS = (
@@ -30,8 +41,30 @@ SIMPLE_POST_COLUMNS = (
 _ORDERABLE_COLUMNS = {"id", "score", "rating", "created_at", "published_at", "file_name"}
 
 
+def _decode_dominant_color_blob(value: Any) -> list[float] | None:
+    """Convert an sqlite-vec serialized FLOAT[3] BLOB to a list[float].
+
+    Returns ``None`` for NULL / empty inputs and passes through values that
+    are already lists (e.g. when an in-memory value short-circuits the DB).
+    """
+    if value is None or isinstance(value, list):
+        return value
+    raw = bytes(value)
+    n = len(raw) // 4
+    if n == 0:
+        return None
+    return list(struct.unpack(f"{n}f", raw))
+
+
+def _decode_dominant_colors_in(rows: list[dict]) -> None:
+    """Decode the ``dominant_color`` field on a batch of result dicts in place."""
+    for r in rows:
+        if "dominant_color" in r:
+            r["dominant_color"] = _decode_dominant_color_blob(r["dominant_color"])
+
+
 class PostRepo:
-    def __init__(self, cur: duckdb.DuckDBPyConnection) -> None:
+    def __init__(self, cur: sqlite3.Cursor) -> None:
         self.cur = cur
 
     # ─── Read single ──────────────────────────────────────────────────
@@ -42,6 +75,26 @@ class PostRepo:
                 [post_id],
             )
             return fetch_one_as(self.cur, Post)
+
+        return await asyncio.to_thread(_impl)
+
+    async def get_many(self, post_ids: list[int]) -> dict[int, Post]:
+        """Fetch many posts by id in one round-trip; returns ``{id: Post}``.
+
+        Backfill workers (basics / embedding / tagger / waifu) used to call
+        ``get(pid)`` inside a per-batch loop, which is N round-trips per
+        batch. This collapses them into one SELECT.
+        """
+        if not post_ids:
+            return {}
+
+        def _impl() -> dict[int, Post]:
+            placeholders = ",".join("?" * len(post_ids))
+            self.cur.execute(
+                f"SELECT {POST_COLUMNS} FROM posts WHERE id IN ({placeholders})",  # noqa: S608
+                post_ids,
+            )
+            return {p.id: p for p in fetch_all_as(self.cur, Post)}
 
         return await asyncio.to_thread(_impl)
 
@@ -59,6 +112,7 @@ class PostRepo:
             post = fetch_one_dict(self.cur)
             if post is None:
                 return None
+            _decode_dominant_colors_in([post])
             # tags (ordered by canonical group order)
             self.cur.execute(
                 """
@@ -90,7 +144,7 @@ class PostRepo:
             tag_rows = fetch_all_dicts(self.cur)
             tags = [
                 {
-                    "is_auto": r["is_auto"],
+                    "is_auto": bool(r["is_auto"]),
                     "tag_info": {
                         "name": r["name"],
                         "created_at": r["created_at"],
@@ -135,6 +189,7 @@ class PostRepo:
             post = fetch_one_dict(self.cur)
             if post is None:
                 return None
+            _decode_dominant_colors_in([post])
             self.cur.execute(
                 'SELECT "order", color FROM post_has_color WHERE post_id = ? ORDER BY "order"',
                 [post_id],
@@ -153,6 +208,7 @@ class PostRepo:
                 [start, limit + 1],
             )
             posts = fetch_all_dicts(self.cur)
+            _decode_dominant_colors_in(posts)
             next_cursor: int | None = None
             if len(posts) > limit:
                 next_cursor = posts[-1]["id"]
@@ -176,7 +232,7 @@ class PostRepo:
                 tag_rows = fetch_all_dicts(self.cur)
                 tags = [
                     {
-                        "is_auto": r["is_auto"],
+                        "is_auto": bool(r["is_auto"]),
                         "tag_info": {
                             "name": r["name"],
                             "created_at": r["created_at"],
@@ -230,9 +286,11 @@ class PostRepo:
     ) -> list[dict]:
         """Search posts, returning rows ready for ``PostSimplePublic``.
 
-        ``lab`` triggers HNSW-backed L2 distance ordering over dominant_color.
+        ``lab`` triggers brute-force L2 distance ordering over dominant_color
+        via sqlite-vec's ``vec_distance_L2`` — no separate index needed since
+        the dataset is small and the column is only 3-d.
         ``order_by`` is one of the whitelisted columns; ``order`` is
-        'asc' | 'desc' | 'random' (random is reproducible via setseed(0.47)).
+        ``asc`` | ``desc`` | ``random``.
         """
 
         def _impl() -> list[dict]:
@@ -255,34 +313,34 @@ class PostRepo:
             where_sql = ("WHERE " + " AND ".join(where_clauses)) if where_clauses else ""
 
             if lab is not None:
-                # HNSW L2 distance over dominant_color
+                lab_blob = sqlite_vec.serialize_float32(list(lab))
                 sql = (
-                    f"{select_cols}, array_distance(p.dominant_color, CAST(? AS FLOAT[3])) AS _dist "
-                    f"{from_clause} {where_sql} "
-                    "ORDER BY p.dominant_color IS NULL, _dist "
+                    f"{select_cols}, "
+                    f"vec_distance_L2(p.dominant_color, ?) AS _dist "
+                    f"{from_clause} "
+                    f"{(where_sql + ' AND ') if where_sql else 'WHERE '}"
+                    f"p.dominant_color IS NOT NULL "
+                    "ORDER BY _dist "
                     "LIMIT ? OFFSET ?"
                 )
-                self.cur.execute(sql, [list(lab), *params, limit, offset])
+                self.cur.execute(sql, [lab_blob, *params, limit, offset])
             else:
                 order_sql = ""
                 if order_by and order_by in _ORDERABLE_COLUMNS:
                     if order == "random":
-                        # setseed is per-connection; cosmetic reproducibility
-                        self.cur.execute("SELECT setseed(0.47)")
                         order_sql = "ORDER BY random()"
                     else:
                         direction = "ASC" if order == "asc" else "DESC"
-                        order_sql = f"ORDER BY p.{order_by} {direction} NULLS LAST"
+                        order_sql = f"ORDER BY p.{order_by} {direction}"
                 sql = (
                     f"{select_cols} {from_clause} {where_sql} {order_sql} LIMIT ? OFFSET ?"
                 )
                 self.cur.execute(sql, [*params, limit, offset])
 
             rows = fetch_all_dicts(self.cur)
-            # strip helper column
             for r in rows:
                 r.pop("_dist", None)
-            # attach colors
+            _decode_dominant_colors_in(rows)
             ids = [r["id"] for r in rows]
             colors_by_post = self._fetch_colors_by_ids(ids)
             for r in rows:
@@ -303,6 +361,7 @@ class PostRepo:
                 id_list,
             )
             rows = fetch_all_dicts(self.cur)
+            _decode_dominant_colors_in(rows)
             by_id = {r["id"]: r for r in rows}
             ordered = [by_id[i] for i in id_list if i in by_id]
             ids = [r["id"] for r in ordered]
@@ -343,20 +402,10 @@ class PostRepo:
         return await asyncio.to_thread(_impl)
 
     async def count_by_waifu_bucket(self, **filters: Any) -> list[dict]:
-        """Group posts into the 5 waifu-score buckets (S/A/B/C/D) plus UNSCORED.
-
-        UNSCORED counts posts with no row in ``post_waifu_scores`` yet.
-        Filters apply as usual; callers should drop their own
-        ``waifu_score_levels`` / ``waifu_score_range`` from filters first if
-        they want "count for buckets the user hasn't selected" semantics
-        (matches ScoreFilter / RatingFilter UI behaviour).
-        """
+        """Group posts into the 5 waifu-score buckets (S/A/B/C/D) plus UNSCORED."""
 
         def _impl() -> list[dict]:
             where_clauses, params, joins = _build_filter_clauses(**filters)
-            # Always join post_waifu_scores so the bucket CASE can reference
-            # pws.score / pws.post_id; if filter logic already added the join,
-            # don't duplicate it.
             if not any("post_waifu_scores" in j for j in joins):
                 joins.append("LEFT JOIN post_waifu_scores pws ON pws.post_id = p.id")
             joins_sql = "\n".join(joins)
@@ -410,7 +459,7 @@ class PostRepo:
 
         def _impl() -> Post | None:
             self.cur.execute(
-                f"UPDATE posts SET {field} = ?, updated_at = now() WHERE id = ?",  # noqa: S608
+                f"UPDATE posts SET {field} = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?",  # noqa: S608
                 [value, post_id],
             )
             self.cur.execute(
@@ -431,7 +480,7 @@ class PostRepo:
         def _impl() -> None:
             placeholders = ",".join("?" * len(ids))
             self.cur.execute(
-                f"UPDATE posts SET {field} = ?, updated_at = now() "  # noqa: S608
+                f"UPDATE posts SET {field} = ?, updated_at = CURRENT_TIMESTAMP "  # noqa: S608
                 f"WHERE id IN ({placeholders})",
                 [value, *ids],
             )
@@ -452,7 +501,7 @@ class PostRepo:
             self.cur.execute(
                 """
                 UPDATE posts
-                SET sha256 = ?, width = ?, height = ?, thumbhash = ?, updated_at = now()
+                SET sha256 = ?, width = ?, height = ?, thumbhash = ?, updated_at = CURRENT_TIMESTAMP
                 WHERE id = ?
                 """,
                 [sha256, width, height, thumbhash, post_id],
@@ -460,19 +509,29 @@ class PostRepo:
 
         await asyncio.to_thread(_impl)
 
-    # ─── Mutation: delete (cascade via app layer) ─────────────────────
+    # ─── Mutation: delete ─────────────────────────────────────────────
     async def delete_many(self, ids: list[int]) -> None:
+        """Delete posts and all dependent rows.
+
+        ``ON DELETE CASCADE`` (declared in 0001_initial.sql) handles
+        ``post_has_tag`` / ``post_has_color`` / ``post_waifu_scores``
+        automatically. ``post_vectors`` is a vec0 virtual table and doesn't
+        participate in foreign-key cascades — clear it explicitly.
+        """
         if not ids:
             return
 
         def _impl() -> None:
             placeholders = ",".join("?" * len(ids))
-            # child tables first (DuckDB doesn't support ON DELETE CASCADE)
-            self.cur.execute(f"DELETE FROM post_has_tag    WHERE post_id IN ({placeholders})", ids)  # noqa: S608
-            self.cur.execute(f"DELETE FROM post_has_color  WHERE post_id IN ({placeholders})", ids)  # noqa: S608
-            self.cur.execute(f"DELETE FROM post_vectors    WHERE post_id IN ({placeholders})", ids)  # noqa: S608
-            self.cur.execute(f"DELETE FROM post_waifu_scores WHERE post_id IN ({placeholders})", ids)  # noqa: S608
-            self.cur.execute(f"DELETE FROM posts WHERE id IN ({placeholders})", ids)  # noqa: S608
+            # vec0 virtual table — no FK CASCADE
+            self.cur.execute(
+                f"DELETE FROM post_vectors WHERE post_id IN ({placeholders})",  # noqa: S608
+                ids,
+            )
+            self.cur.execute(
+                f"DELETE FROM posts WHERE id IN ({placeholders})",  # noqa: S608
+                ids,
+            )
 
         await asyncio.to_thread(_impl)
 
@@ -490,13 +549,12 @@ class PostRepo:
             )
             if self.cur.fetchone():
                 return False
-            # ensure tag row exists
             self.cur.execute(
                 "INSERT INTO tags(name) VALUES(?) ON CONFLICT DO NOTHING",
                 [tag_name],
             )
             self.cur.execute(
-                "INSERT INTO post_has_tag(post_id, tag_name, is_auto) VALUES(?, ?, FALSE)",
+                "INSERT INTO post_has_tag(post_id, tag_name, is_auto) VALUES(?, ?, 0)",
                 [post_id, tag_name],
             )
             return True
@@ -529,12 +587,31 @@ class PostRepo:
                 self.cur.execute(
                     "INSERT INTO post_has_tag(post_id, tag_name, is_auto) VALUES(?, ?, ?) "
                     "ON CONFLICT DO NOTHING",
-                    [post_id, name, is_auto],
+                    [post_id, name, 1 if is_auto else 0],
                 )
 
         await asyncio.to_thread(_impl)
 
     # ─── Create ───────────────────────────────────────────────────────
+    async def create_paths(self, triples: list[tuple[str, str, str]]) -> None:
+        """Bulk-insert posts from ``(file_path, file_name, extension)``.
+
+        Used by the filesystem-reconciliation path which only knows the path
+        components — every other column gets its schema default. Callers
+        don't need the resulting Post rows back, so we skip the per-row
+        RETURNING + re-SELECT round-trip that ``create()`` does.
+        """
+        if not triples:
+            return
+
+        def _impl() -> None:
+            self.cur.executemany(
+                "INSERT INTO posts(file_path, file_name, extension) VALUES (?, ?, ?)",
+                triples,
+            )
+
+        await asyncio.to_thread(_impl)
+
     async def create(  # noqa: PLR0913
         self,
         *,
@@ -553,6 +630,12 @@ class PostRepo:
         dominant_color: list[float] | None = None,
         published_at: Any = None,
     ) -> Post:
+        dom_blob = (
+            sqlite_vec.serialize_float32(list(dominant_color))
+            if dominant_color is not None
+            else None
+        )
+
         def _impl() -> Post:
             self.cur.execute(
                 """
@@ -567,7 +650,7 @@ class PostRepo:
                 [
                     file_path, file_name, extension, source, width, height,
                     size, sha256, meta, caption, description, thumbhash,
-                    dominant_color, published_at,
+                    dom_blob, published_at,
                 ],
             )
             row = self.cur.fetchone()
@@ -607,7 +690,7 @@ class PostRepo:
                 ON CONFLICT (file_path, file_name, extension)
                 DO UPDATE SET source = excluded.source,
                               published_at = excluded.published_at,
-                              updated_at = now()
+                              updated_at = CURRENT_TIMESTAMP
                 RETURNING id
                 """,
                 [file_path, file_name, extension, source, rating, published_at],
@@ -703,13 +786,10 @@ def _build_filter_clauses(  # noqa: PLR0913, C901, PLR0912
         where.append(f"p.extension IN ({ph})")
         params.extend(extension)
     if folder and folder != ".":
-        # GLOB is case-sensitive and uses default index, unlike LIKE in DuckDB
+        # GLOB is case-sensitive and uses default index, unlike LIKE in SQLite.
         where.append("p.file_path GLOB ?")
         params.append(f"{folder}*")
 
-    # Either form of waifu filter requires the post_waifu_scores table reachable.
-    # Use LEFT JOIN so unscored posts don't get dropped pre-WHERE — the WHERE
-    # clauses below decide whether to keep them.
     needs_waifu_join = bool(waifu_score_range) or bool(waifu_score_levels)
     if needs_waifu_join:
         joins.append("LEFT JOIN post_waifu_scores pws ON pws.post_id = p.id")
@@ -726,7 +806,7 @@ def _build_filter_clauses(  # noqa: PLR0913, C901, PLR0912
                 include_unscored = True
                 continue
             if lvl not in WAIFU_SCORE_BUCKETS:
-                continue  # silently ignore unknown bucket names
+                continue
             lo, hi = WAIFU_SCORE_BUCKETS[lvl]
             clauses.append("(pws.score >= ? AND pws.score < ?)")
             params.extend([lo, hi])

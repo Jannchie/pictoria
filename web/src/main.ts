@@ -10,6 +10,7 @@ import '@unocss/reset/tailwind.css'
 import 'virtual:uno.css'
 import '@/styles/tokens.css'
 import '@/style.css'
+import '@/utils/highlight.css'
 
 client.setConfig({
   baseURL,

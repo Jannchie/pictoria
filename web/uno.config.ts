@@ -7,6 +7,10 @@ export default defineConfig({
     presetWind3(),
     presetIcons({
       scale: 1.1,
+      extraProperties: {
+        'display': 'inline-block',
+        'vertical-align': 'middle',
+      },
     }),
   ],
   theme: {

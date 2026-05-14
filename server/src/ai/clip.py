@@ -1,3 +1,5 @@
+import contextlib
+from collections.abc import Iterable, Sequence
 from functools import cache
 from pathlib import Path
 
@@ -44,7 +46,10 @@ def get_processor() -> AutoProcessor:
     )
 
 
-def calculate_image_features(image: Image.Image | Path | str) -> torch.Tensor:
+ImageInput = Image.Image | Path | str
+
+
+def calculate_image_features(image: ImageInput) -> torch.Tensor:
     if isinstance(image, Path | str):
         image = Image.open(image)
     model = get_clip_model()
@@ -52,6 +57,37 @@ def calculate_image_features(image: Image.Image | Path | str) -> torch.Tensor:
     inputs = processor(images=image, return_tensors="pt", padding=True).to(device)
     with torch.no_grad():
         return model.get_image_features(pixel_values=inputs.pixel_values)
+
+
+def calculate_image_features_batch(images: Sequence[ImageInput]) -> torch.Tensor:
+    """Encode a batch of images in a single GPU forward.
+
+    Backfill of large libraries spends ~90% of its time in this code path,
+    and ``CLIPModel.get_image_features`` at batch=1 wastes most of the GPU.
+    Batching at 32 typically gives 10-30x throughput on a single 30xx-class
+    card. Returns a tensor of shape ``(N, 768)``.
+    """
+    if not images:
+        return torch.empty(0, device=device)
+    pil_images = [Image.open(img) if isinstance(img, Path | str) else img for img in images]
+    try:
+        model = get_clip_model()
+        processor = get_processor()
+        inputs = processor(images=pil_images, return_tensors="pt", padding=True).to(device)
+        with torch.no_grad():
+            return model.get_image_features(pixel_values=inputs.pixel_values)
+    finally:
+        # Close any images we opened ourselves so we don't leak file handles
+        # across thousands of batches.
+        _close_opened(pil_images, images)
+
+
+def _close_opened(pil_images: list[Image.Image], original: Iterable[ImageInput]) -> None:
+    for opened, src in zip(pil_images, original, strict=True):
+        if opened is src:
+            continue
+        with contextlib.suppress(Exception):
+            opened.close()
 
 
 def calculate_text_features(text: str | list[str]) -> torch.Tensor:

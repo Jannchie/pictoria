@@ -1,55 +1,52 @@
-"""Post-processing pipeline: sha256, thumbhash, embedding, colors, auto-tags.
+"""Post-processing backfill, split into independent workers.
 
-Refactored from SQLAlchemy session to Native DuckDB Repository pattern.
+Each metadata type (basics, CLIP embedding, WDTagger tags, waifu score) is
+handled by its own worker with its own ``WHERE … IS NULL`` style pending
+predicate and its own progress bar. Workers run concurrently as asyncio
+tasks sharing a single ``rich.Progress`` display, so the CLI shows one
+bar per active worker stacked vertically.
 
-Performance notes
------------------
-``process_posts`` runs in batches:
-
-1. **Phase 1 — parallel compute** (CPU/IO bound). For each post in the batch,
-   open the file, decode the image, compute SHA256 / thumbhash / dominant
-   color / palette in a worker thread. Done in parallel via
-   ``asyncio.gather``.
-
-2. **Phase 2 — batched DB write** (single transaction). Rather than the four
-   separate ``UPDATE posts SET <one column>`` statements per post that the
-   row-by-row pipeline used, the basics now go in via one ``UPDATE … SET
-   width=?, height=?, sha256=COALESCE(?, sha256), …`` template plus
-   ``executemany`` over the whole batch. ``COALESCE`` keeps the existing
-   value when a column is unchanged, so the same SQL fits every row regardless
-   of which fields it actually computed. ``dominant_color`` stays in its own
-   ``WHERE … IS NULL``-guarded UPDATE because the HNSW index on that column
-   doesn't tolerate updates of already-set rows.
-
-3. **Phase 3 — per-image GPU work** (CLIP embedding + WDTagger). Still
-   serial — these run on a single GPU and need their own batching strategy
-   if we want to speed them up further.
-
-A batch is the unit of failure: if anything raises mid-batch the whole
-batch is logged as failed and we move on, rather than scattering
-half-applied state across the rest of the run.
+Design notes
+------------
+- "Basics" stays bundled (sha256 + thumbhash + dimensions + palette +
+  dominant_color) because all of these piggyback on a single file open
+  / PIL decode — splitting them would re-decode the same image up to
+  four times.
+- The three GPU-ish workers (embedding / tagger / waifu) each iterate
+  per-image with ``batch_size = 1`` so their progress bar advances every
+  image, not every chunk.
+- No per-worker thread-pool sizing: each worker just hands its sync
+  payload to the global ``asyncio.to_thread`` executor as before.
+- ``process_post`` (single-image entry point used by the upload route)
+  runs the same per-worker batch functions for one id, without a
+  progress display.
 """
 
 from __future__ import annotations
 
 import asyncio
 import contextlib
+import time
 from typing import TYPE_CHECKING, Any
 
 import numpy as np
-from PIL import Image
-from rich.progress import Progress
+from PIL import Image, UnidentifiedImageError
 from skimage import color
 
 import shared
+from db.repositories.posts import PostRepo
+from db.repositories.tags import TagGroupRepo
+from db.repositories.vectors import VectorRepo
+from progress import get_progress
 from services.file_management import add_new_files, remove_deleted_files
 from shared import logger
-from tools.colors import get_dominant_color, get_palette_ints
+from tools.colors import get_palette, rgb2int
 from utils import (
     attach_wdtagger_results,
+    attach_wdtagger_results_many,
     calculate_sha256,
     calculate_thumbhash,
-    create_thumbnail,
+    create_thumbnail_by_image,
     find_files_in_directory,
     from_rating_to_int,
     get_path_name_and_extension,
@@ -57,143 +54,122 @@ from utils import (
 )
 
 if TYPE_CHECKING:
-    from io import BufferedReader
+    from collections.abc import Awaitable, Callable
     from pathlib import Path
 
+    from rich.progress import Progress
+
+    from db import DB
     from db.entities import Post
-    from db.repositories.posts import PostRepo
-    from db.repositories.tags import TagGroupRepo
-    from db.repositories.vectors import VectorRepo
 
 
 IMAGE_EXTS: frozenset[str] = frozenset(
     {".jpg", ".jpeg", ".png", ".gif", ".webp", ".avif"},
 )
-PROCESS_BATCH_SIZE = 32
+
+# Same extensions but without the leading dot, formatted for inlining into a
+# SQL ``IN (...)`` clause. Used by every pending-query so the workers never
+# enqueue ``.txt`` / ``.zip`` / etc. — those would just be filtered out
+# image-by-image inside the batch processor anyway, while still ticking the
+# progress bar.
+_IMAGE_EXT_SQL_LIST = ", ".join(f"'{ext.lstrip('.')}'" for ext in sorted(IMAGE_EXTS))
+_IMAGE_EXT_WHERE = f"LOWER(p.extension) IN ({_IMAGE_EXT_SQL_LIST})"
+
+BASICS_BATCH_SIZE = 32
+WAIFU_BATCH_SIZE = 32
+# CLIP + WDTagger both run on GPU. batch=1 leaves the GPU mostly idle between
+# per-image PIL decodes; batch=32 keeps it saturated on a single 30xx-class
+# card and is the sweet spot for CLIP-ViT-Large / wd-vit-large.
+EMBEDDING_BATCH_SIZE = 32
+TAGGER_BATCH_SIZE = 32
 
 
-async def sync_metadata(
-    posts: PostRepo,
-    vectors: VectorRepo,
-    tag_groups: TagGroupRepo,
-) -> None:
-    """Reconcile disk files vs DB rows, then backfill metadata for unprocessed posts.
+# ─── Public API ──────────────────────────────────────────────────────────
 
-    This coroutine runs the full sync inline. Callers who want fire-and-forget
-    behavior (e.g. the app's startup lifespan) should wrap the call in
-    ``asyncio.create_task`` themselves so they control task lifetime and
-    cursor cleanup.
+
+async def sync_metadata(db: DB) -> None:
+    """Reconcile disk vs DB, then run every backfill worker concurrently."""
+    # Walk the filesystem off the event loop — a 155k-file scan takes long
+    # enough that running it inline freezes every concurrent HTTP request
+    # until the scan finishes.
+    t0 = time.perf_counter()
+    os_tuples = await asyncio.to_thread(find_files_in_directory, shared.target_dir)
+    logger.info(f"[sync] find_files_in_directory: {time.perf_counter() - t0:.2f}s")
+
+    cur = db.cursor()
+    try:
+        posts = PostRepo(cur)
+
+        def _existing() -> dict[tuple[str, str, str], int]:
+            cur.execute("SELECT id, file_path, file_name, extension FROM posts")
+            return {(r[1], r[2], r[3]): r[0] for r in cur.fetchall()}
+
+        db_path_to_id = await asyncio.to_thread(_existing)
+        db_tuples_set = set(db_path_to_id.keys())
+        os_tuples_set = set(os_tuples)
+        logger.info(f"DB has {len(db_tuples_set)} files, disk has {len(os_tuples_set)}")
+
+        await remove_deleted_files(posts, os_tuples_set=os_tuples_set, db_path_to_id=db_path_to_id)
+        await add_new_files(posts, os_tuples_set=os_tuples_set, db_tuples_set=db_tuples_set)
+    finally:
+        with contextlib.suppress(Exception):
+            cur.close()
+
+    await run_all_backfill(db)
+
+
+async def run_all_backfill(db: DB) -> None:
+    """Run every backfill worker concurrently with a shared progress display.
+
+    Each worker gets its OWN sqlite3 connection — *not just its own cursor*.
+    Python's sqlite3 module gives every cursor its own ``description`` /
+    result-row state, but when multiple cursors on the same connection are
+    driven from multiple ``asyncio.to_thread`` worker threads in parallel,
+    that per-cursor state can desync from the statement that was actually
+    executed (we saw ``fetchone()`` return mostly-NULL rows whose layout
+    didn't match the SELECT). A dedicated per-worker connection isolates
+    the statement/row state entirely. Multiple cursors *within* one worker
+    share a connection safely because ``await`` serialises that worker's
+    calls.
     """
-    os_tuples = find_files_in_directory(shared.target_dir)
+    connections: list[Any] = []
 
-    def _existing() -> set[tuple[str, str, str]]:
-        posts.cur.execute("SELECT file_path, file_name, extension FROM posts")
-        return {tuple(r) for r in posts.cur.fetchall()}
+    def _checkout() -> Any:
+        conn = db.new_connection()
+        connections.append(conn)
+        return conn
 
-    db_tuples_set = await asyncio.to_thread(_existing)
-    os_tuples_set = set(os_tuples)
-    logger.info(f"DB has {len(db_tuples_set)} files, disk has {len(os_tuples_set)}")
+    basics_conn = _checkout()
+    embedding_conn = _checkout()
+    tagger_conn = _checkout()
+    waifu_conn = _checkout()
 
-    await remove_deleted_files(posts, os_tuples_set=os_tuples_set, db_tuples_set=db_tuples_set)
-    await add_new_files(posts, os_tuples_set=os_tuples_set, db_tuples_set=db_tuples_set)
-    await process_posts(posts, vectors, tag_groups)
-
-
-async def process_posts(
-    posts: PostRepo,
-    vectors: VectorRepo,
-    tag_groups: TagGroupRepo,
-    *,
-    all_posts: bool = False,
-) -> None:
-    """Process posts that haven't been hashed/thumbhashed yet (or all)."""
-
-    def _list_pending() -> list[dict]:
-        if all_posts:
-            posts.cur.execute("SELECT id, file_path, file_name, extension FROM posts")
-        else:
-            posts.cur.execute(
-                "SELECT id, file_path, file_name, extension FROM posts "
-                "WHERE sha256 = '' OR thumbhash IS NULL OR thumbhash = ''",
+    try:
+        with get_progress() as progress:
+            await asyncio.gather(
+                run_basics_worker(
+                    PostRepo(basics_conn.cursor()),
+                    progress=progress,
+                ),
+                run_embedding_worker(
+                    PostRepo(embedding_conn.cursor()),
+                    VectorRepo(embedding_conn.cursor()),
+                    progress=progress,
+                ),
+                run_tagger_worker(
+                    PostRepo(tagger_conn.cursor()),
+                    TagGroupRepo(tagger_conn.cursor()),
+                    progress=progress,
+                ),
+                run_waifu_worker(
+                    PostRepo(waifu_conn.cursor()),
+                    progress=progress,
+                ),
             )
-        return [
-            {"id": r[0], "file_path": r[1], "file_name": r[2], "extension": r[3]}
-            for r in posts.cur.fetchall()
-        ]
-
-    pending = await asyncio.to_thread(_list_pending)
-    if not pending:
-        logger.info("No posts to process")
-        return
-
-    with Progress(console=shared.console) as progress:
-        task = progress.add_task("Processing posts...", total=len(pending))
-        for i in range(0, len(pending), PROCESS_BATCH_SIZE):
-            batch = pending[i:i + PROCESS_BATCH_SIZE]
-            try:
-                await _process_batch(posts, vectors, tag_groups, batch)
-            except Exception:
-                logger.exception(
-                    f"Batch starting at post {batch[0]['id']} failed; "
-                    f"skipping {len(batch)} posts",
-                )
-            progress.update(task, advance=len(batch))
-
-
-async def _process_batch(  # noqa: C901
-    posts: PostRepo,
-    vectors: VectorRepo,
-    tag_groups: TagGroupRepo,
-    batch: list[dict],
-) -> None:
-    """Run one batch through the three phases (compute / persist / GPU)."""
-    # Phase 0: resolve abs paths, drop non-images and stale rows.
-    items: list[tuple[Post, Path]] = []
-    for p in batch:
-        abs_path = (
-            shared.target_dir / p["file_path"] / f"{p['file_name']}.{p['extension']}"
-        )
-        if abs_path.suffix.lower() not in IMAGE_EXTS:
-            continue
-        post = await posts.get_by_path(p["file_path"], p["file_name"], p["extension"])
-        if post is None:
-            continue
-        if post.sha256 and post.thumbhash:
-            continue  # already done since pending list snapshot
-        items.append((post, abs_path))
-    if not items:
-        return
-
-    # Phase 1: compute basics in parallel (CPU/IO in threads).
-    raw_results = await asyncio.gather(
-        *[
-            asyncio.to_thread(_compute_basics_for, post, path)
-            for post, path in items
-        ],
-        return_exceptions=True,
-    )
-    valid: list[tuple[Post, Path, dict]] = []
-    for (post, path), b in zip(items, raw_results, strict=True):
-        if isinstance(b, BaseException):
-            logger.warning(f"Compute basics failed for {path}: {b}")
-            continue
-        if b is None:
-            continue
-        valid.append((post, path, b))
-    if not valid:
-        return
-
-    # Phase 2: batched DB write.
-    await asyncio.to_thread(_persist_basics_batch, posts, valid)
-
-    # Phase 3: per-image GPU pipeline (CLIP + WDTagger) for posts whose
-    # sha256 we just computed (i.e. brand-new or never-fully-processed).
-    needs_gpu = [(post, path) for post, path, b in valid if b["sha256"] is not None]
-    for post, path in needs_gpu:
-        try:
-            await _run_gpu_pipeline(posts, vectors, tag_groups, post, path)
-        except Exception:
-            logger.exception(f"GPU pipeline failed for post {post.id} ({path})")
+    finally:
+        for conn in connections:
+            with contextlib.suppress(Exception):
+                conn.close()
 
 
 async def process_post(
@@ -202,10 +178,11 @@ async def process_post(
     tag_groups: TagGroupRepo,
     file_abs_path: Path | None = None,
 ) -> None:
-    """Process a single post — kept as a public single-shot API.
+    """Run every worker for a single freshly-uploaded post.
 
-    Used by ``server.posts.upload_file`` and similar one-off paths. The bulk
-    backfill goes through ``process_posts`` / ``_process_batch`` instead.
+    Each worker's batch function is invoked with a single-element id list, so
+    this path shares all compute / persist code with the bulk backfill above.
+    No progress display — this is called inline from request handlers.
     """
     if file_abs_path is None:
         logger.error("file_abs_path cannot be None")
@@ -217,66 +194,408 @@ async def process_post(
         logger.info(f"Post not found in database: {file_abs_path}")
         return
 
-    if post.sha256 and post.thumbhash:
-        logger.info(f"Skipping post: {file_abs_path}")
-        return
-
     if file_abs_path.suffix.lower() not in IMAGE_EXTS:
         logger.debug(f"Skipping non-image file: {file_abs_path}")
         return
 
     logger.info(f"Processing post: {file_abs_path}")
 
+    # Basics first — and on decode failure, drop the (likely garbage) upload.
     try:
         basics = await asyncio.to_thread(_compute_basics_for, post, file_abs_path)
     except Exception as exc:
-        if not post.sha256 and file_abs_path:
+        if not post.sha256:
             with contextlib.suppress(OSError):
                 await asyncio.to_thread(file_abs_path.unlink)
         logger.warning(f"Error processing file: {file_abs_path}: {exc}")
         return
 
-    if basics is None:
+    if basics is not None:
+        await asyncio.to_thread(_persist_basics_batch, posts, [(post, file_abs_path, basics)])
+
+    await _process_embedding_batch(posts, vectors, [post.id])
+    await _process_tagger_batch(posts, tag_groups, [post.id])
+    await _process_waifu_batch(posts, [post.id])
+
+
+# ─── Worker drivers ─────────────────────────────────────────────────────
+
+
+async def _drive(
+    progress: Progress | None,
+    name: str,
+    pending: list[int],
+    batch_size: int,
+    process: Callable[[list[int]], Awaitable[None]],
+) -> None:
+    """Iterate ``pending`` in ``batch_size`` chunks, advancing one progress task.
+
+    A worker that wants per-image granularity sets ``batch_size = 1`` — the
+    progress task then ticks after every single image without the worker
+    needing direct access to ``progress``.
+    """
+    if not pending:
+        return
+    task = progress.add_task(name, total=len(pending)) if progress else None
+    for i in range(0, len(pending), batch_size):
+        # Graceful shutdown: the lifespan finalizer sets this before tearing
+        # down DB connections, so we exit at a batch boundary instead of
+        # getting interrupted mid-write and racing the close.
+        if shared.shutdown_event.is_set():
+            logger.info(f"[{name}] shutdown requested; stopping after {i}/{len(pending)} items")
+            break
+        batch = pending[i:i + batch_size]
+        try:
+            await process(batch)
+        except Exception:
+            logger.exception(f"[{name}] batch starting at id {batch[0]} failed")
+        if progress is not None and task is not None:
+            progress.update(task, advance=len(batch))
+
+
+async def run_basics_worker(
+    posts: PostRepo,
+    *,
+    progress: Progress | None = None,
+) -> None:
+    """Backfill sha256 / thumbhash / dimensions / palette / dominant_color."""
+    pending = await _list_basics_pending(posts)
+
+    async def _process(batch_ids: list[int]) -> None:
+        await _process_basics_batch(posts, batch_ids)
+
+    await _drive(progress, "Basics", pending, BASICS_BATCH_SIZE, _process)
+
+
+async def run_embedding_worker(
+    posts: PostRepo,
+    vectors: VectorRepo,
+    *,
+    progress: Progress | None = None,
+) -> None:
+    """Backfill CLIP image embeddings into ``post_vectors``."""
+    pending = await vectors.list_missing_post_ids(
+        image_exts=[ext.lstrip(".") for ext in IMAGE_EXTS],
+    )
+
+    async def _process(batch_ids: list[int]) -> None:
+        await _process_embedding_batch(posts, vectors, batch_ids)
+
+    await _drive(progress, "Embeddings", pending, EMBEDDING_BATCH_SIZE, _process)
+
+
+async def run_tagger_worker(
+    posts: PostRepo,
+    tag_groups: TagGroupRepo,
+    *,
+    progress: Progress | None = None,
+) -> None:
+    """Backfill WDTagger auto-tags (and rating, if unset) per post."""
+    pending = await _list_tagger_pending(posts)
+
+    async def _process(batch_ids: list[int]) -> None:
+        await _process_tagger_batch(posts, tag_groups, batch_ids)
+
+    await _drive(progress, "Tags", pending, TAGGER_BATCH_SIZE, _process)
+
+
+async def run_waifu_worker(
+    posts: PostRepo,
+    *,
+    progress: Progress | None = None,
+) -> None:
+    """Backfill the waifu quality score into ``post_waifu_scores``."""
+    pending = await _list_waifu_pending(posts)
+
+    async def _process(batch_ids: list[int]) -> None:
+        await _process_waifu_batch(posts, batch_ids)
+
+    await _drive(progress, "Waifu scorer", pending, WAIFU_BATCH_SIZE, _process)
+
+
+# ─── Pending queries ────────────────────────────────────────────────────
+
+
+async def _list_basics_pending(posts: PostRepo) -> list[int]:
+    def _impl() -> list[int]:
+        posts.cur.execute(
+            f"""
+            SELECT p.id FROM posts p
+            WHERE (p.sha256 = ''
+                OR p.thumbhash IS NULL
+                OR p.thumbhash = ''
+                OR p.dominant_color IS NULL)
+              AND {_IMAGE_EXT_WHERE}
+            ORDER BY p.id
+            """,  # noqa: S608
+        )
+        return [r[0] for r in posts.cur.fetchall()]
+
+    return await asyncio.to_thread(_impl)
+
+
+async def _list_tagger_pending(posts: PostRepo) -> list[int]:
+    def _impl() -> list[int]:
+        posts.cur.execute(
+            f"""
+            SELECT p.id FROM posts p
+            WHERE NOT EXISTS (
+                SELECT 1 FROM post_has_tag pht
+                WHERE pht.post_id = p.id AND pht.is_auto = 1
+            )
+              AND {_IMAGE_EXT_WHERE}
+            ORDER BY p.id
+            """,  # noqa: S608
+        )
+        return [r[0] for r in posts.cur.fetchall()]
+
+    return await asyncio.to_thread(_impl)
+
+
+async def _list_waifu_pending(posts: PostRepo) -> list[int]:
+    def _impl() -> list[int]:
+        posts.cur.execute(
+            f"""
+            SELECT p.id FROM posts p
+            LEFT JOIN post_waifu_scores pws ON pws.post_id = p.id
+            WHERE pws.post_id IS NULL
+              AND {_IMAGE_EXT_WHERE}
+            ORDER BY p.id
+            """,  # noqa: S608
+        )
+        return [r[0] for r in posts.cur.fetchall()]
+
+    return await asyncio.to_thread(_impl)
+
+
+# ─── Per-worker batch processors ────────────────────────────────────────
+
+
+async def _process_basics_batch(posts: PostRepo, post_ids: list[int]) -> None:
+    """Resolve paths, decode each image once, write back basics in one batch."""
+    posts_map = await posts.get_many(post_ids)
+    items: list[tuple[Post, Path]] = []
+    for pid in post_ids:
+        post = posts_map.get(pid)
+        if post is None:
+            continue
+        abs_path = post.absolute_path
+        if abs_path.suffix.lower() not in IMAGE_EXTS:
+            continue
+        if not abs_path.exists():
+            continue
+        items.append((post, abs_path))
+    if not items:
         return
 
-    await asyncio.to_thread(_persist_basics_batch, posts, [(post, file_abs_path, basics)])
+    raw_results = await asyncio.gather(
+        *[asyncio.to_thread(_compute_basics_for, post, path) for post, path in items],
+        return_exceptions=True,
+    )
+    valid: list[tuple[Post, Path, dict]] = []
+    for (post, path), b in zip(items, raw_results, strict=True):
+        if isinstance(b, BaseException):
+            logger.warning(f"[basics] compute failed for {path}: {b}")
+            continue
+        if b is None:
+            continue
+        valid.append((post, path, b))
+    if valid:
+        await asyncio.to_thread(_persist_basics_batch, posts, valid)
 
-    if basics["sha256"] is not None:
-        await _run_gpu_pipeline(posts, vectors, tag_groups, post, file_abs_path)
+
+async def _process_embedding_batch(
+    posts: PostRepo,
+    vectors: VectorRepo,
+    post_ids: list[int],
+) -> None:
+    from ai.clip import (  # noqa: PLC0415  # lazy: defer ML stack load
+        calculate_image_features,
+        calculate_image_features_batch,
+    )
+
+    posts_map = await posts.get_many(post_ids)
+    items: list[tuple[int, Path]] = []
+    for pid in post_ids:
+        post = posts_map.get(pid)
+        if post is None:
+            continue
+        abs_path = post.absolute_path
+        if abs_path.suffix.lower() not in IMAGE_EXTS or not abs_path.exists():
+            continue
+        items.append((pid, abs_path))
+    if not items:
+        return
+
+    paths = [p for _, p in items]
+    try:
+        features = await asyncio.to_thread(calculate_image_features_batch, paths)
+    except Exception as exc:
+        # One unreadable image can blow up the whole batch (PIL raises mid-
+        # collate). Fall back to per-image so the other 31 still land.
+        logger.warning(f"[embedding] batch failed ({exc!s}); retrying per-image")
+        for pid, path in items:
+            try:
+                single = await asyncio.to_thread(calculate_image_features, path)
+                embedding = single.cpu().numpy()[0].astype(np.float32)
+                await vectors.upsert(pid, embedding)
+            except (UnidentifiedImageError, OSError) as exc:
+                logger.warning(f"[embedding] skipping unreadable image {pid} ({path}): {exc}")
+            except Exception:
+                logger.exception(f"[embedding] post {pid} ({path})")
+        return
+
+    embeddings_np = features.cpu().numpy().astype(np.float32)
+    for (pid, _), emb in zip(items, embeddings_np, strict=True):
+        await vectors.upsert(pid, emb)
 
 
-# ─── Compute (per-image, runs in threads) ────────────────────────────────
+async def _process_tagger_batch(
+    posts: PostRepo,
+    tag_groups: TagGroupRepo,
+    post_ids: list[int],
+) -> None:
+    tagger = get_tagger()
+    posts_map = await posts.get_many(post_ids)
+    items: list[tuple[int, Post, Path]] = []
+    for pid in post_ids:
+        post = posts_map.get(pid)
+        if post is None:
+            continue
+        abs_path = post.absolute_path
+        if abs_path.suffix.lower() not in IMAGE_EXTS or not abs_path.exists():
+            continue
+        items.append((pid, post, abs_path))
+    if not items:
+        return
+
+    paths = [p for _, _, p in items]
+    try:
+        results = await asyncio.to_thread(tagger.tag, paths)
+    except Exception as exc:
+        # WDTagger collates the whole list before running; one bad image kills
+        # the batch. Fall back to per-image so the survivors still get tagged.
+        logger.warning(f"[tagger] batch failed ({exc!s}); retrying per-image")
+        await _tagger_fallback_per_image(posts, tag_groups, items)
+        return
+
+    rating_updates: list[tuple[int, int]] = []
+    tag_items: list[tuple[int, Any]] = []
+    for (pid, post, _), resp in zip(items, results, strict=True):
+        new_rating = from_rating_to_int(resp.rating)
+        if post.rating == 0 and new_rating != 0:
+            rating_updates.append((pid, new_rating))
+        tag_items.append((pid, resp))
+
+    if rating_updates:
+        await asyncio.to_thread(_update_ratings, posts, rating_updates)
+    await attach_wdtagger_results_many(posts, tag_groups, tag_items, is_auto=True)
+
+
+async def _tagger_fallback_per_image(
+    posts: PostRepo,
+    tag_groups: TagGroupRepo,
+    items: list[tuple[int, Post, Path]],
+) -> None:
+    tagger = get_tagger()
+    for pid, post, abs_path in items:
+        try:
+            resp = await asyncio.to_thread(tagger.tag, abs_path)
+            new_rating = from_rating_to_int(resp.rating)
+            if post.rating == 0 and new_rating != 0:
+                await posts.update_field(pid, "rating", new_rating)
+            await attach_wdtagger_results(posts, tag_groups, pid, resp, is_auto=True)
+        except (UnidentifiedImageError, OSError) as exc:
+            logger.warning(f"[tagger] skipping unreadable image {pid} ({abs_path}): {exc}")
+        except Exception:
+            logger.exception(f"[tagger] post {pid} ({abs_path})")
+
+
+def _update_ratings(posts: PostRepo, updates: list[tuple[int, int]]) -> None:
+    posts.cur.executemany(
+        "UPDATE posts SET rating = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?",
+        [(rating, pid) for pid, rating in updates],
+    )
+
+
+async def _process_waifu_batch(posts: PostRepo, post_ids: list[int]) -> None:
+    from ai.waifu_scorer import get_waifu_scorer  # noqa: PLC0415  # lazy: defer ML stack load
+
+    scorer = get_waifu_scorer()
+    posts_map = await posts.get_many(post_ids)
+    items: list[tuple[int, Path]] = []
+    for pid in post_ids:
+        post = posts_map.get(pid)
+        if post is None:
+            continue
+        abs_path = post.absolute_path
+        if abs_path.suffix.lower() not in IMAGE_EXTS or not abs_path.exists():
+            continue
+        items.append((pid, abs_path))
+    if not items:
+        return
+
+    paths = [p for _, p in items]
+    try:
+        results = await asyncio.to_thread(scorer, paths)
+    except Exception as exc:
+        # One bad image can break the whole batch decode; fall back to one-by-one
+        # so the other 31 don't get dropped on the floor.
+        logger.warning(f"[waifu] batch scoring failed ({exc!s}); retrying per-image")
+        for pid, path in items:
+            try:
+                single = await asyncio.to_thread(scorer, [path])
+                await posts.upsert_waifu_score(pid, float(single[0]))
+            except (UnidentifiedImageError, OSError) as exc:
+                # Known unreadable / truncated file — already noisy enough as
+                # one line; the stack trace adds no information.
+                logger.warning(f"[waifu] skipping unreadable image {pid} ({path}): {exc}")
+            except Exception:
+                logger.exception(f"[waifu] post {pid} ({path})")
+        return
+
+    for (pid, _), result in zip(items, results, strict=True):
+        await posts.upsert_waifu_score(pid, float(result))
+
+
+# ─── Basics compute / persist helpers ───────────────────────────────────
 
 
 def _compute_basics_for(post: Post, file_abs_path: Path) -> dict | None:
-    """Compute sha256/thumbhash/dimensions/colors/dom_color for one image.
+    """Compute sha256 / thumbhash / dimensions / palette / dominant_color.
 
-    Returns ``None`` if neither sha256 nor thumbhash is missing (nothing to do).
-    Raises on real I/O / decode failures so the caller can decide what to do.
+    Returns ``None`` when everything is already filled in (nothing to do).
+    Raises on real I/O / decode failures so callers can decide what to do.
     """
     needs_sha256 = not post.sha256
     needs_thumbhash = not post.thumbhash
-    if not needs_sha256 and not needs_thumbhash:
+    needs_color = post.dominant_color is None
+    if not (needs_sha256 or needs_thumbhash or needs_color):
         return None
 
     with file_abs_path.open("rb") as f:
         file_data = f.read() if needs_sha256 else None
         f.seek(0)
+        # Note: no img.verify() here — verify() ignores LOAD_TRUNCATED_IMAGES
+        # and rejects partially-downloaded files even though decode below
+        # handles them fine. Any genuine "not an image" file will still
+        # fail at Image.open() and bubble up to the batch caller.
         with Image.open(f) as img:
-            img.verify()
             width, height = img.size
+
             relative = file_abs_path.relative_to(shared.target_dir)
             thumb_path = shared.thumbnails_dir / relative
             if not thumb_path.exists():
                 thumb_path.parent.mkdir(parents=True, exist_ok=True)
-                create_thumbnail(file_abs_path, thumb_path)
-        f.seek(0)
-        colors_ints, dom_lab = _extract_colors(post.id, f)
+                create_thumbnail_by_image(img, thumb_path)
+
+            thumbhash = calculate_thumbhash(img) if needs_thumbhash else None
+            colors_ints, dom_lab = _extract_colors(post.id, img) if needs_color else ([], None)
 
     return {
         "sha256": calculate_sha256(file_data) if (file_data and needs_sha256) else None,
         "size": file_abs_path.stat().st_size if needs_sha256 else None,
-        "thumbhash": calculate_thumbhash(file_abs_path) if needs_thumbhash else None,
+        "thumbhash": thumbhash,
         "width": width,
         "height": height,
         "colors": colors_ints,
@@ -284,19 +603,11 @@ def _compute_basics_for(post: Post, file_abs_path: Path) -> dict | None:
     }
 
 
-# ─── Persist (batched DB write, runs in one thread) ──────────────────────
-
-
 def _persist_basics_batch(
     posts: PostRepo,
     valid: list[tuple[Post, Any, dict]],
 ) -> None:
-    """Write a batch of compute results in one round of executemany calls.
-
-    DuckDB charges per-statement (and per-rewritten-row), so collapsing N
-    posts x 4 UPDATEs into one ``executemany`` per logical write target is
-    the main speedup over the row-by-row pipeline.
-    """
+    """Write a batch of compute results in one round of executemany calls."""
     if not valid:
         return
     cur = posts.cur
@@ -324,16 +635,18 @@ def _persist_basics_batch(
             sha256 = COALESCE(?, sha256),
             size = CASE WHEN ? IS NULL THEN size ELSE ? END,
             thumbhash = COALESCE(?, thumbhash),
-            updated_at = now()
+            updated_at = CURRENT_TIMESTAMP
         WHERE id = ?
         """,
         main_rows,
     )
 
-    # dominant_color: HNSW-safe path (NULL → value only). Skip rows that
-    # didn't compute a value at all.
+    # dominant_color: store as sqlite-vec serialized FLOAT[3] BLOB. Restrict
+    # to NULL → value so we don't overwrite already-computed colors.
+    import sqlite_vec  # noqa: PLC0415
+
     dom_rows = [
-        (list(b["dominant_lab"]), post.id)
+        (sqlite_vec.serialize_float32(list(b["dominant_lab"])), post.id)
         for post, _, b in valid
         if b["dominant_lab"] is not None
     ]
@@ -363,31 +676,6 @@ def _persist_basics_batch(
         )
 
 
-# ─── GPU pipeline (per-image, sequential — single GPU) ───────────────────
-
-
-async def _run_gpu_pipeline(
-    posts: PostRepo,
-    vectors: VectorRepo,
-    tag_groups: TagGroupRepo,
-    post: Post,
-    file_abs_path: Path,
-) -> None:
-    """Compute CLIP embedding and WDTagger tags for one freshly hashed post."""
-    from ai.clip import calculate_image_features  # noqa: PLC0415  # lazy: defer ML stack load until first use
-
-    features = await asyncio.to_thread(calculate_image_features, file_abs_path)
-    embedding = features.cpu().numpy()[0].astype(np.float32)
-    await vectors.upsert(post.id, embedding)
-
-    tagger = get_tagger()
-    resp = await asyncio.to_thread(tagger.tag, file_abs_path)
-    new_rating = from_rating_to_int(resp.rating)
-    if post.rating == 0 and new_rating != 0:
-        await posts.update_field(post.id, "rating", new_rating)
-    await attach_wdtagger_results(posts, tag_groups, post.id, resp, is_auto=True)
-
-
 # ─── Color helpers ───────────────────────────────────────────────────────
 
 
@@ -396,14 +684,19 @@ def _rgb_to_lab(rgb_tuple: tuple[int, int, int]) -> np.ndarray:
     return color.rgb2lab(rgb_norm.reshape(1, 1, 3)).reshape(3)
 
 
-def _extract_colors(post_id: int, file: BufferedReader) -> tuple[list[int], np.ndarray | None]:
-    """Return (palette_ints, dominant_color_lab)."""
+def _extract_colors(post_id: int, img: Image.Image) -> tuple[list[int], np.ndarray | None]:
+    """Return (palette_ints, dominant_color_lab) from an already-decoded image.
+
+    ColorThief's ``get_color`` is literally ``get_palette(...)[0]``, so the
+    previous "call get_palette_ints then call get_dominant_color" sequence
+    was doing the median-cut clustering twice. Compute the palette once,
+    derive both outputs from it.
+    """
     try:
-        palette = get_palette_ints(file)
-        file.seek(0)
-        rgb_dom = get_dominant_color(file)
-        lab = _rgb_to_lab(rgb_dom)
-        return list(palette), lab
+        palette = get_palette(img)
     except Exception as exc:
         logger.warning(f"Color extraction failed for post {post_id}: {exc}")
         return [], None
+    ints = [rgb2int(rgb) for rgb in palette]
+    lab = _rgb_to_lab(palette[0]) if palette else None
+    return ints, lab

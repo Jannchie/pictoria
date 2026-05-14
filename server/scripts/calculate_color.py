@@ -3,16 +3,19 @@
 Run from server/ dir:
     uv run python scripts/calculate_color.py
 
-Reads from the DuckDB at ``illustration/images/.pictoria/pictoria.duckdb``.
+Reads from the SQLite at ``illustration/images/.pictoria/pictoria.sqlite``.
 Workers read image bytes + compute dominant_color in parallel; the main
-thread serializes all UPDATEs (DuckDB writes can't be concurrent).
+thread serializes all UPDATEs (SQLite has a single writer at a time).
 """
 
 from __future__ import annotations
 
+import sqlite3
 import sys
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
+
+import sqlite_vec
 
 if hasattr(sys.stdout, "reconfigure"):
     sys.stdout.reconfigure(encoding="utf-8", errors="replace")
@@ -21,14 +24,13 @@ if hasattr(sys.stdout, "reconfigure"):
 SERVER_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(SERVER_ROOT / "src"))
 
-import duckdb
 import numpy as np
 from rich.progress import track
 from skimage import color
 
 from tools.colors import get_dominant_color
 
-DEFAULT_DB = SERVER_ROOT / "illustration" / "images" / ".pictoria" / "pictoria.duckdb"
+DEFAULT_DB = SERVER_ROOT / "illustration" / "images" / ".pictoria" / "pictoria.sqlite"
 TARGET_DIR = SERVER_ROOT / "illustration" / "images"
 MAX_WORKERS = 8
 
@@ -53,7 +55,11 @@ def main() -> int:
         print(f"ERROR: DB not found at {db_path}")
         return 1
 
-    conn = duckdb.connect(str(db_path))
+    conn = sqlite3.connect(str(db_path), timeout=30.0)
+    conn.enable_load_extension(True)
+    sqlite_vec.load(conn)
+    conn.enable_load_extension(False)
+
     rows = conn.execute(
         "SELECT id, full_path FROM posts WHERE dominant_color IS NULL",
     ).fetchall()
@@ -73,9 +79,11 @@ def main() -> int:
     print(f"writing {len(pending)} updates...")
     for pid, lab in pending.items():
         conn.execute(
-            "UPDATE posts SET dominant_color = ?, updated_at = now() WHERE id = ?",
-            [lab, pid],
+            "UPDATE posts SET dominant_color = ?, updated_at = CURRENT_TIMESTAMP "
+            "WHERE id = ? AND dominant_color IS NULL",
+            [sqlite_vec.serialize_float32(lab), pid],
         )
+    conn.commit()
     conn.close()
     print("done")
     return 0

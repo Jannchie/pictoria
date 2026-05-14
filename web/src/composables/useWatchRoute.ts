@@ -12,7 +12,17 @@ export function useWatchRoute() {
         else {
           postFilter.value.folder = route.params.folder
         }
+        break
+      }
+      case 'all': {
+        postFilter.value.folder = undefined
+        break
+      }
+      default: {
+        if (route.path === '/' || route.path === '/random') {
+          postFilter.value.folder = undefined
+        }
       }
     }
-  })
+  }, { immediate: true })
 }

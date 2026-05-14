@@ -206,6 +206,18 @@ const folderStr = computed(() => {
   </div>
 </template>
 
+<style scoped>
+.hover-target {
+  display: none;
+}
+.hover-source:hover > .hover-target {
+  display: block;
+}
+</style>
+
+<!-- splitpanes overrides must be global: the third-party component's internal
+     class names (.splitpanes__splitter, .splitpanes__pane) live outside this
+     component's scope, so scoped selectors cannot reach them. -->
 <style>
 .splitpanes__splitter:hover:before {
   opacity: 1;
@@ -218,12 +230,5 @@ const folderStr = computed(() => {
 }
 .splitpanes__splitter {
   width: 4px;
-}
-
-.hover-target {
-  display: none;
-}
-.hover-source:hover > .hover-target {
-  display: block;
 }
 </style>

@@ -1,12 +1,13 @@
 """Reconcile filesystem files with the posts table.
 
-Native DuckDB version: takes a PostRepo and runs sync DB work via
-``asyncio.to_thread`` to stay event-loop friendly.
+Bulk version: a single INSERT executemany for new files, a single
+``delete_many(ids)`` for removals, file unlinks done in batch. Used to be
+``for triple in deltas: await one_at_a_time(...)`` — that meant 2-3 cursor
+round-trips per file, which dominated the wall-clock cost of a 100k+ scan.
 """
 
 from __future__ import annotations
 
-import asyncio
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -21,41 +22,27 @@ async def remove_deleted_files(
     posts: PostRepo,
     *,
     os_tuples_set: set[tuple[str, str, str]],
-    db_tuples_set: set[tuple[str, str, str]],
+    db_path_to_id: dict[tuple[str, str, str], int],
 ) -> None:
-    deleted = db_tuples_set - os_tuples_set
+    deleted = set(db_path_to_id.keys()) - os_tuples_set
     if not deleted:
         return
     logger.info(f"Detected {len(deleted)} files have been deleted")
-    for path_name_ext in deleted:
-        await _delete_by_triple(posts, path_name_ext)
+
+    ids = [db_path_to_id[triple] for triple in deleted]
+    await posts.delete_many(ids)
+
+    # Unlink thumbnails + source files. These are best-effort: if the source
+    # is already gone (which is the usual reason it shows up in deleted),
+    # ``unlink(missing_ok=True)`` simply succeeds.
+    for file_path, file_name, extension in deleted:
+        relative = Path(file_path) / file_name
+        if extension:
+            relative = relative.with_suffix(f".{extension}")
+        (shared.thumbnails_dir / relative).unlink(missing_ok=True)
+        (shared.target_dir / relative).unlink(missing_ok=True)
+
     logger.info("Deleted files from database")
-
-
-async def _delete_by_triple(posts: PostRepo, triple: tuple[str, str, str]) -> None:
-    file_path, file_name, extension = triple
-
-    def _find_and_delete() -> int | None:
-        posts.cur.execute(
-            "SELECT id FROM posts WHERE file_path = ? AND file_name = ? AND extension = ?",
-            [file_path, file_name, extension],
-        )
-        row = posts.cur.fetchone()
-        return row[0] if row else None
-
-    pid = await asyncio.to_thread(_find_and_delete)
-    if pid is not None:
-        await posts.delete_one(pid)
-    # remove thumbnail + (if intended) source file from disk
-    relative = Path(file_path) / file_name
-    if extension:
-        relative = relative.with_suffix(f".{extension}")
-    thumb = shared.thumbnails_dir / relative
-    source = shared.target_dir / relative
-    if thumb.exists():
-        thumb.unlink()
-    if source.exists():
-        source.unlink()
 
 
 async def add_new_files(
@@ -68,10 +55,5 @@ async def add_new_files(
     if not new_files:
         return
     logger.info(f"Detected {len(new_files)} new files")
-    for file_path, file_name, extension in new_files:
-        await posts.create(
-            file_path=file_path,
-            file_name=file_name,
-            extension=extension,
-        )
+    await posts.create_paths(list(new_files))
     logger.info("Added new files to database")

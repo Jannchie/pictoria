@@ -3,7 +3,7 @@ import type { PostSimplePublic } from '@/api'
 import { thumbHashToDataURL } from 'thumbhash'
 import { computed, ref } from 'vue'
 import { hideNSFW, selectedPostIdSet, selectingPostIdSet, unselectedPostIdSet } from '@/shared'
-import { getPostThumbnailURL } from '@/utils'
+import { getPostThumbnailURL, isImageExtension } from '@/utils'
 import { colorNumToHex, labToRgbaString } from '@/utils/color'
 
 const props = defineProps<{
@@ -53,10 +53,9 @@ const selected = computed(() => {
   return (selectedPostIdSet.value.has(post.value.id) || selectingPostIdSet.value.has(post.value.id)) && !unselectedPostIdSet.value.has(post.value.id)
 })
 
-const IMAGE_EXTS = new Set(['jpg', 'jpeg', 'png', 'gif', 'webp', 'avif', 'bmp', 'tiff', 'tif', 'svg'])
-const isImage = computed(() => IMAGE_EXTS.has(post.value.extension.toLowerCase()))
+const isImage = computed(() => isImageExtension(post.value.extension))
 const aspectRatio = computed(() => {
-  if (post.value.width && post.value.height) {
+  if (isImage.value && post.value.width && post.value.height) {
     return post.value.width / post.value.height
   }
   return 1
@@ -214,13 +213,16 @@ function onContextmenu(e: MouseEvent) {
     <PAspectRatio
       v-else
       :ratio="1"
-      class="post-content h-full w-full rounded-lg bg-bg"
+      class="w-full rounded-lg bg-surface-1"
     >
-      <div class="p-12">
+      <div class="post-content flex flex-col items-center justify-center gap-2 rounded-lg text-fg-muted">
         <i
-          class="h-full w-full"
+          class="text-5xl"
           :class="getIconByExtension(post.extension)"
         />
+        <div class="text-xs tracking-wider font-mono uppercase">
+          {{ post.extension }}
+        </div>
       </div>
     </PAspectRatio>
     <div class="w-full flex flex-col text-center text-xs text-fg">
@@ -249,9 +251,6 @@ function onContextmenu(e: MouseEvent) {
     box-shadow var(--p-duration-fast) var(--p-ease);
   outline: 2px solid transparent;
   outline-offset: 2px;
-}
-.post-item:hover .post-content {
-  box-shadow: var(--p-shadow-md);
 }
 .selected .post-content {
   outline-color: var(--p-primary);
