@@ -2,7 +2,7 @@
 import type { PostSimplePublic } from '@/api'
 import { useElementBounding, useMouse } from '@vueuse/core'
 import { computed, ref, watchEffect } from 'vue'
-import { showPostDetail } from '@/shared'
+import { currentPostList, showPostDetail } from '@/shared'
 import { getPostImageURL } from '@/utils'
 
 const props = defineProps<{
@@ -193,6 +193,84 @@ function toggleFlipVertical() {
 
 onKeyStroke('Escape', () => {
   showPostDetail.value = null
+})
+
+function navigateDetail(delta: -1 | 1) {
+  const list = currentPostList.value
+  if (list.length === 0) {
+    return
+  }
+  const idx = list.findIndex(p => p.id === post.value.id)
+  if (idx === -1) {
+    return
+  }
+  const nextIdx = Math.max(0, Math.min(list.length - 1, idx + delta))
+  if (nextIdx === idx) {
+    return
+  }
+  showPostDetail.value = list[nextIdx]
+}
+
+function zoomBy(factor: number) {
+  const mouseX = imgWrapperWidth.value / 2
+  const mouseY = imgWrapperHeight.value / 2
+  const newScale = Math.max(0.1, Math.min(8, scale.value * factor))
+  const rounded = Math.round(newScale * 100) / 100
+  adjustForScaling(rounded, mouseX, mouseY)
+  scale.value = rounded
+}
+
+const activeElementInDetail = useActiveElement()
+const notUsingInputDetail = computed(() =>
+  activeElementInDetail.value?.tagName !== 'INPUT'
+  && activeElementInDetail.value?.tagName !== 'TEXTAREA')
+
+onKeyStroke(['ArrowLeft', 'ArrowRight'], (e) => {
+  if (!notUsingInputDetail.value) {
+    return
+  }
+  e.preventDefault()
+  navigateDetail(e.key === 'ArrowRight' ? 1 : -1)
+})
+
+onKeyStroke(['+', '='], (e) => {
+  if (!notUsingInputDetail.value) {
+    return
+  }
+  e.preventDefault()
+  zoomBy(1.1)
+})
+
+onKeyStroke('-', (e) => {
+  if (!notUsingInputDetail.value) {
+    return
+  }
+  e.preventDefault()
+  zoomBy(1 / 1.1)
+})
+
+onKeyStroke('0', (e) => {
+  if (!notUsingInputDetail.value) {
+    return
+  }
+  e.preventDefault()
+  toInit()
+})
+
+onKeyStroke('\\', (e) => {
+  if (!notUsingInputDetail.value) {
+    return
+  }
+  e.preventDefault()
+  to1x()
+})
+
+onKeyStroke(['f', 'F'], (e) => {
+  if (!notUsingInputDetail.value) {
+    return
+  }
+  e.preventDefault()
+  toggleFlipVertical()
 })
 </script>
 

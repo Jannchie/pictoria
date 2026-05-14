@@ -9,7 +9,7 @@ import { Waterfall } from 'vue-wf'
 import { v2DeletePosts, v2SearchPostsByText } from '@/api'
 import { useRotateImageMutation } from '@/composables/mutations/useRotateImageMutation'
 import { useElementOffset } from '@/composables/useElementOffset'
-import { selectedPostIdSet, selectingPostIdSet, textSearchQuery, unselectedPostIdSet as unselectingPostId, updateScoreForSelectedPosts, useInfinityPostsQuery, waterfallRowCount } from '@/shared'
+import { currentPostList, selectedPostIdSet, selectingPostIdSet, showPostDetail, textSearchQuery, unselectedPostIdSet as unselectingPostId, updateScoreForSelectedPosts, useInfinityPostsQuery, waterfallRowCount } from '@/shared'
 import { isImageExtension } from '@/utils'
 
 const route = useRoute()
@@ -132,6 +132,97 @@ const activeElement = useActiveElement()
 const notUsingInput = computed(() =>
   activeElement.value?.tagName !== 'INPUT'
   && activeElement.value?.tagName !== 'TEXTAREA')
+
+// Keep the shared list in sync so PostDetail / Post.vue can navigate prev/next
+watchEffect(() => {
+  currentPostList.value = posts.value
+})
+
+const canHandleGridKeys = computed(() => notUsingInput.value && !showPostDetail.value)
+
+function scrollSelectedIntoView(postId: number) {
+  // Defer to next tick so the DOM has the selection update committed.
+  requestAnimationFrame(() => {
+    document.querySelector(`#post-item-${postId}`)?.scrollIntoView({
+      block: 'nearest',
+      behavior: 'smooth',
+    })
+  })
+}
+
+function moveSelection(delta: number) {
+  if (posts.value.length === 0) {
+    return
+  }
+  const ids = posts.value.map(p => p.id).filter((id): id is number => id !== undefined)
+  if (ids.length === 0) {
+    return
+  }
+  const current = [...selectedPostIdSet.value].filter((id): id is number => id !== undefined)
+  let nextIdx: number
+  if (current.length === 0) {
+    nextIdx = delta > 0 ? 0 : ids.length - 1
+  }
+  else {
+    // Anchor on the last interacted id; if multiple selected, use the last.
+    const anchor = current.at(-1)!
+    const idx = ids.indexOf(anchor)
+    nextIdx = Math.max(0, Math.min(ids.length - 1, (idx === -1 ? 0 : idx) + delta))
+  }
+  const nextId = ids[nextIdx]
+  selectedPostIdSet.value = new Set([nextId])
+  // Drop stale post_id from the URL so the watch effect does not fight us.
+  if (route.query.post_id !== undefined) {
+    const currentQuery = { ...route.query }
+    delete currentQuery.post_id
+    router.replace({ query: currentQuery })
+  }
+  scrollSelectedIntoView(nextId)
+}
+
+onKeyStroke(['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown'], (e) => {
+  if (!canHandleGridKeys.value) {
+    return
+  }
+  const colCount = Math.max(1, cols.value)
+  let delta = 0
+  switch (e.key) {
+    case 'ArrowLeft': { delta = -1
+      break }
+    case 'ArrowRight': { delta = 1
+      break }
+    case 'ArrowUp': { delta = -colCount
+      break }
+    case 'ArrowDown': { delta = colCount
+      break }
+  }
+  if (delta === 0) {
+    return
+  }
+  e.preventDefault()
+  moveSelection(delta)
+})
+
+onKeyStroke('Enter', (e) => {
+  if (!canHandleGridKeys.value) {
+    return
+  }
+  const ids = [...selectedPostIdSet.value].filter((id): id is number => id !== undefined)
+  if (ids.length !== 1) {
+    return
+  }
+  e.preventDefault()
+  router.push(`/post/${ids[0]}`)
+})
+
+onKeyStroke('Escape', () => {
+  if (!canHandleGridKeys.value) {
+    return
+  }
+  if (selectedPostIdSet.value.size > 0) {
+    selectedPostIdSet.value = new Set()
+  }
+})
 
 // Add keyboard shortcuts for batch rating
 const { 1: one, 2: two, 3: three, 4: four, 5: five } = useMagicKeys()

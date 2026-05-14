@@ -47,7 +47,7 @@ html.is-theme-switching *::after {
 
   /* Typography */
   --p-font-sans-latin: 'Inter', 'Segoe UI', system-ui, sans-serif;
-  --p-font-mono-latin: ui-monospace, SFMono-Regular, Menlo, Consolas, 'Share Tech Mono';
+  --p-font-mono-latin: 'Berkeley Mono', ui-monospace, SFMono-Regular, Menlo, Consolas, 'Share Tech Mono';
   --p-font-sans: 'HarmonyOS Sans SC', 'PingFang SC', 'Microsoft YaHei UI', 'Sarasa Gothic SC', 'Noto Sans SC', var(--p-font-sans-latin);
   --p-font-mono: var(--p-font-mono-latin), 'HarmonyOS Sans SC', 'PingFang SC', 'Microsoft YaHei UI', monospace;
 

@@ -67,16 +67,19 @@ export default defineConfig({
       sans: 'var(--p-font-sans)',
       mono: 'var(--p-font-mono)',
     },
+    // Pair every font-size with a non-unit line-height. presetWind3 defaults
+    // bare `text-*` rules to `line-height: 1`, which clips descenders (j, g,
+    // p, q, y) inside any element with `overflow: hidden` / `truncate`.
     fontSize: {
-      'xs': 'var(--p-text-xs)',
-      'sm': 'var(--p-text-sm)',
-      'base': 'var(--p-text-base)',
-      'md': 'var(--p-text-md)',
-      'lg': 'var(--p-text-lg)',
-      'xl': 'var(--p-text-xl)',
-      '2xl': 'var(--p-text-2xl)',
-      '3xl': 'var(--p-text-3xl)',
-      '4xl': 'var(--p-text-4xl)',
+      'xs': ['var(--p-text-xs)', 'var(--p-leading-normal)'],
+      'sm': ['var(--p-text-sm)', 'var(--p-leading-normal)'],
+      'base': ['var(--p-text-base)', 'var(--p-leading-normal)'],
+      'md': ['var(--p-text-md)', 'var(--p-leading-normal)'],
+      'lg': ['var(--p-text-lg)', 'var(--p-leading-snug)'],
+      'xl': ['var(--p-text-xl)', 'var(--p-leading-snug)'],
+      '2xl': ['var(--p-text-2xl)', 'var(--p-leading-snug)'],
+      '3xl': ['var(--p-text-3xl)', 'var(--p-leading-tight)'],
+      '4xl': ['var(--p-text-4xl)', 'var(--p-leading-tight)'],
     },
   },
   shortcuts: {

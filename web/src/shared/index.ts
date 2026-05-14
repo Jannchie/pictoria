@@ -202,6 +202,10 @@ export function openTagSelectorWindow() {
 
 export const showPostDetail = ref<PostSimplePublic | null>(null)
 
+// Ordered list of posts currently visible/in-context. Producers (MainSection,
+// Post page) write to this so keyboard navigation can move prev/next.
+export const currentPostList = ref<PostSimplePublic[]>([])
+
 export const menuData = ref<any | null>(null)
 export const showMenu = computed({ get: () => !!menuData.value, set: (value) => {
   if (!value) {

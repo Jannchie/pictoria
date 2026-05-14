@@ -1,12 +1,13 @@
 <script setup lang="ts">
 import { thumbHashToDataURL } from 'thumbhash'
-import { useRoute } from 'vue-router'
+import { useRoute, useRouter } from 'vue-router'
 import PostDetail from '@/components/PostDetail.vue'
-import { bottomBarInfo, showPostDetail } from '@/shared'
+import { bottomBarInfo, currentPostList, showPostDetail } from '@/shared'
 import { getPostImageURL } from '@/utils'
 import { colorNumToHex } from '@/utils/color'
 
 const route = useRoute()
+const router = useRouter()
 const postId = computed(() => Number.parseInt(route.params.postId as string))
 const postQuery = usePostQuery(postId)
 const post = computed(() => postQuery.data.value)
@@ -106,6 +107,62 @@ watchEffect(() => {
   if (postQuery.data.value) {
     bottomBarInfo.value = `Post ID: ${postQuery.data.value.id}, File Name: ${postQuery.data.value.fileName}`
   }
+})
+
+const activeElement = useActiveElement()
+const notUsingInput = computed(() =>
+  activeElement.value?.tagName !== 'INPUT'
+  && activeElement.value?.tagName !== 'TEXTAREA')
+
+function openOverlay() {
+  const p = post.value
+  if (!p) {
+    return
+  }
+  showPostDetail.value = { ...p, width: p.width ?? 0, height: p.height ?? 0 }
+}
+
+function navigatePost(delta: -1 | 1) {
+  const list = currentPostList.value
+  if (list.length === 0) {
+    return
+  }
+  const idx = list.findIndex(p => p.id === postId.value)
+  if (idx === -1) {
+    return
+  }
+  const nextIdx = Math.max(0, Math.min(list.length - 1, idx + delta))
+  if (nextIdx === idx) {
+    return
+  }
+  const next = list[nextIdx]
+  if (next?.id !== undefined) {
+    router.push(`/post/${next.id}`)
+  }
+}
+
+onKeyStroke('Escape', (e) => {
+  if (!notUsingInput.value || showPostDetail.value) {
+    return
+  }
+  e.preventDefault()
+  router.back()
+})
+
+onKeyStroke(['ArrowLeft', 'ArrowRight'], (e) => {
+  if (!notUsingInput.value || showPostDetail.value) {
+    return
+  }
+  e.preventDefault()
+  navigatePost(e.key === 'ArrowRight' ? 1 : -1)
+})
+
+onKeyStroke([' ', 'Enter'], (e) => {
+  if (!notUsingInput.value || showPostDetail.value) {
+    return
+  }
+  e.preventDefault()
+  openOverlay()
 })
 </script>
 
