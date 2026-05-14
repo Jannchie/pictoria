@@ -1,10 +1,14 @@
-import { defineConfig, presetIcons, presetWind3 } from 'unocss'
+import { defineConfig, presetIcons, presetWind4 } from 'unocss'
 
-const color = (name: string) => `rgb(var(--p-${name}-rgb) / <alpha-value>)`
+// wind4 controls utility opacity via color-mix + --un-*-opacity, so theme
+// colors must be plain valid CSS (no `<alpha-value>` placeholder — wind4
+// doesn't substitute it and leaves the literal in the output, which makes
+// the whole `color-mix(...)` invalid and the utility silently drops).
+const color = (name: string) => `rgb(var(--p-${name}-rgb))`
 
 export default defineConfig({
   presets: [
-    presetWind3(),
+    presetWind4(),
     presetIcons({
       scale: 1.1,
       extraProperties: {
@@ -47,7 +51,7 @@ export default defineConfig({
       'danger': color('danger'),
       'info': color('info'),
     },
-    borderRadius: {
+    radius: {
       'xs': 'var(--p-radius-xs)',
       'sm': 'var(--p-radius-sm)',
       'DEFAULT': 'var(--p-radius-md)',
@@ -57,29 +61,29 @@ export default defineConfig({
       '2xl': 'var(--p-radius-2xl)',
       'full': 'var(--p-radius-full)',
     },
-    boxShadow: {
-      sm: 'var(--p-shadow-sm)',
-      DEFAULT: 'var(--p-shadow-md)',
-      md: 'var(--p-shadow-md)',
-      lg: 'var(--p-shadow-lg)',
+    shadow: {
+      'sm': 'var(--p-shadow-sm)',
+      'DEFAULT': 'var(--p-shadow-md)',
+      'md': 'var(--p-shadow-md)',
+      'lg': 'var(--p-shadow-lg)',
     },
-    fontFamily: {
+    font: {
       sans: 'var(--p-font-sans)',
       mono: 'var(--p-font-mono)',
     },
-    // Pair every font-size with a non-unit line-height. presetWind3 defaults
-    // bare `text-*` rules to `line-height: 1`, which clips descenders (j, g,
-    // p, q, y) inside any element with `overflow: hidden` / `truncate`.
-    fontSize: {
-      'xs': ['var(--p-text-xs)', 'var(--p-leading-normal)'],
-      'sm': ['var(--p-text-sm)', 'var(--p-leading-normal)'],
-      'base': ['var(--p-text-base)', 'var(--p-leading-normal)'],
-      'md': ['var(--p-text-md)', 'var(--p-leading-normal)'],
-      'lg': ['var(--p-text-lg)', 'var(--p-leading-snug)'],
-      'xl': ['var(--p-text-xl)', 'var(--p-leading-snug)'],
-      '2xl': ['var(--p-text-2xl)', 'var(--p-leading-snug)'],
-      '3xl': ['var(--p-text-3xl)', 'var(--p-leading-tight)'],
-      '4xl': ['var(--p-text-4xl)', 'var(--p-leading-tight)'],
+    // wind4 reads `text.<size>.{fontSize, lineHeight, letterSpacing}` directly
+    // (see preset-wind4 rules.handleText) — both keys must be provided here
+    // to avoid the bare `line-height: 1` that clips descenders.
+    text: {
+      'xs': { fontSize: 'var(--p-text-xs)', lineHeight: 'var(--p-leading-normal)' },
+      'sm': { fontSize: 'var(--p-text-sm)', lineHeight: 'var(--p-leading-normal)' },
+      'base': { fontSize: 'var(--p-text-base)', lineHeight: 'var(--p-leading-normal)' },
+      'md': { fontSize: 'var(--p-text-md)', lineHeight: 'var(--p-leading-normal)' },
+      'lg': { fontSize: 'var(--p-text-lg)', lineHeight: 'var(--p-leading-snug)' },
+      'xl': { fontSize: 'var(--p-text-xl)', lineHeight: 'var(--p-leading-snug)' },
+      '2xl': { fontSize: 'var(--p-text-2xl)', lineHeight: 'var(--p-leading-snug)' },
+      '3xl': { fontSize: 'var(--p-text-3xl)', lineHeight: 'var(--p-leading-tight)' },
+      '4xl': { fontSize: 'var(--p-text-4xl)', lineHeight: 'var(--p-leading-tight)' },
     },
   },
   shortcuts: {
