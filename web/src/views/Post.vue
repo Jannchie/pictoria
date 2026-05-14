@@ -1,7 +1,7 @@
 <script setup lang="ts">
+import { thumbHashToDataURL } from 'thumbhash'
 import { useRoute } from 'vue-router'
 import PostDetail from '@/components/PostDetail.vue'
-import Image from '@/roku/Image.vue'
 import { bottomBarInfo, showPostDetail } from '@/shared'
 import { getPostImageURL } from '@/utils'
 import { colorNumToHex } from '@/utils/color'
@@ -11,6 +11,8 @@ const postId = computed(() => Number.parseInt(route.params.postId as string))
 const postQuery = usePostQuery(postId)
 const post = computed(() => postQuery.data.value)
 const scrollAreaRef = ref<HTMLElement>()
+const imgRef = ref<HTMLImageElement>()
+const imageLoaded = ref(false)
 
 function getPostColor(post: { colors: { color: number, order: number }[] }) {
   if (post.colors && post.colors.length > 0) {
@@ -20,6 +22,85 @@ function getPostColor(post: { colors: { color: number, order: number }[] }) {
   }
   return 'primary'
 }
+
+const thumbhashDataUrl = computed(() => {
+  const hash = post.value?.thumbhash
+  if (!hash) {
+    return null
+  }
+  try {
+    const bytes = Uint8Array.from(atob(hash), char => char.codePointAt(0) ?? 0)
+    return thumbHashToDataURL(bytes)
+  }
+  catch (error) {
+    console.warn(`Failed to decode thumbhash for post ${post.value?.id}:`, error)
+    return null
+  }
+})
+
+const imageAspectRatio = computed(() => {
+  const p = post.value
+  if (!p) {
+    return null
+  }
+  if (p.aspectRatio) {
+    return p.aspectRatio
+  }
+  if (p.width && p.height) {
+    return p.width / p.height
+  }
+  return null
+})
+
+const containerStyle = computed(() => {
+  const p = post.value
+  if (!p) {
+    return {}
+  }
+  const style: Record<string, string> = {}
+  const ratio = imageAspectRatio.value
+  if (ratio) {
+    style.aspectRatio = String(ratio)
+    const widthCaps = ['100%', `calc(80vh * ${ratio})`]
+    if (p.width) {
+      widthCaps.unshift(`${p.width}px`)
+    }
+    style.width = `min(${widthCaps.join(', ')})`
+  }
+  else {
+    style.width = '100%'
+    if (p.width) {
+      style.maxWidth = `${p.width}px`
+    }
+  }
+  if (thumbhashDataUrl.value) {
+    style.backgroundImage = `url(${thumbhashDataUrl.value})`
+    style.backgroundSize = 'cover'
+    style.backgroundPosition = 'center'
+    style.backgroundRepeat = 'no-repeat'
+  }
+  else {
+    const color = getPostColor(p)
+    if (color !== 'primary') {
+      style.backgroundColor = color
+    }
+  }
+  return style
+})
+
+function onImageLoad() {
+  imageLoaded.value = true
+}
+
+watch(postId, () => {
+  imageLoaded.value = false
+}, { immediate: true })
+
+onMounted(() => {
+  if (imgRef.value?.complete) {
+    imageLoaded.value = true
+  }
+})
 
 watchEffect(() => {
   if (postQuery.data.value) {
@@ -59,16 +140,28 @@ watchEffect(() => {
       ref="scrollAreaRef"
       class="relative h-full w-full flex flex-grow flex-basis-0 flex-col gap-4"
     >
-      <div class="mx-auto max-h-80% px-2 pt-3">
-        <Image
-          :key="post.id"
-          :src="getPostImageURL(post)"
-          alt="post"
-          :color="getPostColor(post)"
-          rounded="lg"
-          class="cursor-pointer"
+      <div class="flex justify-center px-2 pt-3">
+        <div
+          class="relative cursor-pointer overflow-hidden rounded-lg"
+          :style="containerStyle"
           @click="showPostDetail = { ...post, width: post.width ?? 0, height: post.height ?? 0 }"
-        />
+        >
+          <Transition
+            enter-active-class="transition-opacity duration-300"
+            enter-from-class="opacity-0"
+            enter-to-class="opacity-100"
+          >
+            <img
+              v-show="imageLoaded"
+              :key="post.id"
+              ref="imgRef"
+              :src="getPostImageURL(post)"
+              alt="post"
+              class="block h-full w-full object-contain"
+              @load="onImageLoad"
+            >
+          </Transition>
+        </div>
       </div>
       <SimilarPosts
         v-if="scrollAreaRef"

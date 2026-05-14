@@ -144,6 +144,7 @@ async function applyScoreToSelection(score: number) {
   const selectedIds = [...selectedPostIdSet.value].filter(id => id !== undefined) as number[]
   await updateScoreForSelectedPosts(score)
   queryClient.invalidateQueries({ queryKey: ['count', 'score'] })
+  queryClient.invalidateQueries({ queryKey: ['posts', 'stats'] })
   for (const postId of selectedIds) {
     queryClient.invalidateQueries({ queryKey: ['post', postId] })
   }

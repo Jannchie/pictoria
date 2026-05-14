@@ -102,6 +102,15 @@ class WaifuBucketCountItem:
     count: int
 
 
+class PostStatsResponse(DTOBaseModel):
+    total: int
+    avg_score: float | None
+    scored_count: int
+    avg_waifu_score: float | None
+    waifu_count: int
+    rating_distribution: list[RatingCountItem]
+
+
 T = TypeVar("T")
 
 
@@ -242,6 +251,18 @@ class PostController(Controller):
     async def get_waifu_bucket_count(self, posts: PostRepo, data: PostFilter) -> list[WaifuBucketCountItem]:
         rows = await posts.count_by_waifu_bucket(**_filter_dict(data))
         return [WaifuBucketCountItem(bucket=r["bucket"], count=r["count"]) for r in rows]
+
+    @litestar.post("/stats", status_code=200, description="Aggregate quality stats (avg score, avg waifu, rating distribution) for posts matching filter.")
+    async def get_posts_stats(self, posts: PostRepo, data: PostFilter) -> PostStatsResponse:
+        s = await posts.aggregate_stats(**_filter_dict(data))
+        return PostStatsResponse(
+            total=s["total"],
+            avg_score=s["avg_score"],
+            scored_count=s["scored_count"],
+            avg_waifu_score=s["avg_waifu_score"],
+            waifu_count=s["waifu_count"],
+            rating_distribution=[RatingCountItem(rating=r["rating"], count=r["count"]) for r in s["rating_distribution"]],
+        )
 
     @litestar.put("/{post_id:int}/score")
     async def update_post_score(self, posts: PostRepo, post_id: int, data: ScoreUpdate) -> PostDetailPublic:

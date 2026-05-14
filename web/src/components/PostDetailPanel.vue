@@ -26,6 +26,7 @@ async function onSelectScore(post_id: number, score: number = 0) {
     },
   })
   queryClient.invalidateQueries({ queryKey: ['count', 'score'] })
+  queryClient.invalidateQueries({ queryKey: ['posts', 'stats'] })
   queryClient.invalidateQueries({ queryKey: ['post', post_id] })
 }
 const post = computed(() => props.post)

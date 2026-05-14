@@ -218,6 +218,18 @@ export type PostSimplePublic = {
 };
 
 /**
+ * PostStatsResponse
+ */
+export type PostStatsResponse = {
+    total: number;
+    avgScore?: number | null;
+    scoredCount: number;
+    avgWaifuScore?: number | null;
+    waifuCount: number;
+    ratingDistribution: Array<RatingCountItem>;
+};
+
+/**
  * RatingCountItem
  */
 export type RatingCountItem = {
@@ -608,6 +620,37 @@ export type V2GetPostsCountResponses = {
 };
 
 export type V2GetPostsCountResponse = V2GetPostsCountResponses[keyof V2GetPostsCountResponses];
+
+export type V2GetPostsStatsData = {
+    body: PostFilter;
+    path?: never;
+    query?: never;
+    url: '/v2/posts/stats';
+};
+
+export type V2GetPostsStatsErrors = {
+    /**
+     * Validation Exception
+     */
+    400: {
+        status_code: number;
+        detail: string;
+        extra?: null | {
+            [key: string]: unknown;
+        } | Array<unknown>;
+    };
+};
+
+export type V2GetPostsStatsError = V2GetPostsStatsErrors[keyof V2GetPostsStatsErrors];
+
+export type V2GetPostsStatsResponses = {
+    /**
+     * Request fulfilled, document follows
+     */
+    200: PostStatsResponse;
+};
+
+export type V2GetPostsStatsResponse = V2GetPostsStatsResponses[keyof V2GetPostsStatsResponses];
 
 export type V2GetRatingCountData = {
     body: PostFilter;
@@ -1231,6 +1274,22 @@ export type V2GetWaifuScorerOneResponses = {
 };
 
 export type V2GetWaifuScorerOneResponse = V2GetWaifuScorerOneResponses[keyof V2GetWaifuScorerOneResponses];
+
+export type V2SyncMetadataEndpointData = {
+    body?: never;
+    path?: never;
+    query?: never;
+    url: '/v2/cmd/sync-metadata';
+};
+
+export type V2SyncMetadataEndpointResponses = {
+    /**
+     * Document created, URL follows
+     */
+    201: Result;
+};
+
+export type V2SyncMetadataEndpointResponse = V2SyncMetadataEndpointResponses[keyof V2SyncMetadataEndpointResponses];
 
 export type V2GetOriginalData = {
     body?: never;

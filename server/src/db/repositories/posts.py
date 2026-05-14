@@ -451,6 +451,48 @@ class PostRepo:
 
         return await asyncio.to_thread(_impl)
 
+    async def aggregate_stats(self, **filters: Any) -> dict:
+        """Aggregate post-quality stats for a filter (used by the footer)."""
+
+        def _impl() -> dict:
+            where_clauses, params, joins = _build_filter_clauses(**filters)
+            if not any("post_waifu_scores" in j for j in joins):
+                joins.append("LEFT JOIN post_waifu_scores pws ON pws.post_id = p.id")
+            joins_sql = "\n".join(joins)
+            where_sql = ("WHERE " + " AND ".join(where_clauses)) if where_clauses else ""
+            self.cur.execute(
+                f"""
+                SELECT
+                    count(p.id) AS total,
+                    AVG(CASE WHEN p.score > 0 THEN p.score END) AS avg_score,
+                    count(CASE WHEN p.score > 0 THEN 1 END) AS scored_count,
+                    AVG(pws.score) AS avg_waifu_score,
+                    count(pws.post_id) AS waifu_count
+                FROM posts p {joins_sql} {where_sql}
+                """,  # noqa: S608
+                params,
+            )
+            agg = fetch_one_dict(self.cur) or {}
+            self.cur.execute(
+                f"SELECT p.rating AS rating, count(*) AS count "  # noqa: S608
+                f"FROM posts p {joins_sql} {where_sql} GROUP BY p.rating",
+                params,
+            )
+            rating_rows = fetch_all_dicts(self.cur)
+            return {
+                "total": int(agg.get("total") or 0),
+                "avg_score": agg.get("avg_score"),
+                "scored_count": int(agg.get("scored_count") or 0),
+                "avg_waifu_score": agg.get("avg_waifu_score"),
+                "waifu_count": int(agg.get("waifu_count") or 0),
+                "rating_distribution": [
+                    {"rating": int(r["rating"] or 0), "count": int(r["count"])}
+                    for r in rating_rows
+                ],
+            }
+
+        return await asyncio.to_thread(_impl)
+
     # ─── Mutation: single field ───────────────────────────────────────
     async def update_field(self, post_id: int, field: str, value: Any) -> Post | None:
         if field not in {"score", "rating", "caption", "source", "description", "meta"}:
