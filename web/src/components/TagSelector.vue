@@ -221,20 +221,20 @@ const searchingInitCurrentTags = computed(() => {
 <template>
   <div
     v-if="!postQuery.data.value"
-    class="relative h-96 max-h-96 max-w-96 w-96 flex flex-col border border-border-default rounded bg-bg text-sm text-fg shadow-md"
+    class="text-sm text-fg border border-border-default rounded bg-bg flex flex-col h-96 max-h-96 max-w-96 w-96 shadow-md relative"
   >
-    <div class="h-full w-full flex flex-grow flex-col items-center justify-center text-fg-muted">
-      <i class="i-tabler-tag p-4 text-2xl" />
-      <span class="mt-2 text-xs">
+    <div class="text-fg-muted flex flex-grow flex-col h-full w-full items-center justify-center">
+      <i class="i-tabler-tag text-2xl p-4" />
+      <span class="text-xs mt-2">
         No Post Selected
       </span>
     </div>
   </div>
   <div
     v-else
-    class="h-96 max-h-96 max-w-96 w-96 flex flex-col border border-border-default rounded bg-bg text-sm text-fg shadow-md"
+    class="text-sm text-fg border border-border-default rounded bg-bg flex flex-col h-96 max-h-96 max-w-96 w-96 shadow-md"
   >
-    <div class="flex gap-2 border-b border-border-default p-2">
+    <div class="p-2 border-b border-border-default flex gap-2">
       <PInput
         ref="searchRef"
         v-model="search"
@@ -252,7 +252,7 @@ const searchingInitCurrentTags = computed(() => {
       </PButton>
     </div>
     <div class="flex flex-grow overflow-auto">
-      <div class="w-32 flex-shrink-0 border-r border-border-default p-1">
+      <div class="p-1 border-r border-border-default flex-shrink-0 w-32">
         <ListItem
           v-for="group, i in finalTagGroups"
           :key="i"
@@ -286,7 +286,7 @@ const searchingInitCurrentTags = computed(() => {
           v-if="initCurrentTags.some(tag => isSearchMatch(tag.tagInfo.name))"
           class="border-b border-border-default"
         >
-          <div class="px-3 py-1.5 text-xs text-fg-subtle font-medium tracking-wider uppercase">
+          <div class="text-xs text-fg-subtle tracking-wider font-medium px-3 py-1.5 uppercase">
             Already Selected · {{ searchingInitCurrentTags.length }}
           </div>
           <template
@@ -310,7 +310,7 @@ const searchingInitCurrentTags = computed(() => {
           </template>
         </div>
         <div>
-          <div class="px-3 py-1.5 text-xs text-fg-subtle font-medium tracking-wider uppercase">
+          <div class="text-xs text-fg-subtle tracking-wider font-medium px-3 py-1.5 uppercase">
             All · {{ currentGroupTags.filter(tag => isSearchMatch(tag.name)).length }}
           </div>
           <template
@@ -334,22 +334,22 @@ const searchingInitCurrentTags = computed(() => {
         </div>
         <div
           v-if="displayCurrentGroupTags.length === 100"
-          class="p-1 text-center text-xs op50"
+          class="text-xs p-1 text-center op50"
         >
           Only Show Top 100
         </div>
       </ScrollArea>
     </div>
-    <div class="flex flex-wrap items-center gap-x-3 gap-y-1 border-t border-border-default px-3 py-2 text-xs text-fg-muted">
-      <span class="flex items-center gap-1">
+    <div class="text-xs text-fg-muted px-3 py-2 border-t border-border-default flex flex-wrap gap-x-3 gap-y-1 items-center">
+      <span class="flex gap-1 items-center">
         <kbd>↑</kbd><kbd>↓</kbd>
         <span>navigate</span>
       </span>
-      <span class="flex items-center gap-1">
+      <span class="flex gap-1 items-center">
         <kbd>↵</kbd>
         <span>select</span>
       </span>
-      <span class="flex items-center gap-1">
+      <span class="flex gap-1 items-center">
         <kbd>Tab</kbd>
         <span>switch group</span>
       </span>

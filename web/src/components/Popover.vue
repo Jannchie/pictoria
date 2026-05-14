@@ -148,7 +148,7 @@ onClickOutside(contentRef, (e) => {
     <POverlay
       v-if="showContent && overlay"
       :opacity="0"
-      class="fixed inset-0 z-10"
+      class="inset-0 fixed z-10"
       :style="{ zIndex }"
       @pointerup="active = false"
     />

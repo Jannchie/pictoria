@@ -276,10 +276,10 @@ onKeyStroke(['f', 'F'], (e) => {
 
 <template>
   <div
-    class="absolute inset-0 z-10000 flex flex-col bg-bg"
+    class="bg-bg flex flex-col inset-0 absolute z-10000"
   >
-    <header class="flex items-center justify-between gap-2 border-b border-border-default px-2 py-2">
-      <div class="flex flex-1 basis-0 items-center gap-2 overflow-hidden">
+    <header class="px-2 py-2 border-b border-border-default flex gap-2 items-center justify-between">
+      <div class="flex flex-1 basis-0 gap-2 items-center overflow-hidden">
         <Popover
           position="bottom"
           trigger="hover"
@@ -296,19 +296,19 @@ onKeyStroke(['f', 'F'], (e) => {
             <PSurface
               level="1"
               bordered
-              class="px-2 py-1 text-center text-xs"
+              class="text-xs px-2 py-1 text-center"
             >
               <kbd>Esc</kbd>
-              <span class="ml-1 text-fg-muted">to close</span>
+              <span class="text-fg-muted ml-1">to close</span>
             </PSurface>
           </template>
         </Popover>
-        <span class="truncate text-sm text-fg-muted">
+        <span class="text-sm text-fg-muted truncate">
           {{ `${post.fileName}.${post.extension}` }}
         </span>
       </div>
-      <div class="flex items-center justify-center gap-2">
-        <div class="w-32px text-xs text-fg-muted font-mono tabular-nums">
+      <div class="flex gap-2 items-center justify-center">
+        <div class="text-xs text-fg-muted font-mono w-32px tabular-nums">
           {{ scaleStr }}%
         </div>
         <Slider
@@ -335,7 +335,7 @@ onKeyStroke(['f', 'F'], (e) => {
             <PSurface
               level="1"
               bordered
-              class="px-2 py-1 text-center text-xs"
+              class="text-xs px-2 py-1 text-center"
             >
               initial scale
             </PSurface>
@@ -360,7 +360,7 @@ onKeyStroke(['f', 'F'], (e) => {
     </header>
     <div
       ref="imgWrapperRef"
-      class="relative h-full w-full flex-grow overflow-hidden"
+      class="flex-grow h-full w-full relative overflow-hidden"
       @pointerdown.stop="onPointerDown"
       @pointermove.stop="onPointermove"
       @pointerup.stop="onPointerUp"
@@ -382,7 +382,7 @@ onKeyStroke(['f', 'F'], (e) => {
       >
       <div
         ref="miniMapRef"
-        class="absolute bottom-4 left-4 z-200 overflow-hidden border border-border-strong rounded bg-bg shadow-lg"
+        class="border border-border-strong rounded bg-bg shadow-lg bottom-4 left-4 absolute z-200 overflow-hidden"
         @pointerdown.stop="onMiniMapPointerDown"
         @pointerup.stop="onMiniMapPointerUp"
         @pointermove.stop="onMiniMapPointerMove"
@@ -407,7 +407,7 @@ onKeyStroke(['f', 'F'], (e) => {
           >
           <!-- 显示视口框 -->
           <div
-            class="absolute border-2 border-primary"
+            class="border-2 border-primary absolute"
             :style="{
               width: `${miniMapViewBox.width}px`,
               height: `${miniMapViewBox.height}px`,

@@ -46,26 +46,26 @@ const numberFormat = new Intl.NumberFormat('en-US')
 
 <template>
   <div
-    class="h-24px flex shrink-0 items-center gap-4 border-t border-border-default bg-bg px-3 text-xs text-fg-muted"
+    class="text-xs text-fg-muted px-3 border-t border-border-default bg-bg flex shrink-0 gap-4 h-24px items-center"
   >
     <template v-if="inGalleryView">
-      <span class="flex items-center gap-1">
+      <span class="flex gap-1 items-center">
         <i class="i-tabler-photo text-fg-subtle" />
         <span class="font-mono tabular-nums">{{ numberFormat.format(posts.length) }}</span>
         <span class="text-fg-subtle">displayed</span>
       </span>
       <span
         v-if="selectedPostIdSet.size > 0"
-        class="flex items-center gap-1 text-primary"
+        class="text-primary flex gap-1 items-center"
       >
         <i class="i-tabler-checks" />
         <span class="font-mono tabular-nums">{{ numberFormat.format(selectedPostIdSet.size) }}</span>
         <span>selected</span>
       </span>
       <template v-if="statsQuery.data.value">
-        <span class="h-3 w-px bg-border-subtle" />
+        <span class="bg-border-subtle h-3 w-px" />
         <span
-          class="flex items-center gap-1"
+          class="flex gap-1 items-center"
           :title="`Average human score across ${statsQuery.data.value.scoredCount} scored posts`"
         >
           <i class="i-tabler-star text-fg-subtle" />
@@ -74,7 +74,7 @@ const numberFormat = new Intl.NumberFormat('en-US')
           <span class="text-fg-subtle font-mono tabular-nums">{{ numberFormat.format(statsQuery.data.value.scoredCount) }}</span>
         </span>
         <span
-          class="flex items-center gap-1"
+          class="flex gap-1 items-center"
           :title="`Average waifu score across ${statsQuery.data.value.waifuCount} scored posts`"
         >
           <i class="i-tabler-trophy text-fg-subtle" />
@@ -83,11 +83,11 @@ const numberFormat = new Intl.NumberFormat('en-US')
           <span class="text-fg-subtle font-mono tabular-nums">{{ numberFormat.format(statsQuery.data.value.waifuCount) }}</span>
         </span>
         <template v-if="ratingCounts.length > 0">
-          <span class="h-3 w-px bg-border-subtle" />
+          <span class="bg-border-subtle h-3 w-px" />
           <span
             v-for="r in ratingCounts"
             :key="r.rating"
-            class="flex items-center gap-1"
+            class="flex gap-1 items-center"
             :title="r.full"
           >
             <span class="text-fg-subtle">{{ r.short }}</span>

@@ -50,8 +50,8 @@ const tagGroupByFirstChar = computed(() => {
 </script>
 
 <template>
-  <div class="h-full flex flex-col">
-    <div class="sticky top-0 z-10 border-b border-border-default bg-bg/85 px-4 py-3 backdrop-blur">
+  <div class="flex flex-col h-full">
+    <div class="px-4 py-3 border-b border-border-default bg-bg/85 top-0 sticky z-10 backdrop-blur">
       <PInput
         v-model="search"
         placeholder="Search tags"
@@ -68,30 +68,30 @@ const tagGroupByFirstChar = computed(() => {
         class="h-full"
       >
         <template #default="{ item }">
-          <div class="border-b border-border-subtle py-4">
+          <div class="py-4 border-b border-border-subtle">
             <div class="flex flex-col">
-              <div class="mb-3 flex items-baseline gap-2 px-4">
-                <span class="text-2xl font-semibold tracking-tight">
+              <div class="mb-3 px-4 flex gap-2 items-baseline">
+                <span class="text-2xl tracking-tight font-semibold">
                   {{ item[0] }}
                 </span>
                 <span class="text-sm text-fg-subtle tabular-nums">
                   {{ item[1].length }}
                 </span>
               </div>
-              <div class="flex flex-wrap gap-x-3 gap-y-2 px-4">
+              <div class="px-4 flex flex-wrap gap-x-3 gap-y-2">
                 <template
                   v-for="tag, i of item[1]"
                   :key="tag.name"
                 >
                   <div
                     v-if="i === 20"
-                    class="self-center px-2 text-xs text-fg-subtle"
+                    class="text-xs text-fg-subtle px-2 self-center"
                   >
                     …
                   </div>
                   <div
                     v-else
-                    class="flex items-center gap-1.5"
+                    class="flex gap-1.5 items-center"
                   >
                     <PostTag
                       class="cursor-pointer"

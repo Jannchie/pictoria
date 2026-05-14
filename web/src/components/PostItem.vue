@@ -176,7 +176,7 @@ function onContextmenu(e: MouseEvent) {
 
 <template>
   <div
-    class="post-item flex flex-col items-center gap-1"
+    class="post-item flex flex-col gap-1 items-center"
     :class="{ selected }"
     draggable="true"
     @dragstart.stop
@@ -188,7 +188,7 @@ function onContextmenu(e: MouseEvent) {
     <PAspectRatio
       v-if="isImage"
       :ratio="aspectRatio"
-      class="w-full rounded-lg bg-primary"
+      class="rounded-lg bg-primary w-full"
     >
       <div
         class="post-content rounded-lg"
@@ -202,7 +202,7 @@ function onContextmenu(e: MouseEvent) {
           <img
             v-show="imageLoaded"
             :src="getPostThumbnailURL(post)"
-            class="w-inherit rounded-lg"
+            class="rounded-lg w-inherit"
             draggable="true"
             :class="{ blur: ((post.rating ?? 0) >= 3) && hideNSFW }"
             @load="onImageLoad"
@@ -213,9 +213,9 @@ function onContextmenu(e: MouseEvent) {
     <PAspectRatio
       v-else
       :ratio="1"
-      class="w-full rounded-lg bg-surface-1"
+      class="rounded-lg bg-surface-1 w-full"
     >
-      <div class="post-content flex flex-col items-center justify-center gap-2 rounded-lg text-fg-muted">
+      <div class="post-content text-fg-muted rounded-lg flex flex-col gap-2 items-center justify-center">
         <i
           class="text-5xl"
           :class="getIconByExtension(post.extension)"
@@ -225,15 +225,15 @@ function onContextmenu(e: MouseEvent) {
         </div>
       </div>
     </PAspectRatio>
-    <div class="w-full flex flex-col text-center text-xs text-fg">
-      <div class="w-full truncate text-xs">
-        <div class="filename-wrapper inline rounded px-1">
+    <div class="text-xs text-fg text-center flex flex-col w-full">
+      <div class="text-xs w-full truncate">
+        <div class="filename-wrapper px-1 rounded inline">
           {{ `${post.fileName}.${post.extension}` }}
         </div>
       </div>
       <div
         v-if="post.width && post.height"
-        class="w-full truncate text-11px font-bold font-mono"
+        class="text-11px font-bold font-mono w-full truncate"
       >
         {{ post.width }} x {{ post.height }}
       </div>

@@ -6,7 +6,7 @@
     level="1"
     bordered
     shadow="md"
-    class="min-w-86 flex flex-col gap-2 p-4 text-sm"
+    class="text-sm p-4 flex flex-col gap-2 min-w-86"
   >
     <div>
       Dialog123

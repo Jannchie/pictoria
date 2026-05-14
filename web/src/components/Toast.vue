@@ -9,7 +9,7 @@ defineProps<{
 </script>
 
 <template>
-  <div class="w-96 inline-flex items-center gap-2 border border-border-default rounded-xl bg-surface px-4 py-2 text-sm text-fg shadow-lg">
+  <div class="text-sm text-fg px-4 py-2 border border-border-default rounded-xl bg-surface inline-flex gap-2 w-96 shadow-lg items-center">
     <div
       v-if="icon"
       class="flex-shrink-0"
@@ -22,7 +22,7 @@ defineProps<{
     </div>
     <button
       v-if="closeable"
-      class="flex flex-shrink-0 items-center rounded p-0.5 text-fg-muted transition-colors hover:bg-surface-2 hover:text-fg"
+      class="text-fg-muted p-0.5 rounded flex flex-shrink-0 transition-colors items-center hover:text-fg hover:bg-surface-2"
     >
       <i class="i-tabler-x" />
     </button>

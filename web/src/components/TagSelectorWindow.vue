@@ -1,14 +1,12 @@
 <script setup lang="ts">
 import { selectedPostIdSet, showPostDetail, tagSelectorWindowRef } from '@/shared'
 
-const selectedPostId = computed(() => {
+const selectedPostId = computed<number | undefined>(() => {
   const selected = selectedPostIdSet.value.values().next().value
   if (selected) {
     return selected
   }
-  if (showPostDetail.value) {
-    return showPostDetail.value.id
-  }
+  return showPostDetail.value?.id
 })
 </script>
 

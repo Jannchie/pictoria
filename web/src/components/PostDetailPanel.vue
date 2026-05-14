@@ -148,23 +148,23 @@ async function calculateWaifuScore() {
 
 <template>
   <ScrollArea
-    class="h-full flex flex-col gap-2 overflow-x-hidden overflow-y-auto text-xs"
+    class="text-xs flex flex-col gap-2 h-full overflow-x-hidden overflow-y-auto"
   >
     <div
       v-if="isImage(post.extension)"
       class="flex justify-center"
     >
-      <div class="overflow-hidden rounded">
+      <div class="rounded overflow-hidden">
         <img
           :src="getPostThumbnailURL(post)"
-          class="h-40 overflow-hidden rounded object-contain"
+          class="rounded h-40 overflow-hidden object-contain"
           :class="{
             blur: (post?.rating ?? 0) >= 3 && hideNSFW,
           }"
         >
       </div>
     </div>
-    <div class="flex items-center justify-center gap-1">
+    <div class="flex gap-1 items-center justify-center">
       <PColorSwatch
         v-if="post.dominantColor"
         class="mr-2"
@@ -179,11 +179,11 @@ async function calculateWaifuScore() {
       />
     </div>
     <div>
-      <div class="py-2 text-fg font-semibold">
+      <div class="text-fg font-semibold py-2">
         Basic Info
       </div>
       <div
-        class="grid grid-cols-[auto_1fr] gap-x-3 gap-y-1.5 children:break-words odd:children:text-fg-subtle"
+        class="gap-x-3 gap-y-1.5 grid grid-cols-[auto_1fr] children:break-words odd:children:text-fg-subtle"
       >
         <div>Rating</div>
         <div>
@@ -274,15 +274,15 @@ async function calculateWaifuScore() {
       </div>
     </div>
     <div>
-      <div class="py-2 text-fg font-semibold">
+      <div class="text-fg font-semibold py-2">
         Folder
       </div>
       <div class="flex gap-2">
         <div
           v-if="folders.length === 0"
-          class="h-8 w-full flex flex-col items-center justify-center text-fg-muted"
+          class="text-fg-muted flex flex-col h-8 w-full items-center justify-center"
         >
-          <div class="flex flex-col items-center op50">
+          <div class="op50 flex flex-col items-center">
             <i class="i-tabler-folder-off" />
             <div>
               No folder
@@ -301,7 +301,7 @@ async function calculateWaifuScore() {
     </div>
     <div class="flex flex-col gap-1">
       <div
-        class="flex items-center gap-2 py-2 text-fg font-black"
+        class="text-fg font-black py-2 flex gap-2 items-center"
       >
         <span>Tags</span>
         <PButton
@@ -321,7 +321,7 @@ async function calculateWaifuScore() {
         <PostTag
           v-for="tag of manualTags"
           :key="tag.tagInfo.name"
-          class="cursor-pointer rounded bg-surface-2 px-1 py-0.5"
+          class="px-1 py-0.5 rounded bg-surface-2 cursor-pointer"
           rounded="lg"
           :data="tag"
           :color="tag.tagInfo.group?.color"
@@ -340,9 +340,9 @@ async function calculateWaifuScore() {
       </div>
       <div
         v-else
-        class="flex flex-col gap-2 py-2 text-fg-muted"
+        class="text-fg-muted py-2 flex flex-col gap-2"
       >
-        <div class="flex flex-col items-center gap-1 op50">
+        <div class="op50 flex flex-col gap-1 items-center">
           <i class="i-tabler-bookmark-off" />
           <div class="text-xs">
             No Tag
@@ -363,7 +363,7 @@ async function calculateWaifuScore() {
       class="flex flex-col gap-1"
     >
       <div
-        class="flex items-center gap-2 py-2 text-fg font-black"
+        class="text-fg font-black py-2 flex gap-2 items-center"
       >
         <i class="i-tabler-sparkles text-fg-muted" />
         <span>Auto Tags</span>
@@ -372,7 +372,7 @@ async function calculateWaifuScore() {
         <PostTag
           v-for="tag of autoTags"
           :key="tag.tagInfo.name"
-          class="cursor-pointer rounded bg-surface-2 px-1 py-0.5"
+          class="px-1 py-0.5 rounded bg-surface-2 cursor-pointer"
           rounded="lg"
           :data="tag"
           :color="tag.tagInfo.group?.color"
@@ -383,7 +383,7 @@ async function calculateWaifuScore() {
       </div>
     </div>
     <div>
-      <div class="py-2 text-fg font-semibold">
+      <div class="text-fg font-semibold py-2">
         Caption
       </div>
       <div>
@@ -396,7 +396,7 @@ async function calculateWaifuScore() {
       </div>
     </div>
     <div>
-      <div class="py-2 text-fg font-semibold">
+      <div class="text-fg font-semibold py-2">
         Source
       </div>
       <div>
@@ -409,7 +409,7 @@ async function calculateWaifuScore() {
       </div>
     </div>
     <div>
-      <div class="py-2 text-fg font-semibold">
+      <div class="text-fg font-semibold py-2">
         Command
       </div>
       <div class="flex flex-col gap-2">

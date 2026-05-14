@@ -62,10 +62,10 @@ export default defineConfig({
       'full': 'var(--p-radius-full)',
     },
     shadow: {
-      'sm': 'var(--p-shadow-sm)',
-      'DEFAULT': 'var(--p-shadow-md)',
-      'md': 'var(--p-shadow-md)',
-      'lg': 'var(--p-shadow-lg)',
+      sm: 'var(--p-shadow-sm)',
+      DEFAULT: 'var(--p-shadow-md)',
+      md: 'var(--p-shadow-md)',
+      lg: 'var(--p-shadow-lg)',
     },
     font: {
       sans: 'var(--p-font-sans)',

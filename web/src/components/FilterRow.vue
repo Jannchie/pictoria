@@ -9,14 +9,14 @@ function clearTextSearch() {
 </script>
 
 <template>
-  <div class="w-full flex items-center justify-between gap-2 border-b border-border-default px-2 py-2">
+  <div class="px-2 py-2 border-b border-border-default flex gap-2 w-full items-center justify-between">
     <div class="flex gap-2">
       <ScoreFilter />
       <RatingFilter />
       <ExtensionFilter />
       <WaifuScoreFilter />
     </div>
-    <div class="flex items-center gap-2">
+    <div class="flex gap-2 items-center">
       <PInput
         v-model="textSearchQuery"
         size="sm"

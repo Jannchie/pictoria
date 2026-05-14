@@ -58,7 +58,7 @@ const roundedStyle = computed(() => ({ borderRadius: roundedToken.value }))
 
 <template>
   <div
-    class="relative inline"
+    class="inline relative"
     :style="[roundedStyle]"
   >
     <Transition
@@ -82,7 +82,7 @@ const roundedStyle = computed(() => ({ borderRadius: roundedToken.value }))
     <template v-if="!loaded">
       <div
         v-if="!props.lazySrc"
-        class="absolute top-0 h-full w-full animate-pulse bg-surface object-cover"
+        class="bg-surface h-full w-full top-0 absolute animate-pulse object-cover"
         :class="[props.class]"
         :style="[style, roundedStyle]"
       />

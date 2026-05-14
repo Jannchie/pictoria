@@ -31,7 +31,7 @@ const show = ref(false)
 </script>
 
 <template>
-  <div class="relative flex gap-2">
+  <div class="flex gap-2 relative">
     <Popover
       v-model="show"
       position="bottom-end"
@@ -58,23 +58,23 @@ const show = ref(false)
       </PButton>
       <template #content>
         <div
-          class="min-w-36 border border-border-default rounded bg-surface p-1 shadow-lg"
+          class="p-1 border border-border-default rounded bg-surface min-w-36 shadow-lg"
         >
           <div class="flex flex-col gap-1">
-            <div class="mt-1 flex items-center gap-2 border border-border-default rounded p-2">
+            <div class="mt-1 p-2 border border-border-default rounded flex gap-2 items-center">
               <div class="flex-grow">
-                <div class="mb-1 text-xs text-fg-subtle">
+                <div class="text-xs text-fg-subtle mb-1">
                   Sort Color
                 </div>
-                <div class="flex items-center gap-2">
+                <div class="flex gap-2 items-center">
                   <div
-                    class="h-6 w-6 overflow-hidden border border-border-default rounded"
+                    class="border border-border-default rounded h-6 w-6 overflow-hidden"
                     :style="{ backgroundColor: postSortColor || '#ffffff' }"
                   >
                     <input
                       v-model="postSortColor"
                       type="color"
-                      class="h-full w-full cursor-pointer opacity-0"
+                      class="opacity-0 h-full w-full cursor-pointer"
                     >
                   </div>
                   <div class="text-xs font-mono">

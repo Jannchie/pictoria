@@ -41,9 +41,9 @@ const levelStyle = computed(() => {
 </script>
 
 <template>
-  <div class="flex items-center gap-2">
+  <div class="flex gap-2 items-center">
     <div
-      class="flex items-center gap-1 rounded px-2 py-1 text-xs font-bold"
+      class="text-xs font-bold px-2 py-1 rounded flex gap-1 items-center"
       :style="levelStyle"
     >
       <span>{{ currentLevel.level }}</span>

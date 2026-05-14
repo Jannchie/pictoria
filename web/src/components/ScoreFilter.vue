@@ -65,19 +65,19 @@ const btnText = computed(() => {
       </PButton>
       <template #content>
         <div
-          class="min-w-52 border border-border-default rounded bg-surface p-1 shadow-lg"
+          class="p-1 border border-border-default rounded bg-surface min-w-52 shadow-lg"
         >
           <div
             v-for="score in [5, 4, 3, 2, 1, 0]"
             :key="score"
-            class="w-full flex cursor-pointer items-center gap-2 rounded px-2 py-1 text-xs hover:bg-surface-2"
+            class="text-xs px-2 py-1 rounded flex gap-2 w-full cursor-pointer items-center hover:bg-surface-2"
             @pointerdown="onPointerDown(score)"
           >
             <Checkbox
-              class="pointer-events-none flex-shrink-0"
+              class="flex-shrink-0 pointer-events-none"
               :model-value="hasScore(score)"
             />
-            <div class="flex flex-grow items-center gap-1">
+            <div class="flex flex-grow gap-1 items-center">
               <template v-if="score === 0">
                 <span class="text-fg-subtle italic">Unscored</span>
               </template>
@@ -91,13 +91,13 @@ const btnText = computed(() => {
             </div>
             <div
               v-if="scoreCountList[score]"
-              class="flex-shrink-0 text-fg-muted tabular-nums"
+              class="text-fg-muted flex-shrink-0 tabular-nums"
             >
               {{ scoreCountList[score] }}
             </div>
             <div
               v-else-if="hasScore(score)"
-              class="flex-shrink-0 text-fg-subtle tabular-nums"
+              class="text-fg-subtle flex-shrink-0 tabular-nums"
             >
               0
             </div>

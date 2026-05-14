@@ -14,7 +14,7 @@ const model = defineModel<boolean | undefined>({ default: undefined })
       class="hidden"
     >
     <span
-      class="inline-block h-3.5 w-3.5 flex items-center justify-center rounded text-on-primary transition-colors"
+      class="text-on-primary rounded flex h-3.5 w-3.5 inline-block transition-colors items-center justify-center"
       :class="[{
         'bg-primary hover:bg-primary-hover': modelValue,
         'bg-surface-1 border border-border-default': !modelValue,
@@ -27,7 +27,7 @@ const model = defineModel<boolean | undefined>({ default: undefined })
     </span>
     <span
       v-if="label"
-      class="ml-2 text-fg"
+      class="text-fg ml-2"
     >
       {{ label }}
     </span>

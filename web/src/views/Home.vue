@@ -38,11 +38,11 @@ useEventListener('wheel', (event) => {
     v-if="showPostDetail"
     :post="showPostDetail"
   />
-  <div class="h-full flex flex-col">
+  <div class="flex flex-col h-full">
     <header class="flex shrink-0 flex-col">
-      <div class="h-8 flex shrink-0 items-center justify-center px-2 pt-1">
-        <div class="w-40 flex items-center gap-2 text-fg-subtle">
-          <i class="i-tabler-grid-dots shrink-0 text-sm" />
+      <div class="px-2 pt-1 flex shrink-0 h-8 items-center justify-center">
+        <div class="text-fg-subtle flex gap-2 w-40 items-center">
+          <i class="i-tabler-grid-dots text-sm shrink-0" />
           <Slider
             v-model="waterfallRowCount"
             size="sm"

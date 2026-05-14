@@ -1,35 +1,16 @@
-<script setup lang="tsx">
-import type { VNode } from 'vue'
-import { computed, h, ref, watchEffect } from 'vue'
+<script lang="tsx">
+import type { PropType, VNode } from 'vue'
+import { computed, defineComponent, nextTick, ref, watch, watchEffect } from 'vue'
 import AutoHeightTransition from './AutoHeightTransition.vue'
 
 type Rounded = 'none' | 'sm' | 'md' | 'lg' | 'full'
-
-const props = withDefaults(defineProps<{
-  items: TreeListItemData[]
-  rounded?: Rounded
-}>(), {
-  rounded: 'md',
-})
-
-const slots = defineSlots<{
-  link?: (properties_: { data: TreeListLeafData, level: number }) => any
-  collapse?: (properties_: { data: TreeListCollapseData, level: number }) => any
-  header?: (properties_: { data: TreeListHeaderData, level: number }) => any
-}>()
-
-const RADIUS_CLASS: Record<Rounded, string> = {
-  none: 'rounded-none',
-  sm: 'rounded-sm',
-  md: 'rounded-md',
-  lg: 'rounded-lg',
-  full: 'rounded-full',
-}
 
 export interface TreeListLeafData {
   icon?: string | VNode
   title: string
   value: string
+  count?: number
+  meta?: any
   attrs?: Record<string, any>
   is?: string | VNode
 }
@@ -40,228 +21,555 @@ export interface TreeListHeaderData {
 }
 
 export interface TreeListCollapseData {
-  title: string
   icon?: string | VNode
+  title: string
   value?: string
+  count?: number
+  meta?: any
   children?: TreeListItemData[]
   open?: boolean
 }
 
 export type TreeListItemData = TreeListLeafData | TreeListHeaderData | TreeListCollapseData
 
-const roundedClass = computed(() => RADIUS_CLASS[props.rounded])
-
-const model = defineModel<string>()
-
-function hasChildren(item: TreeListItemData): item is TreeListCollapseData {
-  return 'children' in item
+export interface SlotLeafCtx {
+  data: TreeListLeafData
+  level: number
+  isSelected: boolean
+  inChain: boolean
+  isMatch: boolean
+  highlight: (text: string) => any
+  count: any
+  guides: any
 }
-function isLink(item: TreeListItemData): item is TreeListLeafData {
-  return 'value' in item && !('children' in item)
+export interface SlotCollapseCtx {
+  data: TreeListCollapseData
+  level: number
+  isOpen: boolean
+  isSelected: boolean
+  inChain: boolean
+  isMatch: boolean
+  toggle: () => void
+  highlight: (text: string) => any
+  count: any
+  guides: any
 }
-
-const itemLeftIndicator = 'before:absolute before:left-4 before:h-full before:border-r before:border-border-default before:content-[""]'
-const itemClass = 'relative h-8 py-1 pr-1 w-full flex items-center gap-2 cursor-pointer focus-visible:outline-none focus-visible:bg-surface-1'
-const linkNormalItemClass = computed(() => `${itemClass} hover:bg-surface-1 hover:text-fg text-fg-muted`)
-const linkActiveItemClass = computed(() => `${itemClass} text-primary before:border-primary bg-surface-2`)
-const titleNormalItemClass = computed(() => [itemClass, 'text-fg font-bold hover:bg-surface-1'])
-const titleActiveItemClass = computed(() => [itemClass, 'text-primary font-bold bg-surface-1'])
-const treeListRef = ref<HTMLUListElement | null>(null)
-const status = ref<Map<TreeListItemData, boolean>>(new Map())
-
-function travel(data: TreeListItemData, level: number) {
-  if (hasChildren(data)) {
-    status.value.set(data, data.open ?? false)
-    if (data.children) {
-      for (const child of data.children) {
-        travel(child, level + 1)
-      }
-    }
-  }
+export interface SlotHeaderCtx {
+  data: TreeListHeaderData
+  level: number
 }
 
-watchEffect(() => {
-  for (const item of props.items) {
-    if (hasChildren(item)) {
-      travel(item, 0)
-    }
-  }
-})
+const RADIUS: Record<Rounded, string> = {
+  none: 'rounded-none',
+  sm: 'rounded-sm',
+  md: 'rounded-md',
+  lg: 'rounded-lg',
+  full: 'rounded-full',
+}
 
-function TreeListLink({ data, level }: { data: TreeListLeafData, level: number }) {
-  if (slots.link) {
-    return slots.link({ data, level })
-  }
-  const content = data.title
-  const Comp = (properties: any) => data.is
-    ? h(data.is, properties, { default: () => {
-        return content
-      } })
-    : h('a', properties, { default: () => content })
+const CHEVRON_SLOT = 16
+const LEVEL_INDENT = 14
 
-  return (
-    <li
-      class="relative"
-    >
-      <Comp
-        tabindex={0}
+function hasChildren(it: TreeListItemData): it is TreeListCollapseData {
+  return 'children' in it && Array.isArray((it as any).children)
+}
+function isLeaf(it: TreeListItemData): it is TreeListLeafData {
+  return 'value' in it && !('children' in it)
+}
+
+function indentStyle(level: number) {
+  return { paddingLeft: `${CHEVRON_SLOT + level * LEVEL_INDENT}px` }
+}
+
+function guidesFor(level: number, inChain: boolean) {
+  if (level <= 0) {
+    return null
+  }
+  return Array.from({ length: level }, (_, i) => {
+    const isChainLine = inChain && i === level - 1
+    return (
+      <span
+        key={i}
         class={[
-          roundedClass.value,
-          itemLeftIndicator,
-          {
-            [linkNormalItemClass.value]: model.value !== data.value,
-            [linkActiveItemClass.value]: model.value === data.value,
-          },
+          'pointer-events-none absolute top-0 bottom-0 w-px',
+          isChainLine ? 'bg-primary/40' : 'bg-border-subtle',
         ]}
-        style={[{ paddingLeft: `${32 + level * 8}px` }]}
-        onClick={() => model.value = data.value}
-        onKeyup={(e: KeyboardEvent) => {
-          if (e.key === 'Enter') {
-            model.value = data.value
-          }
-        }}
-        {...data.attrs}
+        style={{ left: `${10 + i * LEVEL_INDENT}px` }}
       />
-    </li>
-  )
+    )
+  })
 }
 
-function TreeListHeader({ data, level }: { data: TreeListHeaderData, level: number }) {
-  return (
-    <li
-      class={[
-        'flex items-center relative py-2 text-fg-muted font-bold tracking-widest text-xs',
-      ]}
-      style={[{ paddingLeft: `${32 + level * 8}px` }]}
-    >
-      <div class="absolute left-4 h-1/2 translate-y-1/2 border-r border-border-default" />
-      <div class="absolute left-[calc(1rem+0.6px)] h-2 w-2 border border-border-default rounded-sm bg-surface-1 -translate-x-1/2" />
+export default defineComponent({
+  name: 'TreeList',
+  props: {
+    items: { type: Array as PropType<TreeListItemData[]>, required: true },
+    rounded: { type: String as PropType<Rounded>, default: 'md' },
+    loading: { type: Boolean, default: false },
+    loadingRows: { type: Number, default: 7 },
+    filter: { type: String, default: '' },
+    highlightChain: { type: Array as PropType<string[]>, default: () => [] },
+    emptyText: { type: String, default: '没有匹配的目录' },
+    modelValue: { type: String, default: undefined },
+    openPaths: { type: Object as PropType<Set<string>>, default: () => new Set<string>() },
+  },
+  emits: {
+    'update:modelValue': (_v?: string) => true,
+    'update:openPaths': (_v: Set<string>) => true,
+    'itemContext': (_p: { data: TreeListLeafData | TreeListCollapseData, event: MouseEvent }) => true,
+  },
+  setup(props, { emit, slots, expose }) {
+    const roundedClass = computed(() => RADIUS[props.rounded])
+    const filterLower = computed(() => props.filter.trim().toLowerCase())
+    const filterActive = computed(() => filterLower.value.length > 0)
+    const chainSet = computed(() => new Set(props.highlightChain))
 
-      {
-        slots.header
-          ? slots.header({ data, level })
-          : (
-              <>
-                {
-                  data.icon && (
-                    <i
-                      class={[
-                        'h-4 w-4 py-1',
-                        data.icon,
-                      ]}
-                    />
-                  )
-                }
-                {data.title}
-              </>
-            )
+    function nodeMatches(item: TreeListItemData): boolean {
+      if (!filterActive.value) {
+        return true
       }
-    </li>
-  )
-}
+      if (!('title' in item)) {
+        return false
+      }
+      return item.title.toLowerCase().includes(filterLower.value)
+    }
+    function subtreeMatches(item: TreeListItemData): boolean {
+      if (!filterActive.value) {
+        return true
+      }
+      if (nodeMatches(item)) {
+        return true
+      }
+      if (hasChildren(item)) {
+        return (item.children ?? []).some(subtreeMatches)
+      }
+      return false
+    }
 
-function TreeListCollapse({ data, level }: { data: TreeListCollapseData, level: number }) {
-  const isOpen = computed(() => status.value.get(data))
-  const dom = ref<HTMLLIElement | null>(null)
-  return (
-    <li
-      ref={dom}
-    >
-      {
-        slots.collapse
-          ? slots.collapse({ data, level })
-          : (
-              <button
-                onClick={() => {
-                  if (data.value) {
-                    if (model.value === data.value && isOpen.value) {
-                      status.value.set(data, false)
-                    }
-                    else {
-                      model.value = data.value
-                      status.value.set(data, true)
-                    }
-                  }
-                  else {
-                    status.value.set(data, !status.value.get(data))
-                  }
-                }}
-                class={[
-                  roundedClass.value,
-                  model.value === data.value ? titleActiveItemClass.value : titleNormalItemClass.value,
-                ]}
-                style={[{ paddingLeft: `${32 + level * 8}px` }]}
-              >
-                <i class={[
-                  'i-tabler-chevron-down absolute left-2 h-4 w-4 py-1 transition-transform',
-                  isOpen.value ? 'rotate-0' : '-rotate-90',
-                ]}
-                />
-                <>
-                  {data.icon && (
-                    <i
-                      class={[
-                        'h-4 w-4 py-1',
-                        data.icon,
-                      ]}
-                    />
-                  )}
-                  <span class="truncate">
-                    {data.title}
-                  </span>
-                </>
-              </button>
-            )
+    function setOpenPaths(next: Set<string>) {
+      emit('update:openPaths', next)
+    }
+
+    // Seed from items[].open on first non-empty render so callers can express
+    // a default-open set declaratively. After the seed the state lives in
+    // openPaths and input-data mutations are ignored.
+    let seeded = false
+    watchEffect(() => {
+      if (seeded || props.items.length === 0) {
+        return
       }
-      <AutoHeightTransition>
-        {
-          status.value.get(data)
-          && (
-            <ul class="overflow-hidden transition-height">
-              {
-                data.children?.map((child) => {
-                  if (isLink(child)) {
-                    return <TreeListLink data={child} level={level + 1} />
-                  }
-                  else if (hasChildren(child)) {
-                    return <TreeListCollapse data={child} level={level + 1} />
-                  }
-                  else {
-                    return <TreeListHeader data={child} level={level + 1} />
-                  }
-                })
-              }
-            </ul>
-          )
+      const next = new Set(props.openPaths)
+      const walk = (item: TreeListItemData) => {
+        if (hasChildren(item)) {
+          if (item.open && item.value) {
+            next.add(item.value)
+          }
+          for (const child of item.children ?? []) {
+            walk(child)
+          }
         }
-      </AutoHeightTransition>
-    </li>
-  )
-}
+      }
+      for (const item of props.items) {
+        walk(item)
+      }
+      seeded = true
+      if (next.size !== props.openPaths.size) {
+        setOpenPaths(next)
+      }
+    })
 
-function TreeListItem({ data, level }: { data: TreeListItemData, level: number }) {
-  if (isLink(data)) {
-    return <TreeListLink data={data} level={level} />
-  }
-  else if (hasChildren(data)) {
-    return <TreeListCollapse data={data} level={level} />
-  }
-  else {
-    return <TreeListHeader data={data} level={level} />
-  }
-}
+    // While filtering, auto-expand any ancestor with a matching descendant.
+    watch([filterActive, () => props.items], () => {
+      if (!filterActive.value) {
+        return
+      }
+      const next = new Set(props.openPaths)
+      const walk = (item: TreeListItemData) => {
+        if (hasChildren(item)) {
+          const hit = (item.children ?? []).some(subtreeMatches)
+          if (hit && item.value) {
+            next.add(item.value)
+          }
+          for (const child of item.children ?? []) {
+            walk(child)
+          }
+        }
+      }
+      for (const item of props.items) {
+        walk(item)
+      }
+      if (next.size !== props.openPaths.size) {
+        setOpenPaths(next)
+      }
+    }, { immediate: true })
+
+    function setOpen(value: string, open: boolean) {
+      if (props.openPaths.has(value) === open) {
+        return
+      }
+      const next = new Set(props.openPaths)
+      if (open) {
+        next.add(value)
+      }
+      else {
+        next.delete(value)
+      }
+      setOpenPaths(next)
+    }
+    function toggle(value?: string) {
+      if (!value) {
+        return
+      }
+      setOpen(value, !props.openPaths.has(value))
+    }
+
+    const rootRef = ref<HTMLUListElement | null>(null)
+
+    interface FlatRow {
+      value: string
+      type: 'link' | 'collapse'
+      level: number
+      parents: string[]
+    }
+    function flatten(): FlatRow[] {
+      const rows: FlatRow[] = []
+      const walk = (items: TreeListItemData[], level: number, parents: string[]) => {
+        for (const it of items) {
+          if (!subtreeMatches(it)) {
+            continue
+          }
+          if (isLeaf(it)) {
+            rows.push({ value: it.value, type: 'link', level, parents })
+          }
+          else if (hasChildren(it)) {
+            if (it.value) {
+              rows.push({ value: it.value, type: 'collapse', level, parents })
+            }
+            const isOpen = filterActive.value || (it.value ? props.openPaths.has(it.value) : true)
+            if (isOpen) {
+              walk(it.children ?? [], level + 1, it.value ? [...parents, it.value] : parents)
+            }
+          }
+        }
+      }
+      walk(props.items, 0, [])
+      return rows
+    }
+    function focusValue(value: string) {
+      if (!rootRef.value) {
+        return
+      }
+      const el = rootRef.value.querySelector(`[data-tree-value="${CSS.escape(value)}"]`) as HTMLElement | null
+      el?.focus()
+    }
+
+    function onRootKeydown(e: KeyboardEvent) {
+      const target = e.target as HTMLElement | null
+      const value = target?.dataset?.treeValue
+      if (!value) {
+        return
+      }
+      const rows = flatten()
+      const idx = rows.findIndex(r => r.value === value)
+      if (idx === -1) {
+        return
+      }
+      const row = rows[idx]
+      switch (e.key) {
+        case 'ArrowDown': {
+          e.preventDefault()
+          if (idx < rows.length - 1) {
+            focusValue(rows[idx + 1].value)
+          }
+          break
+        }
+        case 'ArrowUp': {
+          e.preventDefault()
+          if (idx > 0) {
+            focusValue(rows[idx - 1].value)
+          }
+          break
+        }
+        case 'Home': {
+          e.preventDefault()
+          if (rows.length > 0) {
+            focusValue(rows[0].value)
+          }
+          break
+        }
+        case 'End': {
+          e.preventDefault()
+          if (rows.length > 0) {
+            focusValue(rows.at(-1)!.value)
+          }
+          break
+        }
+        case 'ArrowRight': {
+          e.preventDefault()
+          if (row.type === 'collapse') {
+            if (props.openPaths.has(value)) {
+              const next = rows[idx + 1]
+              if (next && next.level > row.level) {
+                focusValue(next.value)
+              }
+            }
+            else {
+              setOpen(value, true)
+              nextTick(() => focusValue(value))
+            }
+          }
+          break
+        }
+        case 'ArrowLeft': {
+          e.preventDefault()
+          if (row.type === 'collapse' && props.openPaths.has(value)) {
+            setOpen(value, false)
+          }
+          else if (row.parents.length > 0) {
+            focusValue(row.parents.at(-1)!)
+          }
+          break
+        }
+        case 'Enter': {
+          e.preventDefault()
+          if (row.type === 'collapse') {
+            emit('update:modelValue', value)
+            setOpen(value, true)
+          }
+          else {
+            emit('update:modelValue', value)
+          }
+          break
+        }
+      }
+    }
+
+    function highlight(text: string) {
+      if (!filterActive.value) {
+        return <span class="truncate">{text}</span>
+      }
+      const lower = text.toLowerCase()
+      const idx = lower.indexOf(filterLower.value)
+      if (idx === -1) {
+        return <span class="truncate">{text}</span>
+      }
+      const end = idx + filterLower.value.length
+      return (
+        <span class="truncate">
+          {text.slice(0, idx)}
+          <mark class="text-fg px-0.5 rounded-sm bg-primary/30">{text.slice(idx, end)}</mark>
+          {text.slice(end)}
+        </span>
+      )
+    }
+
+    function countNode(n: number | undefined, selected: boolean) {
+      if (n == null) {
+        return null
+      }
+      return (
+        <span
+          class={[
+            'ml-auto shrink-0 rounded px-1.5 py-0.5 text-[10px] font-mono tabular-nums transition-colors',
+            selected ? 'bg-primary/15 text-primary' : 'text-fg-subtle group-hover/row:text-fg-muted',
+          ]}
+        >
+          {Intl.NumberFormat('en-US').format(n)}
+        </span>
+      )
+    }
+
+    const ROW_BASE = 'group/row relative h-8 w-full flex items-center gap-1.5 pr-1 text-sm transition-colors focus:outline-none focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-primary/50 cursor-pointer'
+
+    function LeafDefault(item: TreeListLeafData, level: number, isSelected: boolean, inChain: boolean) {
+      return (
+        <a
+          tabindex={0}
+          data-tree-value={item.value}
+          title={item.title}
+          class={[
+            ROW_BASE,
+            roundedClass.value,
+            isSelected ? 'text-fg bg-primary/10' : 'text-fg-muted hover:bg-surface-1 hover:text-fg',
+          ]}
+          style={indentStyle(level)}
+          onClick={() => emit('update:modelValue', item.value)}
+          onContextmenu={(e: MouseEvent) => {
+            e.preventDefault()
+            emit('itemContext', { data: item, event: e })
+          }}
+          {...item.attrs}
+        >
+          {guidesFor(level, inChain)}
+          {isSelected && <span class="rounded-r-full bg-primary w-[2px] pointer-events-none bottom-1.5 left-0 top-1.5 absolute" />}
+          {item.icon && <i class={['h-3.5 w-3.5 shrink-0', item.icon as string]} />}
+          {highlight(item.title)}
+          {countNode(item.count, isSelected)}
+        </a>
+      )
+    }
+
+    function CollapseDefault(item: TreeListCollapseData, level: number, isOpen: boolean, isSelected: boolean, inChain: boolean) {
+      return (
+        <button
+          type="button"
+          tabindex={0}
+          data-tree-value={item.value ?? ''}
+          title={item.title}
+          class={[
+            ROW_BASE,
+            roundedClass.value,
+            'text-left',
+            isSelected ? 'text-fg bg-primary/10' : 'text-fg-muted hover:bg-surface-1 hover:text-fg',
+          ]}
+          style={indentStyle(level)}
+          onClick={() => {
+            if (item.value) {
+              if (props.modelValue === item.value && isOpen) {
+                setOpen(item.value, false)
+              }
+              else {
+                emit('update:modelValue', item.value)
+                setOpen(item.value, true)
+              }
+            }
+            else {
+              toggle(item.value)
+            }
+          }}
+          onContextmenu={(e: MouseEvent) => {
+            e.preventDefault()
+            emit('itemContext', { data: item, event: e })
+          }}
+        >
+          {guidesFor(level, inChain)}
+          {isSelected && <span class="rounded-r-full bg-primary w-[2px] pointer-events-none bottom-1.5 left-0 top-1.5 absolute" />}
+          <i
+            class={[
+              'i-tabler-chevron-down h-3.5 w-3.5 shrink-0 text-fg-subtle transition-transform',
+              isOpen ? 'rotate-0' : '-rotate-90',
+            ]}
+            style={{ marginLeft: `-${CHEVRON_SLOT - 2}px` }}
+          />
+          {item.icon && <i class={['h-3.5 w-3.5 shrink-0', item.icon as string]} />}
+          {highlight(item.title)}
+          {countNode(item.count, isSelected)}
+        </button>
+      )
+    }
+
+    function HeaderDefault(item: TreeListHeaderData, level: number) {
+      return (
+        <div
+          class="text-xs text-fg-subtle tracking-wider font-semibold flex gap-1 h-7 uppercase items-center"
+          style={indentStyle(level)}
+        >
+          {item.icon && <i class={['h-3 w-3', item.icon as string]} />}
+          <span class="truncate">{item.title}</span>
+        </div>
+      )
+    }
+
+    function renderItem(item: TreeListItemData, level: number): any {
+      if (isLeaf(item)) {
+        if (filterActive.value && !nodeMatches(item)) {
+          return null
+        }
+        const isSelected = props.modelValue === item.value
+        const inChain = chainSet.value.has(item.value)
+        const ctx: SlotLeafCtx = {
+          data: item,
+          level,
+          isSelected,
+          inChain,
+          isMatch: nodeMatches(item),
+          highlight,
+          count: countNode(item.count, isSelected),
+          guides: guidesFor(level, inChain),
+        }
+        return (
+          <li class="list-none relative">
+            {slots.link ? slots.link(ctx) : LeafDefault(item, level, isSelected, inChain)}
+          </li>
+        )
+      }
+      if (hasChildren(item)) {
+        if (!subtreeMatches(item)) {
+          return null
+        }
+        const isOpenComputed = filterActive.value
+          ? true
+          : (item.value ? props.openPaths.has(item.value) : true)
+        const isSelected = !!item.value && props.modelValue === item.value
+        const inChain = !!item.value && chainSet.value.has(item.value)
+        const ctx: SlotCollapseCtx = {
+          data: item,
+          level,
+          isOpen: isOpenComputed,
+          isSelected,
+          inChain,
+          isMatch: nodeMatches(item),
+          toggle: () => toggle(item.value),
+          highlight,
+          count: countNode(item.count, isSelected),
+          guides: guidesFor(level, inChain),
+        }
+        return (
+          <li class="list-none relative">
+            {slots.collapse ? slots.collapse(ctx) : CollapseDefault(item, level, isOpenComputed, isSelected, inChain)}
+            <AutoHeightTransition>
+              {isOpenComputed && (
+                <ul class="transition-height overflow-hidden">
+                  {(item.children ?? []).map(child => renderItem(child, level + 1))}
+                </ul>
+              )}
+            </AutoHeightTransition>
+          </li>
+        )
+      }
+      return (
+        <li class="list-none">
+          {slots.header ? slots.header({ data: item, level }) : HeaderDefault(item, level)}
+        </li>
+      )
+    }
+
+    expose({ focusValue, setOpen, toggle })
+
+    return () => {
+      if (props.loading) {
+        return (
+          <ul class="px-2 py-1 flex flex-col gap-1.5">
+            {Array.from({ length: props.loadingRows }, (_, i) => (
+              <li
+                key={i}
+                class="rounded bg-surface-1 h-6 animate-pulse"
+                style={{ width: `${60 + ((i * 17) % 35)}%`, animationDelay: `${i * 60}ms` }}
+              />
+            ))}
+          </ul>
+        )
+      }
+      const visible = filterActive.value ? props.items.filter(subtreeMatches) : props.items
+      if (visible.length === 0) {
+        return (
+          <div class="text-xs text-fg-subtle px-3 py-8 flex flex-col gap-2 items-center justify-center">
+            <i class="i-tabler-folder-search h-6 w-6" />
+            <span>{props.emptyText}</span>
+          </div>
+        )
+      }
+      return (
+        <ul
+          ref={rootRef}
+          class="text-sm flex flex-col"
+          role="tree"
+          onKeydown={onRootKeydown}
+        >
+          {visible.map(item => renderItem(item, 0))}
+        </ul>
+      )
+    }
+  },
+})
 </script>
-
-<template>
-  <ul
-    ref="treeListRef"
-    class="flex flex-col text-sm"
-  >
-    <TreeListItem
-      v-for="item, i in items"
-      :key="i"
-      :data="item"
-      :level="0"
-    />
-  </ul>
-</template>

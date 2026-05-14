@@ -173,10 +173,10 @@ onKeyStroke([' ', 'Enter'], (e) => {
   />
   <div
     v-if="post"
-    class="h-full flex flex-col"
+    class="flex flex-col h-full"
   >
     <div
-      class="flex items-center justify-between gap-2 border-b border-border-default bg-bg px-2 py-1"
+      class="px-2 py-1 border-b border-border-default bg-bg flex gap-2 items-center justify-between"
     >
       <div class="flex flex-1 basis-0 items-center">
         <PButton
@@ -188,18 +188,18 @@ onKeyStroke([' ', 'Enter'], (e) => {
           <i class="i-tabler-arrow-left" />
         </PButton>
       </div>
-      <span class="min-w-0 truncate text-sm text-fg font-medium">
+      <span class="text-sm text-fg font-medium min-w-0 truncate">
         {{ post.fileName }}
       </span>
       <span class="flex-1 basis-0" />
     </div>
     <ScrollArea
       ref="scrollAreaRef"
-      class="relative h-full w-full flex flex-grow flex-basis-0 flex-col gap-4"
+      class="flex flex-grow flex-basis-0 flex-col gap-4 h-full w-full relative"
     >
-      <div class="flex justify-center px-2 pt-3">
+      <div class="px-2 pt-3 flex justify-center">
         <div
-          class="relative cursor-pointer overflow-hidden rounded-lg"
+          class="rounded-lg cursor-pointer relative overflow-hidden"
           :style="containerStyle"
           @click="showPostDetail = { ...post, width: post.width ?? 0, height: post.height ?? 0 }"
         >
@@ -214,7 +214,7 @@ onKeyStroke([' ', 'Enter'], (e) => {
               ref="imgRef"
               :src="getPostImageURL(post)"
               alt="post"
-              class="block h-full w-full object-contain"
+              class="h-full w-full block object-contain"
               @load="onImageLoad"
             >
           </Transition>

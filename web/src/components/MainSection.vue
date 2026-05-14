@@ -377,7 +377,7 @@ const mainSectionRef = ref<HTMLElement>()
 <template>
   <ScrollArea
     ref="mainSectionRef"
-    class="relative flex flex-grow basis-0 flex-col"
+    class="flex flex-grow basis-0 flex-col relative"
   >
     <SelectArea
       :target="mainSectionRef"
@@ -387,20 +387,20 @@ const mainSectionRef = ref<HTMLElement>()
     <PMenu
       :data="menuData"
       trigger="contextmenu"
-      class="h-full w-full shrink-0 grow-1 basis-0"
+      class="shrink-0 grow-1 basis-0 h-full w-full"
       @select="onMenuSelect"
     >
       <FolderSection />
       <div v-if="isTextSearchActive && textSearchQueryResult.isLoading.value">
-        <div class="flex flex-col items-center gap-2 p-16 op-50">
-          <i class="i-tabler-loader animate-spin text-2xl" />
+        <div class="p-16 op-50 flex flex-col gap-2 items-center">
+          <i class="i-tabler-loader text-2xl animate-spin" />
           <div class="text-sm">
             Searching for “{{ textSearchPrompt }}”
           </div>
         </div>
       </div>
       <div v-else-if="isTextSearchActive && textSearchQueryResult.error.value">
-        <div class="flex flex-col items-center gap-2 p-16 text-center text-danger op-50">
+        <div class="text-danger p-16 text-center op-50 flex flex-col gap-2 items-center">
           <i class="i-tabler-alert-circle text-2xl" />
           <div class="text-sm">
             Failed to run text search. Please try again.
@@ -408,7 +408,7 @@ const mainSectionRef = ref<HTMLElement>()
         </div>
       </div>
       <div v-else-if="isTextSearchActive && posts.length === 0">
-        <div class="flex flex-col items-center gap-2 p-16 text-center op-50">
+        <div class="p-16 text-center op-50 flex flex-col gap-2 items-center">
           <i class="i-tabler-mood-empty text-2xl" />
           <div class="text-sm">
             No images matched “{{ textSearchPrompt }}”.
@@ -419,15 +419,15 @@ const mainSectionRef = ref<HTMLElement>()
         </div>
       </div>
       <div v-else-if="!isTextSearchActive && infinityPostsQuery.isLoading.value && posts.length === 0">
-        <div class="flex flex-col items-center gap-2 p-16 text-center op-50">
-          <i class="i-tabler-loader animate-spin text-2xl" />
+        <div class="p-16 text-center op-50 flex flex-col gap-2 items-center">
+          <i class="i-tabler-loader text-2xl animate-spin" />
           <div class="text-sm">
             Loading posts...
           </div>
         </div>
       </div>
       <div v-else-if="posts.length === 0">
-        <div class="flex flex-col items-center gap-2 p-16 text-center op-50">
+        <div class="p-16 text-center op-50 flex flex-col gap-2 items-center">
           <i class="i-tabler-photo-off text-2xl" />
           <div class="text-sm">
             No posts found
@@ -460,7 +460,7 @@ const mainSectionRef = ref<HTMLElement>()
       </Waterfall>
       <div
         v-if="!isTextSearchActive && posts.length > 0 && infinityPostsQuery.hasNextPage.value"
-        class="flex justify-center p-4"
+        class="p-4 flex justify-center"
       >
         <PButton
           :loading="infinityPostsQuery.isLoading.value"

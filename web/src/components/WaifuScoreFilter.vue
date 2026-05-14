@@ -96,21 +96,21 @@ const btnText = computed(() => {
       </PButton>
       <template #content>
         <div
-          class="min-w-56 border border-border-default rounded bg-surface p-1 shadow-lg"
+          class="p-1 border border-border-default rounded bg-surface min-w-56 shadow-lg"
         >
           <div
             v-for="bucket in BUCKETS"
             :key="bucket.level"
-            class="w-full flex cursor-pointer items-center gap-2 rounded px-2 py-1 text-xs hover:bg-surface-2"
+            class="text-xs px-2 py-1 rounded flex gap-2 w-full cursor-pointer items-center hover:bg-surface-2"
             @pointerdown="onPointerDown(bucket.level)"
           >
             <Checkbox
-              class="pointer-events-none flex-shrink-0"
+              class="flex-shrink-0 pointer-events-none"
               :model-value="hasLevel(bucket.level)"
             />
-            <div class="flex flex-grow items-center gap-2">
+            <div class="flex flex-grow gap-2 items-center">
               <span
-                class="h-3 w-3 flex-shrink-0 rounded-full"
+                class="rounded-full flex-shrink-0 h-3 w-3"
                 :style="{ backgroundColor: `rgb(${LEVEL_DOT_RGB[bucket.level]})` }"
               />
               <span
@@ -128,13 +128,13 @@ const btnText = computed(() => {
             </div>
             <div
               v-if="bucketCounts[bucket.level]"
-              class="flex-shrink-0 text-fg-muted tabular-nums"
+              class="text-fg-muted flex-shrink-0 tabular-nums"
             >
               {{ bucketCounts[bucket.level] }}
             </div>
             <div
               v-else-if="hasLevel(bucket.level)"
-              class="flex-shrink-0 text-fg-subtle tabular-nums"
+              class="text-fg-subtle flex-shrink-0 tabular-nums"
             >
               0
             </div>

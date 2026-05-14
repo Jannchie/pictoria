@@ -40,7 +40,7 @@ async function onAutoTag() {
       v-else
       class="i-tabler-photo-pentagon"
     />
-    <div class="w-full overflow-hidden text-ellipsis text-nowrap">
+    <div class="w-full text-nowrap text-ellipsis overflow-hidden">
       Auto Generate Tag
     </div>
   </PButton>

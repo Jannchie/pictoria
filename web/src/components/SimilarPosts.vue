@@ -29,8 +29,8 @@ const cols = computed(() => Math.floor(width.value / 300))
 
 <template>
   <template v-if="query.status.value === 'pending'">
-    <div class="h-64 flex flex-col items-center justify-center gap-2 text-sm text-fg-muted op-50">
-      <i class="i-tabler-loader animate-spin text-2xl" />
+    <div class="text-sm text-fg-muted op-50 flex flex-col gap-2 h-64 items-center justify-center">
+      <i class="i-tabler-loader text-2xl animate-spin" />
       <span>
         Loading similar posts...
       </span>

@@ -89,32 +89,32 @@ function getRatingName(rating: number) {
       </PButton>
       <template #content>
         <div
-          class="min-w-52 border border-border-default rounded bg-surface p-1 shadow-lg"
+          class="p-1 border border-border-default rounded bg-surface min-w-52 shadow-lg"
         >
           <div
             v-for="rating in [1, 2, 3, 4, 0]"
             :key="rating"
-            class="w-full flex cursor-pointer items-center gap-2 rounded px-2 py-1 text-xs hover:bg-surface-2"
+            class="text-xs px-2 py-1 rounded flex gap-2 w-full cursor-pointer items-center hover:bg-surface-2"
             @pointerdown="onPointerDown(rating)"
           >
             <Checkbox
-              class="pointer-events-none flex-shrink-0"
+              class="flex-shrink-0 pointer-events-none"
               :model-value="hasRating(rating)"
             />
-            <div class="flex flex-grow items-center gap-1">
+            <div class="flex flex-grow gap-1 items-center">
               <span :class="{ 'text-fg-subtle italic': rating === 0 }">
                 {{ getRatingName(rating) }}
               </span>
             </div>
             <div
               v-if="scoreCountList[rating]"
-              class="flex-shrink-0 text-fg-muted tabular-nums"
+              class="text-fg-muted flex-shrink-0 tabular-nums"
             >
               {{ scoreCountList[rating] }}
             </div>
             <div
               v-else-if="hasRating(rating)"
-              class="flex-shrink-0 text-fg-subtle tabular-nums"
+              class="text-fg-subtle flex-shrink-0 tabular-nums"
             >
               0
             </div>
