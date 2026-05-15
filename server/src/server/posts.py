@@ -131,6 +131,8 @@ class PostSimplePublic(DTOBaseModel):
     file_name: str
     extension: str
     rating: int
+    score: int
+    size: int
     width: int
     height: int
     aspect_ratio: float | None = None

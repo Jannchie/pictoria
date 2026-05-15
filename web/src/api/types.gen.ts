@@ -208,6 +208,8 @@ export type PostSimplePublic = {
     fileName: string;
     extension: string;
     rating: number;
+    score: number;
+    size: number;
     width: number;
     height: number;
     aspectRatio?: number | null;

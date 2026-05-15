@@ -33,7 +33,7 @@ if TYPE_CHECKING:
 
 
 SIMPLE_POST_COLUMNS = (
-    "id, file_path, file_name, extension, rating, width, height, "
+    "id, file_path, file_name, extension, rating, score, size, width, height, "
     "aspect_ratio, dominant_color, thumbhash, sha256"
 )
 
@@ -314,7 +314,7 @@ class PostRepo:
 
             select_cols = (
                 "SELECT p.id, p.file_path, p.file_name, p.extension, p.rating, "
-                "p.width, p.height, p.aspect_ratio, p.dominant_color, "
+                "p.score, p.size, p.width, p.height, p.aspect_ratio, p.dominant_color, "
                 "p.thumbhash, p.sha256"
             )
             from_clause = "FROM posts p" + ("\n" + "\n".join(joins) if joins else "")

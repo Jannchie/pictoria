@@ -181,6 +181,7 @@ declare global {
   const useFileSystemAccess: typeof import('@vueuse/core').useFileSystemAccess
   const useFocus: typeof import('@vueuse/core').useFocus
   const useFocusWithin: typeof import('@vueuse/core').useFocusWithin
+  const useFocusedPost: typeof import('./composables/useFocusedPost').useFocusedPost
   const useFps: typeof import('@vueuse/core').useFps
   const useFullscreen: typeof import('@vueuse/core').useFullscreen
   const useGamepad: typeof import('@vueuse/core').useGamepad
@@ -310,4 +311,7 @@ declare global {
   // @ts-ignore
   export type { UseElementOffsetOptions, UseElementBoundingReturn } from './composables/useElementOffset'
   import('./composables/useElementOffset')
+  // @ts-ignore
+  export type { FocusMode } from './composables/useFocusedPost'
+  import('./composables/useFocusedPost')
 }

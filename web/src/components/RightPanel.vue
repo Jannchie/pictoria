@@ -1,39 +1,24 @@
 <script setup lang="ts">
-import type { PostDetailPublic } from '@/api'
+import { usePostQuery } from '@/composables'
+import { useFocusedPost } from '@/composables/useFocusedPost'
 
-import { computed } from 'vue'
-import { selectedPostIdSet, showPostDetail } from '@/shared'
-
-function isPost(datum: any): datum is PostDetailPublic {
-  return 'filePath' in datum
-}
-// eslint-disable-next-line vue/return-in-computed-property
-const id = computed<number | undefined>(() => {
-  const selected = selectedPostIdSet.value.values().next().value
-  if (selected) {
-    return selected
-  }
-  else if (showPostDetail.value) {
-    return showPostDetail.value.id
-  }
-})
-const { data: postData } = usePostQuery(id)
-const data = computed(() => {
-  return postData.value ? [postData.value] : []
-})
+const { focusedPostId, mode } = useFocusedPost()
+const { data: postData } = usePostQuery(focusedPostId)
 </script>
 
 <template>
-  <template
-    v-for="datum, i of data"
-    :key="i"
+  <PostDetailPanel
+    v-if="mode === 'single' && postData"
+    :post="postData"
+  />
+  <PostMultiSelectPanel
+    v-else-if="mode === 'multi'"
+  />
+  <div
+    v-else
+    class="text-xs text-fg-subtle flex flex-col gap-2 h-full items-center justify-center"
   >
-    <PostDetailPanel
-      v-if="isPost(datum)"
-      :post="datum"
-    />
-    <div v-else>
-      {{ datum }}
-    </div>
-  </template>
+    <i class="i-tabler-photo-search text-3xl op50" />
+    <div>Select a post</div>
+  </div>
 </template>
