@@ -129,6 +129,29 @@ const THUMB_LIMIT = 12
 const thumbs = computed(() => selectedPosts.value.slice(0, THUMB_LIMIT))
 const overflowCount = computed(() => Math.max(0, count.value - thumbs.value.length))
 
+// Stable pseudo-random in [0,1) seeded by id+idx — keeps the messy-pile layout
+// from re-shuffling on every render.
+function hash01(seed: number): number {
+  const x = Math.sin(seed * 12.9898 + 78.233) * 43758.5453
+  return x - Math.floor(x)
+}
+const THUMB_LONG_EDGE = 88
+function thumbStyle(p: { id: number, aspectRatio?: number | null, width: number, height: number }, idx: number) {
+  const ratio = p.aspectRatio || (p.width && p.height ? p.width / p.height : 1)
+  // Keep the post's aspect ratio: long edge is fixed, short edge follows.
+  const width = ratio >= 1 ? THUMB_LONG_EDGE : THUMB_LONG_EDGE * ratio
+  const height = ratio >= 1 ? THUMB_LONG_EDGE / ratio : THUMB_LONG_EDGE
+  const rot = (hash01(p.id + idx * 7) - 0.5) * 28 // ±14°
+  const dx = (hash01(p.id * 13 + idx) - 0.5) * 60 // ±30px from center
+  const dy = (hash01(p.id * 29 + idx * 3) - 0.5) * 40 // ±20px from center
+  return {
+    width: `${width.toFixed(1)}px`,
+    height: `${height.toFixed(1)}px`,
+    transform: `translate(-50%, -50%) translate(${dx.toFixed(1)}px, ${dy.toFixed(1)}px) rotate(${rot.toFixed(2)}deg)`,
+    zIndex: (idx * 7) % 13,
+  }
+}
+
 function clearSelection() {
   selectedPostIdSet.value = new Set()
 }
@@ -250,24 +273,27 @@ function pct(n: number) {
 
     <div
       v-if="thumbs.length > 0"
-      class="gap-1 grid grid-cols-4"
+      class="h-50 w-full flex shrink-0 select-none relative items-center justify-center"
     >
       <button
-        v-for="p of thumbs"
+        v-for="(p, idx) of thumbs"
         :key="p.id"
         type="button"
-        class="rounded bg-surface-1 aspect-square cursor-pointer transition-all overflow-hidden hover:ring-2 hover:ring-primary"
+        class="rounded bg-white shadow-md cursor-pointer ring-1 ring-black/10 top-1/2 left-1/2 transition-shadow absolute overflow-hidden hover:shadow-xl hover:ring-2 hover:ring-primary"
+        :style="thumbStyle(p, idx)"
         :title="`${p.fileName}.${p.extension}`"
         @click="focusOne(p.id)"
       >
         <img
           :src="getPostThumbnailURL(p)"
           class="h-full w-full block object-cover"
+          draggable="false"
         >
       </button>
       <div
         v-if="overflowCount > 0"
-        class="text-fg-subtle font-mono rounded bg-surface-1 flex aspect-square items-center justify-center tabular-nums"
+        class="text-fg font-mono text-sm font-semibold tracking-tight rounded-full bg-surface-2/90 shadow-lg backdrop-blur px-2.5 py-1 pointer-events-none ring-1 ring-border-default top-1/2 left-1/2 tabular-nums absolute -translate-x-1/2 -translate-y-1/2"
+        style="z-index: 20"
       >
         +{{ overflowCount }}
       </div>
