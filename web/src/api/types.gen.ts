@@ -176,7 +176,7 @@ export type PostFilterWithOrder = {
     /**
      * Order column.
      */
-    order_by?: 'id' | 'score' | 'rating' | 'created_at' | 'published_at' | 'file_name' | null;
+    order_by?: 'id' | 'score' | 'rating' | 'created_at' | 'published_at' | 'file_name' | 'last_accessed_at' | null;
     /**
      * Order direction.
      */
@@ -915,6 +915,39 @@ export type V2SearchPostsByTextResponses = {
 };
 
 export type V2SearchPostsByTextResponse = V2SearchPostsByTextResponses[keyof V2SearchPostsByTextResponses];
+
+export type V2TouchPostData = {
+    body?: never;
+    path: {
+        post_id: number;
+    };
+    query?: never;
+    url: '/v2/posts/{post_id}/touch';
+};
+
+export type V2TouchPostErrors = {
+    /**
+     * Validation Exception
+     */
+    400: {
+        status_code: number;
+        detail: string;
+        extra?: null | {
+            [key: string]: unknown;
+        } | Array<unknown>;
+    };
+};
+
+export type V2TouchPostError = V2TouchPostErrors[keyof V2TouchPostErrors];
+
+export type V2TouchPostResponses = {
+    /**
+     * Request fulfilled, nothing follows
+     */
+    204: void;
+};
+
+export type V2TouchPostResponse = V2TouchPostResponses[keyof V2TouchPostResponses];
 
 export type V2UpdatePostCaptionData = {
     body?: never;

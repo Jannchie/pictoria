@@ -134,15 +134,29 @@ export function useInfinityPostsQuery() {
   const route = useRoute()
 
   const isRandomPage = computed(() => route.path === '/random')
+  const isRecentlyPage = computed(() => route.path === '/recently')
 
   const order = computed<'asc' | 'desc' | 'random'>(() => {
-    return isRandomPage.value ? 'random' : postSortOrder.value as 'asc' | 'desc'
+    if (isRandomPage.value) {
+      return 'random'
+    }
+    if (isRecentlyPage.value) {
+      return 'desc'
+    }
+    return postSortOrder.value as 'asc' | 'desc'
+  })
+
+  const orderBy = computed<'id' | 'score' | 'rating' | 'created_at' | 'file_name' | 'published_at' | 'last_accessed_at'>(() => {
+    if (isRecentlyPage.value) {
+      return 'last_accessed_at'
+    }
+    return postSort.value
   })
 
   const requestBody = computed(() => {
     const base = {
       ...postFilter.value,
-      order_by: postSort.value,
+      order_by: orderBy.value,
       order: order.value,
     }
 
@@ -175,7 +189,8 @@ export function useInfinityPostsQuery() {
       route.name === 'all'
       || route.name === 'dir'
       || route.path === '/'
-      || route.path === '/random',
+      || route.path === '/random'
+      || route.path === '/recently',
     ),
     initialPageParam: 0,
     staleTime: 1000 * 60 * 60,

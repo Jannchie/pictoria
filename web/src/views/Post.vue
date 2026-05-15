@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { thumbHashToDataURL } from 'thumbhash'
 import { useRoute, useRouter } from 'vue-router'
+import { v2TouchPost } from '@/api'
 import PostDetail from '@/components/PostDetail.vue'
 import { bottomBarInfo, currentPostList, showPostDetail } from '@/shared'
 import { getPostImageURL } from '@/utils'
@@ -93,8 +94,11 @@ function onImageLoad() {
   imageLoaded.value = true
 }
 
-watch(postId, () => {
+watch(postId, (id) => {
   imageLoaded.value = false
+  if (Number.isFinite(id)) {
+    v2TouchPost({ path: { post_id: id } }).catch(() => {})
+  }
 }, { immediate: true })
 
 onMounted(() => {

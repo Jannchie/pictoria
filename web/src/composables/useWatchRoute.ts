@@ -19,7 +19,7 @@ export function useWatchRoute() {
         break
       }
       default: {
-        if (route.path === '/' || route.path === '/random') {
+        if (route.path === '/' || route.path === '/random' || route.path === '/recently') {
           postFilter.value.folder = undefined
         }
       }

@@ -38,7 +38,15 @@ SIMPLE_POST_COLUMNS = (
 )
 
 
-_ORDERABLE_COLUMNS = {"id", "score", "rating", "created_at", "published_at", "file_name"}
+_ORDERABLE_COLUMNS = {
+    "id",
+    "score",
+    "rating",
+    "created_at",
+    "published_at",
+    "file_name",
+    "last_accessed_at",
+}
 
 
 def _decode_dominant_color_blob(value: Any) -> list[float] | None:
@@ -501,7 +509,8 @@ class PostRepo:
 
         def _impl() -> Post | None:
             self.cur.execute(
-                f"UPDATE posts SET {field} = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?",  # noqa: S608
+                f"UPDATE posts SET {field} = ?, updated_at = CURRENT_TIMESTAMP, "  # noqa: S608
+                "last_accessed_at = CURRENT_TIMESTAMP WHERE id = ?",
                 [value, post_id],
             )
             self.cur.execute(
@@ -522,12 +531,29 @@ class PostRepo:
         def _impl() -> None:
             placeholders = ",".join("?" * len(ids))
             self.cur.execute(
-                f"UPDATE posts SET {field} = ?, updated_at = CURRENT_TIMESTAMP "  # noqa: S608
+                f"UPDATE posts SET {field} = ?, updated_at = CURRENT_TIMESTAMP, "  # noqa: S608
+                f"last_accessed_at = CURRENT_TIMESTAMP "
                 f"WHERE id IN ({placeholders})",
                 [value, *ids],
             )
 
         await asyncio.to_thread(_impl)
+
+    async def touch_accessed(self, post_id: int) -> bool:
+        """Bump ``last_accessed_at`` for the Recently view.
+
+        Returns ``True`` if the row existed. Does not touch ``updated_at`` —
+        viewing is not an edit.
+        """
+
+        def _impl() -> bool:
+            self.cur.execute(
+                "UPDATE posts SET last_accessed_at = CURRENT_TIMESTAMP WHERE id = ?",
+                [post_id],
+            )
+            return self.cur.rowcount > 0
+
+        return await asyncio.to_thread(_impl)
 
     # ─── Mutation: rotate (geometry refresh after image rotation) ─────
     async def update_for_rotate(

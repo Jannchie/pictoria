@@ -30,6 +30,7 @@ const routes: RouteRecordRaw[] = [
   { path: '/all', component: () => import('./views/Home.vue'), name: 'all' },
   { path: '/dir/:folder*', component: () => import('./views/Home.vue'), name: 'dir' },
   { path: '/random', component: () => import('./views/Home.vue') },
+  { path: '/recently', component: () => import('./views/Home.vue'), name: 'recently' },
   { path: '/tags', component: () => import('./views/Tags.vue'), name: 'tags' },
   { path: '/test', component: () => import('./views/Test.vue'), name: 'test' },
   { path: '/post/:postId', component: () => import('./views/Post.vue'), name: 'post' },

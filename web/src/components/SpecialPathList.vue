@@ -31,6 +31,8 @@ const { data: allCount } = useQuery({
     <ListItem
       icon="i-tabler-clock"
       title="Recently"
+      :active="$route.path === '/recently'"
+      @click="$router.push('/recently')"
     />
     <ListItem
       icon="i-tabler-arrows-cross"

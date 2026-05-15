@@ -58,9 +58,11 @@ class PostFilter(Struct):
 
 class PostFilterWithOrder(PostFilter):
     order_by: Annotated[
-        Literal["id", "score", "rating", "created_at", "published_at", "file_name"] | None,
+        Literal["id", "score", "rating", "created_at", "published_at", "file_name", "last_accessed_at"] | None,
         Meta(description="Order column.", examples=["id"],
-             extra_json_schema={"enum": ["id", "score", "rating", "created_at", "published_at", "file_name"]}),
+             extra_json_schema={"enum": [
+                 "id", "score", "rating", "created_at", "published_at", "file_name", "last_accessed_at",
+             ]}),
     ] = None
     order: Annotated[
         Literal["asc", "desc", "random"],
@@ -291,6 +293,11 @@ class PostController(Controller):
         if not result:
             raise NotFoundException(detail=f"Post with id {post_id} not found.")
         return PostDetailPublic.model_validate(await posts.get_detail(post_id))
+
+    @litestar.post("/{post_id:int}/touch", status_code=204, description="Record a view by bumping last_accessed_at.")
+    async def touch_post(self, posts: PostRepo, post_id: int) -> None:
+        if not await posts.touch_accessed(post_id):
+            raise NotFoundException(detail=f"Post with id {post_id} not found.")
 
     @litestar.delete("/delete")
     async def delete_posts(self, posts: PostRepo, ids: list[int]) -> None:

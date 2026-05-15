@@ -22,7 +22,7 @@ const model = defineModel<boolean | undefined>({ default: undefined })
     >
       <i
         v-if="modelValue"
-        class="i-tabler-check block h-3 w-3"
+        class="i-tabler-check h-3 w-3 block"
       />
     </span>
     <span
