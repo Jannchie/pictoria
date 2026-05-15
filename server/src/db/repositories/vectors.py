@@ -57,7 +57,7 @@ class VectorRepo:
         on the indexed column without index corruption), sqlite-vec's vec0
         handles INSERT-OR-REPLACE cleanly via DELETE + INSERT under the hood.
         """
-        emb = embedding.tolist() if hasattr(embedding, "tolist") else list(embedding)
+        emb = embedding if isinstance(embedding, list) else embedding.tolist()
         blob = sqlite_vec.serialize_float32(emb)
 
         def _impl() -> None:
@@ -90,7 +90,7 @@ class VectorRepo:
         skip_self: bool = True,
     ) -> list[SimilarImageResult]:
         """Top-N similar posts ordered by cosine distance ascending."""
-        emb = embedding.tolist() if hasattr(embedding, "tolist") else list(embedding)
+        emb = embedding if isinstance(embedding, list) else embedding.tolist()
         blob = sqlite_vec.serialize_float32(emb)
         fetch_limit = limit + (1 if skip_self else 0)
 
@@ -121,6 +121,13 @@ class VectorRepo:
         """
 
         def _impl() -> list[int]:
+            # NOT EXISTS clause skips posts already permanently failed by the
+            # embedding worker (see migration 0002_post_process_failures.sql).
+            blacklist_clause = (
+                "AND NOT EXISTS ("
+                "SELECT 1 FROM post_process_failures f "
+                "WHERE f.post_id = p.id AND f.worker = 'embedding')"
+            )
             if image_exts:
                 # The `?` placeholder count is derived from len(image_exts);
                 # ext strings flow through cur.execute params, never into SQL.
@@ -129,15 +136,17 @@ class VectorRepo:
                 self.cur.execute(
                     "SELECT p.id FROM posts p "  # noqa: S608
                     "LEFT JOIN post_vectors pv ON pv.post_id = p.id "
-                    "WHERE pv.post_id IS NULL " + ext_clause + " ORDER BY p.id",
+                    "WHERE pv.post_id IS NULL "
+                    + ext_clause + " " + blacklist_clause
+                    + " ORDER BY p.id",
                     image_exts,
                 )
             else:
                 self.cur.execute(
-                    "SELECT p.id FROM posts p "
+                    "SELECT p.id FROM posts p "  # noqa: S608
                     "LEFT JOIN post_vectors pv ON pv.post_id = p.id "
-                    "WHERE pv.post_id IS NULL "
-                    "ORDER BY p.id",
+                    "WHERE pv.post_id IS NULL " + blacklist_clause
+                    + " ORDER BY p.id",
                 )
             return [r[0] for r in self.cur.fetchall()]
 

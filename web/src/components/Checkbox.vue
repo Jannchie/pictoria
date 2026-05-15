@@ -14,7 +14,7 @@ const model = defineModel<boolean | undefined>({ default: undefined })
       class="hidden"
     >
     <span
-      class="text-on-primary rounded flex h-3.5 w-3.5 inline-block transition-colors items-center justify-center"
+      class="text-on-primary rounded-xs flex h-3.5 w-3.5 inline-block transition-colors items-center justify-center"
       :class="[{
         'bg-primary hover:bg-primary-hover': modelValue,
         'bg-surface-1 border border-border-default': !modelValue,
@@ -22,7 +22,7 @@ const model = defineModel<boolean | undefined>({ default: undefined })
     >
       <i
         v-if="modelValue"
-        class="i-tabler-check"
+        class="i-tabler-check block h-3 w-3"
       />
     </span>
     <span

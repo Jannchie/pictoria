@@ -781,6 +781,31 @@ class PostRepo:
 
         await asyncio.to_thread(_impl)
 
+    # ─── Process-failure blacklist ───────────────────────────────────
+    async def record_failures(
+        self,
+        rows: list[tuple[int, str, str]],
+    ) -> None:
+        """Mark (post_id, worker) pairs as permanently failed.
+
+        ``rows`` are ``(post_id, worker, error_message)`` triples. Uses
+        INSERT OR IGNORE so re-recording the same failure (e.g. when the
+        old data is reprocessed after a deliberate retry-then-fail-again
+        cycle that *didn't* delete the existing row) is a no-op rather
+        than an integrity error.
+        """
+        if not rows:
+            return
+
+        def _impl() -> None:
+            self.cur.executemany(
+                "INSERT OR IGNORE INTO post_process_failures "
+                "(post_id, worker, error) VALUES (?, ?, ?)",
+                rows,
+            )
+
+        await asyncio.to_thread(_impl)
+
 
 # ─── Helpers ────────────────────────────────────────────────────────────
 # Half-open intervals [min, max). 'D' covers [0, 2), 'S' actually [8, 10] —

@@ -212,6 +212,11 @@ async def process_post(
 
     if basics is not None:
         await asyncio.to_thread(_persist_basics_batch, posts, [(post, file_abs_path, basics)])
+        # Mirror the basics-batch path: a successful decode whose colorthief
+        # step failed leaves dominant_color NULL, which would re-select the
+        # post on the next sync. One-shot black-list it instead.
+        if basics.get("color_error"):
+            await posts.record_failures([(post.id, "basics", f"color: {basics['color_error']}")])
 
     await _process_embedding_batch(posts, vectors, [post.id])
     await _process_tagger_batch(posts, tag_groups, [post.id])
@@ -326,6 +331,10 @@ async def _list_basics_pending(posts: PostRepo) -> list[int]:
                 OR p.thumbhash = ''
                 OR p.dominant_color IS NULL)
               AND {_IMAGE_EXT_WHERE}
+              AND NOT EXISTS (
+                SELECT 1 FROM post_process_failures f
+                WHERE f.post_id = p.id AND f.worker = 'basics'
+              )
             ORDER BY p.id
             """,  # noqa: S608
         )
@@ -344,6 +353,10 @@ async def _list_tagger_pending(posts: PostRepo) -> list[int]:
                 WHERE pht.post_id = p.id AND pht.is_auto = 1
             )
               AND {_IMAGE_EXT_WHERE}
+              AND NOT EXISTS (
+                SELECT 1 FROM post_process_failures f
+                WHERE f.post_id = p.id AND f.worker = 'tagger'
+              )
             ORDER BY p.id
             """,  # noqa: S608
         )
@@ -360,6 +373,10 @@ async def _list_waifu_pending(posts: PostRepo) -> list[int]:
             LEFT JOIN post_waifu_scores pws ON pws.post_id = p.id
             WHERE pws.post_id IS NULL
               AND {_IMAGE_EXT_WHERE}
+              AND NOT EXISTS (
+                SELECT 1 FROM post_process_failures f
+                WHERE f.post_id = p.id AND f.worker = 'waifu'
+              )
             ORDER BY p.id
             """,  # noqa: S608
         )
@@ -371,7 +388,7 @@ async def _list_waifu_pending(posts: PostRepo) -> list[int]:
 # ─── Per-worker batch processors ────────────────────────────────────────
 
 
-async def _process_basics_batch(posts: PostRepo, post_ids: list[int]) -> None:
+async def _process_basics_batch(posts: PostRepo, post_ids: list[int]) -> None:  # noqa: C901
     """Resolve paths, decode each image once, write back basics in one batch."""
     posts_map = await posts.get_many(post_ids)
     items: list[tuple[Post, Path]] = []
@@ -393,18 +410,28 @@ async def _process_basics_batch(posts: PostRepo, post_ids: list[int]) -> None:
         return_exceptions=True,
     )
     valid: list[tuple[Post, Path, dict]] = []
+    failed: list[tuple[int, str, str]] = []
     for (post, path), b in zip(items, raw_results, strict=True):
         if isinstance(b, BaseException):
             logger.warning(f"[basics] compute failed for {path}: {b}")
+            failed.append((post.id, "basics", f"compute failed: {b}"))
             continue
         if b is None:
             continue
+        # PIL decoded fine but colorthief couldn't extract a palette — other
+        # basics fields still get persisted, but ``dominant_color`` stays
+        # NULL. Without a failure row, the post would be re-selected on
+        # every sync forever; the blacklist makes it one-shot.
+        if b.get("color_error"):
+            failed.append((post.id, "basics", f"color: {b['color_error']}"))
         valid.append((post, path, b))
     if valid:
         await asyncio.to_thread(_persist_basics_batch, posts, valid)
+    if failed:
+        await posts.record_failures(failed)
 
 
-async def _process_embedding_batch(
+async def _process_embedding_batch(  # noqa: C901
     posts: PostRepo,
     vectors: VectorRepo,
     post_ids: list[int],
@@ -434,6 +461,7 @@ async def _process_embedding_batch(
         # One unreadable image can blow up the whole batch (PIL raises mid-
         # collate). Fall back to per-image so the other 31 still land.
         logger.warning(f"[embedding] batch failed ({exc!s}); retrying per-image")
+        failed: list[tuple[int, str, str]] = []
         for pid, path in items:
             try:
                 single = await asyncio.to_thread(calculate_image_features, path)
@@ -441,8 +469,12 @@ async def _process_embedding_batch(
                 await vectors.upsert(pid, embedding)
             except (UnidentifiedImageError, OSError) as exc:
                 logger.warning(f"[embedding] skipping unreadable image {pid} ({path}): {exc}")
-            except Exception:
+                failed.append((pid, "embedding", f"{type(exc).__name__}: {exc}"))
+            except Exception as exc:
                 logger.exception(f"[embedding] post {pid} ({path})")
+                failed.append((pid, "embedding", f"{type(exc).__name__}: {exc}"))
+        if failed:
+            await posts.record_failures(failed)
         return
 
     embeddings_np = features.cpu().numpy().astype(np.float32)
@@ -450,7 +482,7 @@ async def _process_embedding_batch(
         await vectors.upsert(pid, emb)
 
 
-async def _process_tagger_batch(
+async def _process_tagger_batch(  # noqa: C901
     posts: PostRepo,
     tag_groups: TagGroupRepo,
     post_ids: list[int],
@@ -481,7 +513,16 @@ async def _process_tagger_batch(
 
     rating_updates: list[tuple[int, int]] = []
     tag_items: list[tuple[int, Any]] = []
+    failed: list[tuple[int, str, str]] = []
+    early_failed: set[int] = set()
     for (pid, post, _), resp in zip(items, results, strict=True):
+        # An empty result would leave post_has_tag untouched, so the
+        # post stays pending forever. Black-list it instead — re-running
+        # would just produce the same empty response.
+        if not resp.general_tags and not resp.character_tags:
+            failed.append((pid, "tagger", "no auto tags produced"))
+            early_failed.add(pid)
+            continue
         new_rating = from_rating_to_int(resp.rating)
         if post.rating == 0 and new_rating != 0:
             rating_updates.append((pid, new_rating))
@@ -491,6 +532,48 @@ async def _process_tagger_batch(
         await asyncio.to_thread(_update_ratings, posts, rating_updates)
     await attach_wdtagger_results_many(posts, tag_groups, tag_items, is_auto=True)
 
+    # Post-persist sanity check: ``attach_wdtagger_results_many`` issues
+    # ``INSERT ... ON CONFLICT (post_id, tag_name) DO NOTHING``, so when
+    # *every* tag the tagger produced for a post was already present as a
+    # manual (``is_auto=0``) row — common for Danbooru-imported images —
+    # zero ``is_auto=1`` rows get created and the pending predicate
+    # re-selects the post on every sync. Black-list those too: re-running
+    # the tagger produces the same shadowed result.
+    attempted = [pid for pid, _, _ in items if pid not in early_failed]
+    if attempted:
+        shadowed = await _find_posts_without_auto_tags(posts, attempted)
+        failed.extend((pid, "tagger", "all auto tags shadowed by manual tags") for pid in shadowed)
+
+    if failed:
+        await posts.record_failures(failed)
+
+
+async def _find_posts_without_auto_tags(posts: PostRepo, post_ids: list[int]) -> list[int]:
+    """Return ids from ``post_ids`` that still have no ``is_auto=1`` row.
+
+    Used as a post-persist verification step in the tagger workers: the
+    INSERT-OR-NOTHING semantics of ``post_has_tag`` silently swallow inserts
+    that collide with pre-existing manual tags, so the auto-tag rows aren't
+    materialised even though the tagger did run.
+    """
+
+    def _impl() -> list[int]:
+        placeholders = ",".join("?" * len(post_ids))
+        posts.cur.execute(
+            f"""
+            SELECT p.id FROM posts p
+            WHERE p.id IN ({placeholders})
+              AND NOT EXISTS (
+                SELECT 1 FROM post_has_tag pht
+                WHERE pht.post_id = p.id AND pht.is_auto = 1
+              )
+            """,  # noqa: S608
+            post_ids,
+        )
+        return [r[0] for r in posts.cur.fetchall()]
+
+    return await asyncio.to_thread(_impl)
+
 
 async def _tagger_fallback_per_image(
     posts: PostRepo,
@@ -498,17 +581,31 @@ async def _tagger_fallback_per_image(
     items: list[tuple[int, Post, Path]],
 ) -> None:
     tagger = get_tagger()
+    failed: list[tuple[int, str, str]] = []
+    persisted: list[int] = []
     for pid, post, abs_path in items:
         try:
             resp = await asyncio.to_thread(tagger.tag, abs_path)
+            if not resp.general_tags and not resp.character_tags:
+                failed.append((pid, "tagger", "no auto tags produced"))
+                continue
             new_rating = from_rating_to_int(resp.rating)
             if post.rating == 0 and new_rating != 0:
                 await posts.update_field(pid, "rating", new_rating)
             await attach_wdtagger_results(posts, tag_groups, pid, resp, is_auto=True)
+            persisted.append(pid)
         except (UnidentifiedImageError, OSError) as exc:
             logger.warning(f"[tagger] skipping unreadable image {pid} ({abs_path}): {exc}")
-        except Exception:
+            failed.append((pid, "tagger", f"{type(exc).__name__}: {exc}"))
+        except Exception as exc:
             logger.exception(f"[tagger] post {pid} ({abs_path})")
+            failed.append((pid, "tagger", f"{type(exc).__name__}: {exc}"))
+    if persisted:
+        # Same shadowed-by-manual-tags check as the batch path.
+        shadowed = await _find_posts_without_auto_tags(posts, persisted)
+        failed.extend((pid, "tagger", "all auto tags shadowed by manual tags") for pid in shadowed)
+    if failed:
+        await posts.record_failures(failed)
 
 
 def _update_ratings(posts: PostRepo, updates: list[tuple[int, int]]) -> None:
@@ -518,7 +615,7 @@ def _update_ratings(posts: PostRepo, updates: list[tuple[int, int]]) -> None:
     )
 
 
-async def _process_waifu_batch(posts: PostRepo, post_ids: list[int]) -> None:
+async def _process_waifu_batch(posts: PostRepo, post_ids: list[int]) -> None:  # noqa: C901
     from ai.waifu_scorer import get_waifu_scorer  # noqa: PLC0415  # lazy: defer ML stack load
 
     scorer = get_waifu_scorer()
@@ -542,6 +639,7 @@ async def _process_waifu_batch(posts: PostRepo, post_ids: list[int]) -> None:
         # One bad image can break the whole batch decode; fall back to one-by-one
         # so the other 31 don't get dropped on the floor.
         logger.warning(f"[waifu] batch scoring failed ({exc!s}); retrying per-image")
+        failed: list[tuple[int, str, str]] = []
         for pid, path in items:
             try:
                 single = await asyncio.to_thread(scorer, [path])
@@ -550,8 +648,12 @@ async def _process_waifu_batch(posts: PostRepo, post_ids: list[int]) -> None:
                 # Known unreadable / truncated file — already noisy enough as
                 # one line; the stack trace adds no information.
                 logger.warning(f"[waifu] skipping unreadable image {pid} ({path}): {exc}")
-            except Exception:
+                failed.append((pid, "waifu", f"{type(exc).__name__}: {exc}"))
+            except Exception as exc:
                 logger.exception(f"[waifu] post {pid} ({path})")
+                failed.append((pid, "waifu", f"{type(exc).__name__}: {exc}"))
+        if failed:
+            await posts.record_failures(failed)
         return
 
     for (pid, _), result in zip(items, results, strict=True):
@@ -590,7 +692,10 @@ def _compute_basics_for(post: Post, file_abs_path: Path) -> dict | None:
                 create_thumbnail_by_image(img, thumb_path)
 
             thumbhash = calculate_thumbhash(img) if needs_thumbhash else None
-            colors_ints, dom_lab = _extract_colors(post.id, img) if needs_color else ([], None)
+            if needs_color:
+                colors_ints, dom_lab, color_err = _extract_colors(post.id, img)
+            else:
+                colors_ints, dom_lab, color_err = [], None, None
 
     return {
         "sha256": calculate_sha256(file_data) if (file_data and needs_sha256) else None,
@@ -600,6 +705,7 @@ def _compute_basics_for(post: Post, file_abs_path: Path) -> dict | None:
         "height": height,
         "colors": colors_ints,
         "dominant_lab": dom_lab,
+        "color_error": color_err,
     }
 
 
@@ -684,19 +790,28 @@ def _rgb_to_lab(rgb_tuple: tuple[int, int, int]) -> np.ndarray:
     return color.rgb2lab(rgb_norm.reshape(1, 1, 3)).reshape(3)
 
 
-def _extract_colors(post_id: int, img: Image.Image) -> tuple[list[int], np.ndarray | None]:
-    """Return (palette_ints, dominant_color_lab) from an already-decoded image.
+def _extract_colors(
+    post_id: int,
+    img: Image.Image,
+) -> tuple[list[int], np.ndarray | None, str | None]:
+    """Return (palette_ints, dominant_color_lab, error) from a decoded image.
 
     ColorThief's ``get_color`` is literally ``get_palette(...)[0]``, so the
     previous "call get_palette_ints then call get_dominant_color" sequence
     was doing the median-cut clustering twice. Compute the palette once,
     derive both outputs from it.
+
+    The third tuple element is the colorthief error message when extraction
+    failed (e.g. ``vbox1 not defined`` on degenerate single-colour images),
+    or ``None`` on success. The caller uses this to permanently black-list
+    the (post, basics) pair — without it, ``dominant_color IS NULL`` would
+    re-select the post on every sync forever.
     """
     try:
         palette = get_palette(img)
     except Exception as exc:
         logger.warning(f"Color extraction failed for post {post_id}: {exc}")
-        return [], None
+        return [], None, str(exc)
     ints = [rgb2int(rgb) for rgb in palette]
     lab = _rgb_to_lab(palette[0]) if palette else None
-    return ints, lab
+    return ints, lab, None
