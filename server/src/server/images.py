@@ -4,6 +4,7 @@ from typing import ClassVar
 
 import httpx
 from litestar import Controller, Response, get
+from litestar.datastructures import CacheControlHeader
 from litestar.exceptions import NotFoundException
 from litestar.response import File
 from litestar.status_codes import HTTP_200_OK
@@ -12,6 +13,17 @@ import shared
 from db.repositories.posts import PostRepo
 from services.s3 import presigned_get_object_from_s3
 from utils import create_thumbnail
+
+# Frontend image URLs are content-addressed via a `?hash=<sha256>` query, so
+# a given URL maps to exactly one byte sequence forever. `immutable` lets the
+# browser skip even revalidation on re-mount (huge win for virtualized
+# Waterfall scrolling that unmounts/remounts tiles as they leave/re-enter
+# the viewport).
+_IMAGE_CACHE = CacheControlHeader(
+    max_age=60 * 60 * 24 * 30,  # 30 days
+    public=True,
+    immutable=True,
+)
 
 mimetypes.add_type("image/jpeg", ".jpg")
 mimetypes.add_type("image/jpeg", ".jpeg")
@@ -32,7 +44,7 @@ class ImageController(Controller):
     path = "/images"
     tags: ClassVar[list[str]] = ["Images"]  # type: ignore
 
-    @get("/original/{post_path:path}")
+    @get("/original/{post_path:path}", cache_control=_IMAGE_CACHE)
     async def get_original(self, post_path: str) -> File:
         """Get original image by file path."""
         abs_path = shared.target_dir / post_path[1:]
@@ -41,7 +53,7 @@ class ImageController(Controller):
         media_type, _ = mimetypes.guess_type(abs_path)
         return File(abs_path, media_type=media_type, filename=abs_path.name, content_disposition_type="inline")
 
-    @get("/thumbnails/{post_path:path}")
+    @get("/thumbnails/{post_path:path}", cache_control=_IMAGE_CACHE)
     async def get_thumbnail(self, post_path: str) -> File:
         """Get thumbnail image by file path (creates one if missing)."""
         thumbnail_file_path = shared.thumbnails_dir / post_path[1:]
@@ -55,7 +67,7 @@ class ImageController(Controller):
         media_type, _ = mimetypes.guess_type(thumbnail_file_path)
         return File(thumbnail_file_path, media_type=media_type, filename=thumbnail_file_path.name, content_disposition_type="inline")
 
-    @get("/original/id/{post_id:int}")
+    @get("/original/id/{post_id:int}", cache_control=_IMAGE_CACHE)
     async def get_original_by_id(self, post_id: int, posts: PostRepo) -> File | Response:
         """Get original image by post id, falling back to S3 if missing locally."""
         post = await posts.get(post_id)
@@ -77,7 +89,7 @@ class ImageController(Controller):
                 return Response(response.content, media_type=media_type)
         return File(abs_path, media_type=media_type, filename=abs_path.name, content_disposition_type="inline")
 
-    @get("/thumbnails/id/{post_id:int}")
+    @get("/thumbnails/id/{post_id:int}", cache_control=_IMAGE_CACHE)
     async def get_thumbnail_by_id(self, post_id: int, posts: PostRepo) -> File:
         """Get thumbnail image by post id (creates one if missing)."""
         post = await posts.get(post_id)

@@ -21,7 +21,7 @@ from db.repositories.posts import PostRepo
 from db.repositories.tags import TagGroupRepo
 from db.repositories.vectors import VectorRepo
 from scheme import DTOBaseModel, PostDetailPublic, PostHasColorPublic
-from utils import calculate_sha256, calculate_thumbhash, create_thumbnail_by_image, get_path_name_and_extension
+from utils import calculate_arthash, calculate_sha256, create_thumbnail_by_image, get_path_name_and_extension
 
 MAX_POST_SCORE = 5
 MAX_POST_RATING = 4
@@ -137,7 +137,7 @@ class PostSimplePublic(DTOBaseModel):
     height: int
     aspect_ratio: float | None = None
     dominant_color: list[float] | None = None
-    thumbhash: str | None = None
+    arthash: str | None = None
     colors: list[PostHasColorPublic]
     sha256: str
 
@@ -307,7 +307,7 @@ class PostController(Controller):
 
     @litestar.put("/{post_id:int}/rotate")
     async def rotate_post_image(self, posts: PostRepo, post_id: int, *, clockwise: bool = True) -> PostDetailPublic:
-        """Rotate post image by id; updates sha256/width/height/thumbhash."""
+        """Rotate post image by id; updates sha256/width/height/arthash."""
         post = await posts.get(post_id)
         if post is None:
             raise NotFoundException(detail=f"Post with id {post_id} not found.")
@@ -318,11 +318,11 @@ class PostController(Controller):
             image.save(post.absolute_path)
             create_thumbnail_by_image(image, post.thumbnail_path)
             sha = calculate_sha256(image.tobytes())
-            th = calculate_thumbhash(image)
-            return sha, image.size[0], image.size[1], th
+            ah = calculate_arthash(image)
+            return sha, image.size[0], image.size[1], ah
 
-        sha, w, h, th = await asyncio.to_thread(_rotate_and_describe)
-        await posts.update_for_rotate(post_id, sha256=sha, width=w, height=h, thumbhash=th)
+        sha, w, h, ah = await asyncio.to_thread(_rotate_and_describe)
+        await posts.update_for_rotate(post_id, sha256=sha, width=w, height=h, arthash=ah)
         return PostDetailPublic.model_validate(await posts.get_detail(post_id))
 
     @litestar.put("/{post_id:int}/tags/{tag_name:str}")

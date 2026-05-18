@@ -12,7 +12,8 @@ from functools import cache, wraps
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, TypeVar
 
-import thash
+from arthash import Codec
+from arthash import encode as arthash_encode
 from dotenv import load_dotenv
 from PIL import Image, ImageFile
 
@@ -195,12 +196,20 @@ def calculate_sha256(file: bytes) -> str:
     return sha256.hexdigest()
 
 
-def calculate_thumbhash(source: Path | Image.Image) -> str | None:
+# Placeholder-image codec for posts. RECT/n=32 produces a ~180-byte hash
+# that decodes to a 33-element rectangle mosaic — abstract enough to read
+# as a placeholder, detailed enough to hint at the image's layout, and
+# cheap enough on the frontend to animate 50+ tiles at once. Must match
+# the codec the frontend uses to decode (see web/src/utils/arthash.ts).
+ARTHASH_CODEC = Codec.rect(n=32)
+
+
+def calculate_arthash(source: Path | Image.Image) -> str | None:
     try:
-        thumb_hash = thash.encode(source)
-        return base64.b64encode(bytes(thumb_hash)).decode("ascii")
+        hash_bytes = arthash_encode(source, ARTHASH_CODEC)
+        return base64.b64encode(bytes(hash_bytes)).decode("ascii")
     except Exception as exc:
-        logger.warning(f"Failed to generate thumbhash for {source!r}: {exc}")
+        logger.warning(f"Failed to generate arthash for {source!r}: {exc}")
         return None
 
 

@@ -1,7 +1,8 @@
 <script setup lang="ts">
+import type { PostSimplePublic } from '@/api'
 import { useQueryClient } from '@tanstack/vue-query'
 import { filesize } from 'filesize'
-import { computed, ref } from 'vue'
+import { computed, onUnmounted, ref, watch } from 'vue'
 import { v2DeletePosts } from '@/api'
 import {
   currentPostList,
@@ -136,21 +137,131 @@ function hash01(seed: number): number {
   return x - Math.floor(x)
 }
 const THUMB_LONG_EDGE = 88
-function thumbStyle(p: { id: number, aspectRatio?: number | null, width: number, height: number }, idx: number) {
+const Z_LEVELS = 13
+function thumbZ(idx: number): number {
+  return (idx * 7) % Z_LEVELS // 0 = bottom layer, 12 = top layer ("background")
+}
+
+function thumbStyle(p: PostSimplePublic, idx: number) {
   const ratio = p.aspectRatio || (p.width && p.height ? p.width / p.height : 1)
-  // Keep the post's aspect ratio: long edge is fixed, short edge follows.
   const width = ratio >= 1 ? THUMB_LONG_EDGE : THUMB_LONG_EDGE * ratio
   const height = ratio >= 1 ? THUMB_LONG_EDGE / ratio : THUMB_LONG_EDGE
-  const rot = (hash01(p.id + idx * 7) - 0.5) * 28 // ±14°
-  const dx = (hash01(p.id * 13 + idx) - 0.5) * 60 // ±30px from center
-  const dy = (hash01(p.id * 29 + idx * 3) - 0.5) * 40 // ±20px from center
+  const rot = (hash01(p.id + idx * 7) - 0.5) * 28
+  const dx = (hash01(p.id * 13 + idx) - 0.5) * 60
+  const dy = (hash01(p.id * 29 + idx * 3) - 0.5) * 40
   return {
     width: `${width.toFixed(1)}px`,
     height: `${height.toFixed(1)}px`,
     transform: `translate(-50%, -50%) translate(${dx.toFixed(1)}px, ${dy.toFixed(1)}px) rotate(${rot.toFixed(2)}deg)`,
-    zIndex: (idx * 7) % 13,
+    zIndex: thumbZ(idx),
   }
 }
+
+// Per-thumb timing — driven by z-layer, NOT by v-for position. The top
+// ("background", visually dominant) layer enters last & leaves first; buried
+// layers enter first & linger. Worst-case total stays ≤ 1s regardless of N.
+function thumbTiming(id: number, idx: number) {
+  const z = thumbZ(idx)
+  const layer = z / (Z_LEVELS - 1)
+  return {
+    enterDelay: layer * 420 + hash01(id * 41 + idx * 5) * 80,
+    leaveDelay: (1 - layer) * 420 + hash01(id * 67 + idx * 9) * 80,
+    duration: 220 + hash01(id * 53 + idx * 11) * 80,
+  }
+}
+
+// Self-managed display list — bypasses Vue's TransitionGroup entirely so we
+// can drive per-thumb opacity with setTimeout + CSS transition, in strict
+// z-layer order rather than v-for/DOM-insertion order.
+interface DisplayedThumb {
+  id: number
+  post: PostSimplePublic
+  idx: number
+  opacity: number
+  duration: number
+}
+const displayedThumbs = ref<DisplayedThumb[]>([])
+const thumbTimers = new Map<number, ReturnType<typeof setTimeout>[]>()
+
+function pushThumbTimer(id: number, fn: () => void, ms: number) {
+  const t = setTimeout(fn, ms)
+  let arr = thumbTimers.get(id)
+  if (!arr) {
+    arr = []
+    thumbTimers.set(id, arr)
+  }
+  arr.push(t)
+}
+function clearThumbTimers(id: number) {
+  thumbTimers.get(id)?.forEach(clearTimeout)
+  thumbTimers.delete(id)
+}
+// Schedule a transition target — wraps the final assignment in rAF so the
+// browser is guaranteed to paint the previous opacity once before the new
+// value is applied, otherwise Vue may batch the 0 → 1 flip into one frame
+// and the transition is silently dropped.
+function scheduleOpacity(item: DisplayedThumb, target: number, delayMs: number) {
+  pushThumbTimer(item.id, () => {
+    requestAnimationFrame(() => { item.opacity = target })
+  }, delayMs)
+}
+
+watch(
+  thumbs,
+  (next) => {
+    const nextIds = new Set(next.map(p => p.id))
+    const idxOf = new Map(next.map((p, i) => [p.id, i]))
+
+    // Incoming / refreshed: fade to 1 after enterDelay
+    next.forEach((p, idx) => {
+      const existing = displayedThumbs.value.find(d => d.id === p.id)
+      const timing = thumbTiming(p.id, idx)
+      if (existing) {
+        existing.idx = idx
+        existing.post = p
+        if (existing.opacity === 0) {
+          clearThumbTimers(p.id)
+          existing.duration = timing.duration
+          scheduleOpacity(existing, 1, timing.enterDelay)
+        }
+      }
+      else {
+        const item: DisplayedThumb = {
+          id: p.id,
+          post: p,
+          idx,
+          opacity: 0,
+          duration: timing.duration,
+        }
+        displayedThumbs.value.push(item)
+        scheduleOpacity(item, 1, timing.enterDelay)
+      }
+    })
+
+    // Outgoing: fade to 0 after leaveDelay, remove when transition completes
+    displayedThumbs.value.slice().forEach((d) => {
+      if (!nextIds.has(d.id) && d.opacity !== 0) {
+        clearThumbTimers(d.id)
+        const timing = thumbTiming(d.id, idxOf.get(d.id) ?? d.idx)
+        d.duration = timing.duration
+        scheduleOpacity(d, 0, timing.leaveDelay)
+        pushThumbTimer(d.id, () => {
+          const i = displayedThumbs.value.findIndex(x => x.id === d.id)
+          if (i >= 0) {
+            displayedThumbs.value.splice(i, 1)
+          }
+          clearThumbTimers(d.id)
+        }, timing.leaveDelay + timing.duration + 40)
+      }
+    })
+  },
+  { immediate: true },
+)
+
+onUnmounted(() => {
+  thumbTimers.forEach(arr => arr.forEach(clearTimeout))
+  thumbTimers.clear()
+})
 
 function clearSelection() {
   selectedPostIdSet.value = new Set()
@@ -272,20 +383,24 @@ function pct(n: number) {
     </div>
 
     <div
-      v-if="thumbs.length > 0"
+      v-if="displayedThumbs.length > 0"
       class="h-50 w-full flex shrink-0 select-none relative items-center justify-center"
     >
       <button
-        v-for="(p, idx) of thumbs"
-        :key="p.id"
+        v-for="d of displayedThumbs"
+        :key="d.id"
         type="button"
-        class="rounded bg-white shadow-md cursor-pointer ring-1 ring-black/10 top-1/2 left-1/2 transition-shadow absolute overflow-hidden hover:shadow-xl hover:ring-2 hover:ring-primary"
-        :style="thumbStyle(p, idx)"
-        :title="`${p.fileName}.${p.extension}`"
-        @click="focusOne(p.id)"
+        class="rounded bg-white shadow-md cursor-pointer ring-1 ring-black/10 top-1/2 left-1/2 absolute overflow-hidden hover:shadow-xl hover:ring-2 hover:ring-primary"
+        :style="{
+          ...thumbStyle(d.post, d.idx),
+          opacity: d.opacity,
+          transition: `opacity ${d.duration}ms cubic-bezier(0.22, 1, 0.36, 1)`,
+        }"
+        :title="`${d.post.fileName}.${d.post.extension}`"
+        @click="focusOne(d.id)"
       >
         <img
-          :src="getPostThumbnailURL(p)"
+          :src="getPostThumbnailURL(d.post)"
           class="h-full w-full block object-cover"
           draggable="false"
         >
@@ -432,3 +547,4 @@ function pct(n: number) {
     </div>
   </ScrollArea>
 </template>
+

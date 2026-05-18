@@ -173,7 +173,7 @@ export const v2ListPosts = <ThrowOnError extends boolean = false>(options?: Opti
 /**
  * RotatePostImage
  *
- * Rotate post image by id; updates sha256/width/height/thumbhash.
+ * Rotate post image by id; updates sha256/width/height/arthash.
  */
 export const v2RotatePostImage = <ThrowOnError extends boolean = false>(options: Options<V2RotatePostImageData, ThrowOnError>) => (options.client ?? client).put<V2RotatePostImageResponses, V2RotatePostImageErrors, ThrowOnError>({
     responseType: 'json',

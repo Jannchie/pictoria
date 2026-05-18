@@ -137,7 +137,7 @@ PARQUET_SCHEMA = pa.schema(
         ("meta", pa.string()),
         ("source", pa.string()),
         ("caption", pa.string()),
-        ("thumbhash", pa.string()),
+        ("arthash", pa.string()),
         ("size", pa.int64()),
         ("dominant_color", pa.list_(pa.float32())),
         (
@@ -192,7 +192,7 @@ class PostRow:
     size: int
     source: str
     caption: str
-    thumbhash: str | None
+    arthash: str | None
     dominant_color: list[float] | None
     created_at: datetime
     updated_at: datetime
@@ -237,7 +237,7 @@ def post_to_record(post: PostRow) -> dict[str, Any]:
         "meta": post.meta,
         "source": post.source,
         "caption": post.caption,
-        "thumbhash": post.thumbhash,
+        "arthash": post.arthash,
         "size": int(post.size),
         "dominant_color": dominant,
         "tags": tags,
@@ -692,7 +692,7 @@ _POST_SQL = """
         p.id, p.file_path, p.file_name, p.extension, p.full_path,
         p.width, p.height, p.aspect_ratio, p.published_at,
         p.score, p.rating, p.description, p.meta, p.sha256, p.size,
-        p.source, p.caption, p.thumbhash, p.dominant_color,
+        p.source, p.caption, p.arthash, p.dominant_color,
         p.created_at, p.updated_at,
         COALESCE((
             SELECT list({name: t.name, group: tg.name, is_auto: pht.is_auto})
@@ -719,7 +719,7 @@ def _row_to_postrow(r: tuple) -> PostRow:
         published_at=r[8], score=r[9] or 0, rating=r[10] or 0,
         description=r[11] or "", meta=r[12] or "", sha256=r[13] or "",
         size=r[14] or 0, source=r[15] or "", caption=r[16] or "",
-        thumbhash=r[17], dominant_color=list(r[18]) if r[18] is not None else None,
+        arthash=r[17], dominant_color=list(r[18]) if r[18] is not None else None,
         created_at=r[19], updated_at=r[20],
         tags=list(r[21] or []), colors=list(r[22] or []),
         waifu_score=r[23],

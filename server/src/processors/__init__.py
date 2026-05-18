@@ -8,7 +8,7 @@ bar per active worker stacked vertically.
 
 Design notes
 ------------
-- "Basics" stays bundled (sha256 + thumbhash + dimensions + palette +
+- "Basics" stays bundled (sha256 + arthash + dimensions + palette +
   dominant_color) because all of these piggyback on a single file open
   / PIL decode — splitting them would re-decode the same image up to
   four times.
@@ -44,8 +44,8 @@ from tools.colors import get_palette, rgb2int
 from utils import (
     attach_wdtagger_results,
     attach_wdtagger_results_many,
+    calculate_arthash,
     calculate_sha256,
-    calculate_thumbhash,
     create_thumbnail_by_image,
     find_files_in_directory,
     from_rating_to_int,
@@ -263,7 +263,7 @@ async def run_basics_worker(
     *,
     progress: Progress | None = None,
 ) -> None:
-    """Backfill sha256 / thumbhash / dimensions / palette / dominant_color."""
+    """Backfill sha256 / arthash / dimensions / palette / dominant_color."""
     pending = await _list_basics_pending(posts)
 
     async def _process(batch_ids: list[int]) -> None:
@@ -327,8 +327,8 @@ async def _list_basics_pending(posts: PostRepo) -> list[int]:
             f"""
             SELECT p.id FROM posts p
             WHERE (p.sha256 = ''
-                OR p.thumbhash IS NULL
-                OR p.thumbhash = ''
+                OR p.arthash IS NULL
+                OR p.arthash = ''
                 OR p.dominant_color IS NULL)
               AND {_IMAGE_EXT_WHERE}
               AND NOT EXISTS (
@@ -664,15 +664,15 @@ async def _process_waifu_batch(posts: PostRepo, post_ids: list[int]) -> None:  #
 
 
 def _compute_basics_for(post: Post, file_abs_path: Path) -> dict | None:
-    """Compute sha256 / thumbhash / dimensions / palette / dominant_color.
+    """Compute sha256 / arthash / dimensions / palette / dominant_color.
 
     Returns ``None`` when everything is already filled in (nothing to do).
     Raises on real I/O / decode failures so callers can decide what to do.
     """
     needs_sha256 = not post.sha256
-    needs_thumbhash = not post.thumbhash
+    needs_arthash = not post.arthash
     needs_color = post.dominant_color is None
-    if not (needs_sha256 or needs_thumbhash or needs_color):
+    if not (needs_sha256 or needs_arthash or needs_color):
         return None
 
     with file_abs_path.open("rb") as f:
@@ -691,7 +691,7 @@ def _compute_basics_for(post: Post, file_abs_path: Path) -> dict | None:
                 thumb_path.parent.mkdir(parents=True, exist_ok=True)
                 create_thumbnail_by_image(img, thumb_path)
 
-            thumbhash = calculate_thumbhash(img) if needs_thumbhash else None
+            arthash = calculate_arthash(img) if needs_arthash else None
             if needs_color:
                 colors_ints, dom_lab, color_err = _extract_colors(post.id, img)
             else:
@@ -700,7 +700,7 @@ def _compute_basics_for(post: Post, file_abs_path: Path) -> dict | None:
     return {
         "sha256": calculate_sha256(file_data) if (file_data and needs_sha256) else None,
         "size": file_abs_path.stat().st_size if needs_sha256 else None,
-        "thumbhash": thumbhash,
+        "arthash": arthash,
         "width": width,
         "height": height,
         "colors": colors_ints,
@@ -728,7 +728,7 @@ def _persist_basics_batch(
             b["sha256"],
             b["sha256"],  # second placeholder controls whether `size` updates
             b["size"],
-            b["thumbhash"],
+            b["arthash"],
             post.id,
         )
         for post, _, b in valid
@@ -740,7 +740,7 @@ def _persist_basics_batch(
             height = ?,
             sha256 = COALESCE(?, sha256),
             size = CASE WHEN ? IS NULL THEN size ELSE ? END,
-            thumbhash = COALESCE(?, thumbhash),
+            arthash = COALESCE(?, arthash),
             updated_at = CURRENT_TIMESTAMP
         WHERE id = ?
         """,

@@ -5,6 +5,7 @@ import { createRouter, createWebHistory } from 'vue-router'
 import App from '@/App.vue'
 import { baseURL } from '@/shared'
 import { highlightDirective } from '@/utils'
+import { prewarmArthash } from '@/utils/arthash'
 import { client } from './api/client.gen'
 import '@unocss/reset/tailwind-compat.css'
 import 'virtual:uno.css'
@@ -16,6 +17,28 @@ client.setConfig({
   baseURL,
   throwOnError: true,
 })
+
+// Load the arthash wasm module ahead of first use so the gallery render
+// isn't blocked by it — by the time any placeholder needs to decode, the
+// module is ready and decode is essentially sync.
+prewarmArthash()
+
+// Toggle a `scrolling` class on <html> for the lifetime of any scroll event
+// burst. Components (notably ArthashPlaceholder) listen for this to pause
+// their dissolve animations while the user is scrolling — the compositor
+// is already busy laying out / painting freshly-mounted tiles, so freezing
+// non-essential animations buys back frame budget.
+let scrollEndTimer: ReturnType<typeof setTimeout> | null = null
+const SCROLL_END_MS = 150
+window.addEventListener('scroll', () => {
+  document.documentElement.classList.add('scrolling')
+  if (scrollEndTimer) {
+    clearTimeout(scrollEndTimer)
+  }
+  scrollEndTimer = setTimeout(() => {
+    document.documentElement.classList.remove('scrolling')
+  }, SCROLL_END_MS)
+}, { capture: true, passive: true })
 
 // Apply persisted color scheme before mount so it survives full-page reloads
 // outside of <PSchemeSwitch> (which only mounts on /settings).

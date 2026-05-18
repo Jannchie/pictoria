@@ -42,7 +42,7 @@ try:
 
     needs_metadata = con.execute(
         "SELECT count(*) FROM posts "
-        "WHERE sha256 = '' OR thumbhash IS NULL OR thumbhash = ''",
+        "WHERE sha256 = '' OR arthash IS NULL OR arthash = ''",
     ).fetchone()[0]
     metadata_done = total - needs_metadata
 

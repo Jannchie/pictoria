@@ -105,7 +105,7 @@ async def my_lifespan(app: Litestar):
 
 # How long to let in-flight backfill batches finish before we force-cancel
 # their asyncio tasks. The slowest single batch we have is "basics" at 32
-# images (PIL decode + sha256 + thumbhash); under load that can be ~10 s on
+# images (PIL decode + sha256 + arthash); under load that can be ~10 s on
 # a cold cache. 30 s gives a comfortable margin without making Ctrl+C feel
 # unresponsive.
 _BACKFILL_DRAIN_TIMEOUT_S = 30.0

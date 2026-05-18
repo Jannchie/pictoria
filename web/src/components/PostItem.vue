@@ -1,8 +1,8 @@
 <script setup lang="ts">
 import type { PostSimplePublic } from '@/api'
-import { thumbHashToDataURL } from 'thumbhash'
 import { computed, ref } from 'vue'
-import { hideNSFW, selectedPostIdSet, selectingPostIdSet, unselectedPostIdSet } from '@/shared'
+import ArthashPlaceholder from '@/components/ArthashPlaceholder.vue'
+import { enableFancyPlaceholder, hideNSFW, selectedPostIdSet, selectingPostIdSet, unselectedPostIdSet } from '@/shared'
 import { getPostThumbnailURL, isImageExtension } from '@/utils'
 import { colorNumToHex, labToRgbaString } from '@/utils/color'
 
@@ -138,32 +138,8 @@ const primaryColor = computed(() => {
   return 'primary'
 })
 
-const thumbhashDataUrl = computed(() => {
-  const hash = post.value.thumbhash
-  if (!hash) {
-    return null
-  }
-  try {
-    const bytes = Uint8Array.from(atob(hash), char => char.codePointAt(0) ?? 0)
-    return thumbHashToDataURL(bytes)
-  }
-  catch (error) {
-    console.warn(`Failed to decode thumbhash for post ${post.value.id}:`, error)
-    return null
-  }
-})
-
 const placeholderStyle = computed(() => {
   const backgroundColor = primaryColor.value === 'primary' ? '' : primaryColor.value
-  if (thumbhashDataUrl.value) {
-    return {
-      backgroundImage: `url(${thumbhashDataUrl.value})`,
-      backgroundSize: 'cover',
-      backgroundPosition: 'center',
-      backgroundRepeat: 'no-repeat',
-      backgroundColor,
-    }
-  }
   return backgroundColor ? { backgroundColor } : {}
 })
 
@@ -191,23 +167,26 @@ function onContextmenu(e: MouseEvent) {
       class="rounded-lg bg-primary w-full"
     >
       <div
-        class="post-content rounded-lg"
+        class="post-content rounded-lg relative overflow-hidden"
         :style="placeholderStyle"
       >
-        <Transition
-          enter-active-class="transition-opacity duration-300"
-          enter-from-class="opacity-0"
-          enter-to-class="opacity-100"
+        <img
+          :src="getPostThumbnailURL(post)"
+          class="rounded-lg h-full w-full transition-opacity duration-300 object-cover"
+          draggable="true"
+          :class="{
+            'blur': ((post.rating ?? 0) >= 3) && hideNSFW,
+            'opacity-0': !post.arthash && !imageLoaded,
+          }"
+          @load="onImageLoad"
         >
-          <img
-            v-show="imageLoaded"
-            :src="getPostThumbnailURL(post)"
-            class="rounded-lg w-inherit"
-            draggable="true"
-            :class="{ blur: ((post.rating ?? 0) >= 3) && hideNSFW }"
-            @load="onImageLoad"
-          >
-        </Transition>
+        <ArthashPlaceholder
+          v-if="post.arthash"
+          :hash="post.arthash"
+          :revealed="imageLoaded"
+          :fancy="enableFancyPlaceholder"
+          class="rounded-lg"
+        />
       </div>
     </PAspectRatio>
     <PAspectRatio

@@ -1,9 +1,9 @@
 <script setup lang="ts">
-import { thumbHashToDataURL } from 'thumbhash'
 import { useRoute, useRouter } from 'vue-router'
 import { v2TouchPost } from '@/api'
+import ArthashPlaceholder from '@/components/ArthashPlaceholder.vue'
 import PostDetail from '@/components/PostDetail.vue'
-import { bottomBarInfo, currentPostList, showPostDetail } from '@/shared'
+import { bottomBarInfo, currentPostList, enableFancyPlaceholder, showPostDetail } from '@/shared'
 import { getPostImageURL } from '@/utils'
 import { colorNumToHex } from '@/utils/color'
 
@@ -24,21 +24,6 @@ function getPostColor(post: { colors: { color: number, order: number }[] }) {
   }
   return 'primary'
 }
-
-const thumbhashDataUrl = computed(() => {
-  const hash = post.value?.thumbhash
-  if (!hash) {
-    return null
-  }
-  try {
-    const bytes = Uint8Array.from(atob(hash), char => char.codePointAt(0) ?? 0)
-    return thumbHashToDataURL(bytes)
-  }
-  catch (error) {
-    console.warn(`Failed to decode thumbhash for post ${post.value?.id}:`, error)
-    return null
-  }
-})
 
 const imageAspectRatio = computed(() => {
   const p = post.value
@@ -75,17 +60,9 @@ const containerStyle = computed(() => {
       style.maxWidth = `${p.width}px`
     }
   }
-  if (thumbhashDataUrl.value) {
-    style.backgroundImage = `url(${thumbhashDataUrl.value})`
-    style.backgroundSize = 'cover'
-    style.backgroundPosition = 'center'
-    style.backgroundRepeat = 'no-repeat'
-  }
-  else {
-    const color = getPostColor(p)
-    if (color !== 'primary') {
-      style.backgroundColor = color
-    }
+  const color = getPostColor(p)
+  if (color !== 'primary') {
+    style.backgroundColor = color
   }
   return style
 })
@@ -207,21 +184,21 @@ onKeyStroke([' ', 'Enter'], (e) => {
           :style="containerStyle"
           @click="showPostDetail = { ...post, width: post.width ?? 0, height: post.height ?? 0 }"
         >
-          <Transition
-            enter-active-class="transition-opacity duration-300"
-            enter-from-class="opacity-0"
-            enter-to-class="opacity-100"
+          <img
+            :key="post.id"
+            ref="imgRef"
+            :src="getPostImageURL(post)"
+            alt="post"
+            class="h-full w-full block transition-opacity duration-300 object-contain"
+            :class="{ 'opacity-0': !post.arthash && !imageLoaded }"
+            @load="onImageLoad"
           >
-            <img
-              v-show="imageLoaded"
-              :key="post.id"
-              ref="imgRef"
-              :src="getPostImageURL(post)"
-              alt="post"
-              class="h-full w-full block object-contain"
-              @load="onImageLoad"
-            >
-          </Transition>
+          <ArthashPlaceholder
+            v-if="post.arthash"
+            :hash="post.arthash"
+            :revealed="imageLoaded"
+            :fancy="enableFancyPlaceholder"
+          />
         </div>
       </div>
       <SimilarPosts

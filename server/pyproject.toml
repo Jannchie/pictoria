@@ -27,9 +27,9 @@ dependencies = [
     "pyarrow>=24.0.0",
     "minio>=7.2.20",
     "boto3>=1.43.6",
-    "thash>=1.1.0",
     "sqlite-vec>=0.1.6",
     "pytz>=2026.2",
+    "arthash>=0.2.0",
 ]
 
 requires-python = ">=3.11"

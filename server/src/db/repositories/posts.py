@@ -34,7 +34,7 @@ if TYPE_CHECKING:
 
 SIMPLE_POST_COLUMNS = (
     "id, file_path, file_name, extension, rating, score, size, width, height, "
-    "aspect_ratio, dominant_color, thumbhash, sha256"
+    "aspect_ratio, dominant_color, arthash, sha256"
 )
 
 
@@ -315,7 +315,7 @@ class PostRepo:
             select_cols = (
                 "SELECT p.id, p.file_path, p.file_name, p.extension, p.rating, "
                 "p.score, p.size, p.width, p.height, p.aspect_ratio, p.dominant_color, "
-                "p.thumbhash, p.sha256"
+                "p.arthash, p.sha256"
             )
             from_clause = "FROM posts p" + ("\n" + "\n".join(joins) if joins else "")
             where_sql = ("WHERE " + " AND ".join(where_clauses)) if where_clauses else ""
@@ -563,16 +563,16 @@ class PostRepo:
         sha256: str,
         width: int,
         height: int,
-        thumbhash: str | None,
+        arthash: str | None,
     ) -> None:
         def _impl() -> None:
             self.cur.execute(
                 """
                 UPDATE posts
-                SET sha256 = ?, width = ?, height = ?, thumbhash = ?, updated_at = CURRENT_TIMESTAMP
+                SET sha256 = ?, width = ?, height = ?, arthash = ?, updated_at = CURRENT_TIMESTAMP
                 WHERE id = ?
                 """,
-                [sha256, width, height, thumbhash, post_id],
+                [sha256, width, height, arthash, post_id],
             )
 
         await asyncio.to_thread(_impl)
@@ -694,7 +694,7 @@ class PostRepo:
         meta: str = "",
         caption: str = "",
         description: str = "",
-        thumbhash: str | None = None,
+        arthash: str | None = None,
         dominant_color: list[float] | None = None,
         published_at: Any = None,
     ) -> Post:
@@ -709,7 +709,7 @@ class PostRepo:
                 """
                 INSERT INTO posts(
                     file_path, file_name, extension, source, width, height,
-                    size, sha256, meta, caption, description, thumbhash,
+                    size, sha256, meta, caption, description, arthash,
                     dominant_color, published_at
                 )
                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
@@ -717,7 +717,7 @@ class PostRepo:
                 """,
                 [
                     file_path, file_name, extension, source, width, height,
-                    size, sha256, meta, caption, description, thumbhash,
+                    size, sha256, meta, caption, description, arthash,
                     dom_blob, published_at,
                 ],
             )

@@ -12,6 +12,7 @@ export {}
 /* prettier-ignore */
 declare module 'vue' {
   export interface GlobalComponents {
+    ArthashPlaceholder: typeof import('./components/ArthashPlaceholder.vue')['default']
     AspectRatio: typeof import('./components/AspectRatio.vue')['default']
     AutoGenerateCaptionBtn: typeof import('./components/AutoGenerateCaptionBtn.vue')['default']
     AutoGenerateTagBtn: typeof import('./components/AutoGenerateTagBtn.vue')['default']
@@ -70,6 +71,7 @@ declare module 'vue' {
 
 // For TSX support
 declare global {
+  const ArthashPlaceholder: typeof import('./components/ArthashPlaceholder.vue')['default']
   const AspectRatio: typeof import('./components/AspectRatio.vue')['default']
   const AutoGenerateCaptionBtn: typeof import('./components/AutoGenerateCaptionBtn.vue')['default']
   const AutoGenerateTagBtn: typeof import('./components/AutoGenerateTagBtn.vue')['default']
