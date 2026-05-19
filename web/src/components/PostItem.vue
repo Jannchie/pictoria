@@ -2,7 +2,7 @@
 import type { PostSimplePublic } from '@/api'
 import { computed, ref } from 'vue'
 import ArthashPlaceholder from '@/components/ArthashPlaceholder.vue'
-import { enableFancyPlaceholder, hideNSFW, selectedPostIdSet, selectingPostIdSet, unselectedPostIdSet } from '@/shared'
+import { enableArthash, enableFancyPlaceholder, hideNSFW, selectedPostIdSet, selectingPostIdSet, unselectedPostIdSet } from '@/shared'
 import { getPostThumbnailURL, isImageExtension } from '@/utils'
 import { colorNumToHex, labToRgbaString } from '@/utils/color'
 
@@ -176,12 +176,12 @@ function onContextmenu(e: MouseEvent) {
           draggable="true"
           :class="{
             'blur': ((post.rating ?? 0) >= 3) && hideNSFW,
-            'opacity-0': !post.arthash && !imageLoaded,
+            'opacity-0': (!enableArthash || !post.arthash) && !imageLoaded,
           }"
           @load="onImageLoad"
         >
         <ArthashPlaceholder
-          v-if="post.arthash"
+          v-if="enableArthash && post.arthash"
           :hash="post.arthash"
           :revealed="imageLoaded"
           :fancy="enableFancyPlaceholder"

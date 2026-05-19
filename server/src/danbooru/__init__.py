@@ -1,5 +1,7 @@
 import concurrent.futures
 import os
+import random
+import threading
 import time
 from datetime import datetime
 from logging import getLogger
@@ -19,6 +21,75 @@ logger = getLogger("danbooru")
 # caches). The httpx default of 5s reliably times out tag pages like
 # `gainoob`. Connect stays tight; reads get the long budget.
 _HTTP_TIMEOUT = httpx.Timeout(connect=10.0, read=60.0, write=30.0, pool=10.0)
+
+# Backoff schedule (seconds) for CDN throttling. Caps so a single bad batch
+# can't park the whole pool for hours.
+_THROTTLE_BACKOFF_SECONDS: tuple[float, ...] = (5.0, 15.0, 45.0, 120.0)
+
+# Pool-wide CDN spacing: every request waits a random interval in this
+# range since the last slot. Average ≈1s, so total QPS sits around 1 req/s
+# regardless of worker count. Jitter avoids a steady cadence that's trivial
+# to fingerprint as a bot.
+_INTERVAL_MIN = 0.5
+_INTERVAL_MAX = 1.5
+
+
+class _Throttle:
+    """Shared rate-limit + cool-down gate for all CDN workers on one client.
+
+    Two mechanisms in one:
+    * Jittered min-interval (leaky bucket): every `wait()` reserves the next
+      slot at a random offset in [_INTERVAL_MIN, _INTERVAL_MAX] from the
+      previous slot and sleeps until it. Total QPS is capped pool-wide and
+      the cadence is irregular.
+    * Reactive cooldown: on 403/429 any worker calls `report_blocked()` which
+      pushes the next slot past the cooldown window; consecutive blocks
+      escalate the delay, success resets it.
+
+    The slot bookkeeping is done under a lock; the actual sleep happens
+    outside the lock so a slow worker can't serialize the whole pool.
+    """
+
+    def __init__(
+        self,
+        interval_min: float = _INTERVAL_MIN,
+        interval_max: float = _INTERVAL_MAX,
+    ) -> None:
+        self._lock = threading.Lock()
+        self._interval_min = interval_min
+        self._interval_max = interval_max
+        self._next_slot = 0.0
+        self._paused_until = 0.0
+        self._consecutive_blocks = 0
+
+    def wait(self) -> None:
+        with self._lock:
+            now = time.monotonic()
+            slot = max(now, self._next_slot, self._paused_until)
+            self._next_slot = slot + random.uniform(self._interval_min, self._interval_max)  # noqa: S311
+            wait_for = slot - now
+        if wait_for > 0:
+            time.sleep(wait_for)
+
+    def report_blocked(self) -> float:
+        with self._lock:
+            now = time.monotonic()
+            # Another worker already triggered the cooldown for this wave;
+            # piggyback on its delay instead of escalating prematurely.
+            if self._paused_until > now:
+                return self._paused_until - now
+            idx = min(self._consecutive_blocks, len(_THROTTLE_BACKOFF_SECONDS) - 1)
+            delay = _THROTTLE_BACKOFF_SECONDS[idx]
+            self._consecutive_blocks += 1
+            self._paused_until = now + delay
+            # Push the slot past the cooldown so already-queued workers
+            # don't blow through the moment they wake.
+            self._next_slot = max(self._next_slot, self._paused_until)
+            return delay
+
+    def report_ok(self) -> None:
+        with self._lock:
+            self._consecutive_blocks = 0
 
 
 class Variant(BaseModel):
@@ -105,6 +176,7 @@ class DanbooruClient:
             headers={"User-Agent": "curl/8.5.0"},
             timeout=_HTTP_TIMEOUT,
         )
+        self._throttle = _Throttle()
 
     def _get_with_retry(
         self,
@@ -120,10 +192,14 @@ class DanbooruClient:
             except (httpx.TimeoutException, httpx.TransportError) as exc:
                 if attempt == retries:
                     raise
-                sleep_s = backoff ** attempt
+                sleep_s = backoff**attempt
                 logger.warning(
                     "Danbooru GET %s timed out/failed (attempt %d/%d): %s; retrying in %.1fs",
-                    url, attempt, retries, exc, sleep_s,
+                    url,
+                    attempt,
+                    retries,
+                    exc,
+                    sleep_s,
                 )
                 time.sleep(sleep_s)
         # Unreachable: the loop either returns or raises.
@@ -202,19 +278,55 @@ class DanbooruClient:
             logger.debug("File %s already exists, skipping", file_path)
             return "skipped"
         for attempt in range(retries):
+            self._throttle.wait()
             try:
-                logger.debug("Downloading post %s, attempt %d", post.id, attempt + 1)
+                logger.debug("Downloading post %s, attempt %d/%d", post.id, attempt + 1, retries)
                 with self.client.stream("GET", url) as response:
+                    status = response.status_code
+                    # 403/429 = CDN rate-limit. Park the whole pool, retry.
+                    if status in (403, 429):
+                        response.read()
+                        delay = self._throttle.report_blocked()
+                        logger.warning(
+                            "Post %s rate-limited (HTTP %d); cooling down %.1fs (attempt %d/%d)",
+                            post_id,
+                            status,
+                            delay,
+                            attempt + 1,
+                            retries,
+                        )
+                        continue
+                    # Other 4xx (404/410/...) = permanent, don't waste retries.
+                    if httpx.codes.BAD_REQUEST <= status < httpx.codes.INTERNAL_SERVER_ERROR:
+                        logger.warning("Post %s HTTP %d; not retryable", post_id, status)
+                        return "failed"
                     response.raise_for_status()
                     with file_path.open("wb") as f:
                         for chunk in response.iter_bytes():
                             f.write(chunk)
-            except Exception:
-                logger.warning("Failed to download post %s on attempt %d", post_id, attempt + 1)
+            except httpx.HTTPStatusError as exc:
+                logger.warning(
+                    "Post %s server error %d on attempt %d/%d",
+                    post_id,
+                    exc.response.status_code,
+                    attempt + 1,
+                    retries,
+                )
+                continue
+            except httpx.RequestError as exc:
+                logger.warning(
+                    "Post %s network error on attempt %d/%d: %s",
+                    post_id,
+                    attempt + 1,
+                    retries,
+                    exc,
+                )
+                continue
             else:
+                self._throttle.report_ok()
                 logger.info("Successfully downloaded post %s", post_id)
                 return "downloaded"
-        logger.exception("All attempts to download post %s have failed", post_id)
+        logger.warning("All %d attempts to download post %s failed", retries, post_id)
         return "failed"
 
     def download_by_id(self, post_id: int, target_dir: str) -> None:
@@ -225,7 +337,10 @@ class DanbooruClient:
         Thread(target=self.download_image, args=(post, target_dir)).start()
 
     def download_posts(
-        self, posts: list[DanbooruPost], target_dir: os.PathLike, n_worker: int = 16,
+        self,
+        posts: list[DanbooruPost],
+        target_dir: os.PathLike,
+        n_worker: int = 16,
     ) -> dict[DownloadStatus, int]:
         target_dir = Path(target_dir)
         target_dir.mkdir(exist_ok=True, parents=True)

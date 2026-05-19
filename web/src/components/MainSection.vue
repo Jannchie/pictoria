@@ -5,12 +5,12 @@ import type { PMenuItem } from '@/ui'
 import { useQuery, useQueryClient } from '@tanstack/vue-query'
 import { refDebounced } from '@vueuse/core'
 import { logicAnd } from '@vueuse/math'
-import { useRoute, useRouter } from 'vue-router'
+import { onBeforeRouteLeave, useRoute, useRouter } from 'vue-router'
 import { Waterfall } from 'vue-wf'
 import { v2DeletePosts, v2SearchPostsByText } from '@/api'
 import { useRotateImageMutation } from '@/composables/mutations/useRotateImageMutation'
 import { useElementOffset } from '@/composables/useElementOffset'
-import { currentPostList, selectedPostIdSet, selectingPostIdSet, showPostDetail, textSearchQuery, unselectedPostIdSet as unselectingPostId, updateScoreForSelectedPosts, useInfinityPostsQuery, waterfallRowCount } from '@/shared'
+import { currentPostList, galleryScrollPositions, patchPostsInListCache, selectedPostIdSet, selectingPostIdSet, showPostDetail, textSearchQuery, unselectedPostIdSet as unselectingPostId, updateScoreForSelectedPosts, useInfinityPostsQuery, waterfallRowCount } from '@/shared'
 import { isImageExtension } from '@/utils'
 
 const route = useRoute()
@@ -320,6 +320,7 @@ async function applyScoreToSelection(score: number) {
   }
   const selectedIds = [...selectedPostIdSet.value].filter(id => id !== undefined) as number[]
   await updateScoreForSelectedPosts(score)
+  patchPostsInListCache(queryClient, selectedIds, { score })
   queryClient.invalidateQueries({ queryKey: ['count', 'score'] })
   queryClient.invalidateQueries({ queryKey: ['posts', 'stats'] })
   for (const postId of selectedIds) {
@@ -458,6 +459,52 @@ function onMenuSelect(value: string | number | symbol) {
   }
 }
 const mainSectionRef = ref<HTMLElement>()
+
+// Persist gallery scrollTop across navigations to /post/:id and back. Home.vue
+// has no <keep-alive>, so MainSection unmounts on entry to a post detail and
+// remounts on Esc/back — without this, scrollTop resets to 0.
+const galleryScrollEl = computed<HTMLElement | undefined>(() => (mainSectionRef.value as unknown as { $el?: HTMLElement } | undefined)?.$el)
+
+useEventListener(galleryScrollEl, 'scroll', () => {
+  const el = galleryScrollEl.value
+  if (el) {
+    galleryScrollPositions.set(route.fullPath, el.scrollTop)
+  }
+}, { passive: true })
+
+onBeforeRouteLeave((_to, from) => {
+  const el = galleryScrollEl.value
+  if (el) {
+    galleryScrollPositions.set(from.fullPath, el.scrollTop)
+  }
+})
+
+onMounted(() => {
+  const targetTop = galleryScrollPositions.get(route.fullPath)
+  if (!targetTop) {
+    return
+  }
+  // Waterfall layout fills in asynchronously after react-query hands back cached
+  // posts; rAF-tick until scrollHeight is tall enough for scrollTop to stick.
+  let attempts = 0
+  const tick = () => {
+    const el = galleryScrollEl.value
+    if (!el) {
+      if (attempts++ < 60) {
+        requestAnimationFrame(tick)
+      }
+      return
+    }
+    if (el.scrollHeight - el.clientHeight >= targetTop) {
+      el.scrollTop = targetTop
+      return
+    }
+    if (attempts++ < 60) {
+      requestAnimationFrame(tick)
+    }
+  }
+  requestAnimationFrame(tick)
+})
 </script>
 
 <template>

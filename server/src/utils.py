@@ -71,10 +71,17 @@ def prepare_s3() -> None:
     shared.s3_base_dir = os.environ.get("S3_BASE_DIR", "collections")
 
 
+def prepare_feature_flags() -> None:
+    shared.disable_arthash = os.environ.get("DISABLE_ARTHASH", "").lower() in {"1", "true", "yes", "on"}
+    if shared.disable_arthash:
+        logger.info("DISABLE_ARTHASH=1: skipping arthash computation in the basics worker")
+
+
 def initialize(target_dir: os.PathLike, openai_key: str | None = None) -> None:
     prepare_paths(Path(target_dir))
     prepare_openai_api(openai_key)
     prepare_s3()
+    prepare_feature_flags()
     init_thumbnails_directory()
 
 

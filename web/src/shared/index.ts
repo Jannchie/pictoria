@@ -1,3 +1,4 @@
+import type { QueryClient } from '@tanstack/vue-query'
 import type { PostSimplePublic } from '@/api'
 import { useInfiniteQuery, useQuery } from '@tanstack/vue-query'
 import { useDebounce, useLocalStorage, useStorage } from '@vueuse/core'
@@ -123,6 +124,11 @@ export const hideNSFW = useStorage('pictoria.hideNSFW', false)
 // of the per-shape arthash dissolve. Useful on low-end GPUs or when the
 // animation feels distracting.
 export const enableFancyPlaceholder = useStorage('pictoria.enableFancyPlaceholder', true)
+// Master switch for the arthash placeholder. When off, the placeholder shows
+// the dominant color only and the image fades in on load. Pair with the
+// backend's DISABLE_ARTHASH env var if you also want to skip computing arthash
+// for newly imported images.
+export const enableArthash = useStorage('pictoria.enableArthash', true)
 
 export const postSort = useLocalStorage<'id' | 'score' | 'rating' | 'created_at' | 'file_name' | 'published_at'>('pictoria.posts.sort', 'id')
 export const postSortColor = useLocalStorage<string | undefined>('pictoria.posts.color', undefined)
@@ -225,12 +231,53 @@ export const showPostDetail = ref<PostSimplePublic | null>(null)
 // Post page) write to this so keyboard navigation can move prev/next.
 export const currentPostList = ref<PostSimplePublic[]>([])
 
+// Per-route scrollTop cache for the gallery's MainSection. Survives Home.vue
+// unmount when navigating to /post/:id so Esc/back restores the same position.
+// Keyed by route.fullPath so different folders/filters keep separate state.
+export const galleryScrollPositions = new Map<string, number>()
+
 export const menuData = ref<any | null>(null)
 export const showMenu = computed({ get: () => !!menuData.value, set: (value) => {
   if (!value) {
     menuData.value = null
   }
 } })
+
+// Optimistically patch posts inside the infinite-list cache without touching
+// stats/count caches. Keeps order stable when the user changes score/rating
+// while sorted by that field — the new value shows up in place; rows only
+// re-sort on the next fetch (manual refresh, sort change, etc.).
+export function patchPostsInListCache(
+  queryClient: QueryClient,
+  ids: Iterable<number>,
+  patch: Partial<PostSimplePublic>,
+) {
+  const idSet = new Set(ids)
+  if (idSet.size === 0) {
+    return
+  }
+  queryClient.setQueriesData<{ pages: (PostSimplePublic[] | undefined)[], pageParams: unknown[] }>(
+    {
+      predicate: (q) => {
+        const k = q.queryKey
+        return Array.isArray(k) && k[0] === 'posts' && typeof k[1] === 'object' && k[1] !== null
+      },
+    },
+    (old) => {
+      if (!old || !Array.isArray(old.pages)) {
+        return old
+      }
+      return {
+        ...old,
+        pages: old.pages.map(page =>
+          Array.isArray(page)
+            ? page.map(p => (p && idSet.has(p.id) ? { ...p, ...patch } : p))
+            : page,
+        ),
+      }
+    },
+  )
+}
 
 // Utility function to update scores for multiple posts
 export async function updateScoreForSelectedPosts(score: number) {

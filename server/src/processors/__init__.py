@@ -322,13 +322,18 @@ async def run_waifu_worker(
 
 
 async def _list_basics_pending(posts: PostRepo) -> list[int]:
+    # When arthash is disabled, drop the ``arthash IS NULL`` predicate — otherwise
+    # every legacy post whose only missing column is arthash would be selected
+    # on every sync, but the worker would no-op on it (because _compute_basics_for
+    # also short-circuits arthash), and the same ids would be re-picked next pass.
+    arthash_clause = "" if shared.disable_arthash else "OR p.arthash IS NULL OR p.arthash = ''"
+
     def _impl() -> list[int]:
         posts.cur.execute(
             f"""
             SELECT p.id FROM posts p
             WHERE (p.sha256 = ''
-                OR p.arthash IS NULL
-                OR p.arthash = ''
+                {arthash_clause}
                 OR p.dominant_color IS NULL)
               AND {_IMAGE_EXT_WHERE}
               AND NOT EXISTS (
@@ -670,7 +675,7 @@ def _compute_basics_for(post: Post, file_abs_path: Path) -> dict | None:
     Raises on real I/O / decode failures so callers can decide what to do.
     """
     needs_sha256 = not post.sha256
-    needs_arthash = not post.arthash
+    needs_arthash = not shared.disable_arthash and not post.arthash
     needs_color = post.dominant_color is None
     if not (needs_sha256 or needs_arthash or needs_color):
         return None

@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { enableFancyPlaceholder, hideNSFW } from '@/shared'
+import { enableArthash, enableFancyPlaceholder, hideNSFW } from '@/shared'
 </script>
 
 <template>
@@ -54,6 +54,31 @@ import { enableFancyPlaceholder, hideNSFW } from '@/shared'
       </section>
 
       <section class="px-5 py-4 border border-border-default rounded-lg bg-surface-1 transition-colors hover:border-border-strong">
+        <div class="flex flex-col gap-3 md:flex-row md:gap-6 md:items-center md:justify-between">
+          <div class="flex gap-3 items-start">
+            <i class="i-tabler-photo-shield text-lg text-fg-muted mt-0.5" />
+            <div>
+              <h3 class="text-fg font-medium">
+                Arthash Placeholder
+              </h3>
+              <p class="text-sm text-fg-muted mt-0.5">
+                Show the arthash mosaic while images load. Turn off for a plain dominant-color background that fades into the image. Set DISABLE_ARTHASH=1 on the server to also skip computing arthash for new images.
+              </p>
+            </div>
+          </div>
+          <div class="flex items-center">
+            <PSwitch
+              v-model="enableArthash"
+              on-icon="i-tabler-photo-shield"
+            />
+          </div>
+        </div>
+      </section>
+
+      <section
+        v-if="enableArthash"
+        class="px-5 py-4 border border-border-default rounded-lg bg-surface-1 transition-colors hover:border-border-strong"
+      >
         <div class="flex flex-col gap-3 md:flex-row md:gap-6 md:items-center md:justify-between">
           <div class="flex gap-3 items-start">
             <i class="i-tabler-sparkles text-lg text-fg-muted mt-0.5" />

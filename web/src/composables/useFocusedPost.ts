@@ -20,7 +20,6 @@ export function useFocusedPost() {
       const only = selectedPostIdSet.value.values().next().value
       return typeof only === 'number' ? only : undefined
     }
-    return undefined
   })
 
   const mode = computed<FocusMode>(() => {

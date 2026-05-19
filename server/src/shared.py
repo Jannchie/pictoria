@@ -77,3 +77,8 @@ s3_secret_key = ""
 s3_endpoint = ""
 s3_bucket = "pictoria"
 s3_base_dir = "collections"
+
+# When True, the basics worker skips arthash computation and the pending-query
+# stops re-selecting posts whose only missing column is arthash. Driven by the
+# ``DISABLE_ARTHASH`` env var; flipped on by ``utils.initialize``.
+disable_arthash = False

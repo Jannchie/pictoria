@@ -6,6 +6,7 @@ import { computed, onUnmounted, ref, watch } from 'vue'
 import { v2DeletePosts } from '@/api'
 import {
   currentPostList,
+  patchPostsInListCache,
   selectedPostIdSet,
   showPostDetail,
   updateRatingForSelectedPosts,
@@ -133,7 +134,7 @@ const overflowCount = computed(() => Math.max(0, count.value - thumbs.value.leng
 // Stable pseudo-random in [0,1) seeded by id+idx — keeps the messy-pile layout
 // from re-shuffling on every render.
 function hash01(seed: number): number {
-  const x = Math.sin(seed * 12.9898 + 78.233) * 43758.5453
+  const x = Math.sin(seed * 12.9898 + 78.233) * 43_758.5453
   return x - Math.floor(x)
 }
 const THUMB_LONG_EDGE = 88
@@ -202,7 +203,9 @@ function clearThumbTimers(id: number) {
 // and the transition is silently dropped.
 function scheduleOpacity(item: DisplayedThumb, target: number, delayMs: number) {
   pushThumbTimer(item.id, () => {
-    requestAnimationFrame(() => { item.opacity = target })
+    requestAnimationFrame(() => {
+      item.opacity = target
+    })
   }, delayMs)
 }
 
@@ -213,7 +216,7 @@ watch(
     const idxOf = new Map(next.map((p, i) => [p.id, i]))
 
     // Incoming / refreshed: fade to 1 after enterDelay
-    next.forEach((p, idx) => {
+    for (const [idx, p] of next.entries()) {
       const existing = displayedThumbs.value.find(d => d.id === p.id)
       const timing = thumbTiming(p.id, idx)
       if (existing) {
@@ -236,10 +239,10 @@ watch(
         displayedThumbs.value.push(item)
         scheduleOpacity(item, 1, timing.enterDelay)
       }
-    })
+    }
 
     // Outgoing: fade to 0 after leaveDelay, remove when transition completes
-    displayedThumbs.value.slice().forEach((d) => {
+    ;for (const d of displayedThumbs.value) {
       if (!nextIds.has(d.id) && d.opacity !== 0) {
         clearThumbTimers(d.id)
         const timing = thumbTiming(d.id, idxOf.get(d.id) ?? d.idx)
@@ -247,19 +250,19 @@ watch(
         scheduleOpacity(d, 0, timing.leaveDelay)
         pushThumbTimer(d.id, () => {
           const i = displayedThumbs.value.findIndex(x => x.id === d.id)
-          if (i >= 0) {
+          if (i !== -1) {
             displayedThumbs.value.splice(i, 1)
           }
           clearThumbTimers(d.id)
         }, timing.leaveDelay + timing.duration + 40)
       }
-    })
+    }
   },
   { immediate: true },
 )
 
 onUnmounted(() => {
-  thumbTimers.forEach(arr => arr.forEach(clearTimeout))
+  for (const arr of thumbTimers) arr.forEach(clearTimeout)
   thumbTimers.clear()
 })
 
@@ -277,15 +280,17 @@ function focusOne(id: number) {
 }
 
 async function applyRating(rating: number) {
+  const ids = [...selectedPostIdSet.value].filter((id): id is number => typeof id === 'number')
   await updateRatingForSelectedPosts(rating)
-  queryClient.invalidateQueries({ queryKey: ['posts'] })
+  patchPostsInListCache(queryClient, ids, { rating })
   queryClient.invalidateQueries({ queryKey: ['count', 'rating'] })
   queryClient.invalidateQueries({ queryKey: ['posts', 'stats'] })
 }
 
 async function applyScore(score: number) {
+  const ids = [...selectedPostIdSet.value].filter((id): id is number => typeof id === 'number')
   await updateScoreForSelectedPosts(score)
-  queryClient.invalidateQueries({ queryKey: ['posts'] })
+  patchPostsInListCache(queryClient, ids, { score })
   queryClient.invalidateQueries({ queryKey: ['count', 'score'] })
   queryClient.invalidateQueries({ queryKey: ['posts', 'stats'] })
 }
@@ -384,13 +389,13 @@ function pct(n: number) {
 
     <div
       v-if="displayedThumbs.length > 0"
-      class="h-50 w-full flex shrink-0 select-none relative items-center justify-center"
+      class="flex shrink-0 h-50 w-full select-none items-center justify-center relative"
     >
       <button
         v-for="d of displayedThumbs"
         :key="d.id"
         type="button"
-        class="rounded bg-white shadow-md cursor-pointer ring-1 ring-black/10 top-1/2 left-1/2 absolute overflow-hidden hover:shadow-xl hover:ring-2 hover:ring-primary"
+        class="rounded bg-white cursor-pointer ring-1 ring-black/10 shadow-md left-1/2 top-1/2 absolute overflow-hidden hover:ring-2 hover:ring-primary hover:shadow-xl"
         :style="{
           ...thumbStyle(d.post, d.idx),
           opacity: d.opacity,
@@ -407,7 +412,7 @@ function pct(n: number) {
       </button>
       <div
         v-if="overflowCount > 0"
-        class="text-fg font-mono text-sm font-semibold tracking-tight rounded-full bg-surface-2/90 shadow-lg backdrop-blur px-2.5 py-1 pointer-events-none ring-1 ring-border-default top-1/2 left-1/2 tabular-nums absolute -translate-x-1/2 -translate-y-1/2"
+        class="text-sm text-fg tracking-tight font-mono font-semibold px-2.5 py-1 rounded-full bg-surface-2/90 pointer-events-none ring-1 ring-border-default shadow-lg left-1/2 top-1/2 absolute backdrop-blur tabular-nums -translate-x-1/2 -translate-y-1/2"
         style="z-index: 20"
       >
         +{{ overflowCount }}
@@ -547,4 +552,3 @@ function pct(n: number) {
     </div>
   </ScrollArea>
 </template>
-

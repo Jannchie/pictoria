@@ -3,7 +3,7 @@ import { useRoute, useRouter } from 'vue-router'
 import { v2TouchPost } from '@/api'
 import ArthashPlaceholder from '@/components/ArthashPlaceholder.vue'
 import PostDetail from '@/components/PostDetail.vue'
-import { bottomBarInfo, currentPostList, enableFancyPlaceholder, showPostDetail } from '@/shared'
+import { bottomBarInfo, currentPostList, enableArthash, enableFancyPlaceholder, showPostDetail } from '@/shared'
 import { getPostImageURL } from '@/utils'
 import { colorNumToHex } from '@/utils/color'
 
@@ -118,7 +118,7 @@ function navigatePost(delta: -1 | 1) {
   }
   const next = list[nextIdx]
   if (next?.id !== undefined) {
-    router.push(`/post/${next.id}`)
+    router.replace(`/post/${next.id}`)
   }
 }
 
@@ -190,11 +190,11 @@ onKeyStroke([' ', 'Enter'], (e) => {
             :src="getPostImageURL(post)"
             alt="post"
             class="h-full w-full block transition-opacity duration-300 object-contain"
-            :class="{ 'opacity-0': !post.arthash && !imageLoaded }"
+            :class="{ 'opacity-0': (!enableArthash || !post.arthash) && !imageLoaded }"
             @load="onImageLoad"
           >
           <ArthashPlaceholder
-            v-if="post.arthash"
+            v-if="enableArthash && post.arthash"
             :hash="post.arthash"
             :revealed="imageLoaded"
             :fancy="enableFancyPlaceholder"
