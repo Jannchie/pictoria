@@ -96,3 +96,11 @@ disable_arthash = False
 # so it isn't worth the GPU time. Set ``ENABLE_SIGLIP_SCORER=1`` to re-enable
 # the worker and the per-upload scoring step.
 enable_siglip_scorer = False
+
+# Which embedding backs search (image-to-image + text-to-image):
+#   "clip"    — legacy CLIP ViT-L/14, post_vectors (768d). Default.
+#   "siglip2" — SigLIP 2 so400m, post_vectors_siglip2 (1152d, multilingual text).
+# Set via the ``SEARCH_EMBEDDING_BACKEND`` env var (utils.prepare_feature_flags).
+# Keep "clip" during migration and flip to "siglip2" once the
+# post_vectors_siglip2 backfill has caught up.
+search_embedding_backend: str = "clip"
