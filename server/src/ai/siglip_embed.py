@@ -72,7 +72,9 @@ def calculate_image_features(image: ImageInput) -> torch.Tensor:
     inputs = processor(images=image, return_tensors="pt").to(_device)
     pixel_values = inputs.pixel_values.to(dtype=_dtype)
     with torch.inference_mode():
-        return model.get_image_features(pixel_values=pixel_values)
+        # .float(): the model runs in bf16 but bf16 tensors can't go through
+        # numpy() downstream, so match ai.clip's float32 output contract.
+        return model.get_image_features(pixel_values=pixel_values).float()
 
 
 def calculate_image_features_batch(images: Sequence[ImageInput]) -> torch.Tensor:
@@ -89,7 +91,8 @@ def calculate_image_features_batch(images: Sequence[ImageInput]) -> torch.Tensor
         inputs = processor(images=pil_images, return_tensors="pt").to(_device)
         pixel_values = inputs.pixel_values.to(dtype=_dtype)
         with torch.inference_mode():
-            return model.get_image_features(pixel_values=pixel_values)
+            # .float(): see calculate_image_features — bf16 can't go to numpy.
+            return model.get_image_features(pixel_values=pixel_values).float()
     finally:
         _close_opened(pil_images, images)
 
@@ -112,4 +115,5 @@ def calculate_text_features(text: str | list[str]) -> torch.Tensor:
     # upstream inference recipe.
     inputs = processor(text=text, return_tensors="pt", padding="max_length").to(_device)
     with torch.inference_mode():
-        return model.get_text_features(**inputs)
+        # .float(): see calculate_image_features — bf16 can't go to numpy.
+        return model.get_text_features(**inputs).float()
