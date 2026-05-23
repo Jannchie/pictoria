@@ -40,53 +40,53 @@ export function useSyncFilterWithUrl() {
   const route = useRoute()
   const router = useRouter()
 
-  // Watch for changes in postFilter and update URL
-  watch(postFilter, (newFilter) => {
-    const query = { ...route.query }
-
-    // Handle score filter
-    if (newFilter.score.length > 0) {
-      query.score = newFilter.score.join(',')
-    }
-    else {
-      delete query.score
-    }
-
-    // Handle rating filter
-    if (newFilter.rating.length > 0) {
-      query.rating = newFilter.rating.join(',')
-    }
-    else {
-      delete query.rating
-    }
-
-    // Handle extension filter
-    if (newFilter.extension.length > 0) {
-      query.extension = newFilter.extension.join(',')
-    }
-    else {
-      delete query.extension
-    }
-
-    // Handle waifu score range filter
-    if (newFilter.waifu_score_range) {
-      query.waifu_score_range = newFilter.waifu_score_range.join(',')
-    }
-    else {
-      delete query.waifu_score_range
-    }
-
-    // Handle waifu score bucket filter
-    if (newFilter.waifu_score_levels.length > 0) {
-      query.waifu_score_levels = newFilter.waifu_score_levels.join(',')
-    }
-    else {
-      delete query.waifu_score_levels
-    }
-
-    // Update URL without reloading the page
-    router.replace({ query })
-  }, { deep: true })
+  // Watch each field separately so unrelated changes (e.g. tags) don't pay
+  // the cost of deep traversal + full URL rebuild. Each watcher uses a
+  // primitive-comparable signature derived from the array/tuple value.
+  watch(
+    () => [
+      postFilter.value.score.join(','),
+      postFilter.value.rating.join(','),
+      postFilter.value.extension.join(','),
+      postFilter.value.waifu_score_range?.join(',') ?? '',
+      postFilter.value.waifu_score_levels.join(','),
+    ],
+    () => {
+      const f = postFilter.value
+      const query = { ...route.query }
+      if (f.score.length > 0) {
+        query.score = f.score.join(',')
+      }
+      else {
+        delete query.score
+      }
+      if (f.rating.length > 0) {
+        query.rating = f.rating.join(',')
+      }
+      else {
+        delete query.rating
+      }
+      if (f.extension.length > 0) {
+        query.extension = f.extension.join(',')
+      }
+      else {
+        delete query.extension
+      }
+      if (f.waifu_score_range) {
+        query.waifu_score_range = f.waifu_score_range.join(',')
+      }
+      else {
+        delete query.waifu_score_range
+      }
+      if (f.waifu_score_levels.length > 0) {
+        query.waifu_score_levels = f.waifu_score_levels.join(',')
+      }
+      else {
+        delete query.waifu_score_levels
+      }
+      router.replace({ query })
+    },
+  )
 
   // Watch for URL changes and update postFilter
   watch(() => route.query, (newQuery) => {

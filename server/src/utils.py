@@ -158,7 +158,13 @@ def get_file_extension(file_path: Path) -> str:
     return file_path.suffix[1:]
 
 
-def find_files_in_directory(target_dir: Path) -> list[tuple[str, str, str]]:
+_DirScanCache = dict[str, tuple[int, list[tuple[str, str, str]]]]
+
+
+def find_files_in_directory(  # noqa: C901, PLR0915
+    target_dir: Path,
+    cache: _DirScanCache | None = None,
+) -> list[tuple[str, str, str]]:
     """Walk ``target_dir`` and return (relative_path, stem, extension) tuples.
 
     Uses ``os.scandir`` recursively because ``Path.rglob`` allocates a Path
@@ -169,6 +175,14 @@ def find_files_in_directory(target_dir: Path) -> list[tuple[str, str, str]]:
 
     Skips any top-level entry whose name starts with ``.`` (e.g. the
     ``.pictoria`` working dir).
+
+    When ``cache`` is provided, each directory's direct file list is keyed by
+    absolute path → ``(mtime_ns, files_in_dir)``. A directory whose mtime
+    matches its cache entry skips the ``scandir`` of its direct files (we
+    still recurse into subdirectories to pick up changes deeper in the tree,
+    since on NTFS / ext4 a parent dir's mtime only reflects direct entries).
+    The poller in app.py runs this every minute on a 150k-file library, so
+    this turns most polls into a sub-second tree walk.
     """
     os_tuples: list[tuple[str, str, str]] = []
 
@@ -178,25 +192,61 @@ def find_files_in_directory(target_dir: Path) -> list[tuple[str, str, str]]:
             return name[:dot], name[dot + 1:]
         return name, ""
 
-    def _walk(dir_path: str, rel_dir: str, *, is_top: bool = False) -> None:
+    def _walk(dir_path: str, rel_dir: str, *, is_top: bool = False) -> None:  # noqa: C901, PLR0912
         try:
-            it = os.scandir(dir_path)
+            cur_mtime_ns = os.stat(dir_path).st_mtime_ns  # noqa: PTH116
         except OSError as exc:
             logger.warning(f"Skipping {dir_path}: {exc}")
             return
-        with it:
-            for entry in it:
-                if is_top and entry.name.startswith("."):
-                    continue
-                try:
-                    if entry.is_dir(follow_symlinks=False):
-                        sub_rel = entry.name if rel_dir == "." else f"{rel_dir}/{entry.name}"
-                        _walk(entry.path, sub_rel)
-                    elif entry.is_file(follow_symlinks=False):
-                        stem, ext = _split_name(entry.name)
-                        os_tuples.append((rel_dir, stem, ext))
-                except OSError as exc:
-                    logger.debug(f"Skipping {entry.path}: {exc}")
+
+        cached = cache.get(dir_path) if cache is not None else None
+        subdirs: list[tuple[str, str]] = []
+        if cached is not None and cached[0] == cur_mtime_ns:
+            # Reuse the cached direct-file listing; we still need to walk
+            # subdirectories because their contents may have changed without
+            # bumping our mtime.
+            os_tuples.extend(cached[1])
+            try:
+                it = os.scandir(dir_path)
+            except OSError as exc:
+                logger.warning(f"Skipping {dir_path}: {exc}")
+                return
+            with it:
+                for entry in it:
+                    if is_top and entry.name.startswith("."):
+                        continue
+                    try:
+                        if entry.is_dir(follow_symlinks=False):
+                            sub_rel = entry.name if rel_dir == "." else f"{rel_dir}/{entry.name}"
+                            subdirs.append((entry.path, sub_rel))
+                    except OSError as exc:
+                        logger.debug(f"Skipping {entry.path}: {exc}")
+        else:
+            try:
+                it = os.scandir(dir_path)
+            except OSError as exc:
+                logger.warning(f"Skipping {dir_path}: {exc}")
+                return
+            direct_files: list[tuple[str, str, str]] = []
+            with it:
+                for entry in it:
+                    if is_top and entry.name.startswith("."):
+                        continue
+                    try:
+                        if entry.is_dir(follow_symlinks=False):
+                            sub_rel = entry.name if rel_dir == "." else f"{rel_dir}/{entry.name}"
+                            subdirs.append((entry.path, sub_rel))
+                        elif entry.is_file(follow_symlinks=False):
+                            stem, ext = _split_name(entry.name)
+                            direct_files.append((rel_dir, stem, ext))
+                    except OSError as exc:
+                        logger.debug(f"Skipping {entry.path}: {exc}")
+            os_tuples.extend(direct_files)
+            if cache is not None:
+                cache[dir_path] = (cur_mtime_ns, direct_files)
+
+        for sub_path, sub_rel in subdirs:
+            _walk(sub_path, sub_rel)
 
     _walk(str(target_dir), ".", is_top=True)
 

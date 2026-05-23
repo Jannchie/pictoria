@@ -225,7 +225,13 @@ class PostRepo:
 
     # ─── Read many ────────────────────────────────────────────────────
     async def list_paginated(self, start: int, limit: int) -> tuple[list[dict], int | None]:
-        """Return (items_as_detail_dicts, next_cursor)."""
+        """Return (items_as_detail_dicts, next_cursor).
+
+        Batches all joined lookups (tags, colors, waifu, aesthetic scores) into
+        a single SQL round-trip each, then stitches them in Python. The previous
+        implementation issued 4 separate queries per row, producing 4·limit
+        round-trips per page.
+        """
 
         def _impl() -> tuple[list[dict], int | None]:
             self.cur.execute(
@@ -238,69 +244,105 @@ class PostRepo:
             if len(posts) > limit:
                 next_cursor = posts[-1]["id"]
                 posts = posts[:-1]
-            # detail (tags, colors, waifu_score) per row
-            details: list[dict] = []
-            for p in posts:
-                pid = p["id"]
-                self.cur.execute(
-                    """
-                    SELECT pht.is_auto, t.name, t.created_at, t.updated_at,
-                           tg.id AS group_id, tg.name AS group_name, tg.color AS group_color
-                    FROM post_has_tag pht
-                    JOIN tags t ON t.name = pht.tag_name
-                    LEFT JOIN tag_groups tg ON tg.id = t.group_id
-                    WHERE pht.post_id = ?
-                    ORDER BY t.name
-                    """,
-                    [pid],
-                )
-                tag_rows = fetch_all_dicts(self.cur)
-                tags = [
-                    {
-                        "is_auto": bool(r["is_auto"]),
-                        "tag_info": {
-                            "name": r["name"],
-                            "created_at": r["created_at"],
-                            "updated_at": r["updated_at"],
-                            "group": (
-                                {"id": r["group_id"], "name": r["group_name"], "color": r["group_color"]}
-                                if r["group_id"] is not None
-                                else None
-                            ),
-                        },
-                    }
-                    for r in tag_rows
-                ]
-                self.cur.execute(
-                    'SELECT "order", color FROM post_has_color WHERE post_id = ? ORDER BY "order"',
-                    [pid],
-                )
-                colors = fetch_all_dicts(self.cur)
-                self.cur.execute(
-                    "SELECT score FROM post_waifu_scores WHERE post_id = ?",
-                    [pid],
-                )
-                ws = self.cur.fetchone()
-                self.cur.execute(
-                    "SELECT scorer, score FROM post_aesthetic_scores "
-                    "WHERE post_id = ? ORDER BY scorer",
-                    [pid],
-                )
-                aesthetic_scores = [
-                    {"scorer": r[0], "score": float(r[1])} for r in self.cur.fetchall()
-                ]
-                details.append(
-                    {
-                        **p,
-                        "tags": tags,
-                        "colors": colors,
-                        "waifu_score": ({"score": ws[0]} if ws else None),
-                        "aesthetic_scores": aesthetic_scores,
-                    },
-                )
+
+            ids = [p["id"] for p in posts]
+            tags_by_post = self._fetch_tags_by_ids(ids)
+            colors_by_post = self._fetch_colors_by_ids(ids)
+            waifu_by_post = self._fetch_waifu_scores_by_ids(ids)
+            aesthetic_by_post = self._fetch_aesthetic_scores_by_ids(ids)
+
+            details = [
+                {
+                    **p,
+                    "tags": tags_by_post.get(p["id"], []),
+                    "colors": colors_by_post.get(p["id"], []),
+                    "waifu_score": waifu_by_post.get(p["id"]),
+                    "aesthetic_scores": aesthetic_by_post.get(p["id"], []),
+                }
+                for p in posts
+            ]
             return details, next_cursor
 
         return await asyncio.to_thread(_impl)
+
+    def _fetch_tags_by_ids(self, ids: list[int]) -> dict[int, list[dict]]:
+        if not ids:
+            return {}
+        placeholders = ",".join("?" * len(ids))
+        self.cur.execute(
+            f"""
+            SELECT pht.post_id AS post_id,
+                   pht.is_auto AS is_auto,
+                   t.name AS name,
+                   t.created_at AS created_at,
+                   t.updated_at AS updated_at,
+                   tg.id AS group_id,
+                   tg.name AS group_name,
+                   tg.color AS group_color
+            FROM post_has_tag pht
+            JOIN tags t ON t.name = pht.tag_name
+            LEFT JOIN tag_groups tg ON tg.id = t.group_id
+            WHERE pht.post_id IN ({placeholders})
+            ORDER BY pht.post_id,
+                CASE COALESCE(tg.name, '')
+                    WHEN 'artist'    THEN 0
+                    WHEN 'copyright' THEN 1
+                    WHEN 'character' THEN 2
+                    WHEN 'general'   THEN 3
+                    WHEN 'meta'      THEN 4
+                    ELSE 5
+                END,
+                t.name
+            """,  # noqa: S608
+            ids,
+        )
+        result: dict[int, list[dict]] = {}
+        for r in fetch_all_dicts(self.cur):
+            result.setdefault(r["post_id"], []).append(
+                {
+                    "is_auto": bool(r["is_auto"]),
+                    "tag_info": {
+                        "name": r["name"],
+                        "created_at": r["created_at"],
+                        "updated_at": r["updated_at"],
+                        "group": (
+                            {
+                                "id": r["group_id"],
+                                "name": r["group_name"],
+                                "color": r["group_color"],
+                            }
+                            if r["group_id"] is not None
+                            else None
+                        ),
+                    },
+                },
+            )
+        return result
+
+    def _fetch_waifu_scores_by_ids(self, ids: list[int]) -> dict[int, dict]:
+        if not ids:
+            return {}
+        placeholders = ",".join("?" * len(ids))
+        self.cur.execute(
+            f"SELECT post_id, score FROM post_waifu_scores "  # noqa: S608
+            f"WHERE post_id IN ({placeholders})",
+            ids,
+        )
+        return {pid: {"score": score} for pid, score in self.cur.fetchall()}
+
+    def _fetch_aesthetic_scores_by_ids(self, ids: list[int]) -> dict[int, list[dict]]:
+        if not ids:
+            return {}
+        placeholders = ",".join("?" * len(ids))
+        self.cur.execute(
+            f"SELECT post_id, scorer, score FROM post_aesthetic_scores "  # noqa: S608
+            f"WHERE post_id IN ({placeholders}) ORDER BY post_id, scorer",
+            ids,
+        )
+        result: dict[int, list[dict]] = {}
+        for pid, scorer, score in self.cur.fetchall():
+            result.setdefault(pid, []).append({"scorer": scorer, "score": float(score)})
+        return result
 
     async def search_simple(  # noqa: PLR0913
         self,
@@ -549,22 +591,25 @@ class PostRepo:
         return await asyncio.to_thread(_impl)
 
     # ─── Mutation: single field ───────────────────────────────────────
-    async def update_field(self, post_id: int, field: str, value: Any) -> Post | None:
+    async def update_field(self, post_id: int, field: str, value: Any) -> bool:
+        """Update a whitelisted scalar column. Returns ``True`` if a row matched.
+
+        Used by controllers (which then re-render detail) and by AI/import
+        pipelines that don't care about the result beyond success/failure.
+        Avoid the post-update SELECT — callers that need the new state should
+        call ``get_detail()`` themselves.
+        """
         if field not in {"score", "rating", "caption", "source", "description", "meta"}:
             msg = f"Field is not whitelisted for update: {field}"
             raise ValueError(msg)
 
-        def _impl() -> Post | None:
+        def _impl() -> bool:
             self.cur.execute(
                 f"UPDATE posts SET {field} = ?, updated_at = CURRENT_TIMESTAMP, "  # noqa: S608
                 "last_accessed_at = CURRENT_TIMESTAMP WHERE id = ?",
                 [value, post_id],
             )
-            self.cur.execute(
-                f"SELECT {POST_COLUMNS} FROM posts WHERE id = ?",  # noqa: S608
-                [post_id],
-            )
-            return fetch_one_as(self.cur, Post)
+            return self.cur.rowcount > 0
 
         return await asyncio.to_thread(_impl)
 
@@ -693,17 +738,18 @@ class PostRepo:
         if not tag_names:
             return
 
+        is_auto_int = 1 if is_auto else 0
+
         def _impl() -> None:
-            for name in tag_names:
-                self.cur.execute(
-                    "INSERT INTO tags(name) VALUES(?) ON CONFLICT DO NOTHING",
-                    [name],
-                )
-                self.cur.execute(
-                    "INSERT INTO post_has_tag(post_id, tag_name, is_auto) VALUES(?, ?, ?) "
-                    "ON CONFLICT DO NOTHING",
-                    [post_id, name, 1 if is_auto else 0],
-                )
+            self.cur.executemany(
+                "INSERT INTO tags(name) VALUES(?) ON CONFLICT DO NOTHING",
+                [(name,) for name in tag_names],
+            )
+            self.cur.executemany(
+                "INSERT INTO post_has_tag(post_id, tag_name, is_auto) VALUES(?, ?, ?) "
+                "ON CONFLICT DO NOTHING",
+                [(post_id, name, is_auto_int) for name in tag_names],
+            )
 
         await asyncio.to_thread(_impl)
 

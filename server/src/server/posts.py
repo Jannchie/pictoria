@@ -274,31 +274,30 @@ class PostController(Controller):
 
     @litestar.put("/{post_id:int}/score")
     async def update_post_score(self, posts: PostRepo, post_id: int, data: ScoreUpdate) -> PostDetailPublic:
-        result = await posts.update_field(post_id, "score", data.score)
-        if not result:
-            raise NotFoundException(detail=f"Post with id {post_id} not found.")
-        return PostDetailPublic.model_validate(await posts.get_detail(post_id))
+        return await self._update_and_return_detail(posts, post_id, "score", data.score)
 
     @litestar.put("/{post_id:int}/rating")
     async def update_post_rating(self, posts: PostRepo, post_id: int, rating: int) -> PostDetailPublic:
-        result = await posts.update_field(post_id, "rating", rating)
-        if not result:
-            raise NotFoundException(detail=f"Post with id {post_id} not found.")
-        return PostDetailPublic.model_validate(await posts.get_detail(post_id))
+        return await self._update_and_return_detail(posts, post_id, "rating", rating)
 
     @litestar.put("/{post_id:int}/caption")
     async def update_post_caption(self, posts: PostRepo, post_id: int, caption: str) -> PostDetailPublic:
-        result = await posts.update_field(post_id, "caption", caption)
-        if not result:
-            raise NotFoundException(detail=f"Post with id {post_id} not found.")
-        return PostDetailPublic.model_validate(await posts.get_detail(post_id))
+        return await self._update_and_return_detail(posts, post_id, "caption", caption)
 
     @litestar.put("/{post_id:int}/source")
     async def update_post_source(self, posts: PostRepo, post_id: int, source: str) -> PostDetailPublic:
-        result = await posts.update_field(post_id, "source", source)
-        if not result:
+        return await self._update_and_return_detail(posts, post_id, "source", source)
+
+    @staticmethod
+    async def _update_and_return_detail(
+        posts: PostRepo, post_id: int, field: str, value: object,
+    ) -> PostDetailPublic:
+        if not await posts.update_field(post_id, field, value):
             raise NotFoundException(detail=f"Post with id {post_id} not found.")
-        return PostDetailPublic.model_validate(await posts.get_detail(post_id))
+        detail = await posts.get_detail(post_id)
+        if detail is None:
+            raise NotFoundException(detail=f"Post with id {post_id} not found.")
+        return PostDetailPublic.model_validate(detail)
 
     @litestar.post("/{post_id:int}/touch", status_code=204, description="Record a view by bumping last_accessed_at.")
     async def touch_post(self, posts: PostRepo, post_id: int) -> None:

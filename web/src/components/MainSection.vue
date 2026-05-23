@@ -44,12 +44,40 @@ const folderPosts = computed<Array<PostSimplePublic>>(() => {
 const posts = computed<Array<PostSimplePublic>>(() => {
   return isTextSearchActive.value ? textSearchResults.value : folderPosts.value
 })
-const items = computed(() => posts.value.map((post) => {
-  if (!isImageExtension(post.extension) || !post.width || !post.height) {
-    return { width: 1, height: 1 }
+// Memoize item dimensions per post id so a re-render that doesn't change a
+// post's size returns the same object reference. Waterfall layout treats
+// items as a structural input; reusing references lets it short-circuit
+// internal `===` checks instead of re-laying out the full grid.
+const itemCache = new Map<number, { width: number, height: number }>()
+const items = shallowRef<Array<{ width: number, height: number }>>([])
+watchEffect(() => {
+  const ps = posts.value
+  const next = Array.from({ length: ps.length }) as Array<{ width: number, height: number }>
+  const seen = new Set<number>()
+  for (const [i, post] of ps.entries()) {
+    const id = post.id as number
+    const w = (isImageExtension(post.extension) && post.width) ? post.width : 1
+    const h = (isImageExtension(post.extension) && post.height) ? post.height : 1
+    const cached = itemCache.get(id)
+    if (cached && cached.width === w && cached.height === h) {
+      next[i] = cached
+    }
+    else {
+      const item = { width: w, height: h }
+      itemCache.set(id, item)
+      next[i] = item
+    }
+    seen.add(id)
   }
-  return { width: post.width, height: post.height }
-}))
+  if (itemCache.size > seen.size * 4) {
+    for (const key of itemCache.keys()) {
+      if (!seen.has(key)) {
+        itemCache.delete(key)
+      }
+    }
+  }
+  items.value = next
+})
 
 const waterfallRef = ref<InstanceType<typeof Waterfall> | null>(null)
 const waterfallWrapperDom = computed(() => waterfallRef.value?.wrapper)
@@ -321,11 +349,24 @@ async function applyScoreToSelection(score: number) {
   const selectedIds = [...selectedPostIdSet.value].filter(id => id !== undefined) as number[]
   await updateScoreForSelectedPosts(score)
   patchPostsInListCache(queryClient, selectedIds, { score })
-  queryClient.invalidateQueries({ queryKey: ['count', 'score'] })
-  queryClient.invalidateQueries({ queryKey: ['posts', 'stats'] })
-  for (const postId of selectedIds) {
-    queryClient.invalidateQueries({ queryKey: ['post', postId] })
-  }
+  // One predicate sweep covers count/stats caches plus every selected
+  // post-detail cache; the old loop was O(selected) full cache scans.
+  const idSet = new Set(selectedIds)
+  queryClient.invalidateQueries({
+    predicate: (q) => {
+      const k = q.queryKey
+      if (!Array.isArray(k)) {
+        return false
+      }
+      if (k[0] === 'count' && k[1] === 'score') {
+        return true
+      }
+      if (k[0] === 'posts' && k[1] === 'stats') {
+        return true
+      }
+      return k[0] === 'post' && typeof k[1] === 'number' && idSet.has(k[1])
+    },
+  })
 }
 
 whenever(logicAnd(one, notUsingInput), () => applyScoreToSelection(1))

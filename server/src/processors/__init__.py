@@ -86,6 +86,20 @@ TAGGER_BATCH_SIZE = 32
 # comfortably in 12GB at bfloat16 with the rest of the model stack loaded.
 SIGLIP_BATCH_SIZE = 16
 
+# When the full GPU batch crashes (typically one unreadable image in the
+# collate), we shrink to this size before going single-image. Mid-size
+# batches keep the GPU usefully fed (a batch of 4 amortizes most of the
+# launch / collate overhead) while bounding the blast radius of a single
+# bad image to 4 retries.
+FALLBACK_MINI_BATCH_SIZE = 4
+
+# Process-wide cache for find_files_in_directory: each entry maps an absolute
+# directory path to (mtime_ns, [direct files]). Survives across sync_metadata
+# polls (the poller runs every 60 s) so unchanged subtrees skip rescanning.
+# Lost on restart by design — the first scan after boot is always a cold
+# walk, which is fine because the rest of startup dominates that cost.
+_scan_cache: dict[str, tuple[int, list[tuple[str, str, str]]]] = {}
+
 
 # ─── Public API ──────────────────────────────────────────────────────────
 
@@ -94,9 +108,14 @@ async def sync_metadata(db: DB) -> None:
     """Reconcile disk vs DB, then run every backfill worker concurrently."""
     # Walk the filesystem off the event loop — a 155k-file scan takes long
     # enough that running it inline freezes every concurrent HTTP request
-    # until the scan finishes.
+    # until the scan finishes. After the first cold scan, the per-process
+    # _scan_cache lets unchanged subdirectories skip their direct-file
+    # scandir; on a 150k-file library where 99% of dirs are unchanged
+    # between polls, this turns every subsequent poll into a sub-second walk.
     t0 = time.perf_counter()
-    os_tuples = await asyncio.to_thread(find_files_in_directory, shared.target_dir)
+    os_tuples = await asyncio.to_thread(
+        find_files_in_directory, shared.target_dir, _scan_cache,
+    )
     logger.info(f"[sync] find_files_in_directory: {time.perf_counter() - t0:.2f}s")
 
     cur = db.cursor()
@@ -497,7 +516,7 @@ async def _process_basics_batch(posts: PostRepo, post_ids: list[int]) -> None:  
         await posts.record_failures(failed)
 
 
-async def _process_embedding_batch(  # noqa: C901
+async def _process_embedding_batch(  # noqa: C901, PLR0912
     posts: PostRepo,
     vectors: VectorRepo,
     post_ids: list[int],
@@ -525,20 +544,39 @@ async def _process_embedding_batch(  # noqa: C901
         features = await asyncio.to_thread(calculate_image_features_batch, paths)
     except Exception as exc:
         # One unreadable image can blow up the whole batch (PIL raises mid-
-        # collate). Fall back to per-image so the other 31 still land.
-        logger.warning(f"[embedding] batch failed ({exc!s}); retrying per-image")
+        # collate). Shrink to mini-batches first so the GPU stays useful;
+        # only the mini-batch containing the bad image drops to per-image.
+        logger.warning(
+            f"[embedding] batch failed ({exc!s}); "
+            f"retrying in mini-batches of {FALLBACK_MINI_BATCH_SIZE}",
+        )
         failed: list[tuple[int, str, str]] = []
-        for pid, path in items:
+        for i in range(0, len(items), FALLBACK_MINI_BATCH_SIZE):
+            chunk = items[i : i + FALLBACK_MINI_BATCH_SIZE]
+            chunk_paths = [p for _, p in chunk]
             try:
-                single = await asyncio.to_thread(calculate_image_features, path)
-                embedding = single.cpu().numpy()[0].astype(np.float32)
-                await vectors.upsert(pid, embedding)
-            except (UnidentifiedImageError, OSError) as exc:
-                logger.warning(f"[embedding] skipping unreadable image {pid} ({path}): {exc}")
-                failed.append((pid, "embedding", f"{type(exc).__name__}: {exc}"))
-            except Exception as exc:
-                logger.exception(f"[embedding] post {pid} ({path})")
-                failed.append((pid, "embedding", f"{type(exc).__name__}: {exc}"))
+                chunk_features = await asyncio.to_thread(
+                    calculate_image_features_batch, chunk_paths,
+                )
+            except Exception as exc2:
+                logger.warning(
+                    f"[embedding] mini-batch failed ({exc2!s}); falling back per-image",
+                )
+                for pid, path in chunk:
+                    try:
+                        single = await asyncio.to_thread(calculate_image_features, path)
+                        embedding = single.cpu().numpy()[0].astype(np.float32)
+                        await vectors.upsert(pid, embedding)
+                    except (UnidentifiedImageError, OSError) as exc3:
+                        logger.warning(f"[embedding] skipping unreadable image {pid} ({path}): {exc3}")
+                        failed.append((pid, "embedding", f"{type(exc3).__name__}: {exc3}"))
+                    except Exception as exc3:
+                        logger.exception(f"[embedding] post {pid} ({path})")
+                        failed.append((pid, "embedding", f"{type(exc3).__name__}: {exc3}"))
+            else:
+                embeddings_np = chunk_features.cpu().numpy().astype(np.float32)
+                for (pid, _), emb in zip(chunk, embeddings_np, strict=True):
+                    await vectors.upsert(pid, emb)
         if failed:
             await posts.record_failures(failed)
         return
@@ -572,9 +610,13 @@ async def _process_tagger_batch(  # noqa: C901
         results = await asyncio.to_thread(tagger.tag, paths)
     except Exception as exc:
         # WDTagger collates the whole list before running; one bad image kills
-        # the batch. Fall back to per-image so the survivors still get tagged.
-        logger.warning(f"[tagger] batch failed ({exc!s}); retrying per-image")
-        await _tagger_fallback_per_image(posts, tag_groups, items)
+        # the batch. Try mini-batches first to keep the GPU usefully busy, and
+        # only drop the bad mini-batch to per-image.
+        logger.warning(
+            f"[tagger] batch failed ({exc!s}); "
+            f"retrying in mini-batches of {FALLBACK_MINI_BATCH_SIZE}",
+        )
+        await _tagger_fallback_mini_batch(posts, tag_groups, items)
         return
 
     rating_updates: list[tuple[int, int]] = []
@@ -641,14 +683,62 @@ async def _find_posts_without_auto_tags(posts: PostRepo, post_ids: list[int]) ->
     return await asyncio.to_thread(_impl)
 
 
-async def _tagger_fallback_per_image(
+async def _tagger_fallback_mini_batch(
     posts: PostRepo,
     tag_groups: TagGroupRepo,
     items: list[tuple[int, Post, Path]],
 ) -> None:
+    """Retry tagger in mini-batches; only the failing one drops to per-image."""
     tagger = get_tagger()
     failed: list[tuple[int, str, str]] = []
     persisted: list[int] = []
+    rating_updates: list[tuple[int, int]] = []
+    tag_items: list[tuple[int, Any]] = []
+
+    for i in range(0, len(items), FALLBACK_MINI_BATCH_SIZE):
+        chunk = items[i : i + FALLBACK_MINI_BATCH_SIZE]
+        chunk_paths = [p for _, _, p in chunk]
+        try:
+            results = await asyncio.to_thread(tagger.tag, chunk_paths)
+        except Exception as exc:
+            logger.warning(
+                f"[tagger] mini-batch failed ({exc!s}); falling back per-image",
+            )
+            await _tagger_per_image(
+                tagger, posts, tag_groups, chunk, failed, persisted,
+            )
+            continue
+        for (pid, post, _), resp in zip(chunk, results, strict=True):
+            if not resp.general_tags and not resp.character_tags:
+                failed.append((pid, "tagger", "no auto tags produced"))
+                continue
+            new_rating = from_rating_to_int(resp.rating)
+            if post.rating == 0 and new_rating != 0:
+                rating_updates.append((pid, new_rating))
+            tag_items.append((pid, resp))
+            persisted.append(pid)
+
+    if rating_updates:
+        await asyncio.to_thread(_update_ratings, posts, rating_updates)
+    if tag_items:
+        await attach_wdtagger_results_many(posts, tag_groups, tag_items, is_auto=True)
+    if persisted:
+        shadowed = await _find_posts_without_auto_tags(posts, persisted)
+        failed.extend(
+            (pid, "tagger", "all auto tags shadowed by manual tags") for pid in shadowed
+        )
+    if failed:
+        await posts.record_failures(failed)
+
+
+async def _tagger_per_image(  # noqa: PLR0913
+    tagger: Any,
+    posts: PostRepo,
+    tag_groups: TagGroupRepo,
+    items: list[tuple[int, Post, Path]],
+    failed: list[tuple[int, str, str]],
+    persisted: list[int],
+) -> None:
     for pid, post, abs_path in items:
         try:
             resp = await asyncio.to_thread(tagger.tag, abs_path)
@@ -666,12 +756,6 @@ async def _tagger_fallback_per_image(
         except Exception as exc:
             logger.exception(f"[tagger] post {pid} ({abs_path})")
             failed.append((pid, "tagger", f"{type(exc).__name__}: {exc}"))
-    if persisted:
-        # Same shadowed-by-manual-tags check as the batch path.
-        shadowed = await _find_posts_without_auto_tags(posts, persisted)
-        failed.extend((pid, "tagger", "all auto tags shadowed by manual tags") for pid in shadowed)
-    if failed:
-        await posts.record_failures(failed)
 
 
 def _update_ratings(posts: PostRepo, updates: list[tuple[int, int]]) -> None:
@@ -681,7 +765,65 @@ def _update_ratings(posts: PostRepo, updates: list[tuple[int, int]]) -> None:
     )
 
 
-async def _process_waifu_batch(posts: PostRepo, post_ids: list[int]) -> None:  # noqa: C901
+async def _score_batch_with_fallback(
+    scorer_fn: Callable[[list[Path]], Any],
+    items: list[tuple[int, Path]],
+    *,
+    worker_label: str,
+) -> tuple[list[tuple[int, float]], list[tuple[int, str]]]:
+    """Run ``scorer_fn`` on every item, shrinking the batch on failure.
+
+    Tries the full batch first; on exception, retries in groups of
+    ``FALLBACK_MINI_BATCH_SIZE`` so a single corrupt image doesn't drop the
+    rest to single-image inference (which leaves the GPU ~80% idle between
+    PIL decodes). Only the mini-batch that contains the bad image falls all
+    the way to per-image retry.
+
+    Returns ``(successes, failures)`` where ``successes`` is a list of
+    ``(post_id, score)`` and ``failures`` is ``(post_id, error_message)``.
+    """
+    paths = [p for _, p in items]
+    try:
+        results = await asyncio.to_thread(scorer_fn, paths)
+    except Exception as exc:
+        logger.warning(
+            f"[{worker_label}] full batch failed ({exc!s}); "
+            f"retrying in mini-batches of {FALLBACK_MINI_BATCH_SIZE}",
+        )
+    else:
+        return (
+            [(pid, float(r)) for (pid, _), r in zip(items, results, strict=True)],
+            [],
+        )
+
+    successes: list[tuple[int, float]] = []
+    failures: list[tuple[int, str]] = []
+    for i in range(0, len(items), FALLBACK_MINI_BATCH_SIZE):
+        chunk = items[i : i + FALLBACK_MINI_BATCH_SIZE]
+        chunk_paths = [p for _, p in chunk]
+        try:
+            results = await asyncio.to_thread(scorer_fn, chunk_paths)
+        except Exception as exc:
+            logger.warning(
+                f"[{worker_label}] mini-batch failed ({exc!s}); falling back per-image",
+            )
+            for pid, path in chunk:
+                try:
+                    single = await asyncio.to_thread(scorer_fn, [path])
+                    successes.append((pid, float(single[0])))
+                except (UnidentifiedImageError, OSError) as exc2:
+                    logger.warning(f"[{worker_label}] unreadable {pid} ({path}): {exc2}")
+                    failures.append((pid, f"{type(exc2).__name__}: {exc2}"))
+                except Exception as exc2:
+                    logger.exception(f"[{worker_label}] post {pid} ({path})")
+                    failures.append((pid, f"{type(exc2).__name__}: {exc2}"))
+        else:
+            for (pid, _), r in zip(chunk, results, strict=True):
+                successes.append((pid, float(r)))
+    return successes, failures
+
+
+async def _process_waifu_batch(posts: PostRepo, post_ids: list[int]) -> None:
     from ai.waifu_scorer import get_waifu_scorer  # noqa: PLC0415  # lazy: defer ML stack load
 
     scorer = get_waifu_scorer()
@@ -698,35 +840,16 @@ async def _process_waifu_batch(posts: PostRepo, post_ids: list[int]) -> None:  #
     if not items:
         return
 
-    paths = [p for _, p in items]
-    try:
-        results = await asyncio.to_thread(scorer, paths)
-    except Exception as exc:
-        # One bad image can break the whole batch decode; fall back to one-by-one
-        # so the other 31 don't get dropped on the floor.
-        logger.warning(f"[waifu] batch scoring failed ({exc!s}); retrying per-image")
-        failed: list[tuple[int, str, str]] = []
-        for pid, path in items:
-            try:
-                single = await asyncio.to_thread(scorer, [path])
-                await posts.upsert_waifu_score(pid, float(single[0]))
-            except (UnidentifiedImageError, OSError) as exc:
-                # Known unreadable / truncated file — already noisy enough as
-                # one line; the stack trace adds no information.
-                logger.warning(f"[waifu] skipping unreadable image {pid} ({path}): {exc}")
-                failed.append((pid, "waifu", f"{type(exc).__name__}: {exc}"))
-            except Exception as exc:
-                logger.exception(f"[waifu] post {pid} ({path})")
-                failed.append((pid, "waifu", f"{type(exc).__name__}: {exc}"))
-        if failed:
-            await posts.record_failures(failed)
-        return
-
-    for (pid, _), result in zip(items, results, strict=True):
-        await posts.upsert_waifu_score(pid, float(result))
+    successes, failures = await _score_batch_with_fallback(
+        scorer, items, worker_label="waifu",
+    )
+    for pid, score in successes:
+        await posts.upsert_waifu_score(pid, score)
+    if failures:
+        await posts.record_failures([(pid, "waifu", err) for pid, err in failures])
 
 
-async def _process_siglip_batch(posts: PostRepo, post_ids: list[int]) -> None:  # noqa: C901
+async def _process_siglip_batch(posts: PostRepo, post_ids: list[int]) -> None:
     """Score a batch with SigLIP Aesthetic Predictor V2.5."""
     from ai.siglip_scorer import SCORER_NAME, score_images  # noqa: PLC0415  # lazy: defer ML stack load
 
@@ -744,31 +867,13 @@ async def _process_siglip_batch(posts: PostRepo, post_ids: list[int]) -> None:  
     if not items:
         return
 
-    paths = [p for _, p in items]
-    try:
-        results = await asyncio.to_thread(score_images, paths)
-    except Exception as exc:
-        # Same fallback shape as the waifu worker: one bad image can break the
-        # whole batched preprocess collate, so re-score per-image so the rest
-        # still land.
-        logger.warning(f"[siglip] batch scoring failed ({exc!s}); retrying per-image")
-        failed: list[tuple[int, str, str]] = []
-        for pid, path in items:
-            try:
-                single = await asyncio.to_thread(score_images, [path])
-                await posts.upsert_aesthetic_score(pid, SCORER_NAME, float(single[0]))
-            except (UnidentifiedImageError, OSError) as exc:
-                logger.warning(f"[siglip] skipping unreadable image {pid} ({path}): {exc}")
-                failed.append((pid, failure_worker, f"{type(exc).__name__}: {exc}"))
-            except Exception as exc:
-                logger.exception(f"[siglip] post {pid} ({path})")
-                failed.append((pid, failure_worker, f"{type(exc).__name__}: {exc}"))
-        if failed:
-            await posts.record_failures(failed)
-        return
-
-    for (pid, _), result in zip(items, results, strict=True):
-        await posts.upsert_aesthetic_score(pid, SCORER_NAME, float(result))
+    successes, failures = await _score_batch_with_fallback(
+        score_images, items, worker_label="siglip",
+    )
+    for pid, score in successes:
+        await posts.upsert_aesthetic_score(pid, SCORER_NAME, score)
+    if failures:
+        await posts.record_failures([(pid, failure_worker, err) for pid, err in failures])
 
 
 # ─── Basics compute / persist helpers ───────────────────────────────────

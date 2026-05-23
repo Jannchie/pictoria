@@ -3,7 +3,7 @@ import type { PostDetailPublic, PostHasTagPublic } from '@/api'
 import { useQueryClient } from '@tanstack/vue-query'
 import { filesize } from 'filesize'
 import { v2GetSiglipScorerOne, v2GetWaifuScorerOne, v2UpdatePostCaption, v2UpdatePostRating, v2UpdatePostScore, v2UpdatePostSource } from '@/api'
-import { hideNSFW, openTagSelectorWindow, showPostDetail } from '@/shared'
+import { hideNSFW, openTagSelectorWindow, patchPostsInListCache, showPostDetail } from '@/shared'
 import { getPostThumbnailURL } from '@/utils'
 import { colorNumToHex, labToRgbaString } from '@/utils/color'
 
@@ -25,9 +25,25 @@ async function onSelectScore(post_id: number, score: number = 0) {
       score,
     },
   })
-  queryClient.invalidateQueries({ queryKey: ['count', 'score'] })
-  queryClient.invalidateQueries({ queryKey: ['posts', 'stats'] })
-  queryClient.invalidateQueries({ queryKey: ['post', post_id] })
+  // Patch the list cache so the new score appears immediately without a
+  // refetch. Stats/score-count caches still need invalidation — combine them
+  // into a single predicate pass over the query cache rather than two scans.
+  patchPostsInListCache(queryClient, [post_id], { score })
+  queryClient.invalidateQueries({
+    predicate: (q) => {
+      const k = q.queryKey
+      if (!Array.isArray(k)) {
+        return false
+      }
+      if (k[0] === 'count' && k[1] === 'score') {
+        return true
+      }
+      if (k[0] === 'posts' && k[1] === 'stats') {
+        return true
+      }
+      return k[0] === 'post' && k[1] === post_id
+    },
+  })
 }
 const post = computed(() => props.post)
 const { 1: one, 2: two, 3: three, 4: four, 5: five } = useMagicKeys()

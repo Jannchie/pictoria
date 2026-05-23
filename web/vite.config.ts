@@ -33,4 +33,21 @@ export default defineConfig({
       '@': path.resolve(import.meta.dirname, 'src'),
     },
   },
+  build: {
+    rollupOptions: {
+      output: {
+        // Split heavy third-party deps out of the entry chunk so the initial
+        // payload only ships what the gallery shell needs. Route-level
+        // dynamic imports already give each view its own chunk; this carves
+        // off the vendor weight that they all share.
+        manualChunks: {
+          'vendor-vue': ['vue', 'vue-router'],
+          'vendor-query': ['@tanstack/vue-query'],
+          'vendor-color': ['culori'],
+          'vendor-vueuse': ['@vueuse/core', '@vueuse/math'],
+          'vendor-waterfall': ['vue-wf'],
+        },
+      },
+    },
+  },
 })

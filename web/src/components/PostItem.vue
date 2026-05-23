@@ -24,30 +24,48 @@ function onPointerUp(e: PointerEvent) {
   }
 }
 
+function toggleInSet(target: Set<number | undefined>, id: number) {
+  // Clone-then-mutate keeps the watcher chain firing (Vue ref change detection
+  // is identity-based for Set), while avoiding the per-element copy that
+  // `new Set([...src].filter(...))` does.
+  const next = new Set(target)
+  if (next.has(id)) {
+    next.delete(id)
+  }
+  else {
+    next.add(id)
+  }
+  return next
+}
+
+function addToSet(target: Set<number | undefined>, id: number) {
+  if (target.has(id)) {
+    return target
+  }
+  const next = new Set(target)
+  next.add(id)
+  return next
+}
+
 function onPointerDown(e: PointerEvent) {
   if (e.button !== 0) {
     return
   }
+  const id = post.value.id
   if (e.shiftKey) {
-    if (!selectingPostIdSet.value.has(post.value.id) && !selectedPostIdSet.value.has(post.value.id)) {
-      selectingPostIdSet.value = new Set([...selectingPostIdSet.value, post.value.id])
+    if (!selectingPostIdSet.value.has(id) && !selectedPostIdSet.value.has(id)) {
+      selectingPostIdSet.value = addToSet(selectingPostIdSet.value, id)
     }
     else {
-      unselectedPostIdSet.value = new Set([...unselectedPostIdSet.value, post.value.id])
+      unselectedPostIdSet.value = addToSet(unselectedPostIdSet.value, id)
     }
   }
   else if (e.ctrlKey) {
-    selectedPostIdSet.value = selectedPostIdSet.value.has(post.value.id) ? new Set([...selectedPostIdSet.value].filter(p => p !== post.value.id)) : new Set([...selectedPostIdSet.value, post.value.id])
+    selectedPostIdSet.value = toggleInSet(selectedPostIdSet.value, id)
   }
-  else
-    if (!selectedPostIdSet.value.has(post.value.id)) {
-      if (e.ctrlKey) {
-        selectedPostIdSet.value = selectedPostIdSet.value.has(post.value.id) ? new Set([...selectedPostIdSet.value].filter(p => p !== post.value.id)) : new Set([...selectedPostIdSet.value, post.value.id])
-      }
-      else {
-        selectedPostIdSet.value = new Set([post.value.id])
-      }
-    }
+  else if (!selectedPostIdSet.value.has(id)) {
+    selectedPostIdSet.value = new Set([id])
+  }
 }
 const selected = computed(() => {
   return (selectedPostIdSet.value.has(post.value.id) || selectingPostIdSet.value.has(post.value.id)) && !unselectedPostIdSet.value.has(post.value.id)
