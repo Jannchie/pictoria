@@ -29,7 +29,7 @@ from db.queries.post_query import PostQueryService
 from db.repositories.posts import PostRepo
 from db.repositories.scores import ScoreRepo
 from db.repositories.tags import TagGroupRepo, TagRepo
-from db.repositories.vectors import VectorRepo
+from db.repositories.vectors import VectorRepo, vector_table_for_backend
 from server.commands import CommandController, ensure_canonical_tag_groups_sync
 from server.exceptions import DomainError
 from server.folders import FoldersController
@@ -258,8 +258,9 @@ async def provide_tag_group_repo(state: State) -> AsyncGenerator[TagGroupRepo, N
 
 async def provide_vector_repo(state: State) -> AsyncGenerator[VectorRepo, None]:
     cur = state.db.cursor()
+    table, dim = vector_table_for_backend(shared.search_embedding_backend)
     try:
-        yield VectorRepo(cur)
+        yield VectorRepo(cur, table=table, dim=dim)
     finally:
         cur.close()
 

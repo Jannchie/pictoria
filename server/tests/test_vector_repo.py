@@ -137,6 +137,23 @@ class TestParameterizedTable:
             VectorRepo(db.cursor(), table="post_vectors_evil")
 
 
+class TestBackendTableSelection:
+    def test_clip_backend_uses_default_table(self) -> None:
+        from db.repositories.vectors import vector_table_for_backend
+
+        assert vector_table_for_backend("clip") == ("post_vectors", 768)
+
+    def test_siglip_backend_uses_siglip_table(self) -> None:
+        from db.repositories.vectors import vector_table_for_backend
+
+        assert vector_table_for_backend("siglip2") == ("post_vectors_siglip2", 1152)
+
+    def test_unknown_backend_falls_back_to_clip(self) -> None:
+        from db.repositories.vectors import vector_table_for_backend
+
+        assert vector_table_for_backend("nope") == ("post_vectors", 768)
+
+
 class TestDeleteClearsBothVectorTables:
     async def test_delete_post_clears_both_tables(self, db: DB) -> None:
         from db.repositories.posts import PostRepo
