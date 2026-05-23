@@ -84,3 +84,24 @@ class TestSimilar:
     async def test_similar_to_post_missing_returns_empty(self, vec_repo: VectorRepo) -> None:
         sims = await vec_repo.similar_to_post(9999, limit=10)
         assert sims == []
+
+
+class TestSiglip2TableMigration:
+    async def test_table_exists(self, db: DB) -> None:
+        cur = db.cursor()
+        cur.execute(
+            "SELECT name FROM sqlite_master WHERE name = 'post_vectors_siglip2'",
+        )
+        assert cur.fetchone() is not None
+
+    async def test_rejects_wrong_dim_blob(self, db: DB) -> None:
+        # vec0 enforces the declared dimension; a 768-float blob must fail.
+        import sqlite_vec
+
+        cur = db.cursor()
+        blob = sqlite_vec.serialize_float32([0.0] * 768)
+        with pytest.raises(Exception):  # noqa: B017  # sqlite OperationalError
+            cur.execute(
+                "INSERT INTO post_vectors_siglip2(post_id, embedding) VALUES (1, ?)",
+                [blob],
+            )
