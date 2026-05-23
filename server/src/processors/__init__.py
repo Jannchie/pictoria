@@ -83,6 +83,9 @@ WAIFU_BATCH_SIZE = 32
 # per-image PIL decodes; batch=32 keeps it saturated on a single 30xx-class
 # card and is the sweet spot for CLIP-ViT-Large / wd-vit-large.
 EMBEDDING_BATCH_SIZE = 32
+# SigLIP 2 so400m is a larger ViT than CLIP-L/14; batch=16 sits in the same
+# tier as the SigLIP aesthetic scorer and fits 12GB at bf16.
+SIGLIP_EMBED_BATCH_SIZE = 16
 TAGGER_BATCH_SIZE = 32
 # SigLIP-so400m is a noticeably larger ViT than CLIP-L/14; batch=16 fits
 # comfortably in 12GB at bfloat16 with the rest of the model stack loaded.
@@ -171,6 +174,10 @@ async def run_all_backfill(db: DB) -> None:
     # allocating its connection and worker coroutine entirely when disabled
     # so the GPU isn't held by a model load we'll never use.
     siglip_conn = _checkout() if shared.enable_siglip_scorer else None
+    # SigLIP 2 retrieval-embedding backfill is always on (independent of the
+    # aesthetic-scorer enable flag) so the new table fills in the background and
+    # is ready the moment search_embedding_backend flips to "siglip2".
+    siglip_embed_conn = _checkout()
 
     try:
         with get_progress() as progress:
@@ -182,6 +189,15 @@ async def run_all_backfill(db: DB) -> None:
                 run_embedding_worker(
                     PostRepo(embedding_conn.cursor()),
                     VectorRepo(embedding_conn.cursor()),
+                    progress=progress,
+                ),
+                run_siglip_embedding_worker(
+                    PostRepo(siglip_embed_conn.cursor()),
+                    VectorRepo(
+                        siglip_embed_conn.cursor(),
+                        table="post_vectors_siglip2",
+                        dim=1152,
+                    ),
                     progress=progress,
                 ),
                 run_tagger_worker(
@@ -255,6 +271,10 @@ async def process_post(
             await FailureRepo(posts.cur).record_failures([(post.id, "basics", f"color: {basics['color_error']}")])
 
     await _process_embedding_batch(posts, vectors, [post.id])
+    # Dual-write the SigLIP 2 table during migration so the cutover has no gap.
+    # Reuse this cursor's connection via a second VectorRepo on the new table.
+    siglip_vectors = VectorRepo(posts.cur, table="post_vectors_siglip2", dim=1152)
+    await _process_siglip_embedding_batch(posts, siglip_vectors, [post.id])
     await _process_tagger_batch(posts, tag_groups, [post.id])
     await _process_waifu_batch(posts, [post.id])
     if shared.enable_siglip_scorer:
@@ -342,6 +362,30 @@ async def run_embedding_worker(
 
     await _drive(
         progress, "Embeddings", pending, EMBEDDING_BATCH_SIZE, _process,
+        gpu_adaptive=True,
+    )
+
+
+async def run_siglip_embedding_worker(
+    posts: PostRepo,
+    vectors: VectorRepo,
+    *,
+    progress: Progress | None = None,
+) -> None:
+    """Backfill SigLIP 2 image embeddings into post_vectors_siglip2.
+
+    ``vectors`` must be a VectorRepo pointed at post_vectors_siglip2 (dim=1152).
+    """
+    pending = await vectors.list_missing_post_ids(
+        image_exts=[ext.lstrip(".") for ext in IMAGE_EXTS],
+        worker="embedding:siglip2",
+    )
+
+    async def _process(batch_ids: list[int]) -> None:
+        await _process_siglip_embedding_batch(posts, vectors, batch_ids)
+
+    await _drive(
+        progress, "SigLIP embeddings", pending, SIGLIP_EMBED_BATCH_SIZE, _process,
         gpu_adaptive=True,
     )
 
@@ -603,6 +647,80 @@ async def _process_embedding_batch(  # noqa: C901, PLR0912
                     except Exception as exc3:
                         logger.exception(f"[embedding] post {pid} ({path})")
                         failed.append((pid, "embedding", f"{type(exc3).__name__}: {exc3}"))
+            else:
+                embeddings_np = chunk_features.cpu().numpy().astype(np.float32)
+                for (pid, _), emb in zip(chunk, embeddings_np, strict=True):
+                    await vectors.upsert(pid, emb)
+        if failed:
+            await FailureRepo(posts.cur).record_failures(failed)
+        return
+
+    embeddings_np = features.cpu().numpy().astype(np.float32)
+    for (pid, _), emb in zip(items, embeddings_np, strict=True):
+        await vectors.upsert(pid, emb)
+
+
+async def _process_siglip_embedding_batch(  # noqa: C901, PLR0912
+    posts: PostRepo,
+    vectors: VectorRepo,
+    post_ids: list[int],
+) -> None:
+    """Encode a batch into SigLIP 2 embeddings written to post_vectors_siglip2.
+
+    Mirrors _process_embedding_batch: on a whole-batch forward failure it first
+    shrinks to mini-batches, then to single-image; an unreadable single image is
+    recorded under the 'embedding:siglip2' one-shot blacklist. ``vectors`` must
+    be a VectorRepo pointed at post_vectors_siglip2 (dim=1152).
+    """
+    from ai.siglip_embed import (  # noqa: PLC0415  # lazy: defer ML stack load
+        calculate_image_features,
+        calculate_image_features_batch,
+    )
+
+    posts_map = await posts.get_many(post_ids)
+    items: list[tuple[int, Path]] = []
+    for pid in post_ids:
+        post = posts_map.get(pid)
+        if post is None:
+            continue
+        abs_path = post.absolute_path
+        if abs_path.suffix.lower() not in IMAGE_EXTS or not abs_path.exists():
+            continue
+        items.append((pid, abs_path))
+    if not items:
+        return
+
+    paths = [p for _, p in items]
+    try:
+        features = await asyncio.to_thread(calculate_image_features_batch, paths)
+    except Exception as exc:
+        logger.warning(
+            f"[siglip-embedding] batch failed ({exc!s}); "
+            f"retrying in mini-batches of {FALLBACK_MINI_BATCH_SIZE}",
+        )
+        failed: list[tuple[int, str, str]] = []
+        for i in range(0, len(items), FALLBACK_MINI_BATCH_SIZE):
+            chunk = items[i : i + FALLBACK_MINI_BATCH_SIZE]
+            chunk_paths = [p for _, p in chunk]
+            try:
+                chunk_features = await asyncio.to_thread(
+                    calculate_image_features_batch, chunk_paths,
+                )
+            except Exception as exc2:
+                logger.warning(
+                    f"[siglip-embedding] mini-batch failed ({exc2!s}); falling back per-image",
+                )
+                for pid, path in chunk:
+                    try:
+                        single = await asyncio.to_thread(calculate_image_features, path)
+                        embedding = single.cpu().numpy()[0].astype(np.float32)
+                        await vectors.upsert(pid, embedding)
+                    except (UnidentifiedImageError, OSError) as exc3:
+                        logger.warning(f"[siglip-embedding] skipping unreadable image {pid} ({path}): {exc3}")
+                        failed.append((pid, "embedding:siglip2", f"{type(exc3).__name__}: {exc3}"))
+                    except Exception as exc3:
+                        logger.exception(f"[siglip-embedding] post {pid} ({path})")
+                        failed.append((pid, "embedding:siglip2", f"{type(exc3).__name__}: {exc3}"))
             else:
                 embeddings_np = chunk_features.cpu().numpy().astype(np.float32)
                 for (pid, _), emb in zip(chunk, embeddings_np, strict=True):
