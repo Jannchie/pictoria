@@ -79,6 +79,35 @@ class ScoreRepo:
 
         await asyncio.to_thread(_impl)
 
+    # ─── Aggregates ──────────────────────────────────────────────────
+    async def waifu_score_distribution(self) -> list[tuple[int, int]]:
+        """Return ``[(bucket_index, count), ...]`` for the waifu-score histogram.
+
+        Buckets are integer-floor of the score, clamped to 9 so the closed-
+        right edge ``score == 10.0`` lands in bucket 9 rather than 10:
+        ``[0, 1), [1, 2), ..., [8, 9), [9, 10]``. Every bucket 0..9 is
+        present in the result (zero-filled) so the chart layer can render
+        all 10 bars without filling gaps itself.
+        """
+
+        def _impl() -> list[tuple[int, int]]:
+            self.cur.execute(
+                """
+                SELECT
+                    CASE WHEN score >= 9 THEN 9 ELSE CAST(score AS INTEGER) END
+                        AS bucket,
+                    count(*) AS count
+                FROM post_waifu_scores
+                GROUP BY bucket
+                """,
+            )
+            counts = dict.fromkeys(range(10), 0)
+            for bucket, count in self.cur.fetchall():
+                counts[int(bucket)] = int(count)
+            return list(counts.items())
+
+        return await asyncio.to_thread(_impl)
+
     # ─── Batch fetch (sync; called inside the query layer's worker thread) ──
     def fetch_waifu_by_ids(self, ids: list[int]) -> dict[int, dict]:
         if not ids:

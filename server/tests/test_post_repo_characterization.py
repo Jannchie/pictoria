@@ -274,6 +274,33 @@ class TestScores:
         await score_repo.upsert_aesthetic_score(2, "siglip-v2-5", 5.0)
         assert await score_repo.get_aesthetic_score(2, "siglip-v2-5") == 5.0
 
+    async def test_waifu_score_distribution(self, score_repo: ScoreRepo) -> None:
+        # Seed scores: 8.5 (bucket 8), 5.0 (bucket 5), 1.0 (bucket 1), 3.5 (bucket 3).
+        # All 10 integer buckets must be present; un-hit ones zero-filled.
+        dist = await score_repo.waifu_score_distribution()
+        as_dict = dict(dist)
+        assert sorted(as_dict.keys()) == list(range(10))
+        assert as_dict[1] == 1
+        assert as_dict[3] == 1
+        assert as_dict[5] == 1
+        assert as_dict[8] == 1
+        # Buckets without seed data must surface as zero, not be absent.
+        assert as_dict[0] == 0
+        assert as_dict[9] == 0
+        assert sum(as_dict.values()) == 4  # total scored posts
+
+    async def test_waifu_score_distribution_clamps_ten_to_bucket_nine(
+        self, score_repo: ScoreRepo,
+    ) -> None:
+        # The chart treats the score-domain as [0, 10] inclusive; without the
+        # ``score >= 9 THEN 9`` clamp, a perfect 10.0 would land in a phantom
+        # 10th bucket and silently disappear from the histogram.
+        await score_repo.upsert_waifu_score(2, 10.0)
+        dist = dict(await score_repo.waifu_score_distribution())
+        # 9 covers both seed 8.5? No — 8.5 lives in bucket 8. The new 10.0
+        # is the only one in bucket 9.
+        assert dist[9] == 1
+
 
 # ─── core mutations & cascade ───────────────────────────────────────────────
 class TestCoreMutations:
