@@ -49,7 +49,20 @@ torch = { index = "pytorch" }
 torchvision = { index = "pytorch" }
 
 [dependency-groups]
-dev = ["ipykernel>=7.2.0", "matplotlib>=3.10.9", "ruff>=0.15.12"]
+dev = [
+    "ipykernel>=7.2.0",
+    "matplotlib>=3.10.9",
+    "ruff>=0.15.12",
+    "pytest>=8.3.0",
+    "pytest-asyncio>=0.24.0",
+]
+
+[tool.pytest.ini_options]
+# Tests import the backend packages from src/ (the same layout app.py runs with).
+pythonpath = ["src"]
+testpaths = ["tests"]
+# `asyncio_mode = auto` lets plain `async def test_*` run without per-test markers.
+asyncio_mode = "auto"
 
 [tool.pyright]
 enabled = true
@@ -79,6 +92,9 @@ ignore = [
 ]
 [tool.ruff.lint.per-file-ignores]
 "**/test/**/*" = ["S101"]
+# pytest suite: asserts, magic values, missing annotations and private-member
+# access are all idiomatic in tests; raw SQL in fixtures is intentional.
+"tests/**/*" = ["S101", "PLR2004", "ANN", "SLF001", "S608", "PLR0913", "PLR2004"]
 # CLI scripts: print is the output mechanism, ANN/DOC noise unhelpful here.
 "scripts/**/*" = ["T201", "T203", "ANN001", "ANN201", "ANN202", "S608", "PLR2004", "E402", "FBT003", "B007", "E501", "TC003"]
 

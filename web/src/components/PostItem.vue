@@ -192,6 +192,8 @@ function onContextmenu(e: MouseEvent) {
           :src="getPostThumbnailURL(post)"
           class="rounded-lg h-full w-full transition-opacity duration-300 object-cover"
           draggable="true"
+          loading="lazy"
+          decoding="async"
           :class="{
             'blur': ((post.rating ?? 0) >= 3) && hideNSFW,
             'opacity-0': (!enableArthash || !post.arthash) && !imageLoaded,

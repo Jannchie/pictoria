@@ -25,10 +25,13 @@ from rich import get_console
 import shared
 from danbooru import DanbooruClient
 from db import DB, run_migrations
+from db.queries.post_query import PostQueryService
 from db.repositories.posts import PostRepo
+from db.repositories.scores import ScoreRepo
 from db.repositories.tags import TagGroupRepo, TagRepo
 from db.repositories.vectors import VectorRepo
 from server.commands import CommandController, ensure_canonical_tag_groups_sync
+from server.exceptions import DomainError
 from server.folders import FoldersController
 from server.images import ImageController
 from server.posts import PostController
@@ -110,13 +113,13 @@ async def my_lifespan(app: Litestar):
 # unresponsive.
 _BACKFILL_DRAIN_TIMEOUT_S = 30.0
 
-# How often the poller re-runs sync_metadata when no sync is currently in
-# flight. The dominant cost of an empty pass is one find_files_in_directory
-# walk + four cheap "WHERE … IS NULL" pending queries — both fast enough
-# (~seconds) on a 100k-file library that polling every minute is cheap. If
-# a sync is still running when the tick fires, this iteration is skipped
-# rather than queued, so a long initial scan doesn't pile up backlog.
-_BACKFILL_POLL_INTERVAL_S = 60.0
+# How often the poller re-runs sync_metadata as a safety net. The watchdog
+# observer (see watch.py) is the primary event source — it fires within
+# ~1.5 s of any file change. The polling loop only exists to cover the
+# corner cases watchdog misses on some platforms / filesystems (SMB
+# mounts, certain network drives, dropped inotify events on Linux under
+# load). Pushed out from the original 60 s once watchdog took over.
+_BACKFILL_POLL_INTERVAL_S = 600.0
 
 
 async def _graceful_shutdown(app: Litestar, db: DB) -> None:
@@ -129,6 +132,11 @@ async def _graceful_shutdown(app: Litestar, db: DB) -> None:
     """
     logger.info("Shutdown: signaling backfill workers to stop at next batch boundary")
     shared.shutdown_event.set()
+
+    fs_watcher = getattr(app.state, "fs_watcher", None)
+    if fs_watcher is not None:
+        with contextlib.suppress(Exception):
+            fs_watcher.stop()
 
     tasks = list(getattr(app.state, "background_tasks", ()))
     if tasks:
@@ -202,6 +210,27 @@ def _spawn_backfill_poller(app: Litestar, db: DB) -> None:
     app.state.background_tasks.add(poll_task)
     poll_task.add_done_callback(app.state.background_tasks.discard)
 
+    # Filesystem watcher: react to changes within ~1.5 s instead of waiting
+    # for the next poll tick. Polling above stays as a safety net for
+    # platforms / filesystems where watchdog misses events.
+    from watch import AsyncWatcher  # noqa: PLC0415  # lazy: keep startup graph thin
+
+    async def _on_fs_change() -> None:
+        if shared.shutdown_event.is_set() or app.state.backfill_lock.locked():
+            return
+        await _run_sync_once("Watcher")
+
+    try:
+        watcher = AsyncWatcher(
+            shared.target_dir,
+            asyncio.get_running_loop(),
+            _on_fs_change,
+        )
+        watcher.start()
+        app.state.fs_watcher = watcher
+    except Exception:
+        logger.exception("Failed to start filesystem watcher; falling back to polling only")
+
 
 async def provide_post_repo(state: State) -> AsyncGenerator[PostRepo, None]:
     cur = state.db.cursor()
@@ -231,6 +260,22 @@ async def provide_vector_repo(state: State) -> AsyncGenerator[VectorRepo, None]:
     cur = state.db.cursor()
     try:
         yield VectorRepo(cur)
+    finally:
+        cur.close()
+
+
+async def provide_post_query(state: State) -> AsyncGenerator[PostQueryService, None]:
+    cur = state.db.cursor()
+    try:
+        yield PostQueryService(cur)
+    finally:
+        cur.close()
+
+
+async def provide_score_repo(state: State) -> AsyncGenerator[ScoreRepo, None]:
+    cur = state.db.cursor()
+    try:
+        yield ScoreRepo(cur)
     finally:
         cur.close()
 
@@ -265,17 +310,29 @@ async def log_unhandled_exception(exc: Exception, scope: Scope) -> None:
     )
 
 
+def domain_error_handler(_request: Request, exc: DomainError):
+    from litestar.response import Response  # noqa: PLC0415
+
+    return Response(
+        content={"detail": exc.detail, "error": type(exc).__name__},
+        status_code=exc.status_code,
+    )
+
+
 app = Litestar(
     [v2],
     dependencies={
         "posts": provide_post_repo,
+        "post_query": provide_post_query,
         "tag_repo": provide_tag_repo,
         "tag_group_repo": provide_tag_group_repo,
         "vectors": provide_vector_repo,
+        "scores": provide_score_repo,
     },
     lifespan=[my_lifespan],
     debug=True,
     logging_config=None,
+    exception_handlers={DomainError: domain_error_handler},
     after_exception=[log_unhandled_exception],
     openapi_config=OpenAPIConfig(
         render_plugins=[ScalarRenderPlugin()],

@@ -163,27 +163,33 @@ export function useInfinityPostsQuery() {
     return postSort.value
   })
 
+  // Isolated computed so the lab conversion only runs when the picked
+  // color actually changes — without this, every filter change re-runs the
+  // culori parse/converter chain even when the color hasn't moved.
+  const labTuple = computed<[number, number, number] | undefined>(() => {
+    const raw = postSortColorDebounce.value
+    if (!raw) {
+      return
+    }
+    const color = parse(raw)
+    const lab = toLab(color)
+    if (
+      lab
+      && typeof lab.l === 'number'
+      && typeof lab.a === 'number'
+      && typeof lab.b === 'number'
+    ) {
+      return [lab.l, lab.a, lab.b]
+    }
+  })
+
   const requestBody = computed(() => {
     const base = {
       ...postFilter.value,
       order_by: orderBy.value,
       order: order.value,
     }
-
-    if (postSortColorDebounce.value) {
-      const color = parse(postSortColorDebounce.value)
-      const lab = toLab(color)
-      if (
-        lab
-        && typeof lab.l === 'number'
-        && typeof lab.a === 'number'
-        && typeof lab.b === 'number'
-      ) {
-        return { ...base, lab: [lab.l, lab.a, lab.b] as [number, number, number] }
-      }
-    }
-
-    return base
+    return labTuple.value ? { ...base, lab: labTuple.value } : base
   })
 
   return useInfiniteQuery({

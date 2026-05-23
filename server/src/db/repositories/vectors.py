@@ -111,6 +111,50 @@ class VectorRepo:
 
         return await asyncio.to_thread(_impl)
 
+    async def similar_to_post(
+        self,
+        post_id: int,
+        *,
+        limit: int = 100,
+    ) -> list[SimilarImageResult]:
+        """Find posts similar to ``post_id`` in a single DB hop.
+
+        Equivalent to ``similar(await self.get(post_id), skip_self=True)``
+        but avoids the extra round-trip + Python-side blob ↔ list conversion
+        by feeding the source row's blob straight into the MATCH query via
+        a subselect. Returns ``[]`` when the source has no embedding.
+        """
+        fetch_limit = limit + 1
+
+        def _impl() -> list[SimilarImageResult]:
+            # vec0's MATCH rejects NULL as the query vector with a hard
+            # OperationalError, so short-circuit when the source post has
+            # no embedding instead of letting the inner subselect bubble
+            # up a confusing schema-level error.
+            self.cur.execute(
+                "SELECT 1 FROM post_vectors WHERE post_id = ?",
+                [post_id],
+            )
+            if self.cur.fetchone() is None:
+                return []
+            self.cur.execute(
+                """
+                SELECT post_id, distance
+                FROM post_vectors
+                WHERE embedding MATCH (
+                    SELECT embedding FROM post_vectors WHERE post_id = ?
+                ) AND k = ?
+                ORDER BY distance
+                """,
+                [post_id, fetch_limit],
+            )
+            rows = fetch_all_dicts(self.cur)
+            # The source row itself comes back first (distance ~= 0); drop it.
+            filtered = [r for r in rows if r["post_id"] != post_id]
+            return [SimilarImageResult(**r) for r in filtered[:limit]]
+
+        return await asyncio.to_thread(_impl)
+
     async def list_missing_post_ids(self, *, image_exts: list[str] | None = None) -> list[int]:
         """Return post ids that don't yet have an embedding.
 

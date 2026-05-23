@@ -34,7 +34,9 @@ from PIL import Image, UnidentifiedImageError
 from skimage import color
 
 import shared
+from db.repositories.failures import FailureRepo
 from db.repositories.posts import PostRepo
+from db.repositories.scores import ScoreRepo
 from db.repositories.tags import TagGroupRepo
 from db.repositories.vectors import VectorRepo
 from progress import get_progress
@@ -250,7 +252,7 @@ async def process_post(
         # step failed leaves dominant_color NULL, which would re-select the
         # post on the next sync. One-shot black-list it instead.
         if basics.get("color_error"):
-            await posts.record_failures([(post.id, "basics", f"color: {basics['color_error']}")])
+            await FailureRepo(posts.cur).record_failures([(post.id, "basics", f"color: {basics['color_error']}")])
 
     await _process_embedding_batch(posts, vectors, [post.id])
     await _process_tagger_batch(posts, tag_groups, [post.id])
@@ -262,36 +264,52 @@ async def process_post(
 # ─── Worker drivers ─────────────────────────────────────────────────────
 
 
-async def _drive(
+async def _drive(  # noqa: PLR0913
     progress: Progress | None,
     name: str,
     pending: list[int],
     batch_size: int,
     process: Callable[[list[int]], Awaitable[None]],
+    *,
+    gpu_adaptive: bool = False,
 ) -> None:
     """Iterate ``pending`` in ``batch_size`` chunks, advancing one progress task.
 
     A worker that wants per-image granularity sets ``batch_size = 1`` — the
     progress task then ticks after every single image without the worker
     needing direct access to ``progress``.
+
+    Pass ``gpu_adaptive=True`` for workers whose batches live on the GPU.
+    The driver samples ``torch.cuda.mem_get_info`` before each batch and
+    shrinks the working size when free memory is low, so concurrent
+    workers don't push each other into CUDA OOM.
     """
     if not pending:
         return
+    from processors.gpu_pressure import adaptive_batch_size  # noqa: PLC0415
+
     task = progress.add_task(name, total=len(pending)) if progress else None
-    for i in range(0, len(pending), batch_size):
+    i = 0
+    while i < len(pending):
         # Graceful shutdown: the lifespan finalizer sets this before tearing
         # down DB connections, so we exit at a batch boundary instead of
         # getting interrupted mid-write and racing the close.
         if shared.shutdown_event.is_set():
             logger.info(f"[{name}] shutdown requested; stopping after {i}/{len(pending)} items")
             break
-        batch = pending[i:i + batch_size]
+        effective_size = (
+            adaptive_batch_size(batch_size, label=name)
+            if gpu_adaptive
+            else batch_size
+        )
+        batch = pending[i:i + effective_size]
         try:
             await process(batch)
         except Exception:
             logger.exception(f"[{name}] batch starting at id {batch[0]} failed")
         if progress is not None and task is not None:
             progress.update(task, advance=len(batch))
+        i += len(batch)
 
 
 async def run_basics_worker(
@@ -322,7 +340,10 @@ async def run_embedding_worker(
     async def _process(batch_ids: list[int]) -> None:
         await _process_embedding_batch(posts, vectors, batch_ids)
 
-    await _drive(progress, "Embeddings", pending, EMBEDDING_BATCH_SIZE, _process)
+    await _drive(
+        progress, "Embeddings", pending, EMBEDDING_BATCH_SIZE, _process,
+        gpu_adaptive=True,
+    )
 
 
 async def run_tagger_worker(
@@ -337,7 +358,10 @@ async def run_tagger_worker(
     async def _process(batch_ids: list[int]) -> None:
         await _process_tagger_batch(posts, tag_groups, batch_ids)
 
-    await _drive(progress, "Tags", pending, TAGGER_BATCH_SIZE, _process)
+    await _drive(
+        progress, "Tags", pending, TAGGER_BATCH_SIZE, _process,
+        gpu_adaptive=True,
+    )
 
 
 async def run_waifu_worker(
@@ -351,7 +375,10 @@ async def run_waifu_worker(
     async def _process(batch_ids: list[int]) -> None:
         await _process_waifu_batch(posts, batch_ids)
 
-    await _drive(progress, "Waifu scorer", pending, WAIFU_BATCH_SIZE, _process)
+    await _drive(
+        progress, "Waifu scorer", pending, WAIFU_BATCH_SIZE, _process,
+        gpu_adaptive=True,
+    )
 
 
 async def run_siglip_worker(
@@ -367,7 +394,10 @@ async def run_siglip_worker(
     async def _process(batch_ids: list[int]) -> None:
         await _process_siglip_batch(posts, batch_ids)
 
-    await _drive(progress, "SigLIP scorer", pending, SIGLIP_BATCH_SIZE, _process)
+    await _drive(
+        progress, "SigLIP scorer", pending, SIGLIP_BATCH_SIZE, _process,
+        gpu_adaptive=True,
+    )
 
 
 # ─── Pending queries ────────────────────────────────────────────────────
@@ -513,7 +543,7 @@ async def _process_basics_batch(posts: PostRepo, post_ids: list[int]) -> None:  
     if valid:
         await asyncio.to_thread(_persist_basics_batch, posts, valid)
     if failed:
-        await posts.record_failures(failed)
+        await FailureRepo(posts.cur).record_failures(failed)
 
 
 async def _process_embedding_batch(  # noqa: C901, PLR0912
@@ -578,7 +608,7 @@ async def _process_embedding_batch(  # noqa: C901, PLR0912
                 for (pid, _), emb in zip(chunk, embeddings_np, strict=True):
                     await vectors.upsert(pid, emb)
         if failed:
-            await posts.record_failures(failed)
+            await FailureRepo(posts.cur).record_failures(failed)
         return
 
     embeddings_np = features.cpu().numpy().astype(np.float32)
@@ -653,7 +683,7 @@ async def _process_tagger_batch(  # noqa: C901
         failed.extend((pid, "tagger", "all auto tags shadowed by manual tags") for pid in shadowed)
 
     if failed:
-        await posts.record_failures(failed)
+        await FailureRepo(posts.cur).record_failures(failed)
 
 
 async def _find_posts_without_auto_tags(posts: PostRepo, post_ids: list[int]) -> list[int]:
@@ -728,7 +758,7 @@ async def _tagger_fallback_mini_batch(
             (pid, "tagger", "all auto tags shadowed by manual tags") for pid in shadowed
         )
     if failed:
-        await posts.record_failures(failed)
+        await FailureRepo(posts.cur).record_failures(failed)
 
 
 async def _tagger_per_image(  # noqa: PLR0913
@@ -844,9 +874,9 @@ async def _process_waifu_batch(posts: PostRepo, post_ids: list[int]) -> None:
         scorer, items, worker_label="waifu",
     )
     for pid, score in successes:
-        await posts.upsert_waifu_score(pid, score)
+        await ScoreRepo(posts.cur).upsert_waifu_score(pid, score)
     if failures:
-        await posts.record_failures([(pid, "waifu", err) for pid, err in failures])
+        await FailureRepo(posts.cur).record_failures([(pid, "waifu", err) for pid, err in failures])
 
 
 async def _process_siglip_batch(posts: PostRepo, post_ids: list[int]) -> None:
@@ -871,9 +901,9 @@ async def _process_siglip_batch(posts: PostRepo, post_ids: list[int]) -> None:
         score_images, items, worker_label="siglip",
     )
     for pid, score in successes:
-        await posts.upsert_aesthetic_score(pid, SCORER_NAME, score)
+        await ScoreRepo(posts.cur).upsert_aesthetic_score(pid, SCORER_NAME, score)
     if failures:
-        await posts.record_failures([(pid, failure_worker, err) for pid, err in failures])
+        await FailureRepo(posts.cur).record_failures([(pid, failure_worker, err) for pid, err in failures])
 
 
 # ─── Basics compute / persist helpers ───────────────────────────────────

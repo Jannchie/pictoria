@@ -194,7 +194,12 @@ function pushThumbTimer(id: number, fn: () => void, ms: number) {
   arr.push(t)
 }
 function clearThumbTimers(id: number) {
-  thumbTimers.get(id)?.forEach(clearTimeout)
+  const timers = thumbTimers.get(id)
+  if (timers) {
+    for (const t of timers) {
+      clearTimeout(t)
+    }
+  }
   thumbTimers.delete(id)
 }
 // Schedule a transition target — wraps the final assignment in rAF so the
@@ -262,7 +267,11 @@ watch(
 )
 
 onUnmounted(() => {
-  for (const arr of thumbTimers) arr.forEach(clearTimeout)
+  for (const arr of thumbTimers.values()) {
+    for (const t of arr) {
+      clearTimeout(t)
+    }
+  }
   thumbTimers.clear()
 })
 

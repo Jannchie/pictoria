@@ -1,0 +1,86 @@
+"""Tests for VectorRepo — embedding upsert / similarity / similar_to_post.
+
+These don't reuse the shared seed (which doesn't populate post_vectors);
+each test seeds its own deterministic embeddings so distance ordering is
+predictable.
+"""
+
+from __future__ import annotations
+
+from typing import TYPE_CHECKING
+
+import numpy as np
+import pytest
+
+from db.repositories.vectors import VectorRepo
+
+if TYPE_CHECKING:
+    from db.connection import DB
+
+
+def _unit_vec(direction: int, dim: int = 768) -> list[float]:
+    """Return a unit vector pointing along axis ``direction``.
+
+    Lets us craft embeddings whose cosine distances are 0, 1, or 1-ish for
+    deterministic ordering without depending on numerical noise.
+    """
+    v = np.zeros(dim, dtype=np.float32)
+    v[direction] = 1.0
+    return v.tolist()
+
+
+@pytest.fixture
+def vec_repo(db: DB) -> VectorRepo:
+    return VectorRepo(db.cursor())
+
+
+class TestUpsertAndGet:
+    async def test_upsert_and_get_roundtrip(self, vec_repo: VectorRepo) -> None:
+        vec = _unit_vec(0)
+        await vec_repo.upsert(1, vec)
+        got = await vec_repo.get(1)
+        assert got is not None
+        assert got[0] == pytest.approx(1.0)
+        assert got[1] == pytest.approx(0.0)
+
+    async def test_upsert_overwrites(self, vec_repo: VectorRepo) -> None:
+        await vec_repo.upsert(1, _unit_vec(0))
+        await vec_repo.upsert(1, _unit_vec(5))
+        got = await vec_repo.get(1)
+        assert got is not None
+        assert got[0] == pytest.approx(0.0)
+        assert got[5] == pytest.approx(1.0)
+
+    async def test_get_missing_returns_none(self, vec_repo: VectorRepo) -> None:
+        assert await vec_repo.get(999) is None
+
+
+class TestSimilar:
+    async def test_similar_orders_by_distance(self, vec_repo: VectorRepo) -> None:
+        # Two posts share axis 0 (close), one is orthogonal (far).
+        await vec_repo.upsert(1, _unit_vec(0))
+        await vec_repo.upsert(2, _unit_vec(0))
+        await vec_repo.upsert(3, _unit_vec(100))
+
+        sims = await vec_repo.similar(_unit_vec(0), limit=3, skip_self=False)
+        ids = [s.post_id for s in sims]
+        # The two identical vectors come first (ties broken arbitrarily by
+        # vec0 — we only assert they're not the orthogonal one).
+        assert set(ids[:2]) == {1, 2}
+        assert ids[2] == 3
+
+    async def test_similar_to_post_skips_source(self, vec_repo: VectorRepo) -> None:
+        # similar_to_post should never return the source id back.
+        await vec_repo.upsert(1, _unit_vec(0))
+        await vec_repo.upsert(2, _unit_vec(0))  # identical to source
+        await vec_repo.upsert(3, _unit_vec(50))  # different
+
+        sims = await vec_repo.similar_to_post(1, limit=5)
+        ids = [s.post_id for s in sims]
+        assert 1 not in ids
+        # The identical-to-source row should rank first.
+        assert ids[0] == 2
+
+    async def test_similar_to_post_missing_returns_empty(self, vec_repo: VectorRepo) -> None:
+        sims = await vec_repo.similar_to_post(9999, limit=10)
+        assert sims == []

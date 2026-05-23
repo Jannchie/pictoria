@@ -17,7 +17,9 @@ from danbooru import DanbooruClient, DanbooruPost
 from db import DB
 from db.entities import TagGroup
 from db.helpers import fetch_one_as
+from db.queries.post_query import PostQueryService
 from db.repositories.posts import PostRepo
+from db.repositories.scores import ScoreRepo
 from db.repositories.tags import TagGroupRepo
 from db.repositories.vectors import VectorRepo
 from scheme import PostDetailPublic, Result
@@ -69,7 +71,7 @@ class CommandController(Controller):
     tags: ClassVar[list[str]] = ["Commands"]
 
     @litestar.put("/auto-caption/{post_id:int}")
-    async def auto_caption(self, posts: PostRepo, post_id: int) -> PostDetailPublic:
+    async def auto_caption(self, posts: PostRepo, post_query: PostQueryService, post_id: int) -> PostDetailPublic:
         post = await posts.get(post_id)
         if post is None:
             msg = f"Post with ID {post_id} not found."
@@ -83,12 +85,13 @@ class CommandController(Controller):
 
         caption = await asyncio.to_thread(shared.caption_annotator.annotate_image, post.absolute_path)
         await posts.update_field(post_id, "caption", caption)
-        return PostDetailPublic.model_validate(await posts.get_detail(post_id))
+        return PostDetailPublic.model_validate(await post_query.get_detail(post_id))
 
     @litestar.put("/auto-tags/{post_id:int}", description="Auto tag a post")
     async def auto_tags(
         self,
         posts: PostRepo,
+        post_query: PostQueryService,
         tag_group_repo: TagGroupRepo,
         post_id: int,
     ) -> PostDetailPublic:
@@ -101,7 +104,7 @@ class CommandController(Controller):
         resp = await asyncio.to_thread(tagger.tag, post.absolute_path)
         await posts.update_field(post_id, "rating", from_rating_to_int(resp.rating))
         await attach_wdtagger_results(posts, tag_group_repo, post_id, resp, is_auto=True)
-        return PostDetailPublic.model_validate(await posts.get_detail(post_id))
+        return PostDetailPublic.model_validate(await post_query.get_detail(post_id))
 
     @litestar.put("/auto-tags")
     async def auto_tags_all(self, posts: PostRepo, tag_group_repo: TagGroupRepo) -> None:
@@ -144,7 +147,7 @@ class CommandController(Controller):
         await waifu_score_all_posts(posts)
 
     @litestar.get("/waifu-scorer/{post_id:int}")
-    async def get_waifu_scorer_one(self, posts: PostRepo, post_id: int) -> float:
+    async def get_waifu_scorer_one(self, posts: PostRepo, scores: ScoreRepo, post_id: int) -> float:
         """Compute (and persist) the waifu score for a single post."""
         post = await posts.get(post_id)
         if post is None:
@@ -152,7 +155,7 @@ class CommandController(Controller):
             raise NotFoundException(msg)
         if not is_image(post.absolute_path):
             raise HTTPException(status_code=400, detail=f"Post {post_id} is not an image.")
-        existing = await posts.get_waifu_score(post_id)
+        existing = await scores.get_waifu_score(post_id)
         if existing is not None:
             return existing
         from ai.waifu_scorer import get_waifu_scorer  # noqa: PLC0415  # lazy: defer ML stack load until first use
@@ -160,7 +163,7 @@ class CommandController(Controller):
         scorer = get_waifu_scorer()
         result = await asyncio.to_thread(scorer, post.absolute_path)
         score = float(result[0]) if isinstance(result, (list, tuple)) else float(result)
-        await posts.upsert_waifu_score(post_id, score)
+        await scores.upsert_waifu_score(post_id, score)
         return score
 
     @litestar.put("/siglip-scorer")
@@ -179,7 +182,7 @@ class CommandController(Controller):
                 conn.close()
 
     @litestar.get("/siglip-scorer/{post_id:int}")
-    async def get_siglip_scorer_one(self, posts: PostRepo, post_id: int) -> float:
+    async def get_siglip_scorer_one(self, posts: PostRepo, scores: ScoreRepo, post_id: int) -> float:
         """Compute (and persist) the SigLIP aesthetic score for a single post."""
         post = await posts.get(post_id)
         if post is None:
@@ -189,12 +192,12 @@ class CommandController(Controller):
             raise HTTPException(status_code=400, detail=f"Post {post_id} is not an image.")
         from ai.siglip_scorer import SCORER_NAME, score_images  # noqa: PLC0415  # lazy: defer ML stack load
 
-        existing = await posts.get_aesthetic_score(post_id, SCORER_NAME)
+        existing = await scores.get_aesthetic_score(post_id, SCORER_NAME)
         if existing is not None:
             return existing
         result = await asyncio.to_thread(score_images, [post.absolute_path])
         score = float(result[0])
-        await posts.upsert_aesthetic_score(post_id, SCORER_NAME, score)
+        await scores.upsert_aesthetic_score(post_id, SCORER_NAME, score)
         return score
 
     @litestar.post("/posts/embedding", description="Calculate embedding for posts that don't have one yet")

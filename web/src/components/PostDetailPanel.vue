@@ -3,6 +3,7 @@ import type { PostDetailPublic, PostHasTagPublic } from '@/api'
 import { useQueryClient } from '@tanstack/vue-query'
 import { filesize } from 'filesize'
 import { v2GetSiglipScorerOne, v2GetWaifuScorerOne, v2UpdatePostCaption, v2UpdatePostRating, v2UpdatePostScore, v2UpdatePostSource } from '@/api'
+import { useAPIError } from '@/composables/useAPIError'
 import { hideNSFW, openTagSelectorWindow, patchPostsInListCache, showPostDetail } from '@/shared'
 import { getPostThumbnailURL } from '@/utils'
 import { colorNumToHex, labToRgbaString } from '@/utils/color'
@@ -12,6 +13,7 @@ const props = defineProps<{
 }>()
 
 const queryClient = useQueryClient()
+const { handle: handleAPIError } = useAPIError()
 
 function formatTimestr(t: number | string) {
   return new Date(t).toLocaleString()
@@ -77,15 +79,24 @@ function isImage(extension: string) {
   return ['jpg', 'jpeg', 'png', 'gif', 'webp', 'bmp', 'svg'].includes(extension)
 }
 
-const folders = computed(() => {
-  const names = post.value.filePath.split('/')
-  // 返回一个对象数组，包括 name 和 path 两个字段，name 如上所示，而 path 需要包括父亲目录，使用 / 分隔
-  const paths = post.value.filePath.split('/').map((_, index, array) => array.slice(0, index + 1).join('/'))
-  return names.map((name, index) => ({
+// Memoize per filePath — opening 30 posts in a row was rebuilding the same
+// breadcrumb arrays 30 times. The map is process-local so it never grows
+// beyond what the gallery has actually visited.
+const foldersCache = new Map<string, Array<{ name: string, path: string }>>()
+function buildFolders(filePath: string) {
+  const cached = foldersCache.get(filePath)
+  if (cached) {
+    return cached
+  }
+  const names = filePath.split('/')
+  const result = names.map((name, index) => ({
     name,
-    path: paths[index],
+    path: names.slice(0, index + 1).join('/'),
   }))
-})
+  foldersCache.set(filePath, result)
+  return result
+}
+const folders = computed(() => buildFolders(post.value.filePath))
 
 const updateCaption = useDebounceFn(async (caption: any) => {
   await v2UpdatePostCaption({
@@ -154,7 +165,7 @@ async function calculateWaifuScore() {
     queryClient.invalidateQueries({ queryKey: ['post', post.value.id] })
   }
   catch (error) {
-    console.error('Failed to calculate waifu score:', error)
+    handleAPIError(error, 'Failed to calculate waifu score')
   }
   finally {
     isCalculatingWaifuScore.value = false
@@ -182,7 +193,7 @@ async function calculateSiglipScore() {
     queryClient.invalidateQueries({ queryKey: ['post', post.value.id] })
   }
   catch (error) {
-    console.error('Failed to calculate SigLIP score:', error)
+    handleAPIError(error, 'Failed to calculate SigLIP score')
   }
   finally {
     isCalculatingSiglipScore.value = false

@@ -45,6 +45,14 @@ canonical_tag_groups: dict[str, int] = {}
 openai_key: None | str = None
 caption_annotator: Optional["OpenAIImageAnnotator"] = None
 
+# Post scoring / rating bounds. The frontend's <Rating> uses score 0..5
+# (six states including zero) and rating 0..4 (four severity tiers). The
+# controllers validate against these constants so the bounds live in one
+# place — moving the rating count requires updating only here, the
+# frontend Rating widget, and any migration touching the column.
+MAX_POST_SCORE = 5
+MAX_POST_RATING = 4
+
 
 def get_logger():
     logger = logging.getLogger("pictoria")

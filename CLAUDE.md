@@ -8,7 +8,7 @@ Pictoria is a full-stack image gallery application for managing and displaying i
 
 ## Tech Stack
 
-- **Backend**: Python 3.12+ with Litestar framework, embedded DuckDB + VSS (HNSW vector indexes), Pydantic entities, hand-written Repository layer (no ORM)
+- **Backend**: Python 3.12+ with Litestar framework, embedded SQLite (WAL) + `sqlite-vec` (vec0 virtual tables for vector search), Pydantic entities, hand-written Repository + query-service layer (no ORM)
 - **Frontend**: Vue 3 with Composition API, Vite, UnoCSS, TypeScript
 - **Package Managers**: `uv` for Python, `pnpm` for JavaScript
 
@@ -53,8 +53,8 @@ uv run ruff format src # Format Python code
 
 ### Database
 
-DuckDB is embedded — there is no separate DB server. The default DB path is
-`<target_dir>/.pictoria/pictoria.duckdb`; override with `DB_PATH` in `.env`.
+SQLite is embedded — there is no separate DB server. The default DB path is
+`<target_dir>/.pictoria/pictoria.sqlite`; override with `DB_PATH` in `.env`.
 Schema migrations are plain SQL files in `server/migrations/` and are applied
 automatically on startup by `db.migrator.run_migrations`.
 
@@ -78,10 +78,12 @@ uv run python scripts/tags/clean_tags.py
 
 - **src/app.py**: Main Litestar application entry point (DI wires repositories per request)
 - **src/db/**: Data access layer:
-  - `connection.py`: `DB` class — owns one DuckDB connection, hands out per-cursor configured handles
+  - `connection.py`: `DB` class — owns thread-local SQLite connections (each with `sqlite-vec` loaded + WAL), hands out per-thread cursors
   - `entities.py`: Pydantic models that map 1:1 to DB rows (Post, Tag, TagGroup, ...)
   - `migrator.py`: SQL-file migration runner; tracks applied versions in `_schema_versions`
-  - `repositories/`: Async repositories (`PostRepo`, `TagRepo`, `TagGroupRepo`, `VectorRepo`); each public method wraps a sync DuckDB call in `asyncio.to_thread`
+  - `filters.py`: `PostFilter` / `PostFilterWithOrder` value objects, `build_where()`, and the centralized column allowlists (orderable / updatable / groupable)
+  - `repositories/`: Focused async row repositories (`PostRepo` = posts-table CRUD, `TagRepo`, `TagGroupRepo`, `ScoreRepo`, `ColorRepo`, `FailureRepo`, `VectorRepo`); each public method wraps a sync SQLite call in `asyncio.to_thread`
+  - `queries/`: `PostQueryService` — the read side (detail/list/search assembly + filtered counts/aggregates), composing the focused repos for per-table batch fetches
 - **migrations/**: Hand-written, ordered SQL migration files (`0001_initial.sql`, ...)
 - **src/server/**: API controllers organized by resource:
   - `posts.py`: Image CRUD operations, batch updates
@@ -104,19 +106,20 @@ uv run python scripts/tags/clean_tags.py
 
 ### Key Patterns
 
-- **Backend**: Litestar `async def` handlers + sync `Repository` methods bridged by `asyncio.to_thread`; raw SQL strings, no ORM; FK constraints are *informational only* in DuckDB so application-layer cascade deletes (see `PostRepo.delete_many`) are required
+- **Backend**: Litestar `async def` handlers; reads inject `PostQueryService`, writes inject the focused repos. Sync DB methods bridged by `asyncio.to_thread`; raw SQL strings, no ORM. FK `ON DELETE CASCADE` is real and enforced (`PRAGMA foreign_keys = ON` per connection) — the one manual cascade is `post_vectors` (a `vec0` virtual table that doesn't participate in FK cascades; `PostRepo.delete_many` clears it explicitly)
 - **Frontend**: Composition API, TanStack Query for server state, composables for logic reuse
-- **Database**: Embedded DuckDB; HNSW indexes via the `vss` extension (cosine on `post_vectors.embedding`, l2sq on `posts.dominant_color`); `GENERATED ALWAYS AS` columns for `posts.full_path` and `posts.aspect_ratio`; sequences for autoincrement IDs (no `setval` — see `migrations/` for the `nextval(...)` pattern)
+- **Database**: Embedded SQLite (WAL) with `sqlite-vec`; `post_vectors` is a `vec0` virtual table (cosine, `FLOAT[768]`); `posts.dominant_color` is a serialized `FLOAT[3]` BLOB queried by brute-force `vec_distance_L2` (no index — a 3-d scan is sub-millisecond); `GENERATED ALWAYS AS ... VIRTUAL` columns for `posts.full_path` and `posts.aspect_ratio`; `INTEGER PRIMARY KEY AUTOINCREMENT` IDs
 - **API**: OpenAPI-based code generation for type-safe client-server communication
 
 ## Database Schema
 
-- **posts**: Main image entity with metadata, dimensions, ratings; `dominant_color FLOAT[3]` (Lab) with an HNSW index; `full_path` and `aspect_ratio` are `GENERATED ALWAYS AS` columns
+- **posts**: Main image entity with metadata, dimensions, ratings; `dominant_color` is a serialized `FLOAT[3]` (Lab) BLOB (no index); `full_path` and `aspect_ratio` are `GENERATED ALWAYS AS ... VIRTUAL` columns
 - **tags** & **tag_groups**: Hierarchical tagging system
-- **post_has_tag**: Many-to-many relationship (logical FK to `posts.id` / `tags.name`)
-- **post_vectors**: 768-dim image embeddings (`FLOAT[768]`) with a cosine HNSW index
-- **post_waifu_scores**: AI-generated quality scores
+- **post_has_tag**: Many-to-many relationship (FK `ON DELETE CASCADE` to `posts.id` / `tags.name`)
+- **post_vectors**: 768-dim image embeddings (`vec0` virtual table, `FLOAT[768]`, cosine)
+- **post_waifu_scores**: legacy single-scorer quality scores; **post_aesthetic_scores**: generic per-(post, scorer) scores (e.g. `siglip-v2-5`)
 - **post_has_color**: Dominant color palette (per-post `INT` colors with order)
+- **post_process_failures**: per-(post, worker) one-shot failure blacklist
 - **_schema_versions**: internal table used by `db.migrator` to track applied migrations
 
 ## Development Guidelines
@@ -124,15 +127,15 @@ uv run python scripts/tags/clean_tags.py
 ### When modifying the backend
 
 1. If the schema changes: add a new numbered SQL file to `server/migrations/` (e.g. `0002_add_foo.sql`). It is applied on the next process boot; do not edit existing migration files.
-2. Update the matching Pydantic entity in `src/db/entities.py` and any affected repository methods in `src/db/repositories/`.
-3. Update API endpoints in `src/server/`.
+2. Update the matching Pydantic entity in `src/db/entities.py`. Put **write** logic on the relevant focused repo (`PostRepo`/`ScoreRepo`/`ColorRepo`/`TagRepo`/...); put **read** logic (assembly, filtered counts/aggregates) on `PostQueryService`; add filter fields / column allowlists in `db/filters.py`.
+3. Update API endpoints in `src/server/` (reads inject `PostQueryService`, writes inject the focused repo).
 4. Regenerate frontend API client: `just web-genapi`
-5. Run linting: `uv run ruff check src`
+5. Run checks: `uv run ruff check src` and `uv run pytest`.
 
-Notes when writing SQL for DuckDB:
-- No `ON DELETE CASCADE` / `ON UPDATE CASCADE` — DuckDB rejects them. Do cascades in the repository layer.
-- No `setval()` / `ALTER SEQUENCE RESTART`. To advance a sequence past an existing max id, use `SELECT max(nextval('seq_name')) FROM range(N)`.
-- HNSW indexes require `SET hnsw_enable_experimental_persistence=true` per connection (already applied by `DB.cursor()`).
+Notes when writing SQL for SQLite:
+- FK `ON DELETE CASCADE` works and is enforced per-connection (`PRAGMA foreign_keys = ON`); rely on it for child tables. The exception is `post_vectors` (a `vec0` virtual table) — delete its rows explicitly.
+- IDs use `INTEGER PRIMARY KEY AUTOINCREMENT`.
+- The `sqlite-vec` extension is loaded on every connection by `DB._new_connection`, so `vec0` virtual tables and `vec_distance_L2` / `MATCH ... k = N` KNN queries are available.
 
 ### When modifying the frontend
 
@@ -155,12 +158,12 @@ This ensures type safety between frontend and backend.
 ### Testing
 
 - Frontend tests use Vitest: `cd web && pnpm test`
-- Backend uses Ruff for linting and Pyright for type checking
+- Backend: `uv run ruff check src` (lint), Pyright (types), and `uv run pytest` — a golden-master characterization suite in `server/tests/` pins the data-access layer's behaviour (run it before/after any repository or query change)
 
 ## Important Configuration Files
 
 - **server/pyproject.toml**: Python dependencies and tool settings
-- **server/.env**: Local DB/runtime overrides — `DB_PATH`, `DUCKDB_MEMORY_LIMIT`, `DUCKDB_THREADS`, S3 credentials
+- **server/.env**: Local DB/runtime overrides — `DB_PATH`, S3 credentials
 - **server/migrations/*.sql**: Ordered, idempotent schema migrations (applied at startup)
 - **web/vite.config.ts**: Vite build configuration
 - **web/uno.config.ts**: UnoCSS styling configuration
