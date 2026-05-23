@@ -82,3 +82,9 @@ s3_base_dir = "collections"
 # stops re-selecting posts whose only missing column is arthash. Driven by the
 # ``DISABLE_ARTHASH`` env var; flipped on by ``utils.initialize``.
 disable_arthash = False
+
+# SigLIP Aesthetic v2.5 backfill is off by default — its output distribution
+# collapses on this image library (mostly anime/AI art, OOD for the predictor)
+# so it isn't worth the GPU time. Set ``ENABLE_SIGLIP_SCORER=1`` to re-enable
+# the worker and the per-upload scoring step.
+enable_siglip_scorer = False

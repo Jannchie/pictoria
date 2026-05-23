@@ -130,7 +130,7 @@ export const enableFancyPlaceholder = useStorage('pictoria.enableFancyPlaceholde
 // for newly imported images.
 export const enableArthash = useStorage('pictoria.enableArthash', true)
 
-export const postSort = useLocalStorage<'id' | 'score' | 'rating' | 'created_at' | 'file_name' | 'published_at'>('pictoria.posts.sort', 'id')
+export const postSort = useLocalStorage<'id' | 'score' | 'rating' | 'created_at' | 'file_name' | 'published_at' | 'waifu_score' | 'siglip_score'>('pictoria.posts.sort', 'id')
 export const postSortColor = useLocalStorage<string | undefined>('pictoria.posts.color', undefined)
 const postSortColorDebounce = useDebounce(postSortColor, 1000)
 export const postSortOrder = useLocalStorage<'asc' | 'desc'>('pictoria.posts.sortOrder', 'desc')
@@ -156,7 +156,7 @@ export function useInfinityPostsQuery() {
     return postSortOrder.value as 'asc' | 'desc'
   })
 
-  const orderBy = computed<'id' | 'score' | 'rating' | 'created_at' | 'file_name' | 'published_at' | 'last_accessed_at'>(() => {
+  const orderBy = computed<'id' | 'score' | 'rating' | 'created_at' | 'file_name' | 'published_at' | 'last_accessed_at' | 'waifu_score' | 'siglip_score'>(() => {
     if (isRecentlyPage.value) {
       return 'last_accessed_at'
     }

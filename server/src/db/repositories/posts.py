@@ -46,6 +46,8 @@ _ORDERABLE_COLUMNS = {
     "published_at",
     "file_name",
     "last_accessed_at",
+    "waifu_score",
+    "siglip_score",
 }
 
 
@@ -183,8 +185,23 @@ class PostRepo:
             )
             ws_row = self.cur.fetchone()
             waifu_score = {"score": ws_row[0]} if ws_row else None
+            # other aesthetic scorers (siglip-v2-5, future ones)
+            self.cur.execute(
+                "SELECT scorer, score FROM post_aesthetic_scores "
+                "WHERE post_id = ? ORDER BY scorer",
+                [post_id],
+            )
+            aesthetic_scores = [
+                {"scorer": r[0], "score": float(r[1])} for r in self.cur.fetchall()
+            ]
 
-            return {**post, "tags": tags, "colors": colors, "waifu_score": waifu_score}
+            return {
+                **post,
+                "tags": tags,
+                "colors": colors,
+                "waifu_score": waifu_score,
+                "aesthetic_scores": aesthetic_scores,
+            }
 
         return await asyncio.to_thread(_impl)
 
@@ -264,12 +281,21 @@ class PostRepo:
                     [pid],
                 )
                 ws = self.cur.fetchone()
+                self.cur.execute(
+                    "SELECT scorer, score FROM post_aesthetic_scores "
+                    "WHERE post_id = ? ORDER BY scorer",
+                    [pid],
+                )
+                aesthetic_scores = [
+                    {"scorer": r[0], "score": float(r[1])} for r in self.cur.fetchall()
+                ]
                 details.append(
                     {
                         **p,
                         "tags": tags,
                         "colors": colors,
                         "waifu_score": ({"score": ws[0]} if ws else None),
+                        "aesthetic_scores": aesthetic_scores,
                     },
                 )
             return details, next_cursor
@@ -317,10 +343,10 @@ class PostRepo:
                 "p.score, p.size, p.width, p.height, p.aspect_ratio, p.dominant_color, "
                 "p.arthash, p.sha256"
             )
-            from_clause = "FROM posts p" + ("\n" + "\n".join(joins) if joins else "")
             where_sql = ("WHERE " + " AND ".join(where_clauses)) if where_clauses else ""
 
             if lab is not None:
+                from_clause = "FROM posts p" + ("\n" + "\n".join(joins) if joins else "")
                 lab_blob = sqlite_vec.serialize_float32(list(lab))
                 sql = (
                     f"{select_cols}, "
@@ -333,13 +359,34 @@ class PostRepo:
                 )
                 self.cur.execute(sql, [lab_blob, *params, limit, offset])
             else:
+                # Score-based ordering joins the scorer table on demand and uses
+                # ``NULLS LAST`` so posts that haven't been scored yet sink to
+                # the bottom instead of polluting the head/tail of the result.
+                extra_joins: list[str] = []
                 order_sql = ""
                 if order_by and order_by in _ORDERABLE_COLUMNS:
                     if order == "random":
                         order_sql = "ORDER BY random()"
+                    elif order_by == "waifu_score":
+                        if not any("post_waifu_scores" in j for j in joins):
+                            extra_joins.append(
+                                "LEFT JOIN post_waifu_scores pws ON pws.post_id = p.id",
+                            )
+                        direction = "ASC" if order == "asc" else "DESC"
+                        order_sql = f"ORDER BY pws.score {direction} NULLS LAST"
+                    elif order_by == "siglip_score":
+                        extra_joins.append(
+                            "LEFT JOIN post_aesthetic_scores pas_siglip "
+                            "ON pas_siglip.post_id = p.id AND pas_siglip.scorer = 'siglip-v2-5'",
+                        )
+                        direction = "ASC" if order == "asc" else "DESC"
+                        order_sql = f"ORDER BY pas_siglip.score {direction} NULLS LAST"
                     else:
                         direction = "ASC" if order == "asc" else "DESC"
                         order_sql = f"ORDER BY p.{order_by} {direction}"
+
+                all_joins = joins + extra_joins
+                from_clause = "FROM posts p" + ("\n" + "\n".join(all_joins) if all_joins else "")
                 sql = (
                     f"{select_cols} {from_clause} {where_sql} {order_sql} LIMIT ? OFFSET ?"
                 )
@@ -803,6 +850,48 @@ class PostRepo:
                 "INSERT INTO post_waifu_scores(post_id, score) VALUES (?, ?) "
                 "ON CONFLICT (post_id) DO UPDATE SET score = excluded.score",
                 [post_id, score],
+            )
+
+        await asyncio.to_thread(_impl)
+
+    # ─── Aesthetic scores (generic per-scorer table) ─────────────────
+    async def get_aesthetic_scores(self, post_id: int) -> list[dict]:
+        """Return ``[{"scorer": str, "score": float}, ...]`` for a post."""
+
+        def _impl() -> list[dict]:
+            self.cur.execute(
+                "SELECT scorer, score FROM post_aesthetic_scores "
+                "WHERE post_id = ? ORDER BY scorer",
+                [post_id],
+            )
+            return [{"scorer": r[0], "score": float(r[1])} for r in self.cur.fetchall()]
+
+        return await asyncio.to_thread(_impl)
+
+    async def get_aesthetic_score(self, post_id: int, scorer: str) -> float | None:
+        def _impl() -> float | None:
+            self.cur.execute(
+                "SELECT score FROM post_aesthetic_scores "
+                "WHERE post_id = ? AND scorer = ?",
+                [post_id, scorer],
+            )
+            row = self.cur.fetchone()
+            return float(row[0]) if row else None
+
+        return await asyncio.to_thread(_impl)
+
+    async def upsert_aesthetic_score(
+        self,
+        post_id: int,
+        scorer: str,
+        score: float,
+    ) -> None:
+        def _impl() -> None:
+            self.cur.execute(
+                "INSERT INTO post_aesthetic_scores(post_id, scorer, score) "
+                "VALUES (?, ?, ?) "
+                "ON CONFLICT (post_id, scorer) DO UPDATE SET score = excluded.score",
+                [post_id, scorer, score],
             )
 
         await asyncio.to_thread(_impl)

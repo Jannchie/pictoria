@@ -57,6 +57,11 @@ class WaifuScorePublic(DTOBaseModel):
     score: float
 
 
+class AestheticScorePublic(DTOBaseModel):
+    scorer: str
+    score: float
+
+
 class PostPublic(DTOBaseModel):
     id: int
     file_path: str
@@ -81,6 +86,7 @@ class PostPublic(DTOBaseModel):
     dominant_color: list[float] | None
     arthash: str | None
     waifu_score: WaifuScorePublic | None
+    aesthetic_scores: list[AestheticScorePublic] = []
 
 
 class PostDetailPublic(PostPublic):

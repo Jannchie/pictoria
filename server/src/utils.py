@@ -71,10 +71,17 @@ def prepare_s3() -> None:
     shared.s3_base_dir = os.environ.get("S3_BASE_DIR", "collections")
 
 
+_TRUTHY = {"1", "true", "yes", "on"}
+
+
 def prepare_feature_flags() -> None:
-    shared.disable_arthash = os.environ.get("DISABLE_ARTHASH", "").lower() in {"1", "true", "yes", "on"}
+    shared.disable_arthash = os.environ.get("DISABLE_ARTHASH", "").lower() in _TRUTHY
     if shared.disable_arthash:
         logger.info("DISABLE_ARTHASH=1: skipping arthash computation in the basics worker")
+
+    shared.enable_siglip_scorer = os.environ.get("ENABLE_SIGLIP_SCORER", "").lower() in _TRUTHY
+    if shared.enable_siglip_scorer:
+        logger.info("ENABLE_SIGLIP_SCORER=1: SigLIP aesthetic scorer enabled")
 
 
 def initialize(target_dir: os.PathLike, openai_key: str | None = None) -> None:

@@ -2,7 +2,7 @@
 import type { PostDetailPublic, PostHasTagPublic } from '@/api'
 import { useQueryClient } from '@tanstack/vue-query'
 import { filesize } from 'filesize'
-import { v2GetWaifuScorerOne, v2UpdatePostCaption, v2UpdatePostRating, v2UpdatePostScore, v2UpdatePostSource } from '@/api'
+import { v2GetSiglipScorerOne, v2GetWaifuScorerOne, v2UpdatePostCaption, v2UpdatePostRating, v2UpdatePostScore, v2UpdatePostSource } from '@/api'
 import { hideNSFW, openTagSelectorWindow, showPostDetail } from '@/shared'
 import { getPostThumbnailURL } from '@/utils'
 import { colorNumToHex, labToRgbaString } from '@/utils/color'
@@ -144,6 +144,34 @@ async function calculateWaifuScore() {
     isCalculatingWaifuScore.value = false
   }
 }
+
+const SIGLIP_SCORER = 'siglip-v2-5'
+const siglipScore = computed(
+  () => post.value.aestheticScores?.find(s => s.scorer === SIGLIP_SCORER)?.score,
+)
+const isCalculatingSiglipScore = ref(false)
+
+async function calculateSiglipScore() {
+  if (isCalculatingSiglipScore.value) {
+    return
+  }
+
+  isCalculatingSiglipScore.value = true
+  try {
+    await v2GetSiglipScorerOne({
+      path: {
+        post_id: post.value.id,
+      },
+    })
+    queryClient.invalidateQueries({ queryKey: ['post', post.value.id] })
+  }
+  catch (error) {
+    console.error('Failed to calculate SigLIP score:', error)
+  }
+  finally {
+    isCalculatingSiglipScore.value = false
+  }
+}
 </script>
 
 <template>
@@ -268,6 +296,24 @@ async function calculateWaifuScore() {
               @click="calculateWaifuScore"
             >
               {{ isCalculatingWaifuScore ? 'Computing...' : 'Compute' }}
+            </PButton>
+          </template>
+        </div>
+        <div>
+          SigLIP Score
+        </div>
+        <div>
+          <template v-if="siglipScore !== undefined">
+            <WaifuScoreLevel :score="siglipScore" />
+          </template>
+          <template v-else>
+            <PButton
+              size="sm"
+              variant="subtle"
+              :loading="isCalculatingSiglipScore"
+              @click="calculateSiglipScore"
+            >
+              {{ isCalculatingSiglipScore ? 'Computing...' : 'Compute' }}
             </PButton>
           </template>
         </div>

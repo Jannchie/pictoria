@@ -58,10 +58,14 @@ class PostFilter(Struct):
 
 class PostFilterWithOrder(PostFilter):
     order_by: Annotated[
-        Literal["id", "score", "rating", "created_at", "published_at", "file_name", "last_accessed_at"] | None,
+        Literal[
+            "id", "score", "rating", "created_at", "published_at", "file_name",
+            "last_accessed_at", "waifu_score", "siglip_score",
+        ] | None,
         Meta(description="Order column.", examples=["id"],
              extra_json_schema={"enum": [
-                 "id", "score", "rating", "created_at", "published_at", "file_name", "last_accessed_at",
+                 "id", "score", "rating", "created_at", "published_at", "file_name",
+                 "last_accessed_at", "waifu_score", "siglip_score",
              ]}),
     ] = None
     order: Annotated[

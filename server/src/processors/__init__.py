@@ -82,6 +82,9 @@ WAIFU_BATCH_SIZE = 32
 # card and is the sweet spot for CLIP-ViT-Large / wd-vit-large.
 EMBEDDING_BATCH_SIZE = 32
 TAGGER_BATCH_SIZE = 32
+# SigLIP-so400m is a noticeably larger ViT than CLIP-L/14; batch=16 fits
+# comfortably in 12GB at bfloat16 with the rest of the model stack loaded.
+SIGLIP_BATCH_SIZE = 16
 
 
 # ─── Public API ──────────────────────────────────────────────────────────
@@ -143,10 +146,14 @@ async def run_all_backfill(db: DB) -> None:
     embedding_conn = _checkout()
     tagger_conn = _checkout()
     waifu_conn = _checkout()
+    # SigLIP backfill is opt-in (see shared.enable_siglip_scorer): skip
+    # allocating its connection and worker coroutine entirely when disabled
+    # so the GPU isn't held by a model load we'll never use.
+    siglip_conn = _checkout() if shared.enable_siglip_scorer else None
 
     try:
         with get_progress() as progress:
-            await asyncio.gather(
+            workers = [
                 run_basics_worker(
                     PostRepo(basics_conn.cursor()),
                     progress=progress,
@@ -165,7 +172,15 @@ async def run_all_backfill(db: DB) -> None:
                     PostRepo(waifu_conn.cursor()),
                     progress=progress,
                 ),
-            )
+            ]
+            if siglip_conn is not None:
+                workers.append(
+                    run_siglip_worker(
+                        PostRepo(siglip_conn.cursor()),
+                        progress=progress,
+                    ),
+                )
+            await asyncio.gather(*workers)
     finally:
         for conn in connections:
             with contextlib.suppress(Exception):
@@ -221,6 +236,8 @@ async def process_post(
     await _process_embedding_batch(posts, vectors, [post.id])
     await _process_tagger_batch(posts, tag_groups, [post.id])
     await _process_waifu_batch(posts, [post.id])
+    if shared.enable_siglip_scorer:
+        await _process_siglip_batch(posts, [post.id])
 
 
 # ─── Worker drivers ─────────────────────────────────────────────────────
@@ -318,6 +335,22 @@ async def run_waifu_worker(
     await _drive(progress, "Waifu scorer", pending, WAIFU_BATCH_SIZE, _process)
 
 
+async def run_siglip_worker(
+    posts: PostRepo,
+    *,
+    progress: Progress | None = None,
+) -> None:
+    """Backfill the SigLIP-based aesthetic score (Aesthetic Predictor V2.5)."""
+    from ai.siglip_scorer import SCORER_NAME  # noqa: PLC0415  # lazy: defer ML stack load
+
+    pending = await _list_aesthetic_pending(posts, SCORER_NAME)
+
+    async def _process(batch_ids: list[int]) -> None:
+        await _process_siglip_batch(posts, batch_ids)
+
+    await _drive(progress, "SigLIP scorer", pending, SIGLIP_BATCH_SIZE, _process)
+
+
 # ─── Pending queries ────────────────────────────────────────────────────
 
 
@@ -384,6 +417,34 @@ async def _list_waifu_pending(posts: PostRepo) -> list[int]:
               )
             ORDER BY p.id
             """,  # noqa: S608
+        )
+        return [r[0] for r in posts.cur.fetchall()]
+
+    return await asyncio.to_thread(_impl)
+
+
+async def _list_aesthetic_pending(posts: PostRepo, scorer: str) -> list[int]:
+    """Pending posts for an entry in ``post_aesthetic_scores`` keyed by scorer.
+
+    The failure-blacklist worker name is ``aesthetic:<scorer>`` so each scorer
+    has its own one-shot failure log instead of sharing a single bucket.
+    """
+
+    def _impl() -> list[int]:
+        posts.cur.execute(
+            f"""
+            SELECT p.id FROM posts p
+            LEFT JOIN post_aesthetic_scores pas
+              ON pas.post_id = p.id AND pas.scorer = ?
+            WHERE pas.post_id IS NULL
+              AND {_IMAGE_EXT_WHERE}
+              AND NOT EXISTS (
+                SELECT 1 FROM post_process_failures f
+                WHERE f.post_id = p.id AND f.worker = ?
+              )
+            ORDER BY p.id
+            """,  # noqa: S608
+            [scorer, f"aesthetic:{scorer}"],
         )
         return [r[0] for r in posts.cur.fetchall()]
 
@@ -663,6 +724,51 @@ async def _process_waifu_batch(posts: PostRepo, post_ids: list[int]) -> None:  #
 
     for (pid, _), result in zip(items, results, strict=True):
         await posts.upsert_waifu_score(pid, float(result))
+
+
+async def _process_siglip_batch(posts: PostRepo, post_ids: list[int]) -> None:  # noqa: C901
+    """Score a batch with SigLIP Aesthetic Predictor V2.5."""
+    from ai.siglip_scorer import SCORER_NAME, score_images  # noqa: PLC0415  # lazy: defer ML stack load
+
+    failure_worker = f"aesthetic:{SCORER_NAME}"
+    posts_map = await posts.get_many(post_ids)
+    items: list[tuple[int, Path]] = []
+    for pid in post_ids:
+        post = posts_map.get(pid)
+        if post is None:
+            continue
+        abs_path = post.absolute_path
+        if abs_path.suffix.lower() not in IMAGE_EXTS or not abs_path.exists():
+            continue
+        items.append((pid, abs_path))
+    if not items:
+        return
+
+    paths = [p for _, p in items]
+    try:
+        results = await asyncio.to_thread(score_images, paths)
+    except Exception as exc:
+        # Same fallback shape as the waifu worker: one bad image can break the
+        # whole batched preprocess collate, so re-score per-image so the rest
+        # still land.
+        logger.warning(f"[siglip] batch scoring failed ({exc!s}); retrying per-image")
+        failed: list[tuple[int, str, str]] = []
+        for pid, path in items:
+            try:
+                single = await asyncio.to_thread(score_images, [path])
+                await posts.upsert_aesthetic_score(pid, SCORER_NAME, float(single[0]))
+            except (UnidentifiedImageError, OSError) as exc:
+                logger.warning(f"[siglip] skipping unreadable image {pid} ({path}): {exc}")
+                failed.append((pid, failure_worker, f"{type(exc).__name__}: {exc}"))
+            except Exception as exc:
+                logger.exception(f"[siglip] post {pid} ({path})")
+                failed.append((pid, failure_worker, f"{type(exc).__name__}: {exc}"))
+        if failed:
+            await posts.record_failures(failed)
+        return
+
+    for (pid, _), result in zip(items, results, strict=True):
+        await posts.upsert_aesthetic_score(pid, SCORER_NAME, float(result))
 
 
 # ─── Basics compute / persist helpers ───────────────────────────────────

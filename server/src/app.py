@@ -293,13 +293,19 @@ app = Litestar(
 if __name__ == "__main__":
     import uvicorn
 
+    # Note: ``reload=True`` is intentionally off on Windows. uvicorn's reload
+    # mode there uses ``multiprocessing.spawn`` to launch the worker, but the
+    # parent supervisor ends up keeping the listening socket (and serving
+    # requests) without ever running the ASGI lifespan — so HTTP handlers
+    # see ``shared.target_dir = Path()`` and an uninitialised ``state.db``.
+    # The worker DOES run lifespan and the backfill, but it never sees any
+    # HTTP traffic. The visible symptom is "all responses are empty" while
+    # the backfill progress bar keeps advancing.
     uvicorn.run(
         "app:app",
         host="0.0.0.0",  # noqa: S104
         port=4777,
-        reload=True,
-        reload_dirs=["src"],
-        reload_excludes=[".venv"],
+        reload=False,
         log_config=None,
         # On SIGINT/SIGTERM, stop accepting new connections and give in-flight
         # HTTP requests up to this many seconds to complete before forcing the
