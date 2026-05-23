@@ -10,6 +10,11 @@
 
 参考 spec：`docs/superpowers/specs/2026-05-23-siglip2-embedding-migration-design.md`
 
+> **代码注释约定**：本仓库 ruff `select=["ALL"]` 只 ignore 了 RUF003，未 ignore
+> RUF001/RUF002，且现有 `.py` 全用英文注释。**因此实现时所有 Python 注释/docstring
+> 一律写英文**（下方代码块里的中文注释仅为计划可读性，落地时译成英文）。计划/spec
+> markdown 文档本身不受此约束。
+
 ---
 
 ## File Structure
@@ -91,12 +96,16 @@ git add server/migrations/0006_post_vectors_siglip2.sql server/tests/test_vector
 git commit -m "feat(db): add post_vectors_siglip2 vec0 table (1152d)"
 ```
 
+> **注**：`PostRepo.delete_many` 需要同时清理新表（vec0 不参与 FK cascade），
+> 但其测试依赖 Task 2 的参数化 `VectorRepo`，故该修复并入 Task 2。
+
 ---
 
-## Task 2: 参数化 VectorRepo（table + dim）
+## Task 2: 参数化 VectorRepo（table + dim）+ delete_many 清理新表
 
 **Files:**
 - Modify: `server/src/db/repositories/vectors.py`
+- Modify: `server/src/db/repositories/posts.py:160-183`（`delete_many`）
 - Test: `server/tests/test_vector_repo.py`
 
 - [ ] **Step 1: 写失败测试——VectorRepo 可指向 siglip2 表并 roundtrip 1152d 向量**
@@ -302,6 +311,41 @@ _ALLOWED_TABLES: dict[str, int] = {
 
 > 注意：原 `list_missing_post_ids` 把 worker 名 `'embedding'` 写死在 SQL 字符串里；这里改成参数 `worker`（默认 `"embedding"`，保持旧行为），新表 worker 传 `"embedding:siglip2"`。
 
+- [ ] **Step 3b: delete_many 同时清理新表 + 测试**
+
+Modify `server/src/db/repositories/posts.py` 的 `delete_many._impl`，在
+`DELETE FROM post_vectors ...` 之后追加对新表的 DELETE：
+
+```python
+            self.cur.execute(
+                f"DELETE FROM post_vectors_siglip2 WHERE post_id IN ({placeholders})",  # noqa: S608
+                ids,
+            )
+```
+
+并把该方法 docstring 中 “``post_vectors`` is a vec0 virtual table and doesn't
+participate in foreign-key cascades — clear it explicitly.” 改为
+“``post_vectors`` / ``post_vectors_siglip2`` are vec0 virtual tables and don't
+participate in foreign-key cascades — clear them explicitly.”
+
+测试（append 到 `server/tests/test_vector_repo.py`）：
+
+```python
+class TestDeleteClearsBothVectorTables:
+    async def test_delete_post_clears_both_tables(self, db: DB) -> None:
+        from db.repositories.posts import PostRepo
+
+        clip = VectorRepo(db.cursor())
+        siglip = VectorRepo(db.cursor(), table="post_vectors_siglip2", dim=1152)
+        await clip.upsert(1, _unit_vec(0, dim=768))
+        await siglip.upsert(1, _unit_vec(0, dim=1152))
+
+        await PostRepo(db.cursor()).delete_many([1])
+
+        assert await clip.get(1) is None
+        assert await siglip.get(1) is None
+```
+
 - [ ] **Step 4: 跑新测试，确认通过**
 
 Run: `cd server && uv run pytest tests/test_vector_repo.py -v`
@@ -320,8 +364,8 @@ Expected: 无错误。
 - [ ] **Step 7: Commit**
 
 ```bash
-git add server/src/db/repositories/vectors.py server/tests/test_vector_repo.py
-git commit -m "refactor(db): parameterize VectorRepo by table/dim with allowlist"
+git add server/src/db/repositories/vectors.py server/src/db/repositories/posts.py server/tests/test_vector_repo.py
+git commit -m "refactor(db): parameterize VectorRepo by table/dim; clear siglip table on delete"
 ```
 
 ---

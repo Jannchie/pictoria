@@ -26,6 +26,26 @@ if TYPE_CHECKING:
 
 EMBED_DIM = 768
 
+# Table names may only come from this code-level allowlist: they are
+# interpolated into SQL strings (a placeholder can't stand in for an
+# identifier), so the set is sealed to keep any external input out of the
+# table name. The value is the vec0 table's dimensionality.
+_ALLOWED_TABLES: dict[str, int] = {
+    "post_vectors": 768,
+    "post_vectors_siglip2": 1152,
+}
+
+
+def vector_table_for_backend(backend: str) -> tuple[str, int]:
+    """Map a search backend name to its (vec0 table, dim).
+
+    An unknown backend falls back safely to CLIP (the legacy default),
+    matching the fallback in ``utils.prepare_feature_flags``.
+    """
+    if backend == "siglip2":
+        return ("post_vectors_siglip2", _ALLOWED_TABLES["post_vectors_siglip2"])
+    return ("post_vectors", _ALLOWED_TABLES["post_vectors"])
+
 
 def _decode_vec_blob(value: bytes | bytearray | memoryview) -> list[float]:
     raw = bytes(value)
@@ -34,13 +54,24 @@ def _decode_vec_blob(value: bytes | bytearray | memoryview) -> list[float]:
 
 
 class VectorRepo:
-    def __init__(self, cur: sqlite3.Cursor) -> None:
+    def __init__(
+        self,
+        cur: sqlite3.Cursor,
+        *,
+        table: str = "post_vectors",
+        dim: int | None = None,
+    ) -> None:
+        if table not in _ALLOWED_TABLES:
+            msg = f"unknown vector table: {table!r}"
+            raise ValueError(msg)
         self.cur = cur
+        self.table = table
+        self.dim = dim if dim is not None else _ALLOWED_TABLES[table]
 
     async def get(self, post_id: int) -> list[float] | None:
         def _impl() -> list[float] | None:
             self.cur.execute(
-                "SELECT embedding FROM post_vectors WHERE post_id = ?",
+                f"SELECT embedding FROM {self.table} WHERE post_id = ?",  # noqa: S608
                 [post_id],
             )
             row = self.cur.fetchone()
@@ -58,16 +89,19 @@ class VectorRepo:
         handles INSERT-OR-REPLACE cleanly via DELETE + INSERT under the hood.
         """
         emb = embedding if isinstance(embedding, list) else embedding.tolist()
+        if len(emb) != self.dim:
+            msg = f"{self.table}: expected dim {self.dim}, got {len(emb)}"
+            raise ValueError(msg)
         blob = sqlite_vec.serialize_float32(emb)
 
         def _impl() -> None:
             # vec0 doesn't support ON CONFLICT, so emulate UPSERT manually.
             self.cur.execute(
-                "DELETE FROM post_vectors WHERE post_id = ?",
+                f"DELETE FROM {self.table} WHERE post_id = ?",  # noqa: S608
                 [post_id],
             )
             self.cur.execute(
-                "INSERT INTO post_vectors(post_id, embedding) VALUES (?, ?)",
+                f"INSERT INTO {self.table}(post_id, embedding) VALUES (?, ?)",  # noqa: S608
                 [post_id, blob],
             )
 
@@ -76,7 +110,7 @@ class VectorRepo:
     async def delete(self, post_id: int) -> None:
         def _impl() -> None:
             self.cur.execute(
-                "DELETE FROM post_vectors WHERE post_id = ?",
+                f"DELETE FROM {self.table} WHERE post_id = ?",  # noqa: S608
                 [post_id],
             )
 
@@ -91,17 +125,20 @@ class VectorRepo:
     ) -> list[SimilarImageResult]:
         """Top-N similar posts ordered by cosine distance ascending."""
         emb = embedding if isinstance(embedding, list) else embedding.tolist()
+        if len(emb) != self.dim:
+            msg = f"{self.table}: expected dim {self.dim}, got {len(emb)}"
+            raise ValueError(msg)
         blob = sqlite_vec.serialize_float32(emb)
         fetch_limit = limit + (1 if skip_self else 0)
 
         def _impl() -> list[SimilarImageResult]:
             self.cur.execute(
-                """
+                f"""
                 SELECT post_id, distance
-                FROM post_vectors
+                FROM {self.table}
                 WHERE embedding MATCH ? AND k = ?
                 ORDER BY distance
-                """,
+                """,  # noqa: S608
                 [blob, fetch_limit],
             )
             rows = fetch_all_dicts(self.cur)
@@ -132,20 +169,20 @@ class VectorRepo:
             # no embedding instead of letting the inner subselect bubble
             # up a confusing schema-level error.
             self.cur.execute(
-                "SELECT 1 FROM post_vectors WHERE post_id = ?",
+                f"SELECT 1 FROM {self.table} WHERE post_id = ?",  # noqa: S608
                 [post_id],
             )
             if self.cur.fetchone() is None:
                 return []
             self.cur.execute(
-                """
+                f"""
                 SELECT post_id, distance
-                FROM post_vectors
+                FROM {self.table}
                 WHERE embedding MATCH (
-                    SELECT embedding FROM post_vectors WHERE post_id = ?
+                    SELECT embedding FROM {self.table} WHERE post_id = ?
                 ) AND k = ?
                 ORDER BY distance
-                """,
+                """,  # noqa: S608
                 [post_id, fetch_limit],
             )
             rows = fetch_all_dicts(self.cur)
@@ -155,13 +192,23 @@ class VectorRepo:
 
         return await asyncio.to_thread(_impl)
 
-    async def list_missing_post_ids(self, *, image_exts: list[str] | None = None) -> list[int]:
-        """Return post ids that don't yet have an embedding.
+    async def list_missing_post_ids(
+        self,
+        *,
+        image_exts: list[str] | None = None,
+        worker: str = "embedding",
+    ) -> list[int]:
+        """Return post ids that don't yet have an embedding in ``self.table``.
 
         ``image_exts`` (without leading dot, e.g. ``['jpg','png',...]``)
         narrows the pending set to image rows — non-image posts would just
         be filtered out one-by-one in the worker, but would still inflate
         the progress total. Passing the list lets the DB do that filter.
+
+        ``worker`` selects which ``post_process_failures`` bucket to honour as
+        a one-shot blacklist; the CLIP table uses ``"embedding"`` (default),
+        the SigLIP 2 table uses ``"embedding:siglip2"`` so each has its own
+        failure log.
         """
 
         def _impl() -> list[int]:
@@ -170,7 +217,7 @@ class VectorRepo:
             blacklist_clause = (
                 "AND NOT EXISTS ("
                 "SELECT 1 FROM post_process_failures f "
-                "WHERE f.post_id = p.id AND f.worker = 'embedding')"
+                "WHERE f.post_id = p.id AND f.worker = ?)"
             )
             if image_exts:
                 # The `?` placeholder count is derived from len(image_exts);
@@ -178,19 +225,20 @@ class VectorRepo:
                 placeholders = ",".join("?" * len(image_exts))
                 ext_clause = f"AND LOWER(p.extension) IN ({placeholders})"
                 self.cur.execute(
-                    "SELECT p.id FROM posts p "  # noqa: S608
-                    "LEFT JOIN post_vectors pv ON pv.post_id = p.id "
+                    f"SELECT p.id FROM posts p "  # noqa: S608
+                    f"LEFT JOIN {self.table} pv ON pv.post_id = p.id "
                     "WHERE pv.post_id IS NULL "
                     + ext_clause + " " + blacklist_clause
                     + " ORDER BY p.id",
-                    image_exts,
+                    [*image_exts, worker],
                 )
             else:
                 self.cur.execute(
-                    "SELECT p.id FROM posts p "  # noqa: S608
-                    "LEFT JOIN post_vectors pv ON pv.post_id = p.id "
+                    f"SELECT p.id FROM posts p "  # noqa: S608
+                    f"LEFT JOIN {self.table} pv ON pv.post_id = p.id "
                     "WHERE pv.post_id IS NULL " + blacklist_clause
                     + " ORDER BY p.id",
+                    [worker],
                 )
             return [r[0] for r in self.cur.fetchall()]
 

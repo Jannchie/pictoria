@@ -34,6 +34,11 @@ def vec_repo(db: DB) -> VectorRepo:
     return VectorRepo(db.cursor())
 
 
+@pytest.fixture
+def siglip_repo(db: DB) -> VectorRepo:
+    return VectorRepo(db.cursor(), table="post_vectors_siglip2", dim=1152)
+
+
 class TestUpsertAndGet:
     async def test_upsert_and_get_roundtrip(self, vec_repo: VectorRepo) -> None:
         vec = _unit_vec(0)
@@ -105,3 +110,43 @@ class TestSiglip2TableMigration:
                 "INSERT INTO post_vectors_siglip2(post_id, embedding) VALUES (1, ?)",
                 [blob],
             )
+
+
+class TestParameterizedTable:
+    async def test_siglip_table_roundtrip(self, siglip_repo: VectorRepo) -> None:
+        vec = _unit_vec(0, dim=1152)
+        await siglip_repo.upsert(1, vec)
+        got = await siglip_repo.get(1)
+        assert got is not None
+        assert len(got) == 1152
+        assert got[0] == pytest.approx(1.0)
+
+    async def test_two_repos_are_isolated(
+        self, vec_repo: VectorRepo, siglip_repo: VectorRepo,
+    ) -> None:
+        # Writing to the CLIP table must not appear in the SigLIP table.
+        await vec_repo.upsert(7, _unit_vec(0, dim=768))
+        assert await siglip_repo.get(7) is None
+
+    async def test_upsert_rejects_wrong_dim(self, siglip_repo: VectorRepo) -> None:
+        with pytest.raises(ValueError, match="expected dim 1152"):
+            await siglip_repo.upsert(1, _unit_vec(0, dim=768))
+
+    async def test_rejects_unknown_table(self, db: DB) -> None:
+        with pytest.raises(ValueError, match="unknown vector table"):
+            VectorRepo(db.cursor(), table="post_vectors_evil")
+
+
+class TestDeleteClearsBothVectorTables:
+    async def test_delete_post_clears_both_tables(self, db: DB) -> None:
+        from db.repositories.posts import PostRepo
+
+        clip = VectorRepo(db.cursor())
+        siglip = VectorRepo(db.cursor(), table="post_vectors_siglip2", dim=1152)
+        await clip.upsert(1, _unit_vec(0, dim=768))
+        await siglip.upsert(1, _unit_vec(0, dim=1152))
+
+        await PostRepo(db.cursor()).delete_many([1])
+
+        assert await clip.get(1) is None
+        assert await siglip.get(1) is None
