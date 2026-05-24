@@ -1,7 +1,7 @@
 import type { Ref } from 'vue'
-import type { Area } from '@/components/SelectArea.vue'
+import type { Waterfall } from 'vue-wf'
 import type { PostSimplePublic } from '@/api'
-import { Waterfall } from 'vue-wf'
+import type { Area } from '@/components/SelectArea.vue'
 import { computed } from 'vue'
 import { useElementOffset } from '@/composables/useElementOffset'
 import { selectedPostIdSet, selectingPostIdSet, unselectedPostIdSet } from '@/shared'
@@ -9,6 +9,18 @@ import { selectedPostIdSet, selectingPostIdSet, unselectedPostIdSet } from '@/sh
 interface SelectModifiers {
   shift: boolean
   ctrl: boolean
+}
+
+// 松手提交：把临时集合（selecting / unselected）应用到 selectedPostIdSet 后清空。
+// 只读写全局共享集合，不依赖某个瀑布流实例，故放在模块作用域。
+function onSelectEnd() {
+  selectedPostIdSet.value = new Set(
+    [...selectedPostIdSet.value, ...selectingPostIdSet.value].filter(
+      id => !unselectedPostIdSet.value.has(id),
+    ),
+  )
+  selectingPostIdSet.value = new Set()
+  unselectedPostIdSet.value = new Set()
 }
 
 // 瀑布流框选的共享选择逻辑。拖拽过程中（onSelectChange）把命中的 id 写入临时
@@ -71,17 +83,6 @@ export function useWaterfallSelection(
     else {
       selectingPostIdSet.value = currentSelectingId
     }
-  }
-
-  function onSelectEnd() {
-    // 将 selecting 与 unselected 应用到 selected，然后清空临时集合。
-    selectedPostIdSet.value = new Set(
-      [...selectedPostIdSet.value, ...selectingPostIdSet.value].filter(
-        id => !unselectedPostIdSet.value.has(id),
-      ),
-    )
-    selectingPostIdSet.value = new Set()
-    unselectedPostIdSet.value = new Set()
   }
 
   return { onSelectChange, onSelectEnd }

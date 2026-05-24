@@ -1,5 +1,4 @@
 <script setup lang="ts">
-import type { Area } from './SelectArea.vue'
 import type { PostSimplePublic } from '@/api'
 import type { PMenuItem } from '@/ui'
 import { useQuery, useQueryClient } from '@tanstack/vue-query'
@@ -9,8 +8,7 @@ import { onBeforeRouteLeave, useRoute, useRouter } from 'vue-router'
 import { Waterfall } from 'vue-wf'
 import { v2DeletePosts, v2SearchPostsByText } from '@/api'
 import { useRotateImageMutation } from '@/composables/mutations/useRotateImageMutation'
-import { useElementOffset } from '@/composables/useElementOffset'
-import { currentPostList, galleryScrollPositions, patchPostsInListCache, selectedPostIdSet, selectingPostIdSet, showPostDetail, textSearchQuery, unselectedPostIdSet as unselectingPostId, updateScoreForSelectedPosts, useInfinityPostsQuery, waterfallRowCount } from '@/shared'
+import { currentPostList, galleryScrollPositions, patchPostsInListCache, selectedPostIdSet, showPostDetail, textSearchQuery, updateScoreForSelectedPosts, useInfinityPostsQuery, waterfallRowCount } from '@/shared'
 import { isImageExtension } from '@/utils'
 
 const route = useRoute()
@@ -89,61 +87,9 @@ const cols = computed(() => Math.floor((waterfallWrapperBounds.width.value + 20 
 const layoutData = computed(() => {
   return waterfallRef.value?.layoutData
 })
-const waterfallOffset = useElementOffset(waterfallWrapperDom)
-async function onSelectChange(selectArea: Area, { shift, ctrl }: { target: EventTarget | null, shift: boolean, ctrl: boolean }) {
-  // 如果 selectArea 的面积小于 100px，则无视后续
-  if ((selectArea.right - selectArea.left) < 10 || (selectArea.bottom - selectArea.top) < 10) {
-    return
-  }
-
-  // layoutData 是 x,y,width,height 的数组，selectArea 是 left,rihht,top,bottom 的对象。
-  // 通过计算两者的交集，得到选中的元素 index
-  const currentSelectingId: Set<number | undefined> = new Set()
-
-  if (layoutData.value) {
-    for (const [index, element] of layoutData.value.entries()) {
-      const elementLeft = element.x + waterfallOffset.offsetLeft.value
-      const elementRight = element.x + element.width + waterfallOffset.offsetLeft.value
-      const elementTop = element.y + waterfallOffset.offsetTop.value
-      const elementBottom = element.y + element.height + waterfallOffset.offsetTop.value
-
-      // Check if there is an intersection between the element and the selectArea
-      const isIntersecting
-        = !(elementLeft > selectArea.right
-      || elementRight < selectArea.left
-      || elementTop > selectArea.bottom
-      || elementBottom < selectArea.top)
-      // 如果按住了 shift，则是追加选择，如果按住了 ctrl，则是补集选择
-      const post = posts.value[index]
-      if (isIntersecting) {
-        currentSelectingId.add(post.id)
-      }
-    }
-  }
-  if (shift) {
-    selectingPostIdSet.value = new Set([...selectingPostIdSet.value, ...currentSelectingId])
-  }
-  else if (ctrl) {
-    // 如果原来已经选中了，则取消选中，否则添加选中
-    for (const postId of currentSelectingId) {
-      if (selectedPostIdSet.value.has(postId)) {
-        unselectingPostId.value.add(postId)
-      }
-      else {
-        selectingPostIdSet.value.add(postId)
-      }
-    }
-  }
-  else {
-    selectingPostIdSet.value = currentSelectingId
-  }
-}
-function onSelectEnd() {
-  // 将 selecting 和 unselected 应用到 selected，然后清空 selecting 和 unselected
-  selectedPostIdSet.value = new Set([...selectedPostIdSet.value, ...selectingPostIdSet.value].filter(id => !unselectingPostId.value.has(id)))
-  selectingPostIdSet.value = new Set()
-  unselectingPostId.value = new Set()
-}
+// Drag-box selection shared with the similar-posts grid (Post.vue) via the
+// same composable, so both waterfalls select identically.
+const { onSelectChange, onSelectEnd } = useWaterfallSelection(waterfallRef, posts)
 
 function emptyPointerDown(e: PointerEvent) {
   // 如果是右键，且没有按 ctrl 或者 shift

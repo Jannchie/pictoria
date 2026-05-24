@@ -1,7 +1,6 @@
 <script setup lang="ts">
-import { useQuery } from '@tanstack/vue-query'
 import { Waterfall } from 'vue-wf'
-import { v2GetSimilarPosts } from '@/api'
+import { selectedPostIdSet } from '@/shared'
 
 const props = defineProps<{
   postId: number
@@ -9,22 +8,27 @@ const props = defineProps<{
 }>()
 const scrollElement = computed(() => props.scrollElement ?? document.documentElement)
 const postId = computed(() => props.postId)
-const query = useQuery({
-  queryKey: ['similarPosts', { postId }],
-  queryFn: async () => {
-    const resp = await v2GetSimilarPosts({
-      path: { post_id: postId.value },
-    })
-    if (resp.error) {
-      throw resp.error
-    }
-    return resp.data
-  },
-})
+// Shares the ['similarPosts', { postId }] cache with Post.vue, which reads the
+// same array to drive box-selection — see useWaterfallSelection wiring there.
+const query = useSimilarPostsQuery(postId)
 
 const data = computed(() => query.data.value ?? [])
 const width = useClientWidth(scrollElement as any)
 const cols = computed(() => Math.floor(width.value / 300))
+
+// Exposed so Post.vue can read layoutData/wrapper for drag-box selection,
+// mirroring how MainSection owns its own Waterfall ref.
+const waterfallRef = ref<InstanceType<typeof Waterfall> | null>(null)
+defineExpose({ waterfall: waterfallRef })
+
+// Click on empty waterfall background clears the selection — identical to the
+// list waterfall's emptyPointerDown. PostItem stops propagation on pointerdown,
+// so this only fires for the gaps between items, not the items themselves.
+function emptyPointerDown(e: PointerEvent) {
+  if (!e.ctrlKey && !e.shiftKey) {
+    selectedPostIdSet.value = new Set()
+  }
+}
 </script>
 
 <template>
@@ -38,6 +42,8 @@ const cols = computed(() => Math.floor(width.value / 300))
   </template>
   <Waterfall
     v-else
+    ref="waterfallRef"
+    class="select-none"
     :scroll-element="scrollElement"
     :items="data.map(p => ({ width: p.width ?? 1, height: p.height ?? 1 }))"
     :cols="cols"
@@ -45,6 +51,7 @@ const cols = computed(() => Math.floor(width.value / 300))
     :padding-x="8"
     :padding-y="8"
     :y-gap="36"
+    @pointerdown="emptyPointerDown"
   >
     <PostItem
       v-for="p in data"

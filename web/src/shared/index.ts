@@ -237,6 +237,12 @@ export const showPostDetail = ref<PostSimplePublic | null>(null)
 // Post page) write to this so keyboard navigation can move prev/next.
 export const currentPostList = ref<PostSimplePublic[]>([])
 
+// Similar-posts grid shown on the post detail page (/post/:id). Post.vue
+// publishes it so the multi-select sidebar panel can resolve thumbnails/stats
+// for selected similar posts — currentPostList stays the gallery list, which
+// the detail page's prev/next arrow navigation still walks. Cleared on leave.
+export const similarPostList = ref<PostSimplePublic[]>([])
+
 // Per-route scrollTop cache for the gallery's MainSection. Survives Home.vue
 // unmount when navigating to /post/:id so Esc/back restores the same position.
 // Keyed by route.fullPath so different folders/filters keep separate state.

@@ -3,7 +3,7 @@ import { useRoute, useRouter } from 'vue-router'
 import { v2TouchPost } from '@/api'
 import ArthashPlaceholder from '@/components/ArthashPlaceholder.vue'
 import PostDetail from '@/components/PostDetail.vue'
-import { bottomBarInfo, currentPostList, enableArthash, enableFancyPlaceholder, selectedPostIdSet, showPostDetail } from '@/shared'
+import { bottomBarInfo, currentPostList, enableArthash, enableFancyPlaceholder, selectedPostIdSet, showPostDetail, similarPostList } from '@/shared'
 import { getPostImageURL } from '@/utils'
 import { colorNumToHex } from '@/utils/color'
 
@@ -13,6 +13,29 @@ const postId = computed(() => Number.parseInt(route.params.postId as string))
 const postQuery = usePostQuery(postId)
 const post = computed(() => postQuery.data.value)
 const scrollAreaRef = ref<HTMLElement>()
+
+// Drag-box selection over the similar-posts grid, unified with the list
+// waterfall (MainSection). SimilarPosts owns/renders the Waterfall and exposes
+// its instance; we read its layout here to map the drag rectangle to post ids.
+// The query shares the ['similarPosts'] cache, so `similarPosts` is the exact
+// same ordered array SimilarPosts renders.
+const similarPostsRef = ref<{ waterfall: any } | null>(null)
+const similarWaterfall = computed(() => similarPostsRef.value?.waterfall ?? null)
+const similarQuery = useSimilarPostsQuery(postId)
+const similarPosts = computed(() => similarQuery.data.value ?? [])
+const { onSelectChange, onSelectEnd } = useWaterfallSelection(similarWaterfall, similarPosts)
+
+// Publish the similar grid so the right-panel multi-select view can resolve
+// thumbnails/stats for selected similar posts — identical to how the gallery
+// feeds it from currentPostList. The main post never lands in a multi-select
+// (see the postId watch below, which clears selection rather than seeding it),
+// so the panel's selection is always wholly contained here, just like the list.
+watchEffect(() => {
+  similarPostList.value = similarPosts.value
+})
+onUnmounted(() => {
+  similarPostList.value = []
+})
 const imgRef = ref<HTMLImageElement>()
 const imageLoaded = ref(false)
 
@@ -74,9 +97,11 @@ function onImageLoad() {
 watch(postId, (id) => {
   imageLoaded.value = false
   if (Number.isFinite(id)) {
-    // 同步选中项为当前主图，让右侧侧边栏跟随主图（进入页面、键盘 ←→ 切换）。
-    // 点击下方相似图时由 PostItem 改写 selectedPostIdSet，侧边栏随之切换。
-    selectedPostIdSet.value = new Set([id])
+    // 清空选区而不是把主图塞进去：useFocusedPost 在选区为空时会回退到 URL 主图，
+    // 侧边栏照样跟随主图（进入页面、键盘 ←→ 切换）。这样用户框选/Ctrl/Shift 点选
+    // 相似图时，选区从空开始累积，只含相似图——与列表瀑布流的多选行为完全一致，
+    // 不会再有主图残留导致侧边栏出现 “N/M in view” 的差异。
+    selectedPostIdSet.value = new Set()
     v2TouchPost({ path: { post_id: id } }).catch(() => {})
   }
 }, { immediate: true })
@@ -181,6 +206,11 @@ onKeyStroke([' ', 'Enter'], (e) => {
       ref="scrollAreaRef"
       class="flex flex-grow flex-basis-0 flex-col gap-4 h-full w-full relative"
     >
+      <SelectArea
+        :target="scrollAreaRef"
+        @select-change="onSelectChange"
+        @select-end="onSelectEnd"
+      />
       <div class="px-2 pt-3 flex justify-center">
         <div
           class="rounded-lg cursor-pointer relative overflow-hidden"
@@ -206,6 +236,7 @@ onKeyStroke([' ', 'Enter'], (e) => {
       </div>
       <SimilarPosts
         v-if="scrollAreaRef"
+        ref="similarPostsRef"
         class="w-full"
         :post-id="post.id"
         :scroll-element="scrollAreaRef"

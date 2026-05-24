@@ -3,12 +3,14 @@ import type { PostSimplePublic } from '@/api'
 import { useQueryClient } from '@tanstack/vue-query'
 import { filesize } from 'filesize'
 import { computed, onUnmounted, ref, watch } from 'vue'
+import { useRoute } from 'vue-router'
 import { v2DeletePosts } from '@/api'
 import {
   currentPostList,
   patchPostsInListCache,
   selectedPostIdSet,
   showPostDetail,
+  similarPostList,
   updateRatingForSelectedPosts,
   updateScoreForSelectedPosts,
 } from '@/shared'
@@ -16,13 +18,22 @@ import { getPostThumbnailURL } from '@/utils'
 
 const queryClient = useQueryClient()
 const numberFormat = new Intl.NumberFormat('en-US')
+const route = useRoute()
+
+// The ordered list currently in view: the similar-posts grid on a post detail
+// page, otherwise the gallery list. Keeping these separate (rather than reusing
+// currentPostList everywhere) lets the detail page's prev/next arrow nav stay
+// on the gallery while the panel here reflects the similar grid the user sees.
+const visibleList = computed(() =>
+  route.name === 'post' ? similarPostList.value : currentPostList.value,
+)
 
 // Intersect the selected ids with whatever ordered list is currently in view.
 // If the user is on a non-gallery route the list may be empty, in which case
 // aggregations show zeros — UI degrades gracefully rather than mass-fetching.
 const selectedPosts = computed(() => {
   const ids = selectedPostIdSet.value
-  return currentPostList.value.filter(p => ids.has(p.id))
+  return visibleList.value.filter(p => ids.has(p.id))
 })
 
 const count = computed(() => selectedPostIdSet.value.size)
@@ -280,7 +291,7 @@ function clearSelection() {
 }
 
 function selectAllInList() {
-  selectedPostIdSet.value = new Set(currentPostList.value.map(p => p.id))
+  selectedPostIdSet.value = new Set(visibleList.value.map(p => p.id))
 }
 
 function focusOne(id: number) {
