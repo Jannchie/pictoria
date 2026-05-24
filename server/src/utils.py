@@ -86,11 +86,13 @@ def prepare_feature_flags() -> None:
     backend = os.environ.get("SEARCH_EMBEDDING_BACKEND", "").strip().lower()
     if backend in ("clip", "siglip2"):
         shared.search_embedding_backend = backend
-    elif backend:
-        logger.warning(
-            f"SEARCH_EMBEDDING_BACKEND={backend!r} not recognised; falling back to 'clip'",
-        )
-        shared.search_embedding_backend = "clip"
+    else:
+        if backend:
+            logger.warning(
+                f"SEARCH_EMBEDDING_BACKEND={backend!r} not recognised; "
+                f"falling back to default {shared.DEFAULT_SEARCH_EMBEDDING_BACKEND!r}",
+            )
+        shared.search_embedding_backend = shared.DEFAULT_SEARCH_EMBEDDING_BACKEND
     logger.info(f"search_embedding_backend = {shared.search_embedding_backend}")
 
 

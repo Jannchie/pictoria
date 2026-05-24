@@ -15,12 +15,12 @@ def _restore_flag():
 @pytest.mark.parametrize(
     ("env_value", "expected"),
     [
-        (None, "clip"),
-        ("", "clip"),
+        (None, "siglip2"),  # unset -> default backend
+        ("", "siglip2"),  # empty -> default backend
         ("clip", "clip"),
         ("siglip2", "siglip2"),
         ("SIGLIP2", "siglip2"),
-        ("garbage", "clip"),  # unrecognised -> safe fallback to clip
+        ("garbage", "siglip2"),  # unrecognised -> fall back to default (siglip2)
     ],
 )
 def test_backend_flag_parsing(

@@ -39,8 +39,11 @@ _ALLOWED_TABLES: dict[str, int] = {
 def vector_table_for_backend(backend: str) -> tuple[str, int]:
     """Map a search backend name to its (vec0 table, dim).
 
-    An unknown backend falls back safely to CLIP (the legacy default),
-    matching the fallback in ``utils.prepare_feature_flags``.
+    Only ``"siglip2"`` selects the SigLIP 2 table; any other value (including
+    the legacy ``"clip"``) maps to ``post_vectors``. Callers pass an already-
+    sanitised ``shared.search_embedding_backend`` (``utils.prepare_feature_flags``
+    coerces unset/unknown values to the default), so the else-branch here is a
+    defensive default, not a user-facing fallback.
     """
     if backend == "siglip2":
         return ("post_vectors_siglip2", _ALLOWED_TABLES["post_vectors_siglip2"])
