@@ -3,7 +3,7 @@ import { useRoute, useRouter } from 'vue-router'
 import { v2TouchPost } from '@/api'
 import ArthashPlaceholder from '@/components/ArthashPlaceholder.vue'
 import PostDetail from '@/components/PostDetail.vue'
-import { bottomBarInfo, currentPostList, enableArthash, enableFancyPlaceholder, showPostDetail } from '@/shared'
+import { bottomBarInfo, currentPostList, enableArthash, enableFancyPlaceholder, selectedPostIdSet, showPostDetail } from '@/shared'
 import { getPostImageURL } from '@/utils'
 import { colorNumToHex } from '@/utils/color'
 
@@ -74,6 +74,9 @@ function onImageLoad() {
 watch(postId, (id) => {
   imageLoaded.value = false
   if (Number.isFinite(id)) {
+    // 同步选中项为当前主图，让右侧侧边栏跟随主图（进入页面、键盘 ←→ 切换）。
+    // 点击下方相似图时由 PostItem 改写 selectedPostIdSet，侧边栏随之切换。
+    selectedPostIdSet.value = new Set([id])
     v2TouchPost({ path: { post_id: id } }).catch(() => {})
   }
 }, { immediate: true })

@@ -244,6 +244,7 @@ declare global {
   const useScrollLock: typeof import('@vueuse/core').useScrollLock
   const useSessionStorage: typeof import('@vueuse/core').useSessionStorage
   const useShare: typeof import('@vueuse/core').useShare
+  const useSimilarPostsQuery: typeof import('./composables/useSimilarPostsQuery').useSimilarPostsQuery
   const useSlots: typeof import('vue').useSlots
   const useSorted: typeof import('@vueuse/core').useSorted
   const useSpeechRecognition: typeof import('@vueuse/core').useSpeechRecognition
@@ -281,6 +282,7 @@ declare global {
   const useVirtualList: typeof import('@vueuse/core').useVirtualList
   const useWakeLock: typeof import('@vueuse/core').useWakeLock
   const useWatchRoute: typeof import('./composables/useWatchRoute').useWatchRoute
+  const useWaterfallSelection: typeof import('./composables/useWaterfallSelection').useWaterfallSelection
   const useWebNotification: typeof import('@vueuse/core').useWebNotification
   const useWebSocket: typeof import('@vueuse/core').useWebSocket
   const useWebWorker: typeof import('@vueuse/core').useWebWorker
