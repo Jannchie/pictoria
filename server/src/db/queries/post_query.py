@@ -266,35 +266,43 @@ class PostQueryService:
     ) -> list[dict]:
         """Rank posts by SigLIP 2 cosine similarity to ``vec``, within filter ``f``.
 
-        Pre-filter: ``build_where(f)`` narrows the candidate set, then we INNER
-        JOIN ``post_vectors_siglip2`` and ``ORDER BY vec_distance_cosine``. This
-        mirrors the ``f.lab`` branch of ``search`` (brute-force ``vec_distance``
-        over a filtered set). sqlite-vec's KNN is itself a linear scan, so
-        pre-filtering only shrinks the work — the tighter the filter, the
-        faster. Posts without a SigLIP 2 embedding are excluded by the JOIN.
+        Runs vec0's native ``MATCH ... k=N`` KNN as a single fast subquery, then
+        JOINs ``posts`` and applies ``build_where(f)`` as a post-filter, ordering
+        by the KNN distance.
+
+        We deliberately do NOT brute-force ``vec_distance_cosine`` over the whole
+        table: on a ~170k-row library that full scan + TEMP-B-TREE sort runs for
+        minutes and stalls every other request (vec0 falls back to ``INDEX 0:1``
+        full-scan), whereas the native KNN (``INDEX 0:3``) returns in ~1-2s. When
+        a filter is present we oversample KNN candidates so the post-filter can
+        still fill ``limit`` for typical filters; a very narrow filter may yield
+        fewer than ``limit`` rows. Posts without a SigLIP 2 embedding never
+        appear (they aren't in the KNN table).
         """
 
         def _impl() -> list[dict]:
             where_clauses, params, joins = build_where(f)
-            where_sql = ("WHERE " + " AND ".join(where_clauses)) if where_clauses else ""
             vec_blob = sqlite_vec.serialize_float32(list(vec))
-            from_clause = (
-                "FROM posts p\nJOIN post_vectors_siglip2 v ON v.post_id = p.id"
-                + ("\n" + "\n".join(joins) if joins else "")
-            )
-            sql = (
-                "SELECT p.id, p.file_path, p.file_name, p.extension, p.rating, "
-                "p.score, p.size, p.width, p.height, p.aspect_ratio, p.dominant_color, "
-                "p.arthash, p.sha256, "
-                "vec_distance_cosine(v.embedding, ?) AS _dist "
-                f"{from_clause} "
-                f"{where_sql} "
-                "ORDER BY _dist LIMIT ? OFFSET ?"
-            )
-            self.cur.execute(sql, [vec_blob, *params, limit, offset])
+            want = limit + offset
+            # vec0's KNN cost is dominated by the O(N) distance scan, so a larger
+            # k is nearly free; oversample when filtering so the post-filter has
+            # enough candidates to fill `limit`.
+            k = want if not where_clauses else max(want, 1000)
+            joins_sql = "\n".join(joins)
+            where_sql = ("WHERE " + " AND ".join(where_clauses)) if where_clauses else ""
+            sql = f"""
+                SELECT p.id, p.file_path, p.file_name, p.extension, p.rating,
+                       p.score, p.size, p.width, p.height, p.aspect_ratio,
+                       p.dominant_color, p.arthash, p.sha256
+                FROM (SELECT post_id, distance FROM post_vectors_siglip2
+                      WHERE embedding MATCH ? AND k = ?) AS knn
+                JOIN posts p ON p.id = knn.post_id
+                {joins_sql}
+                {where_sql}
+                ORDER BY knn.distance LIMIT ? OFFSET ?
+            """  # noqa: S608
+            self.cur.execute(sql, [vec_blob, k, *params, limit, offset])
             rows = fetch_all_dicts(self.cur)
-            for r in rows:
-                r.pop("_dist", None)
             _decode_dominant_colors_in(rows)
             ids = [r["id"] for r in rows]
             colors_by_post = self._colors.fetch_by_ids(ids)

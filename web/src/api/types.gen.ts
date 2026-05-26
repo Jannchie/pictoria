@@ -344,9 +344,45 @@ export type TagWithGroupPublic = {
  */
 export type TextSearchRequest = {
     /**
+     * Rating filter.
+     */
+    rating?: Array<number> | null;
+    /**
+     * Score filter.
+     */
+    score?: Array<number> | null;
+    /**
+     * Tag filter.
+     */
+    tags?: Array<string> | null;
+    /**
+     * Extension filter.
+     */
+    extension?: Array<string> | null;
+    folder?: string | null;
+    /**
+     * LAB color filter.
+     */
+    lab?: [
+        number,
+        number,
+        number
+    ] | null;
+    /**
+     * Waifu score range filter.
+     */
+    waifu_score_range?: [
+        number,
+        number
+    ] | null;
+    /**
+     * Waifu-score bucket filter. Each value is one of 'S' (8-10), 'A' (6-8), 'B' (4-6), 'C' (2-4), 'D' (0-2), or 'UNSCORED' (no waifu score yet). Multiple values OR together.
+     */
+    waifu_score_levels?: Array<string> | null;
+    /**
      * Natural-language search prompt.
      */
-    query: string;
+    query?: string;
 };
 
 /**
@@ -1163,26 +1199,9 @@ export type V2AutoCaptionResponse = V2AutoCaptionResponses[keyof V2AutoCaptionRe
 export type V2AutoSiglipScorerData = {
     body?: never;
     path?: never;
-    query: {
-        db: unknown;
-    };
+    query?: never;
     url: '/v2/cmd/siglip-scorer';
 };
-
-export type V2AutoSiglipScorerErrors = {
-    /**
-     * Validation Exception
-     */
-    400: {
-        status_code: number;
-        detail: string;
-        extra?: null | {
-            [key: string]: unknown;
-        } | Array<unknown>;
-    };
-};
-
-export type V2AutoSiglipScorerError = V2AutoSiglipScorerErrors[keyof V2AutoSiglipScorerErrors];
 
 export type V2AutoSiglipScorerResponses = {
     /**

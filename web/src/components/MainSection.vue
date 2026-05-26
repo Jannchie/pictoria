@@ -8,7 +8,7 @@ import { onBeforeRouteLeave, useRoute, useRouter } from 'vue-router'
 import { Waterfall } from 'vue-wf'
 import { v2DeletePosts, v2SearchPostsByText } from '@/api'
 import { useRotateImageMutation } from '@/composables/mutations/useRotateImageMutation'
-import { currentPostList, galleryScrollPositions, patchPostsInListCache, selectedPostIdSet, showPostDetail, textSearchQuery, updateScoreForSelectedPosts, useInfinityPostsQuery, waterfallRowCount } from '@/shared'
+import { currentPostList, galleryScrollPositions, patchPostsInListCache, postFilter, selectedPostIdSet, showPostDetail, textSearchQuery, updateScoreForSelectedPosts, useInfinityPostsQuery, waterfallRowCount } from '@/shared'
 import { isImageExtension } from '@/utils'
 
 const route = useRoute()
@@ -18,13 +18,16 @@ const debouncedTextSearch = refDebounced(textSearchQuery, 400)
 const textSearchPrompt = computed(() => debouncedTextSearch.value.trim())
 const isTextSearchActive = computed(() => textSearchPrompt.value.length > 0)
 const textSearchQueryResult = useQuery({
-  queryKey: computed(() => ['textSearch', textSearchPrompt.value]),
+  queryKey: computed(() => ['textSearch', textSearchPrompt.value, postFilter.value]),
   queryFn: async () => {
     if (!textSearchPrompt.value) {
       return []
     }
     const resp = await v2SearchPostsByText({
-      body: { query: textSearchPrompt.value },
+      // Combine the prompt with the gallery's active filters so text search
+      // respects rating / score / tags / extension / folder / waifu just like
+      // the regular list. lab isn't included (backend ignores it for text).
+      body: { query: textSearchPrompt.value, ...postFilter.value },
       query: { limit: 200 },
     })
     if (resp.error) {
