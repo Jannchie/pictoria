@@ -1,7 +1,7 @@
-"""VectorRepo — async Repository over post_vectors (CLIP image embeddings).
+"""VectorRepo — async Repository over post_vectors_siglip2 (SigLIP 2 image embeddings).
 
-``post_vectors`` is a sqlite-vec ``vec0`` virtual table; KNN queries use
-the ``MATCH`` operator with a ``k = N`` constraint, which sqlite-vec
+``post_vectors_siglip2`` is a sqlite-vec ``vec0`` virtual table; KNN queries
+use the ``MATCH`` operator with a ``k = N`` constraint, which sqlite-vec
 recognises and routes through its native nearest-neighbour search.
 
 Vector serialization goes through ``sqlite_vec.serialize_float32`` (a
@@ -24,30 +24,14 @@ if TYPE_CHECKING:
 
     import numpy as np
 
-EMBED_DIM = 768
 
 # Table names may only come from this code-level allowlist: they are
 # interpolated into SQL strings (a placeholder can't stand in for an
 # identifier), so the set is sealed to keep any external input out of the
 # table name. The value is the vec0 table's dimensionality.
 _ALLOWED_TABLES: dict[str, int] = {
-    "post_vectors": 768,
     "post_vectors_siglip2": 1152,
 }
-
-
-def vector_table_for_backend(backend: str) -> tuple[str, int]:
-    """Map a search backend name to its (vec0 table, dim).
-
-    Only ``"siglip2"`` selects the SigLIP 2 table; any other value (including
-    the legacy ``"clip"``) maps to ``post_vectors``. Callers pass an already-
-    sanitised ``shared.search_embedding_backend`` (``utils.prepare_feature_flags``
-    coerces unset/unknown values to the default), so the else-branch here is a
-    defensive default, not a user-facing fallback.
-    """
-    if backend == "siglip2":
-        return ("post_vectors_siglip2", _ALLOWED_TABLES["post_vectors_siglip2"])
-    return ("post_vectors", _ALLOWED_TABLES["post_vectors"])
 
 
 def _decode_vec_blob(value: bytes | bytearray | memoryview) -> list[float]:
@@ -61,7 +45,7 @@ class VectorRepo:
         self,
         cur: sqlite3.Cursor,
         *,
-        table: str = "post_vectors",
+        table: str = "post_vectors_siglip2",
         dim: int | None = None,
     ) -> None:
         if table not in _ALLOWED_TABLES:

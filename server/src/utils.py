@@ -83,18 +83,6 @@ def prepare_feature_flags() -> None:
     if shared.enable_siglip_scorer:
         logger.info("ENABLE_SIGLIP_SCORER=1: SigLIP aesthetic scorer enabled")
 
-    backend = os.environ.get("SEARCH_EMBEDDING_BACKEND", "").strip().lower()
-    if backend in ("clip", "siglip2"):
-        shared.search_embedding_backend = backend
-    else:
-        if backend:
-            logger.warning(
-                f"SEARCH_EMBEDDING_BACKEND={backend!r} not recognised; "
-                f"falling back to default {shared.DEFAULT_SEARCH_EMBEDDING_BACKEND!r}",
-            )
-        shared.search_embedding_backend = shared.DEFAULT_SEARCH_EMBEDDING_BACKEND
-    logger.info(f"search_embedding_backend = {shared.search_embedding_backend}")
-
 
 def initialize(target_dir: os.PathLike, openai_key: str | None = None) -> None:
     prepare_paths(Path(target_dir))

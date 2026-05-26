@@ -106,9 +106,9 @@ uv run python scripts/tags/clean_tags.py
 
 ### Key Patterns
 
-- **Backend**: Litestar `async def` handlers; reads inject `PostQueryService`, writes inject the focused repos. Sync DB methods bridged by `asyncio.to_thread`; raw SQL strings, no ORM. FK `ON DELETE CASCADE` is real and enforced (`PRAGMA foreign_keys = ON` per connection) — the manual cascades are `post_vectors` / `post_vectors_siglip2` (`vec0` virtual tables that don't participate in FK cascades; `PostRepo.delete_many` clears them explicitly)
+- **Backend**: Litestar `async def` handlers; reads inject `PostQueryService`, writes inject the focused repos. Sync DB methods bridged by `asyncio.to_thread`; raw SQL strings, no ORM. FK `ON DELETE CASCADE` is real and enforced (`PRAGMA foreign_keys = ON` per connection) — the manual cascade is `post_vectors_siglip2` (a `vec0` virtual table that doesn't participate in FK cascades; `PostRepo.delete_many` clears it explicitly)
 - **Frontend**: Composition API, TanStack Query for server state, composables for logic reuse
-- **Database**: Embedded SQLite (WAL) with `sqlite-vec`; `post_vectors` (`FLOAT[768]`, CLIP) and `post_vectors_siglip2` (`FLOAT[1152]`, SigLIP 2) are `vec0` virtual tables (cosine); `posts.dominant_color` is a serialized `FLOAT[3]` BLOB queried by brute-force `vec_distance_L2` (no index — a 3-d scan is sub-millisecond); `GENERATED ALWAYS AS ... VIRTUAL` columns for `posts.full_path` and `posts.aspect_ratio`; `INTEGER PRIMARY KEY AUTOINCREMENT` IDs
+- **Database**: Embedded SQLite (WAL) with `sqlite-vec`; `post_vectors_siglip2` (`FLOAT[1152]`, SigLIP 2) is a `vec0` virtual table (cosine); `posts.dominant_color` is a serialized `FLOAT[3]` BLOB queried by brute-force `vec_distance_L2` (no index — a 3-d scan is sub-millisecond); `GENERATED ALWAYS AS ... VIRTUAL` columns for `posts.full_path` and `posts.aspect_ratio`; `INTEGER PRIMARY KEY AUTOINCREMENT` IDs
 - **API**: OpenAPI-based code generation for type-safe client-server communication
 
 ## Database Schema
@@ -116,8 +116,7 @@ uv run python scripts/tags/clean_tags.py
 - **posts**: Main image entity with metadata, dimensions, ratings; `dominant_color` is a serialized `FLOAT[3]` (Lab) BLOB (no index); `full_path` and `aspect_ratio` are `GENERATED ALWAYS AS ... VIRTUAL` columns
 - **tags** & **tag_groups**: Hierarchical tagging system
 - **post_has_tag**: Many-to-many relationship (FK `ON DELETE CASCADE` to `posts.id` / `tags.name`)
-- **post_vectors**: 768-dim CLIP image embeddings (`vec0` virtual table, `FLOAT[768]`, cosine)
-- **post_vectors_siglip2**: 1152-dim SigLIP 2 image embeddings (`vec0` virtual table, `FLOAT[1152]`, cosine); parallel to `post_vectors` for the CLIP→SigLIP 2 search-backend migration. Which table search uses is selected by `shared.search_embedding_backend` (env `SEARCH_EMBEDDING_BACKEND`, `clip`|`siglip2`)
+- **post_vectors_siglip2**: 1152-dim SigLIP 2 image embeddings (`vec0` virtual table, `FLOAT[1152]`, cosine); the sole search/retrieval embedding (image-to-image + text-to-image). CLIP retrieval and its `post_vectors` table were removed (see migration `0007_drop_post_vectors.sql`). CLIP ViT-L/14 survives only as the waifu-scorer backbone (`ai/clip.py` → `ai/waifu_scorer.py`)
 - **post_waifu_scores**: legacy single-scorer quality scores; **post_aesthetic_scores**: generic per-(post, scorer) scores (e.g. `siglip-v2-5`)
 - **post_has_color**: Dominant color palette (per-post `INT` colors with order)
 - **post_process_failures**: per-(post, worker) one-shot failure blacklist
@@ -134,7 +133,7 @@ uv run python scripts/tags/clean_tags.py
 5. Run checks: `uv run ruff check src` and `uv run pytest`.
 
 Notes when writing SQL for SQLite:
-- FK `ON DELETE CASCADE` works and is enforced per-connection (`PRAGMA foreign_keys = ON`); rely on it for child tables. The exception is `post_vectors` / `post_vectors_siglip2` (`vec0` virtual tables) — delete their rows explicitly.
+- FK `ON DELETE CASCADE` works and is enforced per-connection (`PRAGMA foreign_keys = ON`); rely on it for child tables. The exception is `post_vectors_siglip2` (a `vec0` virtual table) — delete its rows explicitly.
 - IDs use `INTEGER PRIMARY KEY AUTOINCREMENT`.
 - The `sqlite-vec` extension is loaded on every connection by `DB._new_connection`, so `vec0` virtual tables and `vec_distance_L2` / `MATCH ... k = N` KNN queries are available.
 

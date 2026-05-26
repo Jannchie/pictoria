@@ -1,11 +1,14 @@
-import contextlib
-from collections.abc import Iterable, Sequence
-from functools import cache
-from pathlib import Path
+"""CLIP ViT-L/14 backbone loader.
 
-import torch
-from PIL import Image
-from rich import print
+Retained solely as the backbone for the waifu quality scorer
+(``ai.waifu_scorer``), which feeds the CLIP model + processor into
+``WaifuScorer``. Search / retrieval embeddings live in ``ai.siglip_embed``
+(SigLIP 2, 1152d); this module no longer provides any retrieval feature
+extraction.
+"""
+
+from functools import cache
+
 from transformers import AutoModel, AutoProcessor
 
 device = "cuda"
@@ -19,8 +22,8 @@ def get_clip_model() -> AutoModel:
     )
     # transformers 5.x changed `CLIPModel.get_{image,text}_features` to return
     # a `BaseModelOutputWithPooling` instead of the bare projected-pooled tensor
-    # that 4.x returned. waifu_scorer (and our own code below) still expect the
-    # old tensor return shape, so unwrap `.pooler_output` here.
+    # that 4.x returned. waifu_scorer still expects the old tensor return shape,
+    # so unwrap `.pooler_output` here.
     _patch_clip_features_to_tensor(model)
     return model
 
@@ -44,76 +47,3 @@ def get_processor() -> AutoProcessor:
         "openai/clip-vit-large-patch14",
         use_fast=False,
     )
-
-
-ImageInput = Image.Image | Path | str
-
-
-def calculate_image_features(image: ImageInput) -> torch.Tensor:
-    if isinstance(image, Path | str):
-        image = Image.open(image)
-    model = get_clip_model()
-    processor = get_processor()
-    inputs = processor(images=image, return_tensors="pt", padding=True).to(device)
-    with torch.no_grad():
-        return model.get_image_features(pixel_values=inputs.pixel_values)
-
-
-def calculate_image_features_batch(images: Sequence[ImageInput]) -> torch.Tensor:
-    """Encode a batch of images in a single GPU forward.
-
-    Backfill of large libraries spends ~90% of its time in this code path,
-    and ``CLIPModel.get_image_features`` at batch=1 wastes most of the GPU.
-    Batching at 32 typically gives 10-30x throughput on a single 30xx-class
-    card. Returns a tensor of shape ``(N, 768)``.
-    """
-    if not images:
-        return torch.empty(0, device=device)
-    pil_images = [Image.open(img) if isinstance(img, Path | str) else img for img in images]
-    try:
-        model = get_clip_model()
-        processor = get_processor()
-        inputs = processor(images=pil_images, return_tensors="pt", padding=True).to(device)
-        with torch.no_grad():
-            return model.get_image_features(pixel_values=inputs.pixel_values)
-    finally:
-        # Close any images we opened ourselves so we don't leak file handles
-        # across thousands of batches.
-        _close_opened(pil_images, images)
-
-
-def _close_opened(pil_images: list[Image.Image], original: Iterable[ImageInput]) -> None:
-    for opened, src in zip(pil_images, original, strict=True):
-        if opened is src:
-            continue
-        with contextlib.suppress(Exception):
-            opened.close()
-
-
-def calculate_text_features(text: str | list[str]) -> torch.Tensor:
-    """Calculate CLIP text features for the given prompt(s)."""
-    if isinstance(text, str):
-        text = [text]
-    model = get_clip_model()
-    processor = get_processor()
-    inputs = processor(text=text, return_tensors="pt", padding=True).to(device)
-    with torch.no_grad():
-        return model.get_text_features(**inputs)
-
-
-if __name__ == "__main__":
-    model = get_clip_model()
-    image = Image.open(R"E:\pictoria\server\demo\9c34d98c7242c2b174fa0f7617f1d736.jpg")
-
-    texts = ["high-quality art", "low-quality art"]
-    # important: we pass `padding=max_length` since the model was trained with this
-    inputs = get_processor()(text=texts, images=image, return_tensors="pt", padding=True)
-    print(inputs.pixel_values.shape)
-    intputs = inputs.to(device)
-
-    with torch.no_grad():
-        image_features = model.get_image_features(pixel_values=inputs.pixel_values)
-        text_features = model.get_text_features(input_ids=inputs.input_ids)
-        print(image_features.shape)
-        print(text_features.shape)
-        print(model(**inputs))

@@ -1,6 +1,6 @@
 """Tests for VectorRepo — embedding upsert / similarity / similar_to_post.
 
-These don't reuse the shared seed (which doesn't populate post_vectors);
+These don't reuse the shared seed (which doesn't populate post_vectors_siglip2);
 each test seeds its own deterministic embeddings so distance ordering is
 predictable.
 """
@@ -11,14 +11,16 @@ from typing import TYPE_CHECKING
 
 import numpy as np
 import pytest
+import sqlite_vec
 
+from db.repositories.posts import PostRepo
 from db.repositories.vectors import VectorRepo
 
 if TYPE_CHECKING:
     from db.connection import DB
 
 
-def _unit_vec(direction: int, dim: int = 768) -> list[float]:
+def _unit_vec(direction: int, dim: int = 1152) -> list[float]:
     """Return a unit vector pointing along axis ``direction``.
 
     Lets us craft embeddings whose cosine distances are 0, 1, or 1-ish for
@@ -31,12 +33,8 @@ def _unit_vec(direction: int, dim: int = 768) -> list[float]:
 
 @pytest.fixture
 def vec_repo(db: DB) -> VectorRepo:
+    # VectorRepo defaults to post_vectors_siglip2 (1152d), the sole vec table.
     return VectorRepo(db.cursor())
-
-
-@pytest.fixture
-def siglip_repo(db: DB) -> VectorRepo:
-    return VectorRepo(db.cursor(), table="post_vectors_siglip2", dim=1152)
 
 
 class TestUpsertAndGet:
@@ -91,7 +89,7 @@ class TestSimilar:
         assert sims == []
 
 
-class TestSiglip2TableMigration:
+class TestSiglip2Table:
     async def test_table_exists(self, db: DB) -> None:
         cur = db.cursor()
         cur.execute(
@@ -101,11 +99,9 @@ class TestSiglip2TableMigration:
 
     async def test_rejects_wrong_dim_blob(self, db: DB) -> None:
         # vec0 enforces the declared dimension; a 768-float blob must fail.
-        import sqlite_vec
-
         cur = db.cursor()
         blob = sqlite_vec.serialize_float32([0.0] * 768)
-        with pytest.raises(Exception):  # noqa: B017  # sqlite OperationalError
+        with pytest.raises(Exception):  # noqa: B017, PT011  # sqlite rejects wrong dim
             cur.execute(
                 "INSERT INTO post_vectors_siglip2(post_id, embedding) VALUES (1, ?)",
                 [blob],
@@ -113,57 +109,20 @@ class TestSiglip2TableMigration:
 
 
 class TestParameterizedTable:
-    async def test_siglip_table_roundtrip(self, siglip_repo: VectorRepo) -> None:
-        vec = _unit_vec(0, dim=1152)
-        await siglip_repo.upsert(1, vec)
-        got = await siglip_repo.get(1)
-        assert got is not None
-        assert len(got) == 1152
-        assert got[0] == pytest.approx(1.0)
-
-    async def test_two_repos_are_isolated(
-        self, vec_repo: VectorRepo, siglip_repo: VectorRepo,
-    ) -> None:
-        # Writing to the CLIP table must not appear in the SigLIP table.
-        await vec_repo.upsert(7, _unit_vec(0, dim=768))
-        assert await siglip_repo.get(7) is None
-
-    async def test_upsert_rejects_wrong_dim(self, siglip_repo: VectorRepo) -> None:
+    async def test_upsert_rejects_wrong_dim(self, vec_repo: VectorRepo) -> None:
         with pytest.raises(ValueError, match="expected dim 1152"):
-            await siglip_repo.upsert(1, _unit_vec(0, dim=768))
+            await vec_repo.upsert(1, _unit_vec(0, dim=768))
 
     async def test_rejects_unknown_table(self, db: DB) -> None:
         with pytest.raises(ValueError, match="unknown vector table"):
             VectorRepo(db.cursor(), table="post_vectors_evil")
 
 
-class TestBackendTableSelection:
-    def test_clip_backend_uses_default_table(self) -> None:
-        from db.repositories.vectors import vector_table_for_backend
-
-        assert vector_table_for_backend("clip") == ("post_vectors", 768)
-
-    def test_siglip_backend_uses_siglip_table(self) -> None:
-        from db.repositories.vectors import vector_table_for_backend
-
-        assert vector_table_for_backend("siglip2") == ("post_vectors_siglip2", 1152)
-
-    def test_unknown_backend_falls_back_to_clip(self) -> None:
-        from db.repositories.vectors import vector_table_for_backend
-
-        assert vector_table_for_backend("nope") == ("post_vectors", 768)
-
-
-class TestDeleteClearsBothVectorTables:
-    async def test_delete_post_clears_both_tables(self, db: DB) -> None:
-        from db.repositories.posts import PostRepo
-
-        clip = VectorRepo(db.cursor())
-        siglip = VectorRepo(db.cursor(), table="post_vectors_siglip2", dim=1152)
-        await clip.upsert(1, _unit_vec(0, dim=768))
-        await siglip.upsert(1, _unit_vec(0, dim=1152))
+class TestDeleteClearsVectorTable:
+    async def test_delete_post_clears_vector_table(self, db: DB) -> None:
+        vectors = VectorRepo(db.cursor())
+        await vectors.upsert(1, _unit_vec(0))
 
         await PostRepo(db.cursor()).delete_many([1])
 
-        assert await clip.get(1) is None
-        assert await siglip.get(1) is None
+        assert await vectors.get(1) is None

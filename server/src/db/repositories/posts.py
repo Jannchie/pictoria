@@ -162,20 +162,15 @@ class PostRepo:
 
         ``ON DELETE CASCADE`` (declared in 0001_initial.sql) handles
         ``post_has_tag`` / ``post_has_color`` / ``post_waifu_scores``
-        automatically. ``post_vectors`` / ``post_vectors_siglip2`` are vec0
-        virtual tables and don't participate in foreign-key cascades — clear
-        them explicitly.
+        automatically. ``post_vectors_siglip2`` is a vec0 virtual table and
+        doesn't participate in foreign-key cascades — clear it explicitly.
         """
         if not ids:
             return
 
         def _impl() -> None:
             placeholders = ",".join("?" * len(ids))
-            # vec0 virtual tables — no FK CASCADE
-            self.cur.execute(
-                f"DELETE FROM post_vectors WHERE post_id IN ({placeholders})",  # noqa: S608
-                ids,
-            )
+            # vec0 virtual table — no FK CASCADE
             self.cur.execute(
                 f"DELETE FROM post_vectors_siglip2 WHERE post_id IN ({placeholders})",  # noqa: S608
                 ids,

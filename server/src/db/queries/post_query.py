@@ -31,6 +31,8 @@ from db.repositories.tags import TagRepo
 if TYPE_CHECKING:
     import sqlite3
 
+    import numpy as np
+
 
 SIMPLE_POST_COLUMNS = (
     "id, file_path, file_name, extension, rating, score, size, width, height, "
@@ -242,6 +244,54 @@ class PostQueryService:
                 )
                 self.cur.execute(sql, [*params, limit, offset])
 
+            rows = fetch_all_dicts(self.cur)
+            for r in rows:
+                r.pop("_dist", None)
+            _decode_dominant_colors_in(rows)
+            ids = [r["id"] for r in rows]
+            colors_by_post = self._colors.fetch_by_ids(ids)
+            for r in rows:
+                r["colors"] = colors_by_post.get(r["id"], [])
+            return rows
+
+        return await asyncio.to_thread(_impl)
+
+    async def search_by_text_vector(
+        self,
+        vec: np.ndarray | list[float],
+        f: PostFilter,
+        *,
+        limit: int = 100,
+        offset: int = 0,
+    ) -> list[dict]:
+        """Rank posts by SigLIP 2 cosine similarity to ``vec``, within filter ``f``.
+
+        Pre-filter: ``build_where(f)`` narrows the candidate set, then we INNER
+        JOIN ``post_vectors_siglip2`` and ``ORDER BY vec_distance_cosine``. This
+        mirrors the ``f.lab`` branch of ``search`` (brute-force ``vec_distance``
+        over a filtered set). sqlite-vec's KNN is itself a linear scan, so
+        pre-filtering only shrinks the work — the tighter the filter, the
+        faster. Posts without a SigLIP 2 embedding are excluded by the JOIN.
+        """
+
+        def _impl() -> list[dict]:
+            where_clauses, params, joins = build_where(f)
+            where_sql = ("WHERE " + " AND ".join(where_clauses)) if where_clauses else ""
+            vec_blob = sqlite_vec.serialize_float32(list(vec))
+            from_clause = (
+                "FROM posts p\nJOIN post_vectors_siglip2 v ON v.post_id = p.id"
+                + ("\n" + "\n".join(joins) if joins else "")
+            )
+            sql = (
+                "SELECT p.id, p.file_path, p.file_name, p.extension, p.rating, "
+                "p.score, p.size, p.width, p.height, p.aspect_ratio, p.dominant_color, "
+                "p.arthash, p.sha256, "
+                "vec_distance_cosine(v.embedding, ?) AS _dist "
+                f"{from_clause} "
+                f"{where_sql} "
+                "ORDER BY _dist LIMIT ? OFFSET ?"
+            )
+            self.cur.execute(sql, [vec_blob, *params, limit, offset])
             rows = fetch_all_dicts(self.cur)
             for r in rows:
                 r.pop("_dist", None)

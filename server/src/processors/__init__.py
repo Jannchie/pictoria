@@ -1,6 +1,6 @@
 """Post-processing backfill, split into independent workers.
 
-Each metadata type (basics, CLIP embedding, WDTagger tags, waifu score) is
+Each metadata type (basics, SigLIP 2 embedding, WDTagger tags, waifu score) is
 handled by its own worker with its own ``WHERE … IS NULL`` style pending
 predicate and its own progress bar. Workers run concurrently as asyncio
 tasks sharing a single ``rich.Progress`` display, so the CLI shows one
@@ -79,13 +79,11 @@ _IMAGE_EXT_WHERE = f"LOWER(p.extension) IN ({_IMAGE_EXT_SQL_LIST})"
 
 BASICS_BATCH_SIZE = 32
 WAIFU_BATCH_SIZE = 32
-# CLIP + WDTagger both run on GPU. batch=1 leaves the GPU mostly idle between
-# per-image PIL decodes; batch=32 keeps it saturated on a single 30xx-class
-# card and is the sweet spot for CLIP-ViT-Large / wd-vit-large.
-EMBEDDING_BATCH_SIZE = 32
 # SigLIP 2 so400m is a larger ViT than CLIP-L/14; batch=16 sits in the same
 # tier as the SigLIP aesthetic scorer and fits 12GB at bf16.
 SIGLIP_EMBED_BATCH_SIZE = 16
+# WDTagger (wd-vit-large) runs on GPU; batch=32 keeps it saturated on a
+# single 30xx-class card.
 TAGGER_BATCH_SIZE = 32
 # SigLIP-so400m is a noticeably larger ViT than CLIP-L/14; batch=16 fits
 # comfortably in 12GB at bfloat16 with the rest of the model stack loaded.
@@ -167,16 +165,14 @@ async def run_all_backfill(db: DB) -> None:
         return conn
 
     basics_conn = _checkout()
-    embedding_conn = _checkout()
     tagger_conn = _checkout()
     waifu_conn = _checkout()
     # SigLIP backfill is opt-in (see shared.enable_siglip_scorer): skip
     # allocating its connection and worker coroutine entirely when disabled
     # so the GPU isn't held by a model load we'll never use.
     siglip_conn = _checkout() if shared.enable_siglip_scorer else None
-    # SigLIP 2 retrieval-embedding backfill is always on (independent of the
-    # aesthetic-scorer enable flag) so the new table fills in the background and
-    # is ready the moment search_embedding_backend flips to "siglip2".
+    # SigLIP 2 retrieval-embedding backfill — the sole search/retrieval
+    # embedding worker now that CLIP retrieval has been removed.
     siglip_embed_conn = _checkout()
 
     try:
@@ -184,11 +180,6 @@ async def run_all_backfill(db: DB) -> None:
             workers = [
                 run_basics_worker(
                     PostRepo(basics_conn.cursor()),
-                    progress=progress,
-                ),
-                run_embedding_worker(
-                    PostRepo(embedding_conn.cursor()),
-                    VectorRepo(embedding_conn.cursor()),
                     progress=progress,
                 ),
                 run_siglip_embedding_worker(
@@ -270,11 +261,9 @@ async def process_post(
         if basics.get("color_error"):
             await FailureRepo(posts.cur).record_failures([(post.id, "basics", f"color: {basics['color_error']}")])
 
-    await _process_embedding_batch(posts, vectors, [post.id])
-    # Dual-write the SigLIP 2 table during migration so the cutover has no gap.
-    # Reuse this cursor's connection via a second VectorRepo on the new table.
-    siglip_vectors = VectorRepo(posts.cur, table="post_vectors_siglip2", dim=1152)
-    await _process_siglip_embedding_batch(posts, siglip_vectors, [post.id])
+    # ``vectors`` is the SigLIP 2 retrieval repo (provide_vector_repo binds
+    # post_vectors_siglip2), so encode the upload straight into it.
+    await _process_siglip_embedding_batch(posts, vectors, [post.id])
     await _process_tagger_batch(posts, tag_groups, [post.id])
     await _process_waifu_batch(posts, [post.id])
     if shared.enable_siglip_scorer:
@@ -344,26 +333,6 @@ async def run_basics_worker(
         await _process_basics_batch(posts, batch_ids)
 
     await _drive(progress, "Basics", pending, BASICS_BATCH_SIZE, _process)
-
-
-async def run_embedding_worker(
-    posts: PostRepo,
-    vectors: VectorRepo,
-    *,
-    progress: Progress | None = None,
-) -> None:
-    """Backfill CLIP image embeddings into ``post_vectors``."""
-    pending = await vectors.list_missing_post_ids(
-        image_exts=[ext.lstrip(".") for ext in IMAGE_EXTS],
-    )
-
-    async def _process(batch_ids: list[int]) -> None:
-        await _process_embedding_batch(posts, vectors, batch_ids)
-
-    await _drive(
-        progress, "Embeddings", pending, EMBEDDING_BATCH_SIZE, _process,
-        gpu_adaptive=True,
-    )
 
 
 async def run_siglip_embedding_worker(
@@ -590,76 +559,6 @@ async def _process_basics_batch(posts: PostRepo, post_ids: list[int]) -> None:  
         await FailureRepo(posts.cur).record_failures(failed)
 
 
-async def _process_embedding_batch(  # noqa: C901, PLR0912
-    posts: PostRepo,
-    vectors: VectorRepo,
-    post_ids: list[int],
-) -> None:
-    from ai.clip import (  # noqa: PLC0415  # lazy: defer ML stack load
-        calculate_image_features,
-        calculate_image_features_batch,
-    )
-
-    posts_map = await posts.get_many(post_ids)
-    items: list[tuple[int, Path]] = []
-    for pid in post_ids:
-        post = posts_map.get(pid)
-        if post is None:
-            continue
-        abs_path = post.absolute_path
-        if abs_path.suffix.lower() not in IMAGE_EXTS or not abs_path.exists():
-            continue
-        items.append((pid, abs_path))
-    if not items:
-        return
-
-    paths = [p for _, p in items]
-    try:
-        features = await asyncio.to_thread(calculate_image_features_batch, paths)
-    except Exception as exc:
-        # One unreadable image can blow up the whole batch (PIL raises mid-
-        # collate). Shrink to mini-batches first so the GPU stays useful;
-        # only the mini-batch containing the bad image drops to per-image.
-        logger.warning(
-            f"[embedding] batch failed ({exc!s}); "
-            f"retrying in mini-batches of {FALLBACK_MINI_BATCH_SIZE}",
-        )
-        failed: list[tuple[int, str, str]] = []
-        for i in range(0, len(items), FALLBACK_MINI_BATCH_SIZE):
-            chunk = items[i : i + FALLBACK_MINI_BATCH_SIZE]
-            chunk_paths = [p for _, p in chunk]
-            try:
-                chunk_features = await asyncio.to_thread(
-                    calculate_image_features_batch, chunk_paths,
-                )
-            except Exception as exc2:
-                logger.warning(
-                    f"[embedding] mini-batch failed ({exc2!s}); falling back per-image",
-                )
-                for pid, path in chunk:
-                    try:
-                        single = await asyncio.to_thread(calculate_image_features, path)
-                        embedding = single.cpu().numpy()[0].astype(np.float32)
-                        await vectors.upsert(pid, embedding)
-                    except (UnidentifiedImageError, OSError) as exc3:
-                        logger.warning(f"[embedding] skipping unreadable image {pid} ({path}): {exc3}")
-                        failed.append((pid, "embedding", f"{type(exc3).__name__}: {exc3}"))
-                    except Exception as exc3:
-                        logger.exception(f"[embedding] post {pid} ({path})")
-                        failed.append((pid, "embedding", f"{type(exc3).__name__}: {exc3}"))
-            else:
-                embeddings_np = chunk_features.cpu().numpy().astype(np.float32)
-                for (pid, _), emb in zip(chunk, embeddings_np, strict=True):
-                    await vectors.upsert(pid, emb)
-        if failed:
-            await FailureRepo(posts.cur).record_failures(failed)
-        return
-
-    embeddings_np = features.cpu().numpy().astype(np.float32)
-    for (pid, _), emb in zip(items, embeddings_np, strict=True):
-        await vectors.upsert(pid, emb)
-
-
 async def _process_siglip_embedding_batch(  # noqa: C901, PLR0912
     posts: PostRepo,
     vectors: VectorRepo,
@@ -667,10 +566,10 @@ async def _process_siglip_embedding_batch(  # noqa: C901, PLR0912
 ) -> None:
     """Encode a batch into SigLIP 2 embeddings written to post_vectors_siglip2.
 
-    Mirrors _process_embedding_batch: on a whole-batch forward failure it first
-    shrinks to mini-batches, then to single-image; an unreadable single image is
-    recorded under the 'embedding:siglip2' one-shot blacklist. ``vectors`` must
-    be a VectorRepo pointed at post_vectors_siglip2 (dim=1152).
+    On a whole-batch forward failure it first shrinks to mini-batches, then to
+    single-image; an unreadable single image is recorded under the
+    'embedding:siglip2' one-shot blacklist. ``vectors`` must be a VectorRepo
+    pointed at post_vectors_siglip2 (dim=1152).
     """
     from ai.siglip_embed import (  # noqa: PLC0415  # lazy: defer ML stack load
         calculate_image_features,

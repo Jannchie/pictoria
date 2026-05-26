@@ -32,8 +32,11 @@ from shared import MAX_POST_RATING, MAX_POST_SCORE
 from utils import calculate_arthash, calculate_sha256, create_thumbnail_by_image, get_path_name_and_extension
 
 
-class TextSearchRequest(Struct):
-    query: Annotated[str, Meta(description="Natural-language search prompt.", min_length=1)]
+class TextSearchRequest(PostFilter):
+    # Text search combinable with the standard post filters: every inherited
+    # PostFilter field narrows the candidate set, then results are ranked by
+    # SigLIP 2 cosine similarity to ``query``. An empty query returns [].
+    query: Annotated[str, Meta(description="Natural-language search prompt.")] = ""
 
 
 @dataclass
@@ -118,11 +121,14 @@ class PostController(Controller):
         rows = await post_query.search(data, limit=limit, offset=offset)
         return [PostSimplePublic.model_validate(r) for r in rows]
 
-    @litestar.post("/search/text", status_code=200, description="Search posts by CLIP text embedding.")
+    @litestar.post(
+        "/search/text",
+        status_code=200,
+        description="Search posts by SigLIP 2 text embedding, combinable with the standard post filters.",
+    )
     async def search_posts_by_text(
         self,
         post_query: PostQueryService,
-        vectors: VectorRepo,
         data: TextSearchRequest,
         limit: int = 100,
     ) -> list[PostSimplePublic]:
@@ -132,11 +138,7 @@ class PostController(Controller):
         from server.utils.vec import get_text_vec  # noqa: PLC0415  # lazy: defer ML stack load until first use
 
         vec = await get_text_vec(prompt)
-        sims = await vectors.similar(vec, limit=limit, skip_self=False)
-        id_list = [s.post_id for s in sims]
-        if not id_list:
-            return []
-        rows = await post_query.list_simple_by_ids_preserving_order(id_list)
+        rows = await post_query.search_by_text_vector(vec, data, limit=limit)
         return [PostSimplePublic.model_validate(r) for r in rows]
 
     @litestar.get("/", status_code=200, description="Get all posts.")
