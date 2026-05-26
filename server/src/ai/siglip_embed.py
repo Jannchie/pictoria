@@ -19,6 +19,8 @@ import torch
 from PIL import Image
 from transformers import AutoModel, AutoProcessor
 
+from ai.hf_loader import load_local_first
+
 MODEL_ID = "google/siglip2-so400m-patch14-384"
 EMBED_DIM = 1152
 
@@ -28,7 +30,7 @@ _dtype = torch.bfloat16 if _device == "cuda" else torch.float32
 
 @cache
 def get_model() -> AutoModel:
-    model = AutoModel.from_pretrained(MODEL_ID, device_map=_device)
+    model = load_local_first(AutoModel.from_pretrained, MODEL_ID, device_map=_device)
     model = model.to(dtype=_dtype)
     model.eval()
     _patch_features_to_tensor(model)
@@ -53,7 +55,7 @@ def _patch_features_to_tensor(model: AutoModel) -> None:
 
 @cache
 def get_processor() -> AutoProcessor:
-    return AutoProcessor.from_pretrained(MODEL_ID)
+    return load_local_first(AutoProcessor.from_pretrained, MODEL_ID)
 
 
 ImageInput = Image.Image | Path | str

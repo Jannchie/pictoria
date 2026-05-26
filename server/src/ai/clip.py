@@ -11,12 +11,15 @@ from functools import cache
 
 from transformers import AutoModel, AutoProcessor
 
+from ai.hf_loader import load_local_first
+
 device = "cuda"
 
 
 @cache
 def get_clip_model() -> AutoModel:
-    model = AutoModel.from_pretrained(
+    model = load_local_first(
+        AutoModel.from_pretrained,
         "openai/clip-vit-large-patch14",
         device_map=device,
     )
@@ -43,7 +46,8 @@ def _patch_clip_features_to_tensor(model: AutoModel) -> None:
 
 @cache
 def get_processor() -> AutoProcessor:
-    return AutoProcessor.from_pretrained(
+    return load_local_first(
+        AutoProcessor.from_pretrained,
         "openai/clip-vit-large-patch14",
         use_fast=False,
     )

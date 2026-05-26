@@ -22,6 +22,11 @@ logging.basicConfig(
     datefmt="[%X]",
     handlers=[RichHandler(console=console)],
 )
+# These libraries log every HTTP request / file lock at INFO, which floods the
+# console — most visibly huggingface_hub's per-file etag HEAD requests on every
+# model load (via httpx). Lift them to WARNING so only real problems surface.
+for _noisy in ("httpx", "huggingface_hub", "urllib3", "filelock"):
+    logging.getLogger(_noisy).setLevel(logging.WARNING)
 
 target_dir = Path()
 pictoria_dir = Path()
