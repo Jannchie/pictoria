@@ -31,6 +31,10 @@ export const postFilter = ref<PostFilter>({
 })
 export const textSearchQuery = ref('')
 
+export const postSort = useLocalStorage<'id' | 'score' | 'rating' | 'created_at' | 'file_name' | 'published_at' | 'waifu_score' | 'siglip_score'>('pictoria.posts.sort', 'id')
+export const postSortColor = useLocalStorage<string | undefined>('pictoria.posts.color', undefined)
+export const postSortOrder = useLocalStorage<'asc' | 'desc'>('pictoria.posts.sortOrder', 'desc')
+
 // Sync postFilter with URL query parameters
 export function useSyncFilterWithUrl() {
   const route = useRoute()
@@ -46,6 +50,9 @@ export function useSyncFilterWithUrl() {
       postFilter.value.extension.join(','),
       postFilter.value.waifu_score_range?.join(',') ?? '',
       postFilter.value.waifu_score_levels.join(','),
+      postSort.value,
+      postSortOrder.value,
+      postSortColor.value ?? '',
     ],
     () => {
       const f = postFilter.value
@@ -80,6 +87,26 @@ export function useSyncFilterWithUrl() {
       else {
         delete query.waifu_score_levels
       }
+      // Sort state: omit defaults (sort=id, order=desc) so URLs stay clean,
+      // matching the filter fields above.
+      if (postSort.value === 'id') {
+        delete query.sort
+      }
+      else {
+        query.sort = postSort.value
+      }
+      if (postSortOrder.value === 'desc') {
+        delete query.order
+      }
+      else {
+        query.order = postSortOrder.value
+      }
+      if (postSortColor.value) {
+        query.sort_color = postSortColor.value
+      }
+      else {
+        delete query.sort_color
+      }
       router.replace({ query })
     },
   )
@@ -107,6 +134,18 @@ export function useSyncFilterWithUrl() {
     if (newQuery.waifu_score_levels !== undefined) {
       postFilter.value.waifu_score_levels = (newQuery.waifu_score_levels as string).split(',')
     }
+
+    if (newQuery.sort !== undefined) {
+      postSort.value = newQuery.sort as typeof postSort.value
+    }
+
+    if (newQuery.order !== undefined) {
+      postSortOrder.value = newQuery.order as typeof postSortOrder.value
+    }
+
+    if (newQuery.sort_color !== undefined) {
+      postSortColor.value = newQuery.sort_color as string
+    }
   }, { immediate: true })
 }
 
@@ -125,10 +164,6 @@ export const enableFancyPlaceholder = useStorage('pictoria.enableFancyPlaceholde
 // backend's DISABLE_ARTHASH env var if you also want to skip computing arthash
 // for newly imported images.
 export const enableArthash = useStorage('pictoria.enableArthash', true)
-
-export const postSort = useLocalStorage<'id' | 'score' | 'rating' | 'created_at' | 'file_name' | 'published_at' | 'waifu_score' | 'siglip_score'>('pictoria.posts.sort', 'id')
-export const postSortColor = useLocalStorage<string | undefined>('pictoria.posts.color', undefined)
-export const postSortOrder = useLocalStorage<'asc' | 'desc'>('pictoria.posts.sortOrder', 'desc')
 
 export const bottomBarInfo = ref<string>('')
 
