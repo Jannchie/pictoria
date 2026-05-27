@@ -57,13 +57,9 @@ async def import_danbooru_posts(
 ) -> DanbooruDownloadStats:
     """Download posts for ``tags`` from Danbooru and persist the new ones.
 
-    Optimization notes:
-    - Shared ``DanbooruClient`` and the canonical tag-group map both come from
-      startup state, so each call avoids the API-client construction + five
-      tag-group upsert round-trips it would otherwise repeat.
-    - DB lookup first, then download only the subset of ``filtered`` not yet in
-      the DB — under normal operation DB membership implies file-on-disk, so
-      this short-circuits the 16-worker threadpool when nothing is new.
+    The shared ``client`` and ``type_to_group_id`` come from startup state (see
+    the module docstring); the DB-membership pre-check that short-circuits the
+    download threadpool is the ``to_persist`` filter below.
     """
     danbooru_dir = shared.target_dir / "danbooru"
     save_dir = danbooru_dir / _safe_dir_name(tags)

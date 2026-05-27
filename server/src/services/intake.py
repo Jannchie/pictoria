@@ -22,6 +22,8 @@ from server.exceptions import FileAlreadyExistsError, InvalidUploadError
 from utils import get_path_name_and_extension
 
 if TYPE_CHECKING:
+    from typing import BinaryIO
+
     from litestar.datastructures import UploadFile
 
     from db.repositories.posts import PostRepo
@@ -75,7 +77,7 @@ class UploadIntake:
         await process_post(self._posts, self._vectors, self._tag_group_repo, abs_path)
 
     @staticmethod
-    async def _read_bytes(file: UploadFile | None, url: str | None) -> io.BytesIO | object:
+    async def _read_bytes(file: UploadFile | None, url: str | None) -> BinaryIO:
         if file is not None:
             return file.file
         headers = {"user-agent": _BROWSER_UA}

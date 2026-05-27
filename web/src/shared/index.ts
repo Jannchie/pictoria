@@ -4,7 +4,6 @@
 // own; everything is re-exported here so `@/shared` stays the single import.
 
 export * from './queries'
-export { queryKeys } from './queryKeys'
-export type { CountKind } from './queryKeys'
+export * from './queryKeys'
 export * from './ratings'
 export * from './state'
