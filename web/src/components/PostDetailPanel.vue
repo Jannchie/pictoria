@@ -4,7 +4,7 @@ import { useQueryClient } from '@tanstack/vue-query'
 import { filesize } from 'filesize'
 import { v2GetSiglipScorerOne, v2GetWaifuScorerOne, v2UpdatePostCaption, v2UpdatePostRating, v2UpdatePostScore, v2UpdatePostSource } from '@/api'
 import { useAPIError } from '@/composables/useAPIError'
-import { hideNSFW, openTagSelectorWindow, patchPostsInListCache, showPostDetail } from '@/shared'
+import { hideNSFW, openTagSelectorWindow, patchPostsInListCache, queryKeys, showPostDetail } from '@/shared'
 import { getPostThumbnailURL } from '@/utils'
 import { colorNumToHex, labToRgbaString } from '@/utils/color'
 
@@ -108,7 +108,7 @@ const updateCaption = useDebounceFn(async (caption: any) => {
       caption,
     },
   })
-  queryClient.invalidateQueries({ queryKey: ['post', post.value.id] })
+  queryClient.invalidateQueries({ queryKey: queryKeys.post(post.value.id) })
 }, 500)
 
 const updateSource = useDebounceFn(async (source: any) => {
@@ -121,7 +121,7 @@ const updateSource = useDebounceFn(async (source: any) => {
       source,
     },
   })
-  queryClient.invalidateQueries({ queryKey: ['post', post.value.id] })
+  queryClient.invalidateQueries({ queryKey: queryKeys.post(post.value.id) })
 }, 500)
 const groupNameOrder = ['artist', 'copyright', 'character', 'general', 'meta']
 function sortByGroup(a: PostHasTagPublic, b: PostHasTagPublic) {
@@ -162,7 +162,7 @@ async function calculateWaifuScore() {
         post_id: post.value.id,
       },
     })
-    queryClient.invalidateQueries({ queryKey: ['post', post.value.id] })
+    queryClient.invalidateQueries({ queryKey: queryKeys.post(post.value.id) })
   }
   catch (error) {
     handleAPIError(error, 'Failed to calculate waifu score')
@@ -190,7 +190,7 @@ async function calculateSiglipScore() {
         post_id: post.value.id,
       },
     })
-    queryClient.invalidateQueries({ queryKey: ['post', post.value.id] })
+    queryClient.invalidateQueries({ queryKey: queryKeys.post(post.value.id) })
   }
   catch (error) {
     handleAPIError(error, 'Failed to calculate SigLIP score')

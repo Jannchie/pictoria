@@ -2,6 +2,7 @@
 import { useQuery, useQueryClient } from '@tanstack/vue-query'
 import { computed, ref } from 'vue'
 import { v2AddTagToPost, v2ListTagGroup, v2ListTags, v2RemoveTagFromPost } from '@/api'
+import { queryKeys } from '@/shared/queryKeys'
 import { usePostQuery } from '../composables/usePostQuery'
 
 const props = defineProps<{
@@ -12,7 +13,7 @@ const postId = computed(() => props.postId)
 const search = ref('')
 const postQuery = usePostQuery(postId)
 const tagGroupsQuery = useQuery({
-  queryKey: ['tagGroups', postId],
+  queryKey: queryKeys.tagGroups(postId),
   queryFn: async () => {
     const resp = await v2ListTagGroup({})
     return resp.data
@@ -24,7 +25,7 @@ const tagGroups = computed(() => {
 })
 
 const tagsQuery = useQuery({
-  queryKey: ['tags'],
+  queryKey: queryKeys.tags,
   queryFn: async () => {
     const resp = await v2ListTags({})
     return resp.data ?? []
@@ -105,7 +106,7 @@ async function onPointerUp(tagName: string) {
         },
       }))
   queryClient.invalidateQueries({
-    queryKey: ['post', postId],
+    queryKey: queryKeys.post(postId),
   })
 }
 const pinned = inject('pinned', ref(false))
@@ -140,10 +141,10 @@ async function addTag(tagName: string) {
     },
   })
   queryClient.invalidateQueries({
-    queryKey: ['post', postId],
+    queryKey: queryKeys.post(postId),
   })
   queryClient.invalidateQueries({
-    queryKey: ['tags'],
+    queryKey: queryKeys.tags,
   })
 }
 

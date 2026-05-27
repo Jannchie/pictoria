@@ -1,43 +1,19 @@
 <script setup lang="ts">
-import { useQuery } from '@tanstack/vue-query'
 import { computed } from 'vue'
 import { v2GetScoreCount } from '@/api'
-import { postFilter } from '@/shared'
+import { useFacetFilter } from '@/composables/useFacetFilter'
 
-const scoreFilterData = computed({
-  get() {
-    return postFilter.value.score
-  },
-  set(value: number[]) {
-    postFilter.value.score = value
-  },
-})
-function hasScore(score: number) {
-  return scoreFilterData.value.includes(score)
-}
-function onPointerDown(score: number) {
-  scoreFilterData.value = hasScore(score) ? scoreFilterData.value.filter(s => s !== score) : [...scoreFilterData.value, score]
-}
-const filterWidthoutScore = computed(() => {
-  return {
-    ...postFilter.value,
-    score: [],
-  }
-})
-const scoreCountMutation = useQuery({
-  queryKey: ['count', 'score', filterWidthoutScore],
-  queryFn: async () => {
-    const resp = await v2GetScoreCount({
-      body: {
-        ...filterWidthoutScore.value, // 使用不包含自己筛选条件的过滤器
-      },
-    })
+const { selected: scoreFilterData, has: hasScore, toggle, countQuery } = useFacetFilter<number, { score: number, count: number }>({
+  field: 'score',
+  countKind: 'score',
+  fetchCounts: async (filter) => {
+    const resp = await v2GetScoreCount({ body: filter })
     return resp.data
   },
 })
 const scoreCountList = computed(() => {
   const resp = [0, 0, 0, 0, 0, 0]
-  const data = scoreCountMutation.data
+  const data = countQuery.data
   if (data.value) {
     for (const d of data.value) {
       resp[Number(d.score)] = d.count
@@ -71,7 +47,7 @@ const btnText = computed(() => {
             v-for="score in [5, 4, 3, 2, 1, 0]"
             :key="score"
             class="text-xs px-2 py-1 rounded flex gap-2 w-full cursor-pointer items-center hover:bg-surface-2"
-            @pointerdown="onPointerDown(score)"
+            @pointerdown="toggle(score)"
           >
             <Checkbox
               class="flex-shrink-0 pointer-events-none"

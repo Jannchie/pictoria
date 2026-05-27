@@ -111,7 +111,6 @@ watchEffect(() => {
 })
 
 const wrapper = ref<HTMLElement>()
-const indicator = ref<HTMLElement>()
 
 const isMoving = ref(false)
 
@@ -243,7 +242,6 @@ const animateCls = computed(() => props.animate
           />
           <div
             v-if="currentIndex !== -1"
-            ref="indicator"
             class="rounded-full cursor-pointer transition-background-color,border-color,color top-50% absolute"
             :class="[sizeCls.indicator, animateCls.indicator, indicatorOuterCls]"
             :style="[

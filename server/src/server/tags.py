@@ -3,13 +3,12 @@ from typing import Annotated, ClassVar
 
 import litestar
 from litestar import Controller
-from litestar.exceptions import HTTPException, NotFoundException
 from litestar.params import Parameter
-from litestar.status_codes import HTTP_404_NOT_FOUND, HTTP_409_CONFLICT, HTTP_422_UNPROCESSABLE_ENTITY
 from msgspec import Meta, Struct
 
 from db.repositories.tags import TagGroupRepo, TagRepo
 from scheme import Result, TagGroupPublic, TagPublic, TagWithCountPublic
+from server.exceptions import TagGroupNotFoundError, TagNameExistsError, TagNameNotFoundError
 
 MAX_TAG_LENGTH = 200
 
@@ -41,14 +40,11 @@ class TagsController(Controller):
         tag_name = data.name.strip()
         existing = await tag_repo.get(tag_name)
         if existing:
-            raise HTTPException(detail=f"Tag '{tag_name}' already exists.", status_code=HTTP_409_CONFLICT)
+            raise TagNameExistsError(tag_name)
         if data.group_id:
             group = await tag_group_repo.get(data.group_id)
             if not group:
-                raise NotFoundException(
-                    detail=f"Tag group with ID {data.group_id} does not exist.",
-                    status_code=HTTP_422_UNPROCESSABLE_ENTITY,
-                )
+                raise TagGroupNotFoundError(data.group_id)
         await tag_repo.create(tag_name, data.group_id)
         return Result(msg=f"Tag '{tag_name}' created successfully.")
 
@@ -68,17 +64,14 @@ class TagsController(Controller):
         """Reassign a tag to a different tag group."""
         tag = await tag_repo.get(name)
         if not tag:
-            raise NotFoundException(detail=f"Tag '{name}' does not exist.", status_code=HTTP_404_NOT_FOUND)
+            raise TagNameNotFoundError(name)
         if data.group_id:
             group = await tag_group_repo.get(data.group_id)
             if not group:
-                raise HTTPException(
-                    detail=f"Tag group with ID {data.group_id} does not exist.",
-                    status_code=HTTP_422_UNPROCESSABLE_ENTITY,
-                )
+                raise TagGroupNotFoundError(data.group_id)
         updated = await tag_repo.update_group(name, data.group_id)
         if not updated:
-            raise NotFoundException(detail=f"Tag '{name}' vanished during update.", status_code=HTTP_404_NOT_FOUND)
+            raise TagNameNotFoundError(name)
         group_obj = await tag_group_repo.get(updated.group_id) if updated.group_id else None
         return TagPublic.model_validate({
             "name": updated.name,

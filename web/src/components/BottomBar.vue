@@ -3,7 +3,7 @@ import { useQuery } from '@tanstack/vue-query'
 import { computed } from 'vue'
 import { useRoute } from 'vue-router'
 import { v2GetPostsStats } from '@/api'
-import { bottomBarInfo, postFilter, selectedPostIdSet, usePosts } from '@/shared'
+import { bottomBarInfo, postFilter, queryKeys, selectedPostIdSet, usePosts } from '@/shared'
 
 const posts = usePosts()
 const route = useRoute()
@@ -11,7 +11,7 @@ const route = useRoute()
 const inGalleryView = computed(() => route.name === 'all' || route.name === 'dir')
 
 const statsQuery = useQuery({
-  queryKey: computed(() => ['posts', 'stats', postFilter.value]),
+  queryKey: computed(() => queryKeys.postsStats(postFilter.value)),
   queryFn: async () => {
     const resp = await v2GetPostsStats({ body: { ...postFilter.value } })
     return resp.data

@@ -1,45 +1,20 @@
 <script setup lang="ts">
-import { useQuery } from '@tanstack/vue-query'
 import { computed } from 'vue'
 import { v2GetExtensionCount } from '@/api'
-import { postFilter } from '@/shared'
+import { useFacetFilter } from '@/composables/useFacetFilter'
 
-const ratingFilterData = computed({
-  get() {
-    return postFilter.value.extension
-  },
-  set(value: string[]) {
-    postFilter.value.extension = value
-  },
-})
-function hasExt(extension: string) {
-  return ratingFilterData.value.includes(extension)
-}
-function onPointerDown(extension: string) {
-  ratingFilterData.value = hasExt(extension) ? ratingFilterData.value.filter(s => s !== extension) : [...ratingFilterData.value, extension]
-}
-const filterWithoutExtension = computed(() => {
-  return {
-    ...postFilter.value,
-    extension: [],
-  }
-})
-
-const extensionCountMutation = useQuery({
-  queryKey: ['count', 'extension', filterWithoutExtension],
-  queryFn: async () => {
-    const resp = await v2GetExtensionCount({
-      body: {
-        ...filterWithoutExtension.value, // 使用不包含自己筛选条件的过滤器
-      },
-    })
+const { selected: ratingFilterData, has: hasExt, toggle, countQuery } = useFacetFilter<string, { extension: string, count: number }>({
+  field: 'extension',
+  countKind: 'extension',
+  fetchCounts: async (filter) => {
+    const resp = await v2GetExtensionCount({ body: filter })
     return resp.data
   },
 })
 
 const scoreCountList = computed(() => {
   const resp: Record<string, number> = {}
-  const data = extensionCountMutation.data
+  const data = countQuery.data
   if (data.value) {
     for (const d of data.value) {
       resp[d.extension] = d.count
@@ -51,7 +26,7 @@ const scoreCountList = computed(() => {
 // 确保已选择的扩展名选项始终显示在列表中
 const extensions = computed(() => {
   // 从API获取的扩展名列表
-  const apiExtensions = extensionCountMutation.data.value?.map(d => d.extension) ?? []
+  const apiExtensions = countQuery.data.value?.map(d => d.extension) ?? []
 
   // 已选择的扩展名（可能不在API结果中）
   const selectedExtensions = ratingFilterData.value
@@ -88,7 +63,7 @@ function getExtensionName(extension: string) {
             v-for="ext in extensions"
             :key="ext"
             class="text-xs px-2 py-1 rounded flex gap-2 w-full cursor-pointer items-center hover:bg-surface-2"
-            @pointerdown="onPointerDown(ext)"
+            @pointerdown="toggle(ext)"
           >
             <Checkbox
               class="flex-shrink-0 pointer-events-none"

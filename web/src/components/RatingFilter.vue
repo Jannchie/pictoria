@@ -1,45 +1,20 @@
 <script setup lang="ts">
-import { useQuery } from '@tanstack/vue-query'
 import { computed } from 'vue'
 import { v2GetRatingCount } from '@/api'
-import { postFilter } from '@/shared'
+import { useFacetFilter } from '@/composables/useFacetFilter'
 
-const ratingFilterData = computed({
-  get() {
-    return postFilter.value.rating
-  },
-  set(value: number[]) {
-    postFilter.value.rating = value
-  },
-})
-function hasRating(rating: number) {
-  return ratingFilterData.value.includes(rating)
-}
-function onPointerDown(rating: number) {
-  ratingFilterData.value = hasRating(rating) ? ratingFilterData.value.filter(s => s !== rating) : [...ratingFilterData.value, rating]
-}
-const filterWithoutRating = computed(() => {
-  return {
-    ...postFilter.value,
-    rating: [],
-  }
-})
-
-const scoreCountMutation = useQuery({
-  queryKey: ['count', 'rating', filterWithoutRating],
-  queryFn: async () => {
-    const resp = await v2GetRatingCount({
-      body: {
-        ...filterWithoutRating.value, // 使用不包含自己筛选条件的过滤器
-      },
-    })
+const { selected: ratingFilterData, has: hasRating, toggle, countQuery } = useFacetFilter<number, { rating: number, count: number }>({
+  field: 'rating',
+  countKind: 'rating',
+  fetchCounts: async (filter) => {
+    const resp = await v2GetRatingCount({ body: filter })
     return resp.data
   },
 })
 
 const scoreCountList = computed(() => {
   const resp = [0, 0, 0, 0, 0]
-  const data = scoreCountMutation.data
+  const data = countQuery.data
   if (data.value) {
     for (const d of data.value) {
       resp[Number(d.rating)] = d.count
@@ -95,7 +70,7 @@ function getRatingName(rating: number) {
             v-for="rating in [1, 2, 3, 4, 0]"
             :key="rating"
             class="text-xs px-2 py-1 rounded flex gap-2 w-full cursor-pointer items-center hover:bg-surface-2"
-            @pointerdown="onPointerDown(rating)"
+            @pointerdown="toggle(rating)"
           >
             <Checkbox
               class="flex-shrink-0 pointer-events-none"

@@ -2,8 +2,8 @@
 import { useQueryClient } from '@tanstack/vue-query'
 import { useRoute } from 'vue-router'
 import { v2UploadFile } from '@/api'
+import { queryKeys } from '@/shared/queryKeys'
 
-const dropZoneRef = ref<HTMLElement | null>(null)
 const isDraggingFiles = ref(false)
 const dragEnterCount = ref(0)
 const queryClient = useQueryClient()
@@ -17,7 +17,7 @@ async function onUploadFile(file: File, path: string | null, source?: string) {
         source,
       },
     })
-    queryClient.invalidateQueries({ queryKey: ['posts'] })
+    queryClient.invalidateQueries({ queryKey: queryKeys.postsRoot })
   }
   catch (error) {
     console.error(error)
@@ -140,7 +140,6 @@ useEventListener(globalThis, 'dragleave', (event: DragEvent) => {
 
 <template>
   <div
-    ref="dropZoneRef"
     :class="{
       'op-0': dragEnterCount === 0 || !isDraggingFiles,
     }"

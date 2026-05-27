@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { useQueryClient } from '@tanstack/vue-query'
 import { v2DeletePosts } from '@/api'
-import { selectedPostIdSet, showPostDetail, waterfallRowCount } from '@/shared'
+import { queryKeys, selectedPostIdSet, showPostDetail, waterfallRowCount } from '@/shared'
 import PostDetail from '../components/PostDetail.vue'
 import 'splitpanes/dist/splitpanes.css'
 
@@ -18,10 +18,10 @@ async function deleteSelectingPosts() {
       },
     })
   }
-  queryClient.invalidateQueries({ queryKey: ['posts'] })
-  queryClient.invalidateQueries({ queryKey: ['count', 'score'] })
-  queryClient.invalidateQueries({ queryKey: ['count', 'rating'] })
-  queryClient.invalidateQueries({ queryKey: ['count', 'extension'] })
+  queryClient.invalidateQueries({ queryKey: queryKeys.postsRoot })
+  queryClient.invalidateQueries({ queryKey: queryKeys.countRoot('score') })
+  queryClient.invalidateQueries({ queryKey: queryKeys.countRoot('rating') })
+  queryClient.invalidateQueries({ queryKey: queryKeys.countRoot('extension') })
 }
 onKeyStroke('Delete', deleteSelectingPosts)
 

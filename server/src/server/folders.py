@@ -5,10 +5,10 @@ from typing import ClassVar
 
 import litestar
 from litestar import Controller
-from litestar.exceptions import HTTPException
 from pydantic import BaseModel, Field
 
 import shared
+from server.exceptions import DirectoryNotFoundError, PathNotADirectoryError
 
 
 class DirectorySummary(BaseModel):
@@ -54,8 +54,8 @@ class FoldersController(Controller):
     async def get_folders(self) -> DirectorySummary:
         target_path = shared.target_dir
         if not target_path.exists():
-            raise HTTPException(status_code=404, detail="Directory not found")
+            raise DirectoryNotFoundError
         if not target_path.is_dir():
-            raise HTTPException(status_code=400, detail="Path is not a directory")
+            raise PathNotADirectoryError
 
         return await asyncio.to_thread(get_directory_summary, target_path)

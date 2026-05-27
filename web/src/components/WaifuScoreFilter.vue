@@ -1,8 +1,7 @@
 <script setup lang="ts">
-import { useQuery } from '@tanstack/vue-query'
 import { computed } from 'vue'
 import { v2GetWaifuBucketCount } from '@/api'
-import { postFilter } from '@/shared'
+import { useFacetFilter } from '@/composables/useFacetFilter'
 
 interface BucketDef {
   level: string // 'S' | 'A' | 'B' | 'C' | 'D' | 'UNSCORED'
@@ -32,45 +31,18 @@ const LEVEL_DOT_RGB: Record<string, string> = {
   UNSCORED: 'var(--p-fg-muted-rgb)',
 }
 
-const waifuLevels = computed({
-  get() {
-    return postFilter.value.waifu_score_levels
-  },
-  set(value: string[]) {
-    postFilter.value.waifu_score_levels = value
-  },
-})
-
-function hasLevel(level: string) {
-  return waifuLevels.value.includes(level)
-}
-
-function onPointerDown(level: string) {
-  waifuLevels.value = hasLevel(level)
-    ? waifuLevels.value.filter(l => l !== level)
-    : [...waifuLevels.value, level]
-}
-
-const filterWithoutWaifu = computed(() => {
-  return {
-    ...postFilter.value,
-    waifu_score_levels: [],
-  }
-})
-
-const bucketCountQuery = useQuery({
-  queryKey: ['count', 'waifu', filterWithoutWaifu],
-  queryFn: async () => {
-    const resp = await v2GetWaifuBucketCount({
-      body: filterWithoutWaifu.value,
-    })
+const { selected: waifuLevels, has: hasLevel, toggle, countQuery } = useFacetFilter<string, { bucket: string, count: number }>({
+  field: 'waifu_score_levels',
+  countKind: 'waifu',
+  fetchCounts: async (filter) => {
+    const resp = await v2GetWaifuBucketCount({ body: filter })
     return resp.data
   },
 })
 
 const bucketCounts = computed<Record<string, number>>(() => {
   const out: Record<string, number> = { S: 0, A: 0, B: 0, C: 0, D: 0, UNSCORED: 0 }
-  const data = bucketCountQuery.data
+  const data = countQuery.data
   if (data.value) {
     for (const d of data.value) {
       out[d.bucket] = d.count
@@ -102,7 +74,7 @@ const btnText = computed(() => {
             v-for="bucket in BUCKETS"
             :key="bucket.level"
             class="text-xs px-2 py-1 rounded flex gap-2 w-full cursor-pointer items-center hover:bg-surface-2"
-            @pointerdown="onPointerDown(bucket.level)"
+            @pointerdown="toggle(bucket.level)"
           >
             <Checkbox
               class="flex-shrink-0 pointer-events-none"

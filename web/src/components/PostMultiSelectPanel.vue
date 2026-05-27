@@ -5,9 +5,11 @@ import { filesize } from 'filesize'
 import { computed, onUnmounted, ref, watch } from 'vue'
 import { useRoute } from 'vue-router'
 import { v2DeletePosts } from '@/api'
+import { useSelectedPostStats } from '@/composables/useSelectedPostStats'
 import {
   currentPostList,
   patchPostsInListCache,
+  queryKeys,
   selectedPostIdSet,
   showPostDetail,
   similarPostList,
@@ -40,7 +42,17 @@ const count = computed(() => selectedPostIdSet.value.size)
 const knownCount = computed(() => selectedPosts.value.length)
 const missingCount = computed(() => Math.max(0, count.value - knownCount.value))
 
-const totalSize = computed(() => selectedPosts.value.reduce((sum, p) => sum + (p.size ?? 0), 0))
+const {
+  totalSize,
+  ratingDist,
+  scoreDist,
+  extensionDist,
+  widthRange,
+  heightRange,
+  commonFolder,
+  commonRating,
+  commonScore,
+} = useSelectedPostStats(selectedPosts)
 
 const RATING_LABELS = ['Unrated', 'G', 'S', 'Q', 'E']
 const RATING_COLORS = [
@@ -50,15 +62,6 @@ const RATING_COLORS = [
   '#f97316',
   '#ef4444',
 ]
-const ratingDist = computed(() => {
-  const buckets = Array.from<number>({ length: 5 }).fill(0)
-  for (const p of selectedPosts.value) {
-    const r = Math.max(0, Math.min(4, p.rating ?? 0))
-    buckets[r] += 1
-  }
-  return buckets
-})
-
 const SCORE_LABELS = ['Unscored', '1', '2', '3', '4', '5']
 const SCORE_COLORS = [
   'var(--p-fg-subtle)',
@@ -68,75 +71,6 @@ const SCORE_COLORS = [
   'rgb(var(--p-primary-rgb) / 0.8)',
   'var(--p-primary)',
 ]
-const scoreDist = computed(() => {
-  const buckets = Array.from<number>({ length: 6 }).fill(0)
-  for (const p of selectedPosts.value) {
-    const s = Math.max(0, Math.min(5, p.score ?? 0))
-    buckets[s] += 1
-  }
-  return buckets
-})
-
-const extensionDist = computed(() => {
-  const map = new Map<string, number>()
-  for (const p of selectedPosts.value) {
-    map.set(p.extension, (map.get(p.extension) ?? 0) + 1)
-  }
-  return [...map.entries()].sort((a, b) => b[1] - a[1])
-})
-
-const widthRange = computed(() => {
-  const values = selectedPosts.value.map(p => p.width).filter(v => v > 0)
-  if (values.length === 0) {
-    return null
-  }
-  return { min: Math.min(...values), max: Math.max(...values) }
-})
-const heightRange = computed(() => {
-  const values = selectedPosts.value.map(p => p.height).filter(v => v > 0)
-  if (values.length === 0) {
-    return null
-  }
-  return { min: Math.min(...values), max: Math.max(...values) }
-})
-
-// Longest common path prefix (segment-wise) across all selected posts.
-const commonFolder = computed(() => {
-  if (selectedPosts.value.length === 0) {
-    return ''
-  }
-  const paths = selectedPosts.value.map(p => p.filePath.split('/').filter(Boolean))
-  if (paths.length === 1) {
-    return paths[0].join('/')
-  }
-  const minLen = Math.min(...paths.map(p => p.length))
-  const out: string[] = []
-  for (let i = 0; i < minLen; i++) {
-    const seg = paths[0][i]
-    if (paths.every(p => p[i] === seg)) {
-      out.push(seg)
-    }
-    else {
-      break
-    }
-  }
-  return out.join('/')
-})
-
-const commonRating = computed<number | null>(() => {
-  if (selectedPosts.value.length === 0) {
-    return null
-  }
-  const first = selectedPosts.value[0].rating ?? 0
-  return selectedPosts.value.every(p => (p.rating ?? 0) === first) ? first : null
-})
-const commonScore = computed<number | null>(() => {
-  if (selectedPosts.value.length === 0) {
-    return null
-  }
-  const first = selectedPosts.value[0].score ?? 0
-  return selectedPosts.value.every(p => (p.score ?? 0) === first) ? first : null
-})
 
 const THUMB_LIMIT = 12
 const thumbs = computed(() => selectedPosts.value.slice(0, THUMB_LIMIT))
@@ -303,16 +237,16 @@ async function applyRating(rating: number) {
   const ids = [...selectedPostIdSet.value].filter((id): id is number => typeof id === 'number')
   await updateRatingForSelectedPosts(rating)
   patchPostsInListCache(queryClient, ids, { rating })
-  queryClient.invalidateQueries({ queryKey: ['count', 'rating'] })
-  queryClient.invalidateQueries({ queryKey: ['posts', 'stats'] })
+  queryClient.invalidateQueries({ queryKey: queryKeys.countRoot('rating') })
+  queryClient.invalidateQueries({ queryKey: queryKeys.postsStatsRoot })
 }
 
 async function applyScore(score: number) {
   const ids = [...selectedPostIdSet.value].filter((id): id is number => typeof id === 'number')
   await updateScoreForSelectedPosts(score)
   patchPostsInListCache(queryClient, ids, { score })
-  queryClient.invalidateQueries({ queryKey: ['count', 'score'] })
-  queryClient.invalidateQueries({ queryKey: ['posts', 'stats'] })
+  queryClient.invalidateQueries({ queryKey: queryKeys.countRoot('score') })
+  queryClient.invalidateQueries({ queryKey: queryKeys.postsStatsRoot })
 }
 
 async function copyPaths() {
@@ -342,11 +276,11 @@ async function deleteSelected() {
   }
   selectedPostIdSet.value = new Set()
   confirmingDelete.value = false
-  queryClient.invalidateQueries({ queryKey: ['posts'] })
-  queryClient.invalidateQueries({ queryKey: ['count', 'score'] })
-  queryClient.invalidateQueries({ queryKey: ['count', 'rating'] })
-  queryClient.invalidateQueries({ queryKey: ['count', 'extension'] })
-  queryClient.invalidateQueries({ queryKey: ['posts', 'stats'] })
+  queryClient.invalidateQueries({ queryKey: queryKeys.postsRoot })
+  queryClient.invalidateQueries({ queryKey: queryKeys.countRoot('score') })
+  queryClient.invalidateQueries({ queryKey: queryKeys.countRoot('rating') })
+  queryClient.invalidateQueries({ queryKey: queryKeys.countRoot('extension') })
+  queryClient.invalidateQueries({ queryKey: queryKeys.postsStatsRoot })
 }
 
 const distributionTotal = computed(() => knownCount.value)

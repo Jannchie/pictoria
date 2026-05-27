@@ -4,9 +4,10 @@ import { useQuery } from '@tanstack/vue-query'
 import { computed } from 'vue'
 import { useRoute } from 'vue-router'
 import { v2GetFolders } from '@/api'
+import { queryKeys } from '@/shared/queryKeys'
 
 const folders = useQuery({
-  queryKey: ['folders'],
+  queryKey: queryKeys.folders,
   queryFn: async () => {
     const resp = await v2GetFolders({})
     if (resp.error) {

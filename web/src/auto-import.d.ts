@@ -177,6 +177,7 @@ declare global {
   const useEventListener: typeof import('@vueuse/core').useEventListener
   const useEventSource: typeof import('@vueuse/core').useEventSource
   const useEyeDropper: typeof import('@vueuse/core').useEyeDropper
+  const useFacetFilter: typeof import('./composables/useFacetFilter').useFacetFilter
   const useFavicon: typeof import('@vueuse/core').useFavicon
   const useFetch: typeof import('@vueuse/core').useFetch
   const useFileDialog: typeof import('@vueuse/core').useFileDialog
@@ -188,7 +189,6 @@ declare global {
   const useFullscreen: typeof import('@vueuse/core').useFullscreen
   const useGamepad: typeof import('@vueuse/core').useGamepad
   const useGeolocation: typeof import('@vueuse/core').useGeolocation
-  const useHelloWorld: typeof import('./composables/useHelloWorld').useHelloWorld
   const useId: typeof import('vue').useId
   const useIdle: typeof import('@vueuse/core').useIdle
   const useImage: typeof import('@vueuse/core').useImage
@@ -242,6 +242,7 @@ declare global {
   const useScriptTag: typeof import('@vueuse/core').useScriptTag
   const useScroll: typeof import('@vueuse/core').useScroll
   const useScrollLock: typeof import('@vueuse/core').useScrollLock
+  const useSelectedPostStats: typeof import('./composables/useSelectedPostStats').useSelectedPostStats
   const useSessionStorage: typeof import('@vueuse/core').useSessionStorage
   const useShare: typeof import('@vueuse/core').useShare
   const useSimilarPostsQuery: typeof import('./composables/useSimilarPostsQuery').useSimilarPostsQuery

@@ -2,6 +2,7 @@
 import { useMutation, useQueryClient } from '@tanstack/vue-query'
 import { computed } from 'vue'
 import { v2AutoCaption } from '@/api'
+import { queryKeys } from '@/shared/queryKeys'
 
 const props = defineProps<{
   postId: number
@@ -16,7 +17,7 @@ const mutation = useMutation({
   },
   onSuccess: () => {
     queryClient.invalidateQueries({
-      queryKey: ['post', id],
+      queryKey: queryKeys.post(id),
     })
   },
 })

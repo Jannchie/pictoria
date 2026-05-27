@@ -20,6 +20,8 @@ import torch
 from aesthetic_predictor_v2_5 import convert_v2_5_from_siglip
 from PIL import Image
 
+from ai.torch_runtime import DEVICE, DTYPE, to_rgb
+
 if TYPE_CHECKING:
     from collections.abc import Sequence
 
@@ -30,8 +32,6 @@ if TYPE_CHECKING:
 
 
 SCORER_NAME = "siglip-v2-5"
-_device = "cuda" if torch.cuda.is_available() else "cpu"
-_dtype = torch.bfloat16 if _device == "cuda" else torch.float32
 
 
 @cache
@@ -40,16 +40,12 @@ def _load() -> tuple[AestheticPredictorV2_5Model, AestheticPredictorV2_5Processo
         low_cpu_mem_usage=True,
         trust_remote_code=True,
     )
-    model = model.to(dtype=_dtype, device=_device)
+    model = model.to(dtype=DTYPE, device=DEVICE)
     model.eval()
     return model, processor
 
 
 ImageInput = Image.Image | Path | str
-
-
-def _to_rgb(img: Image.Image) -> Image.Image:
-    return img if img.mode == "RGB" else img.convert("RGB")
 
 
 def score_images(inputs: Sequence[ImageInput]) -> list[float]:
@@ -62,12 +58,12 @@ def score_images(inputs: Sequence[ImageInput]) -> list[float]:
     try:
         for src in inputs:
             if isinstance(src, (str, Path)):
-                opened.append((_to_rgb(Image.open(src)), True))
+                opened.append((to_rgb(Image.open(src)), True))
             else:
-                opened.append((_to_rgb(src), False))
+                opened.append((to_rgb(src), False))
         images = [img for img, _ in opened]
         batch = processor(images=images, return_tensors="pt")
-        pixel_values = batch.pixel_values.to(dtype=_dtype, device=_device)
+        pixel_values = batch.pixel_values.to(dtype=DTYPE, device=DEVICE)
         with torch.inference_mode():
             logits = model(pixel_values).logits
         return logits.squeeze(-1).float().cpu().tolist()

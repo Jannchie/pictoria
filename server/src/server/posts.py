@@ -1,25 +1,20 @@
 import asyncio
-import io
-import shutil
 from dataclasses import dataclass
 from typing import Annotated, ClassVar, Generic, TypeVar
 
-import httpx
 import litestar
 from litestar import Controller
 from litestar.datastructures import UploadFile
 from litestar.enums import RequestEncodingType
-from litestar.exceptions import HTTPException
 from litestar.params import Body
 from msgspec import Meta, Struct
 from PIL import Image
 from pydantic import BaseModel, ConfigDict
 
-import shared
 from db.filters import PostFilter, PostFilterWithOrder
 from db.queries.post_query import PostQueryService
 from db.repositories.posts import PostRepo
-from db.repositories.tags import TagGroupRepo, TagRepo
+from db.repositories.tags import TagRepo
 from db.repositories.vectors import VectorRepo
 from scheme import DTOBaseModel, PostDetailPublic, PostHasColorPublic
 from server.exceptions import (
@@ -28,8 +23,9 @@ from server.exceptions import (
     TagAlreadyExistsError,
     TagNotOnPostError,
 )
+from services.intake import UploadIntake
 from shared import MAX_POST_RATING, MAX_POST_SCORE
-from utils import calculate_arthash, calculate_sha256, create_thumbnail_by_image, get_path_name_and_extension
+from utils import calculate_arthash, calculate_sha256, create_thumbnail_by_image
 
 
 class TextSearchRequest(PostFilter):
@@ -317,50 +313,7 @@ class PostController(Controller):
     @litestar.post("/upload", tags=["Upload"])
     async def upload_file(
         self,
-        posts: PostRepo,
-        vectors: VectorRepo,
-        tag_group_repo: TagGroupRepo,
+        upload_intake: UploadIntake,
         data: Annotated[UploadFormData, Body(media_type=RequestEncodingType.MULTI_PART)],
     ) -> None:
-        path = data.path
-        url = data.url
-        file = data.file
-        source = data.source or "unknown"
-        if data.file is None and data.url is None:
-            raise HTTPException(status_code=400, detail="Either file or url must be provided")
-        if data.file is None:
-            headers = {
-                "user-agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/127.0.0.0 Safari/537.36",
-            }
-            if data.url and "pximg.net" in data.url:
-                headers["referer"] = "https://www.pixiv.net/"
-            async with httpx.AsyncClient() as client:
-                resp = await client.get(data.url, headers=headers)
-            file_io = io.BytesIO(resp.content)
-        else:
-            file_io = file.file
-
-        if not path and file is not None and file.filename:
-            path = file.filename
-        elif path and file is not None and file.filename:
-            path = f"{path}/{file.filename}"
-        else:
-            path = path or (url.split("/")[-1] if url else "")
-
-        abs_path = shared.target_dir / path
-        abs_path.parent.mkdir(parents=True, exist_ok=True)
-        file_path, file_name, file_ext = get_path_name_and_extension(abs_path)
-        if abs_path.exists():
-            raise HTTPException(status_code=400, detail="File already exists")
-
-        await posts.create(
-            file_path=file_path,
-            file_name=file_name,
-            extension=file_ext,
-            source=source,
-        )
-        with abs_path.open("wb") as f:
-            await asyncio.to_thread(shutil.copyfileobj, file_io, f)
-        from processors import process_post  # noqa: PLC0415  # lazy: defer ML stack load until first use
-
-        await process_post(posts, vectors, tag_group_repo, abs_path)
+        await upload_intake.store(file=data.file, url=data.url, path=data.path, source=data.source)

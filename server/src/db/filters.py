@@ -97,6 +97,27 @@ WAIFU_SCORE_BUCKETS: dict[str, tuple[float, float]] = {
 WAIFU_SCORE_BUCKET_UNSCORED = "UNSCORED"
 
 
+def waifu_bucket_case_sql(score_col: str = "pws.score", null_col: str = "pws.post_id") -> str:
+    """Build the ``CASE`` that labels a row's waifu bucket from the boundaries above.
+
+    Both the bucket *filter* (``build_where`` ``waifu_score_levels``) and the bucket
+    *aggregation* (``count_by_waifu_bucket``) read the same ``WAIFU_SCORE_BUCKETS``,
+    so the S/A/B/C/D edges live in exactly one place. Labels and bounds come from
+    that trusted constant only — no caller input reaches this string.
+    """
+    # Highest lower-bound first; the lowest bucket falls through to ELSE.
+    ordered = sorted(WAIFU_SCORE_BUCKETS.items(), key=lambda kv: kv[1][0], reverse=True)
+    *above, (lowest_label, _) = ordered
+    whens = "\n".join(f"WHEN {score_col} >= {lo} THEN '{label}'" for label, (lo, _hi) in above)
+    return (
+        "CASE\n"
+        f"WHEN {null_col} IS NULL THEN '{WAIFU_SCORE_BUCKET_UNSCORED}'\n"
+        f"{whens}\n"
+        f"ELSE '{lowest_label}'\n"
+        "END"
+    )
+
+
 def build_where(f: PostFilter) -> tuple[list[str], list[Any], list[str]]:  # noqa: C901, PLR0912
     """Translate a ``PostFilter`` into ``(where_clauses, params, joins)``.
 

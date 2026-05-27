@@ -121,12 +121,6 @@ class PostHasColor(_Entity):
     color: int
 
 
-# ---------- post_vectors --------------------------------------------
-class PostVector(_Entity):
-    post_id: int
-    embedding: list[float]
-
-
 # ---------- post_waifu_scores ---------------------------------------
 class PostWaifuScore(_Entity):
     post_id: int

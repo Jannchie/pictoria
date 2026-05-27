@@ -39,13 +39,28 @@ export default defineConfig({
         // Split heavy third-party deps out of the entry chunk so the initial
         // payload only ships what the gallery shell needs. Route-level
         // dynamic imports already give each view its own chunk; this carves
-        // off the vendor weight that they all share.
-        manualChunks: {
-          'vendor-vue': ['vue', 'vue-router'],
-          'vendor-query': ['@tanstack/vue-query'],
-          'vendor-color': ['culori'],
-          'vendor-vueuse': ['@vueuse/core', '@vueuse/math'],
-          'vendor-waterfall': ['vue-wf'],
+        // off the vendor weight that they all share. Function form (not the
+        // object map) because Vite 8's rolldown bundler only accepts a
+        // splitter function for `output.manualChunks`.
+        manualChunks: (id: string) => {
+          if (!id.includes('node_modules')) {
+            return
+          }
+          if (id.includes('@tanstack/vue-query')) {
+            return 'vendor-query'
+          }
+          if (id.includes('@vueuse/')) {
+            return 'vendor-vueuse'
+          }
+          if (id.includes('culori')) {
+            return 'vendor-color'
+          }
+          if (id.includes('vue-wf')) {
+            return 'vendor-waterfall'
+          }
+          if (id.includes('/vue-router/') || id.includes('/@vue/') || id.includes('/vue/')) {
+            return 'vendor-vue'
+          }
         },
       },
     },

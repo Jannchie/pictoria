@@ -14,7 +14,6 @@ from pydantic import BaseModel
 
 if TYPE_CHECKING:
     import sqlite3
-    from collections.abc import Iterable
 
 T = TypeVar("T", bound=BaseModel)
 
@@ -56,12 +55,3 @@ def fetch_one_dict(cur: sqlite3.Cursor) -> dict | None:
         return None
     cols = _column_names(cur)
     return dict(zip(cols, row, strict=False))
-
-
-def rows_to_models(
-    rows: Iterable[tuple],
-    columns: list[str],
-    model_cls: type[T],
-) -> list[T]:
-    """Convert pre-fetched rows + known column names to entity models."""
-    return [model_cls.model_validate(dict(zip(columns, row, strict=False))) for row in rows]

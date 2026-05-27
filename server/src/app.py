@@ -4,7 +4,6 @@ import os
 import pathlib
 import re
 import tomllib
-from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
 
 import pillow_avif  # noqa: F401
@@ -13,7 +12,6 @@ from litestar import Litestar, Router
 from litestar.config.compression import CompressionConfig
 from litestar.config.cors import CORSConfig
 from litestar.connection import Request
-from litestar.datastructures import State
 from litestar.handlers.http_handlers import HTTPRouteHandler
 from litestar.openapi import OpenAPIConfig
 from litestar.openapi.plugins import ScalarRenderPlugin
@@ -25,13 +23,9 @@ from rich import get_console
 import shared
 from danbooru import DanbooruClient
 from db import DB, run_migrations
-from db.queries.post_query import PostQueryService
-from db.repositories.posts import PostRepo
-from db.repositories.scores import ScoreRepo
-from db.repositories.tags import TagGroupRepo, TagRepo
-from db.repositories.vectors import VectorRepo
 from server.commands import CommandController, ensure_canonical_tag_groups_sync
-from server.exceptions import DomainError
+from server.dependencies import REQUEST_DEPENDENCIES
+from server.exceptions import DomainError, domain_error_handler
 from server.folders import FoldersController
 from server.images import ImageController
 from server.posts import PostController
@@ -232,54 +226,6 @@ def _spawn_backfill_poller(app: Litestar, db: DB) -> None:
         logger.exception("Failed to start filesystem watcher; falling back to polling only")
 
 
-async def provide_post_repo(state: State) -> AsyncGenerator[PostRepo, None]:
-    cur = state.db.cursor()
-    try:
-        yield PostRepo(cur)
-    finally:
-        cur.close()
-
-
-async def provide_tag_repo(state: State) -> AsyncGenerator[TagRepo, None]:
-    cur = state.db.cursor()
-    try:
-        yield TagRepo(cur)
-    finally:
-        cur.close()
-
-
-async def provide_tag_group_repo(state: State) -> AsyncGenerator[TagGroupRepo, None]:
-    cur = state.db.cursor()
-    try:
-        yield TagGroupRepo(cur)
-    finally:
-        cur.close()
-
-
-async def provide_vector_repo(state: State) -> AsyncGenerator[VectorRepo, None]:
-    cur = state.db.cursor()
-    try:
-        yield VectorRepo(cur, table="post_vectors_siglip2", dim=1152)
-    finally:
-        cur.close()
-
-
-async def provide_post_query(state: State) -> AsyncGenerator[PostQueryService, None]:
-    cur = state.db.cursor()
-    try:
-        yield PostQueryService(cur)
-    finally:
-        cur.close()
-
-
-async def provide_score_repo(state: State) -> AsyncGenerator[ScoreRepo, None]:
-    cur = state.db.cursor()
-    try:
-        yield ScoreRepo(cur)
-    finally:
-        cur.close()
-
-
 v2 = Router(
     path="/v2",
     route_handlers=[PostController, CommandController, ImageController, TagsController, FoldersController, StatisticsController],
@@ -310,25 +256,9 @@ async def log_unhandled_exception(exc: Exception, scope: Scope) -> None:
     )
 
 
-def domain_error_handler(_request: Request, exc: DomainError):
-    from litestar.response import Response  # noqa: PLC0415
-
-    return Response(
-        content={"detail": exc.detail, "error": type(exc).__name__},
-        status_code=exc.status_code,
-    )
-
-
 app = Litestar(
     [v2],
-    dependencies={
-        "posts": provide_post_repo,
-        "post_query": provide_post_query,
-        "tag_repo": provide_tag_repo,
-        "tag_group_repo": provide_tag_group_repo,
-        "vectors": provide_vector_repo,
-        "scores": provide_score_repo,
-    },
+    dependencies=REQUEST_DEPENDENCIES,
     lifespan=[my_lifespan],
     debug=True,
     logging_config=None,

@@ -8,7 +8,7 @@ import { onBeforeRouteLeave, useRoute, useRouter } from 'vue-router'
 import { Waterfall } from 'vue-wf'
 import { v2DeletePosts, v2SearchPostsByText } from '@/api'
 import { useRotateImageMutation } from '@/composables/mutations/useRotateImageMutation'
-import { currentPostList, galleryScrollPositions, patchPostsInListCache, postFilter, selectedPostIdSet, showPostDetail, textSearchQuery, updateScoreForSelectedPosts, useInfinityPostsQuery, waterfallRowCount } from '@/shared'
+import { currentPostList, galleryScrollPositions, patchPostsInListCache, postFilter, queryKeys, selectedPostIdSet, showPostDetail, textSearchQuery, updateScoreForSelectedPosts, useInfinityPostsQuery, waterfallRowCount } from '@/shared'
 import { isImageExtension } from '@/utils'
 
 const route = useRoute()
@@ -18,7 +18,7 @@ const debouncedTextSearch = refDebounced(textSearchQuery, 400)
 const textSearchPrompt = computed(() => debouncedTextSearch.value.trim())
 const isTextSearchActive = computed(() => textSearchPrompt.value.length > 0)
 const textSearchQueryResult = useQuery({
-  queryKey: computed(() => ['textSearch', textSearchPrompt.value, postFilter.value]),
+  queryKey: computed(() => queryKeys.textSearch(textSearchPrompt.value, postFilter.value)),
   queryFn: async () => {
     if (!textSearchPrompt.value) {
       return []
@@ -419,10 +419,10 @@ async function deleteSelectingPosts() {
       },
     })
   }
-  queryClient.invalidateQueries({ queryKey: ['posts'] })
-  queryClient.invalidateQueries({ queryKey: ['count', 'score'] })
-  queryClient.invalidateQueries({ queryKey: ['count', 'rating'] })
-  queryClient.invalidateQueries({ queryKey: ['count', 'extension'] })
+  queryClient.invalidateQueries({ queryKey: queryKeys.postsRoot })
+  queryClient.invalidateQueries({ queryKey: queryKeys.countRoot('score') })
+  queryClient.invalidateQueries({ queryKey: queryKeys.countRoot('rating') })
+  queryClient.invalidateQueries({ queryKey: queryKeys.countRoot('extension') })
 }
 
 const rotateImageMutation = useRotateImageMutation()

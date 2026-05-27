@@ -22,7 +22,7 @@ from typing import TYPE_CHECKING, Any
 import sqlite_vec
 
 from db.entities import POST_COLUMNS
-from db.filters import GROUPABLE_COLUMNS, ORDERABLE_COLUMNS, PostFilter, PostFilterWithOrder, build_where
+from db.filters import GROUPABLE_COLUMNS, ORDERABLE_COLUMNS, PostFilter, PostFilterWithOrder, build_where, waifu_bucket_case_sql
 from db.helpers import fetch_all_dicts, fetch_one_dict
 from db.repositories.colors import ColorRepo
 from db.repositories.scores import ScoreRepo
@@ -357,14 +357,7 @@ class PostQueryService:
             self.cur.execute(
                 f"""
                 SELECT
-                    CASE
-                        WHEN pws.post_id IS NULL THEN 'UNSCORED'
-                        WHEN pws.score >= 8 THEN 'S'
-                        WHEN pws.score >= 6 THEN 'A'
-                        WHEN pws.score >= 4 THEN 'B'
-                        WHEN pws.score >= 2 THEN 'C'
-                        ELSE 'D'
-                    END AS bucket,
+                    {waifu_bucket_case_sql()} AS bucket,
                     count(*) AS count
                 FROM posts p
                 {joins_sql}

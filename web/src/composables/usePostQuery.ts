@@ -1,6 +1,7 @@
 import type { MaybeRef } from 'vue'
 import { useQuery } from '@tanstack/vue-query'
 import { v2GetPost } from '@/api'
+import { queryKeys } from '@/shared/queryKeys'
 
 function isValidId(value: number | undefined): value is number {
   return value !== undefined && Number.isFinite(value)
@@ -9,7 +10,7 @@ function isValidId(value: number | undefined): value is number {
 export function usePostQuery(id: MaybeRef<number | undefined>) {
   return useQuery(
     {
-      queryKey: ['post', id],
+      queryKey: queryKeys.post(id),
       queryFn: async () => {
         const post_id = unref(id)
         if (!isValidId(post_id)) {

@@ -2,9 +2,10 @@
 import type { TagWithCountPublic } from '@/api'
 import { useQuery } from '@tanstack/vue-query'
 import { v2ListTags } from '@/api'
+import { queryKeys } from '@/shared/queryKeys'
 
 const tagQuery = useQuery({
-  queryKey: ['tags'],
+  queryKey: queryKeys.tags,
   queryFn: async () => {
     const resp = await v2ListTags({})
     if (resp.error) {

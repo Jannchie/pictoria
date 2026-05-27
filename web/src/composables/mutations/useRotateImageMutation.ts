@@ -1,5 +1,6 @@
 import { useMutation, useQueryClient } from '@tanstack/vue-query'
 import { v2RotatePostImage } from '@/api'
+import { queryKeys } from '@/shared/queryKeys'
 
 export function useRotateImageMutation() {
   const queryClient = useQueryClient()
@@ -17,8 +18,8 @@ export function useRotateImageMutation() {
       return postId
     },
     onSuccess: (postId: number) => {
-      queryClient.invalidateQueries({ queryKey: ['post', postId] })
-      queryClient.invalidateQueries({ queryKey: ['posts'] })
+      queryClient.invalidateQueries({ queryKey: queryKeys.post(postId) })
+      queryClient.invalidateQueries({ queryKey: queryKeys.postsRoot })
     },
   })
 }
