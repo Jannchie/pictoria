@@ -226,6 +226,7 @@ export type PostSimplePublic = {
     arthash?: string | null;
     colors: Array<PostHasColorPublic>;
     sha256: string;
+    matchProb?: number | null;
 };
 
 /**

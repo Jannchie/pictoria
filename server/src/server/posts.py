@@ -1,4 +1,5 @@
 import asyncio
+import math
 from dataclasses import dataclass
 from typing import Annotated, ClassVar, Generic, TypeVar
 
@@ -100,6 +101,10 @@ class PostSimplePublic(DTOBaseModel):
     arthash: str | None = None
     colors: list[PostHasColorPublic]
     sha256: str
+    # Populated only by /posts/search/text: SigLIP's official scoring is
+    # `sigmoid(logit_scale.exp() * cos(t,i) + logit_bias)` — independent
+    # per-pair probability that this image matches the text query.
+    match_prob: float | None = None
 
 
 class PostController(Controller):
@@ -131,10 +136,22 @@ class PostController(Controller):
         prompt = data.query.strip()
         if not prompt:
             return []
-        from server.utils.vec import get_text_vec  # noqa: PLC0415  # lazy: defer ML stack load until first use
+        # Lazy imports: defer the ML stack load until the first text search.
+        from ai.siglip_embed import get_logit_scale_bias  # noqa: PLC0415
+        from server.utils.vec import get_text_vec  # noqa: PLC0415
 
         vec = await get_text_vec(prompt)
         rows = await post_query.search_by_text_vector(vec, data, limit=limit)
+        # SigLIP's official scoring: sigmoid(scale * cos + bias). Embeddings
+        # are L2-normalised at the source (ai/siglip_embed.py), so vec0's
+        # cosine distance is exactly (1 - cos) and we recover cos directly.
+        scale, bias = await asyncio.to_thread(get_logit_scale_bias)
+        for r in rows:
+            dist = r.pop("_knn_distance", None)
+            if dist is None:
+                continue
+            cos = 1.0 - float(dist)
+            r["match_prob"] = 1.0 / (1.0 + math.exp(-(scale * cos + bias)))
         return [PostSimplePublic.model_validate(r) for r in rows]
 
     @litestar.get("/", status_code=200, description="Get all posts.")

@@ -293,7 +293,8 @@ class PostQueryService:
             sql = f"""
                 SELECT p.id, p.file_path, p.file_name, p.extension, p.rating,
                        p.score, p.size, p.width, p.height, p.aspect_ratio,
-                       p.dominant_color, p.arthash, p.sha256
+                       p.dominant_color, p.arthash, p.sha256,
+                       knn.distance AS _knn_distance
                 FROM (SELECT post_id, distance FROM post_vectors_siglip2
                       WHERE embedding MATCH ? AND k = ?) AS knn
                 JOIN posts p ON p.id = knn.post_id

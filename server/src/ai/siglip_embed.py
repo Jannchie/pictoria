@@ -16,6 +16,7 @@ from functools import cache
 from pathlib import Path
 
 import torch
+import torch.nn.functional as F  # noqa: N812
 from PIL import Image
 from transformers import AutoModel, AutoProcessor
 
@@ -54,7 +55,12 @@ def calculate_image_features(image: ImageInput) -> torch.Tensor:
     with torch.inference_mode():
         # .float(): the model runs in bf16 but bf16 tensors can't go through
         # numpy() downstream, so match ai.clip's float32 output contract.
-        return model.get_image_features(pixel_values=pixel_values).float()
+        # F.normalize: SigLIP's recipe is `sigmoid(scale * (x_norm @ y_norm.T) + bias)`,
+        # so the embeddings we store / compare should be L2-normalised. The vec0 cosine
+        # metric makes ranking scale-invariant, but normalising at the source keeps the
+        # raw cosine in `[-1, 1]` for the sigmoid step in the search layer.
+        features = model.get_image_features(pixel_values=pixel_values).float()
+        return F.normalize(features, p=2, dim=-1)
 
 
 def calculate_image_features_batch(images: Sequence[ImageInput]) -> torch.Tensor:
@@ -72,7 +78,8 @@ def calculate_image_features_batch(images: Sequence[ImageInput]) -> torch.Tensor
         pixel_values = inputs.pixel_values.to(dtype=DTYPE)
         with torch.inference_mode():
             # .float(): see calculate_image_features — bf16 can't go to numpy.
-            return model.get_image_features(pixel_values=pixel_values).float()
+            features = model.get_image_features(pixel_values=pixel_values).float()
+            return F.normalize(features, p=2, dim=-1)
     finally:
         _close_opened(pil_images, images)
 
@@ -96,4 +103,20 @@ def calculate_text_features(text: str | list[str]) -> torch.Tensor:
     inputs = processor(text=text, return_tensors="pt", padding="max_length").to(DEVICE)
     with torch.inference_mode():
         # .float(): see calculate_image_features — bf16 can't go to numpy.
-        return model.get_text_features(**inputs).float()
+        features = model.get_text_features(**inputs).float()
+        return F.normalize(features, p=2, dim=-1)
+
+
+@cache
+def get_logit_scale_bias() -> tuple[float, float]:
+    """SigLIP's learned scale/bias for the official sigmoid scoring recipe.
+
+    The paper / model card scores a (text, image) pair as
+    ``sigmoid(logit_scale.exp() * (text_norm @ image_norm.T) + logit_bias)``.
+    Cached as plain Python floats so retrieval code can apply the sigmoid
+    without re-touching torch on every request.
+    """
+    model = get_model()
+    scale = float(model.logit_scale.exp().item())
+    bias = float(model.logit_bias.item())
+    return scale, bias

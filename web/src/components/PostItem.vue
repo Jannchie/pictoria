@@ -207,6 +207,12 @@ function onContextmenu(e: MouseEvent) {
           :fancy="enableFancyPlaceholder"
           class="rounded-lg"
         />
+        <div
+          v-if="post.matchProb != null"
+          class="text-10px text-white tracking-wide font-bold font-mono px-1.5 py-0.5 rounded bg-black/60 pointer-events-none right-1.5 top-1.5 absolute"
+        >
+          {{ (post.matchProb * 100).toFixed(1) }}%
+        </div>
       </div>
     </PAspectRatio>
     <PAspectRatio
