@@ -53,8 +53,6 @@ const folderTree = computed<TreeListItemData[]>(() => {
   ]
 })
 
-// Ancestor chain of the active folder — TreeList draws the matching guide
-// line in primary tint so the user can see where they are inside the tree.
 const highlightChain = computed(() => {
   const path = currentFolder.value
   if (!path || path === '@') {
@@ -70,12 +68,8 @@ const highlightChain = computed(() => {
   return chain
 })
 
-// Persisted open set lives in component state so manual expand/collapse
-// survives data refetches (the old impl mutated input items and lost state).
 const openPaths = ref(new Set<string>())
 
-// Whenever the current route's folder changes, open its ancestors so the
-// selected row is always visible without forcing every other branch open.
 watch(currentFolder, (path) => {
   if (!path) {
     return
@@ -94,9 +88,6 @@ watch(currentFolder, (path) => {
 
 const numberFormater = new Intl.NumberFormat('en-US')
 
-// Right-click on a folder row — fills menuData which the FloatWindow opens
-// at the cursor position. The window-level showMenu state already lived in
-// shared/.
 const contextTarget = ref<TreeListLeafData | TreeListCollapseData | null>(null)
 function onItemContext({ data }: { data: TreeListLeafData | TreeListCollapseData, event: MouseEvent }) {
   contextTarget.value = data
@@ -147,12 +138,22 @@ function splitHighlight(text: string, filter: string): HighlightPart[] {
 </script>
 
 <template>
+  <a
+    href="#main-content"
+    class="text-fg px-3 py-2 rounded bg-primary sr-only focus:left-2 focus:top-2 focus:absolute focus:z-9999 focus:not-sr-only"
+  >
+    Skip to main content
+  </a>
   <DropOverlay />
   <div
     class="text-fg bg-bg flex flex-col h-100vh w-100vw select-none overflow-hidden"
   >
     <FloatWindow v-model="showMenu">
-      <div class="text-sm border border-border-default rounded-lg bg-surface min-w-44 shadow-lg overflow-hidden">
+      <div
+        role="menu"
+        :aria-label="contextTarget?.title"
+        class="text-sm border border-border-default rounded-lg bg-surface min-w-44 shadow-lg overflow-hidden"
+      >
         <div class="text-xs text-fg-subtle tracking-wide font-semibold px-3 py-2 border-b border-border-subtle uppercase">
           <span class="max-w-60 block truncate">{{ contextTarget?.title ?? '操作' }}</span>
         </div>
@@ -194,6 +195,9 @@ function splitHighlight(text: string, filter: string): HighlightPart[] {
           <img
             src="/Pictoria.svg"
             alt=""
+            aria-hidden="true"
+            width="20"
+            height="20"
             class="h-5 w-5"
           >
           <span>Pictoria</span>
@@ -203,19 +207,27 @@ function splitHighlight(text: string, filter: string): HighlightPart[] {
         </div>
         <div class="px-2 pb-2">
           <div class="relative">
-            <i class="i-tabler-search text-fg-subtle h-3.5 w-3.5 left-2.5 top-1/2 absolute -translate-y-1/2" />
+            <i class="i-tabler-search text-fg-subtle h-3.5 w-3.5 left-2.5 top-1/2 absolute -translate-y-1/2" aria-hidden="true" />
+            <label for="folder-filter-input" class="sr-only">Filter folders</label>
             <input
+              id="folder-filter-input"
               v-model="folderFilter"
+              type="search"
+              name="folder-filter"
+              autocomplete="off"
+              spellcheck="false"
               placeholder="过滤目录…"
               class="text-sm text-fg pl-8 pr-7 outline-none border border-border-subtle rounded-md bg-surface h-8 w-full transition-colors focus:border-primary/50 hover:border-border-default focus:bg-bg"
               @keydown.escape="clearFilter"
             >
             <button
               v-if="folderFilter"
+              type="button"
+              aria-label="Clear filter"
               class="text-fg-subtle rounded flex h-5 w-5 transition-colors items-center right-1.5 top-1/2 justify-center absolute hover:text-fg hover:bg-surface-1 -translate-y-1/2"
               @click="clearFilter"
             >
-              <i class="i-tabler-x h-3.5 w-3.5" />
+              <i class="i-tabler-x h-3.5 w-3.5" aria-hidden="true" />
             </button>
           </div>
         </div>
@@ -232,64 +244,69 @@ function splitHighlight(text: string, filter: string): HighlightPart[] {
             @item-context="onItemContext"
           >
             <template #collapse="{ data, level, isOpen, isSelected, inChain, toggle }">
-              <RouterLink
-                :to="{ path: `/dir/${data.value}`, query: $route.query }"
-                tabindex="0"
-                :data-tree-value="data.value"
-                :title="data.value"
-                class="group/row text-sm pr-1 rounded-md flex gap-1.5 h-8 w-full cursor-pointer transition-colors items-center relative focus:outline-none focus-visible:ring-1 focus-visible:ring-primary/50 focus-visible:ring-inset"
-                :class="[
-                  isSelected ? 'text-fg bg-primary/10' : 'text-fg-muted hover:bg-surface-1 hover:text-fg',
-                ]"
-                :style="{ paddingLeft: `${16 + level * 14}px` }"
-                @contextmenu.prevent="onItemContext({ data, event: $event })"
-              >
-                <span
-                  v-for="i in level"
-                  :key="i"
-                  class="w-px pointer-events-none bottom-0 top-0 absolute"
+              <div class="relative">
+                <RouterLink
+                  :to="{ path: `/dir/${data.value}`, query: $route.query }"
+                  tabindex="0"
+                  :data-tree-value="data.value"
+                  :title="data.value"
+                  class="group/row text-sm pr-1 rounded-md flex gap-1.5 h-8 w-full cursor-pointer transition-colors items-center relative focus:outline-none focus-visible:ring-1 focus-visible:ring-primary/50 focus-visible:ring-inset"
                   :class="[
-                    inChain && i === level ? 'bg-primary/40' : 'bg-border-subtle',
+                    isSelected ? 'text-fg bg-primary/10' : 'text-fg-muted hover:bg-surface-1 hover:text-fg',
                   ]"
-                  :style="{ left: `${10 + (i - 1) * 14}px` }"
-                />
-                <span
-                  v-if="isSelected"
-                  class="rounded-r-full bg-primary w-[2px] pointer-events-none bottom-1.5 left-0 top-1.5 absolute"
-                />
+                  :style="{ paddingLeft: `${16 + level * 14}px` }"
+                  @contextmenu.prevent="onItemContext({ data, event: $event })"
+                >
+                  <span
+                    v-for="i in level"
+                    :key="i"
+                    class="w-px pointer-events-none bottom-0 top-0 absolute"
+                    :class="[
+                      inChain && i === level ? 'bg-primary/40' : 'bg-border-subtle',
+                    ]"
+                    :style="{ left: `${10 + (i - 1) * 14}px` }"
+                  />
+                  <span
+                    v-if="isSelected"
+                    class="rounded-r-full bg-primary w-[2px] pointer-events-none bottom-1.5 left-0 top-1.5 absolute"
+                  />
+                  <span aria-hidden="true" class="shrink-0 h-3.5 w-3.5 inline-block" />
+                  <span class="truncate">
+                    <template
+                      v-for="(part, i) in splitHighlight(data.title, folderFilter)"
+                      :key="i"
+                    >
+                      <mark
+                        v-if="part.match"
+                        class="text-fg px-0.5 rounded-sm bg-primary/30"
+                      >{{ part.text }}</mark>
+                      <template v-else>{{ part.text }}</template>
+                    </template>
+                  </span>
+                  <span
+                    class="text-[10px] font-mono ml-auto px-1.5 py-0.5 rounded shrink-0 transition-colors tabular-nums"
+                    :class="[
+                      isSelected ? 'bg-primary/15 text-primary' : 'text-fg-subtle group-hover/row:text-fg-muted',
+                    ]"
+                  >
+                    {{ numberFormater.format(data.count ?? 0) }}
+                  </span>
+                </RouterLink>
                 <button
                   type="button"
-                  class="text-fg-subtle rounded flex shrink-0 h-3.5 w-3.5 transition items-center justify-center hover:text-fg hover:bg-surface-2"
-                  :style="{ marginLeft: '-14px' }"
+                  class="text-fg-subtle rounded flex shrink-0 h-3.5 w-3.5 transition items-center top-1/2 justify-center absolute hover:text-fg focus-visible:outline-none hover:bg-surface-2 focus-visible:ring-1 focus-visible:ring-primary/50 -translate-y-1/2"
+                  :style="{ left: `${16 + level * 14 - 14}px` }"
                   :aria-label="isOpen ? '收起' : '展开'"
+                  :aria-expanded="isOpen"
                   @click.stop.prevent="toggle"
                 >
                   <i
                     class="i-tabler-chevron-down h-3 w-3 transition-transform"
                     :class="[isOpen ? 'rotate-0' : '-rotate-90']"
+                    aria-hidden="true"
                   />
                 </button>
-                <span class="truncate">
-                  <template
-                    v-for="(part, i) in splitHighlight(data.title, folderFilter)"
-                    :key="i"
-                  >
-                    <mark
-                      v-if="part.match"
-                      class="text-fg px-0.5 rounded-sm bg-primary/30"
-                    >{{ part.text }}</mark>
-                    <template v-else>{{ part.text }}</template>
-                  </template>
-                </span>
-                <span
-                  class="text-[10px] font-mono ml-auto px-1.5 py-0.5 rounded shrink-0 transition-colors tabular-nums"
-                  :class="[
-                    isSelected ? 'bg-primary/15 text-primary' : 'text-fg-subtle group-hover/row:text-fg-muted',
-                  ]"
-                >
-                  {{ numberFormater.format(data.count ?? 0) }}
-                </span>
-              </RouterLink>
+              </div>
             </template>
             <template #link="{ data, level, isSelected, inChain }">
               <RouterLink
@@ -319,6 +336,7 @@ function splitHighlight(text: string, filter: string): HighlightPart[] {
                 />
                 <i
                   v-if="data.icon"
+                  aria-hidden="true"
                   class="shrink-0 h-3.5 w-3.5"
                   :class="[data.icon as string]"
                 />
@@ -348,16 +366,22 @@ function splitHighlight(text: string, filter: string): HighlightPart[] {
           </TreeList>
         </ScrollArea>
         <div class="p-2 border-t border-border-subtle">
-          <ListItem
-            icon="i-tabler-settings"
-            :active="$route.path === '/settings'"
-            title="Settings"
-            @click="$router.push('/settings')"
-          />
+          <RouterLink
+            to="/settings"
+            class="rounded block focus:outline-none focus-visible:ring-1 focus-visible:ring-primary/50"
+          >
+            <ListItem
+              icon="i-tabler-settings"
+              :active="$route.path === '/settings'"
+              title="Settings"
+            />
+          </RouterLink>
         </div>
       </Pane>
       <Pane class="relative">
-        <RouterView />
+        <main id="main-content" class="h-full">
+          <RouterView />
+        </main>
       </Pane>
       <Pane
         :min-size="12"
@@ -365,16 +389,15 @@ function splitHighlight(text: string, filter: string): HighlightPart[] {
         :max-size="36"
         class="p-1 border-l border-border-default min-w-64"
       >
-        <RightPanel />
+        <aside aria-label="Details" class="h-full">
+          <RightPanel />
+        </aside>
       </Pane>
     </Splitpanes>
     <BottomBar />
   </div>
 </template>
 
-<!-- splitpanes overrides must be global: the third-party component's internal
-     class names (.splitpanes__splitter, .splitpanes__pane) live outside this
-     component's scope, so scoped selectors cannot reach them. -->
 <style>
 .splitpanes__splitter:hover:before {
   opacity: 1;

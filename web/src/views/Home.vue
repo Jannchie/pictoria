@@ -1,29 +1,7 @@
 <script setup lang="ts">
-import { useQueryClient } from '@tanstack/vue-query'
-import { v2DeletePosts } from '@/api'
-import { queryKeys, selectedPostIdSet, showPostDetail, waterfallRowCount } from '@/shared'
+import { showPostDetail, waterfallRowCount } from '@/shared'
 import PostDetail from '../components/PostDetail.vue'
 import 'splitpanes/dist/splitpanes.css'
-
-const queryClient = useQueryClient()
-
-async function deleteSelectingPosts() {
-  for (const post_id of selectedPostIdSet.value) {
-    if (post_id === undefined) {
-      continue
-    }
-    await v2DeletePosts({
-      query: {
-        ids: [post_id],
-      },
-    })
-  }
-  queryClient.invalidateQueries({ queryKey: queryKeys.postsRoot })
-  queryClient.invalidateQueries({ queryKey: queryKeys.countRoot('score') })
-  queryClient.invalidateQueries({ queryKey: queryKeys.countRoot('rating') })
-  queryClient.invalidateQueries({ queryKey: queryKeys.countRoot('extension') })
-}
-onKeyStroke('Delete', deleteSelectingPosts)
 
 useEventListener('wheel', (event) => {
   if (event.ctrlKey) {
@@ -42,7 +20,7 @@ useEventListener('wheel', (event) => {
     <header class="flex shrink-0 flex-col">
       <div class="px-2 pt-1 flex shrink-0 h-8 items-center justify-center">
         <div class="text-fg-subtle flex gap-2 w-40 items-center">
-          <i class="i-tabler-grid-dots text-sm shrink-0" />
+          <i class="i-tabler-grid-dots text-sm shrink-0" aria-hidden="true" />
           <Slider
             v-model="waterfallRowCount"
             size="sm"
@@ -51,6 +29,8 @@ useEventListener('wheel', (event) => {
             :min-width="0"
             :tick-num="0"
             reverse
+            aria-label="Gallery columns"
+            :aria-valuetext="`${waterfallRowCount} columns`"
           />
         </div>
       </div>

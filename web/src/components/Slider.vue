@@ -15,6 +15,10 @@ const props = withDefaults(
     color?: 'primary' | 'secondary' | 'tertiary' | 'error'
     minWidth?: number
     reverse?: boolean
+    ariaLabel?: string
+    ariaLabelledby?: string
+    ariaValuetext?: string
+    disabled?: boolean
   }>(),
   {
     size: 'md',
@@ -150,10 +154,63 @@ watchEffect(() => {
 })
 
 function pointDownEventCallback(event: PointerEvent) {
+  if (props.disabled) {
+    return
+  }
   event.preventDefault()
   event.stopPropagation()
   isMoving.value = true
   pointEventCallback(event)
+}
+
+function stepBy(delta: number) {
+  if (props.disabled) {
+    return
+  }
+  const next = Math.max(0, Math.min(length.value - 1, currentIndex.value + delta))
+  currentIndex.value = next
+}
+
+function onKeyDown(e: KeyboardEvent) {
+  if (props.disabled) {
+    return
+  }
+  const dir = props.reverse ? -1 : 1
+  const big = Math.max(1, Math.floor((length.value - 1) / 10))
+  switch (e.key) {
+    case 'ArrowLeft':
+    case 'ArrowDown': {
+      e.preventDefault()
+      stepBy(-1 * dir)
+      break
+    }
+    case 'ArrowRight':
+    case 'ArrowUp': {
+      e.preventDefault()
+      stepBy(1 * dir)
+      break
+    }
+    case 'PageDown': {
+      e.preventDefault()
+      stepBy(-big * dir)
+      break
+    }
+    case 'PageUp': {
+      e.preventDefault()
+      stepBy(big * dir)
+      break
+    }
+    case 'Home': {
+      e.preventDefault()
+      currentIndex.value = props.reverse ? length.value - 1 : 0
+      break
+    }
+    case 'End': {
+      e.preventDefault()
+      currentIndex.value = props.reverse ? 0 : length.value - 1
+      break
+    }
+  }
 }
 
 useEventListener(wrapper, 'pointerdown', pointDownEventCallback)
@@ -220,7 +277,7 @@ const animateCls = computed(() => props.animate
       @touchmove.prevent
     >
       <div
-        class="rounded-full bg-surface-1 w-full transition-background-color,border-color,color"
+        class="rounded-full bg-surface-1 w-full transition-colors"
         :class="sizeCls.innerWrapper"
       >
         <div
@@ -242,7 +299,17 @@ const animateCls = computed(() => props.animate
           />
           <div
             v-if="currentIndex !== -1"
-            class="rounded-full cursor-pointer transition-background-color,border-color,color top-50% absolute"
+            role="slider"
+            :tabindex="disabled ? -1 : 0"
+            :aria-label="ariaLabel"
+            :aria-labelledby="ariaLabelledby"
+            :aria-valuemin="Number(options[0] ?? 0)"
+            :aria-valuemax="Number(options[length - 1] ?? 0)"
+            :aria-valuenow="Number(options[currentIndex] ?? 0)"
+            :aria-valuetext="ariaValuetext"
+            aria-orientation="horizontal"
+            :aria-disabled="disabled || undefined"
+            class="rounded-full cursor-pointer transition-colors top-50% absolute focus:outline-none focus-visible:ring-2 focus-visible:ring-primary/60"
             :class="[sizeCls.indicator, animateCls.indicator, indicatorOuterCls]"
             :style="[
               `--i-bg: ${filledColor}`,
@@ -250,6 +317,7 @@ const animateCls = computed(() => props.animate
                 left: `${props.reverse ? 100 - (currentIndex / (length - 1)) * 100 : (currentIndex / (length - 1)) * 100}%`,
               },
             ]"
+            @keydown="onKeyDown"
           >
             <div
               class="rounded-full pointer-events-none left-50% top-50% absolute"
@@ -257,7 +325,7 @@ const animateCls = computed(() => props.animate
             />
           </div>
           <div
-            class="rounded-full h-full pointer-events-none"
+            class="rounded-full h-full pointer-events-none transition-colors"
             :class="[
               sizeCls.progress,
               animateCls.progress,

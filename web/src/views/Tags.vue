@@ -33,17 +33,15 @@ const tagGroupByFirstChar = computed(() => {
     if (index === -1) {
       resp.push([firstChar, [d]])
     }
-    else if (resp[index][1].length < 21) {
+    else {
       resp[index][1].push(d)
     }
   }
 
-  // Sort each group by count in descending order
   for (const group of resp) {
     group[1].sort((a, b) => b.count - a.count)
   }
 
-  // Sort the groups by first character in ascending order
   resp.sort((a, b) => a[0].localeCompare(b[0]))
 
   return resp
@@ -55,60 +53,84 @@ const tagGroupByFirstChar = computed(() => {
     <div class="px-4 py-3 border-b border-border-default bg-bg/85 top-0 sticky z-10 backdrop-blur">
       <PInput
         v-model="search"
-        placeholder="Search tags"
+        placeholder="Search tags…"
+        aria-label="Search tags"
         class="w-full"
       >
         <template #leftSection>
-          <i class="i-tabler-search text-fg-muted" />
+          <i class="i-tabler-search text-fg-muted" aria-hidden="true" />
         </template>
       </PInput>
     </div>
-    <div class="flex-1 overflow-hidden">
+    <div
+      v-if="tagQuery.isLoading.value"
+      role="status"
+      class="p-16 text-center op-50 flex flex-col gap-2 items-center"
+    >
+      <i class="i-tabler-loader text-2xl animate-spin" aria-hidden="true" />
+      <div class="text-sm">
+        Loading tags…
+      </div>
+    </div>
+    <div
+      v-else-if="tagQuery.error.value"
+      role="alert"
+      class="text-danger p-16 text-center op-80 flex flex-col gap-2 items-center"
+    >
+      <i class="i-tabler-alert-circle text-2xl" aria-hidden="true" />
+      <div class="text-sm">
+        Failed to load tags. Try refreshing the page.
+      </div>
+    </div>
+    <div
+      v-else-if="tagGroupByFirstChar.length === 0"
+      class="p-16 text-center op-50 flex flex-col gap-2 items-center"
+    >
+      <i class="i-tabler-mood-empty text-2xl" aria-hidden="true" />
+      <div class="text-sm">
+        No tags match “{{ search }}”.
+      </div>
+    </div>
+    <div v-else class="flex-1 overflow-hidden">
       <VirtualScroll
         :items="tagGroupByFirstChar"
         class="h-full"
       >
         <template #default="{ item }">
-          <div class="py-4 border-b border-border-subtle">
+          <section :aria-labelledby="`tag-group-${item[0]}`" class="py-4 border-b border-border-subtle">
             <div class="flex flex-col">
               <div class="mb-3 px-4 flex gap-2 items-baseline">
-                <span class="text-2xl tracking-tight font-semibold">
+                <h2
+                  :id="`tag-group-${item[0]}`"
+                  class="text-2xl tracking-tight font-semibold text-pretty"
+                  style="scroll-margin-top: 4rem;"
+                >
                   {{ item[0] }}
-                </span>
+                </h2>
                 <span class="text-sm text-fg-subtle tabular-nums">
                   {{ item[1].length }}
                 </span>
               </div>
-              <div class="px-4 flex flex-wrap gap-x-3 gap-y-2">
-                <template
-                  v-for="tag, i of item[1]"
+              <ul class="px-4 list-none flex flex-wrap gap-x-3 gap-y-2">
+                <li
+                  v-for="tag of item[1]"
                   :key="tag.name"
+                  class="flex gap-1.5 items-center"
                 >
-                  <div
-                    v-if="i === 20"
-                    class="text-xs text-fg-subtle px-2 self-center"
+                  <PostTag
+                    class="cursor-pointer"
+                    rounded="lg"
+                    :data="tag"
                   >
-                    …
-                  </div>
-                  <div
-                    v-else
-                    class="flex gap-1.5 items-center"
-                  >
-                    <PostTag
-                      class="cursor-pointer"
-                      rounded="lg"
-                      :data="tag"
-                    >
-                      {{ tag.name }}
-                    </PostTag>
-                    <span class="text-xs text-fg-subtle tabular-nums">
-                      {{ tag.count }}
-                    </span>
-                  </div>
-                </template>
-              </div>
+                    {{ tag.name }}
+                  </PostTag>
+                  <span class="text-xs text-fg-subtle tabular-nums">
+                    {{ tag.count }}
+                  </span>
+                </li>
+              </ul>
             </div>
-          </div>
+          </section>
         </template>
       </VirtualScroll>
     </div>

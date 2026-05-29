@@ -7,8 +7,10 @@ import { logicAnd } from '@vueuse/math'
 import { onBeforeRouteLeave, useRoute, useRouter } from 'vue-router'
 import { Waterfall } from 'vue-wf'
 import { v2DeletePosts, v2SearchPostsByText } from '@/api'
+import Dialog from '@/components/Dialog.vue'
 import { useRotateImageMutation } from '@/composables/mutations/useRotateImageMutation'
 import { currentPostList, galleryScrollPositions, patchPostsInListCache, postFilter, queryKeys, selectedPostIdSet, showPostDetail, textSearchQuery, updateScoreForSelectedPosts, useInfinityPostsQuery, waterfallRowCount } from '@/shared'
+import { POverlay } from '@/ui'
 import { isImageExtension } from '@/utils'
 
 const route = useRoute()
@@ -405,25 +407,62 @@ const menuData = computed<PMenuItem[]>(() => {
   ]
 })
 
-async function deleteSelectingPosts() {
-  const ids = [...selectedPostIdSet.value].filter(id => id !== undefined) as number[]
-  if (ids.length === 0) {
+const showDeleteConfirm = ref(false)
+const pendingDeleteCount = ref(0)
+const isDeleting = ref(false)
+
+function requestDelete() {
+  const count = [...selectedPostIdSet.value].filter(id => id !== undefined).length
+  if (count === 0) {
     return
   }
-  const batchSize = 100
-  for (let i = 0; i < ids.length; i += batchSize) {
-    const batch = ids.slice(i, i + batchSize)
-    await v2DeletePosts({
-      query: {
-        ids: batch,
-      },
-    })
-  }
-  queryClient.invalidateQueries({ queryKey: queryKeys.postsRoot })
-  queryClient.invalidateQueries({ queryKey: queryKeys.countRoot('score') })
-  queryClient.invalidateQueries({ queryKey: queryKeys.countRoot('rating') })
-  queryClient.invalidateQueries({ queryKey: queryKeys.countRoot('extension') })
+  pendingDeleteCount.value = count
+  showDeleteConfirm.value = true
 }
+
+async function confirmDelete() {
+  if (isDeleting.value) {
+    return
+  }
+  const ids = [...selectedPostIdSet.value].filter(id => id !== undefined) as number[]
+  if (ids.length === 0) {
+    showDeleteConfirm.value = false
+    return
+  }
+  isDeleting.value = true
+  try {
+    const batchSize = 100
+    for (let i = 0; i < ids.length; i += batchSize) {
+      const batch = ids.slice(i, i + batchSize)
+      await v2DeletePosts({
+        query: {
+          ids: batch,
+        },
+      })
+    }
+    queryClient.invalidateQueries({ queryKey: queryKeys.postsRoot })
+    queryClient.invalidateQueries({ queryKey: queryKeys.countRoot('score') })
+    queryClient.invalidateQueries({ queryKey: queryKeys.countRoot('rating') })
+    queryClient.invalidateQueries({ queryKey: queryKeys.countRoot('extension') })
+    selectedPostIdSet.value = new Set()
+  }
+  finally {
+    isDeleting.value = false
+    showDeleteConfirm.value = false
+  }
+}
+
+function cancelDelete() {
+  showDeleteConfirm.value = false
+}
+
+onKeyStroke('Delete', (e) => {
+  if (!canHandleGridKeys.value) {
+    return
+  }
+  e.preventDefault()
+  requestDelete()
+})
 
 const rotateImageMutation = useRotateImageMutation()
 function onMenuSelect(value: string | number | symbol) {
@@ -442,8 +481,8 @@ function onMenuSelect(value: string | number | symbol) {
         break
       }
       case 'delete': {
-        deleteSelectingPosts()
-        break
+        requestDelete()
+        return
       }
     }
   }
@@ -545,7 +584,7 @@ onMounted(() => {
         <div class="p-16 text-center op-50 flex flex-col gap-2 items-center">
           <i class="i-tabler-loader text-2xl animate-spin" />
           <div class="text-sm">
-            Loading posts...
+            Loading posts…
           </div>
         </div>
       </div>
@@ -593,5 +632,25 @@ onMounted(() => {
         </PButton>
       </div>
     </PMenu>
+    <POverlay
+      v-if="showDeleteConfirm"
+      class="flex items-center justify-center"
+      @click.self="cancelDelete"
+    >
+      <Dialog
+        title="Delete selected posts?"
+        :confirm-label="isDeleting ? 'Deleting…' : `Delete ${pendingDeleteCount}`"
+        cancel-label="Cancel"
+        variant="danger"
+        @confirm="confirmDelete"
+        @cancel="cancelDelete"
+      >
+        <p>
+          This will permanently delete
+          <span class="text-fg font-medium tabular-nums">{{ pendingDeleteCount }}</span>
+          post<span v-if="pendingDeleteCount !== 1">s</span>. This cannot be undone.
+        </p>
+      </Dialog>
+    </POverlay>
   </ScrollArea>
 </template>

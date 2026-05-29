@@ -40,8 +40,9 @@ const show = ref(false)
     >
       <PButton
         size="sm"
+        aria-label="Sort posts"
       >
-        <i class="i-tabler-arrows-sort" />
+        <i class="i-tabler-arrows-sort" aria-hidden="true" />
         <span
           v-if="!postSortColor"
           class="flex-grow"
@@ -65,17 +66,19 @@ const show = ref(false)
           <div class="flex flex-col gap-1">
             <div class="mt-1 p-2 border border-border-default rounded flex gap-2 items-center">
               <div class="flex-grow">
-                <div class="text-xs text-fg-subtle mb-1">
+                <label for="post-sort-color" class="text-xs text-fg-subtle mb-1 block">
                   Sort Color
-                </div>
+                </label>
                 <div class="flex gap-2 items-center">
                   <div
                     class="border border-border-default rounded h-6 w-6 overflow-hidden"
                     :style="{ backgroundColor: postSortColor || '#ffffff' }"
                   >
                     <input
+                      id="post-sort-color"
                       v-model="postSortColor"
                       type="color"
+                      aria-label="Sort color"
                       class="opacity-0 h-full w-full cursor-pointer"
                     >
                   </div>
@@ -88,9 +91,10 @@ const show = ref(false)
                 v-if="postSortColor"
                 icon
                 variant="ghost"
+                aria-label="Clear sort color"
                 @click="postSortColor = undefined"
               >
-                <i class="i-tabler-x" />
+                <i class="i-tabler-x" aria-hidden="true" />
               </PButton>
             </div>
             <div class="flex gap-1">
@@ -103,7 +107,7 @@ const show = ref(false)
                 :variant="postSortOrder === order.id && !postSortColor ? 'primary' : 'secondary'"
                 @click="postSortOrder = order.id; show = false"
               >
-                <i :class="order.icon" />
+                <i :class="order.icon" aria-hidden="true" />
                 <span class="flex-grow">
                   {{ order.label }}
                 </span>
@@ -118,7 +122,7 @@ const show = ref(false)
               :variant="postSort === option.id && !postSortColor ? 'primary' : 'secondary'"
               @click="postSort = option.id; show = false"
             >
-              <i :class="option.icon" />
+              <i :class="option.icon" aria-hidden="true" />
               <span class="flex-grow">
                 {{ option.label }}
               </span>

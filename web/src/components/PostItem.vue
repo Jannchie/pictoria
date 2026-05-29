@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import type { PostSimplePublic } from '@/api'
 import { computed, ref } from 'vue'
+import { useRouter } from 'vue-router'
 import ArthashPlaceholder from '@/components/ArthashPlaceholder.vue'
 import { enableArthash, enableFancyPlaceholder, hideNSFW, selectedPostIdSet, selectingPostIdSet, unselectedPostIdSet } from '@/shared'
 import { getPostThumbnailURL, isImageExtension } from '@/utils'
@@ -166,17 +167,34 @@ function onContextmenu(e: MouseEvent) {
   // if shift key is pressed, select or unselect this post
   selectedPostIdSet.value = e.shiftKey || e.ctrlKey ? new Set([...selectedPostIdSet.value, post.value.id]) : new Set([post.value.id])
 }
+
+const router = useRouter()
+function onKeyDown(e: KeyboardEvent) {
+  if (e.key === 'Enter') {
+    e.preventDefault()
+    router.push(`/post/${post.value.id}`)
+  }
+  else if (e.key === ' ') {
+    e.preventDefault()
+    selectedPostIdSet.value = e.ctrlKey ? toggleInSet(selectedPostIdSet.value, post.value.id) : new Set([post.value.id])
+  }
+}
 </script>
 
 <template>
   <div
-    class="post-item flex flex-col gap-1 items-center"
+    role="button"
+    tabindex="0"
+    :aria-pressed="selected"
+    :aria-label="`${post.fileName}.${post.extension}`"
+    class="post-item rounded-lg flex flex-col gap-1 items-center focus:outline-none focus-visible:ring-2 focus-visible:ring-primary/60"
     :class="{ selected }"
     draggable="true"
     @dragstart.stop
     @pointerdown.stop="onPointerDown"
     @pointerup="onPointerUp"
     @dblclick="$router.push(`/post/${post.id}`)"
+    @keydown="onKeyDown"
     @contextmenu.capture="onContextmenu"
   >
     <PAspectRatio
@@ -190,6 +208,9 @@ function onContextmenu(e: MouseEvent) {
       >
         <img
           :src="getPostThumbnailURL(post)"
+          :alt="post.fileName"
+          :width="post.width ?? undefined"
+          :height="post.height ?? undefined"
           class="rounded-lg h-full w-full transition-opacity duration-300 object-cover"
           draggable="true"
           loading="lazy"
@@ -209,7 +230,7 @@ function onContextmenu(e: MouseEvent) {
         />
         <div
           v-if="post.matchProb != null"
-          class="text-10px text-white tracking-wide font-bold font-mono px-1.5 py-0.5 rounded bg-black/60 pointer-events-none right-1.5 top-1.5 absolute"
+          class="text-10px text-white tracking-wide font-bold font-mono px-1.5 py-0.5 rounded bg-black/60 pointer-events-none right-1.5 top-1.5 absolute tabular-nums"
         >
           {{ (post.matchProb * 100).toFixed(1) }}%
         </div>
@@ -222,6 +243,7 @@ function onContextmenu(e: MouseEvent) {
     >
       <div class="post-content text-fg-muted rounded-lg flex flex-col gap-2 items-center justify-center">
         <i
+          aria-hidden="true"
           class="text-5xl"
           :class="getIconByExtension(post.extension)"
         />
@@ -256,6 +278,10 @@ function onContextmenu(e: MouseEvent) {
     box-shadow var(--p-duration-fast) var(--p-ease);
   outline: 2px solid transparent;
   outline-offset: 2px;
+}
+@media (prefers-reduced-motion: reduce) {
+  .post-item,
+  .post-content { transition: none; }
 }
 .selected .post-content {
   outline-color: var(--p-primary);

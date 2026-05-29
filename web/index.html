@@ -1,18 +1,20 @@
 <!doctype html>
-<html lang="en">
+<html lang="zh-CN">
 
 <head>
   <meta charset="UTF-8" />
   <link rel="icon" type="image/svg+xml" href="/Pictoria.svg" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="theme-color" content="#141417" media="(prefers-color-scheme: dark)" />
+  <meta name="theme-color" content="#f1f2f5" media="(prefers-color-scheme: light)" />
   <script>
     var e =
       window.matchMedia &&
       window.matchMedia('(prefers-color-scheme: dark)').matches
-    t = localStorage.getItem('scheme') || 'auto'
-    'dark' === t || (e && 'light' !== t)
-      ? (document.documentElement.dataset.scheme = 'dark')
-      : (document.documentElement.dataset.scheme = 'light')
+    var t = localStorage.getItem('scheme') || 'auto'
+    var resolved = 'dark' === t || (e && 'light' !== t) ? 'dark' : 'light'
+    document.documentElement.dataset.scheme = resolved
+    document.documentElement.style.colorScheme = resolved
   </script>
   <title>Pictoria</title>
 </head>

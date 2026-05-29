@@ -21,20 +21,23 @@ function clearTextSearch() {
         v-model="textSearchQuery"
         size="sm"
         class="min-w-60"
-        placeholder="Describe what you want to see..."
+        placeholder="Describe what you want to see…"
+        aria-label="Semantic search"
       >
         <template #leftSection>
-          <i class="i-tabler-search text-fg-muted" />
+          <i class="i-tabler-search text-fg-muted" aria-hidden="true" />
         </template>
         <template
           v-if="textSearchQuery"
           #rightSection
         >
           <button
-            class="text-fg-muted hover:text-fg"
+            type="button"
+            aria-label="Clear search"
+            class="text-fg-muted rounded hover:text-fg focus:outline-none focus-visible:ring-2 focus-visible:ring-primary/60"
             @click="clearTextSearch"
           >
-            <i class="i-tabler-x text-sm" />
+            <i class="i-tabler-x text-sm" aria-hidden="true" />
           </button>
         </template>
       </PInput>

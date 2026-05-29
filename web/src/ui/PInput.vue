@@ -3,12 +3,20 @@ import { ref, useSlots } from 'vue'
 
 type Size = 'sm' | 'md' | 'lg'
 
+defineOptions({ inheritAttrs: false })
+
 withDefaults(defineProps<{
   size?: Size
   placeholder?: string
   disabled?: boolean
   readonly?: boolean
   type?: string
+  name?: string
+  autocomplete?: string
+  inputmode?: 'text' | 'search' | 'email' | 'tel' | 'url' | 'numeric' | 'decimal' | 'none'
+  spellcheck?: boolean
+  ariaLabel?: string
+  ariaLabelledby?: string
 }>(), {
   size: 'md',
   type: 'text',
@@ -29,7 +37,7 @@ const hasRight = !!slots.rightSection
       { 'p-input--focused': focused, 'p-input--disabled': disabled },
     ]"
   >
-    <span v-if="hasLeft" class="p-input__slot p-input__slot--left">
+    <span v-if="hasLeft" class="p-input__slot p-input__slot--left" aria-hidden="true">
       <slot name="leftSection" />
     </span>
     <input
@@ -39,6 +47,12 @@ const hasRight = !!slots.rightSection
       :placeholder="placeholder"
       :disabled="disabled"
       :readonly="readonly"
+      :name="name"
+      :autocomplete="autocomplete"
+      :inputmode="inputmode"
+      :spellcheck="spellcheck"
+      :aria-label="ariaLabel"
+      :aria-labelledby="ariaLabelledby"
       v-bind="$attrs"
       @input="(e) => model = (e.target as HTMLInputElement).value"
       @focus="focused = true"
@@ -101,5 +115,9 @@ const hasRight = !!slots.rightSection
   align-items: center;
   color: var(--p-fg-muted);
   flex-shrink: 0;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .p-input { transition: none; }
 }
 </style>

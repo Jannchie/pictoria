@@ -7,6 +7,7 @@ const props = defineProps<{
   colors?: string[]
   highlightSelectedOnly?: boolean
   unselectable?: boolean
+  ariaLabel?: string
 }>()
 const emit = defineEmits<{
   select: [number]
@@ -158,8 +159,8 @@ function getStyle(index: number) {
     return hoverIndex.value > index ? { color: activeColor } : { color: inactiveColor }
   }
 }
-function onPointerDown(index: number) {
-  if (model.value === index && unselectable.value) {
+function selectAt(index: number) {
+  if (model.value === index + 1 && unselectable.value) {
     emit('select', 0)
     model.value = 0
   }
@@ -168,19 +169,79 @@ function onPointerDown(index: number) {
     model.value = index + 1
   }
 }
+
+function onPointerDown(index: number) {
+  selectAt(index)
+}
+
+function onKeyDown(e: KeyboardEvent, index: number) {
+  switch (e.key) {
+    case 'ArrowLeft':
+    case 'ArrowDown': {
+      e.preventDefault()
+      const next = Math.max(0, index - 1)
+      selectAt(next)
+      focusStar(next)
+      break
+    }
+    case 'ArrowRight':
+    case 'ArrowUp': {
+      e.preventDefault()
+      const next = Math.min(count.value - 1, index + 1)
+      selectAt(next)
+      focusStar(next)
+      break
+    }
+    case 'Home': {
+      e.preventDefault()
+      selectAt(0)
+      focusStar(0)
+      break
+    }
+    case 'End': {
+      e.preventDefault()
+      selectAt(count.value - 1)
+      focusStar(count.value - 1)
+      break
+    }
+    case ' ':
+    case 'Enter': {
+      e.preventDefault()
+      selectAt(index)
+      break
+    }
+  }
+}
+
+const rootRef = ref<HTMLElement | null>(null)
+function focusStar(index: number) {
+  const el = rootRef.value?.querySelectorAll<HTMLElement>('[role="radio"]')[index]
+  el?.focus()
+}
 </script>
 
 <template>
-  <div class="flex cursor-pointer">
+  <div
+    ref="rootRef"
+    role="radiogroup"
+    :aria-label="ariaLabel ?? 'Rating'"
+    class="flex"
+  >
     <div
       v-for="_, i in count"
       :key="i"
-      class="pr-1"
+      role="radio"
+      :aria-checked="model === i + 1"
+      :aria-label="`${i + 1} of ${count}`"
+      :tabindex="(model > 0 ? model - 1 === i : i === 0) ? 0 : -1"
+      class="pr-1 rounded cursor-pointer focus:outline-none focus-visible:ring-2 focus-visible:ring-primary/60"
       @mouseover="hoverIndex = i + 1"
       @mouseleave="hoverIndex = -1"
       @pointerdown="onPointerDown(i)"
+      @keydown="onKeyDown($event, i)"
     >
       <i
+        aria-hidden="true"
         :class="getCls(i)"
         :style="getStyle(i)"
       />

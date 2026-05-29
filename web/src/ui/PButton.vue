@@ -25,6 +25,7 @@ withDefaults(defineProps<{
   <button
     :type="type"
     :disabled="disabled || loading"
+    :aria-busy="loading || undefined"
     class="p-btn"
     :class="[
       `p-btn--${variant}`,
@@ -38,7 +39,7 @@ withDefaults(defineProps<{
       },
     ]"
   >
-    <span v-if="loading" class="p-btn__spinner" />
+    <span v-if="loading" class="p-btn__spinner" aria-hidden="true" />
     <slot />
   </button>
 </template>
@@ -75,6 +76,10 @@ withDefaults(defineProps<{
 }
 .p-btn:active:not(:disabled) {
   transform: translateY(1px);
+}
+@media (prefers-reduced-motion: reduce) {
+  .p-btn { transition: none; }
+  .p-btn:active:not(:disabled) { transform: none; }
 }
 .p-btn--block { width: 100%; }
 .p-btn--icon { padding-inline: 0; aspect-ratio: 1 / 1; }
@@ -177,4 +182,7 @@ withDefaults(defineProps<{
   animation: p-btn-spin 700ms linear infinite;
 }
 @keyframes p-btn-spin { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) {
+  .p-btn__spinner { animation-duration: 2s; }
+}
 </style>

@@ -8,7 +8,13 @@ const layoutClass = 'flex flex-col gap-2'
 </script>
 
 <template>
-  <div :class="[positionClass, layoutClass]">
+  <div
+    role="region"
+    aria-label="Notifications"
+    aria-live="polite"
+    :class="[positionClass, layoutClass]"
+    style="padding-top: env(safe-area-inset-top, 0);"
+  >
     <div
       v-for="item, i in items"
       :key="i"

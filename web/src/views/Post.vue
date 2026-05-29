@@ -192,14 +192,15 @@ onKeyStroke([' ', 'Enter'], (e) => {
           icon
           size="sm"
           variant="ghost"
+          aria-label="Back"
           @click="$router.back()"
         >
-          <i class="i-tabler-arrow-left" />
+          <i class="i-tabler-arrow-left" aria-hidden="true" />
         </PButton>
       </div>
-      <span class="text-sm text-fg font-medium min-w-0 truncate">
+      <h1 class="text-sm text-fg font-medium min-w-0 truncate">
         {{ post.fileName }}
-      </span>
+      </h1>
       <span class="flex-1 basis-0" />
     </div>
     <ScrollArea
@@ -221,7 +222,9 @@ onKeyStroke([' ', 'Enter'], (e) => {
             :key="post.id"
             ref="imgRef"
             :src="getPostImageURL(post)"
-            alt="post"
+            :alt="post.fileName"
+            :width="post.width ?? undefined"
+            :height="post.height ?? undefined"
             class="h-full w-full block transition-opacity duration-300 object-contain"
             :class="{ 'opacity-0': (!enableArthash || !post.arthash) && !imageLoaded }"
             @load="onImageLoad"

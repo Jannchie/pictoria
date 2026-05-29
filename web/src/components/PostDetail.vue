@@ -186,9 +186,9 @@ function scaleWithSlider(newScale: number) {
   adjustForScaling(newScale, mouseX, mouseY)
   scale.value = newScale
 }
-const filpVertical = ref(false)
-function toggleFlipVertical() {
-  filpVertical.value = !filpVertical.value
+const flipHorizontal = ref(false)
+function toggleFlipHorizontal() {
+  flipHorizontal.value = !flipHorizontal.value
 }
 
 onKeyStroke('Escape', () => {
@@ -270,13 +270,29 @@ onKeyStroke(['f', 'F'], (e) => {
     return
   }
   e.preventDefault()
-  toggleFlipVertical()
+  toggleFlipHorizontal()
+})
+
+const dialogRef = ref<HTMLElement | null>(null)
+const previouslyFocused = ref<HTMLElement | null>(null)
+onMounted(() => {
+  previouslyFocused.value = document.activeElement instanceof HTMLElement ? document.activeElement : null
+  dialogRef.value?.focus()
+})
+onUnmounted(() => {
+  previouslyFocused.value?.focus?.()
 })
 </script>
 
 <template>
   <div
-    class="bg-bg flex flex-col inset-0 absolute z-10000"
+    ref="dialogRef"
+    role="dialog"
+    aria-modal="true"
+    :aria-label="`Image viewer: ${post.fileName}.${post.extension}`"
+    tabindex="-1"
+    class="bg-bg flex flex-col inset-0 absolute z-10000 focus:outline-none"
+    style="overscroll-behavior: contain;"
   >
     <header class="px-2 py-2 border-b border-border-default flex gap-2 items-center justify-between">
       <div class="flex flex-1 basis-0 gap-2 items-center overflow-hidden">
@@ -288,9 +304,10 @@ onKeyStroke(['f', 'F'], (e) => {
             icon
             size="sm"
             variant="ghost"
+            aria-label="Close viewer"
             @click="showPostDetail = null"
           >
-            <i class="i-tabler-arrow-left" />
+            <i class="i-tabler-arrow-left" aria-hidden="true" />
           </PButton>
           <template #content>
             <PSurface
@@ -318,6 +335,8 @@ onKeyStroke(['f', 'F'], (e) => {
           :max="8.00"
           :step="0.01"
           :min-width="8"
+          aria-label="Zoom"
+          :aria-valuetext="`${scaleStr}%`"
           @update:model-value="scaleWithSlider"
         />
         <Popover
@@ -327,9 +346,10 @@ onKeyStroke(['f', 'F'], (e) => {
           <PButton
             icon
             size="sm"
+            aria-label="Fit to viewport"
             @click="toInit"
           >
-            <i class="i-tabler-focus-centered" />
+            <i class="i-tabler-focus-centered" aria-hidden="true" />
           </PButton>
           <template #content>
             <PSurface
@@ -344,16 +364,19 @@ onKeyStroke(['f', 'F'], (e) => {
         <PButton
           icon
           size="sm"
+          aria-label="Actual size (100%)"
           @click="to1x"
         >
-          <i class="i-tabler-multiplier-1x" />
+          <i class="i-tabler-multiplier-1x" aria-hidden="true" />
         </PButton>
         <PButton
           icon
           size="sm"
-          @click="toggleFlipVertical"
+          aria-label="Flip horizontal"
+          :aria-pressed="flipHorizontal"
+          @click="toggleFlipHorizontal"
         >
-          <i class="i-tabler-flip-vertical" />
+          <i class="i-tabler-flip-vertical" aria-hidden="true" />
         </PButton>
       </div>
       <div class="flex-1 basis-0" />
@@ -361,6 +384,7 @@ onKeyStroke(['f', 'F'], (e) => {
     <div
       ref="imgWrapperRef"
       class="flex-grow h-full w-full relative overflow-hidden"
+      style="touch-action: none;"
       @pointerdown.stop="onPointerDown"
       @pointermove.stop="onPointermove"
       @pointerup.stop="onPointerUp"
@@ -368,7 +392,10 @@ onKeyStroke(['f', 'F'], (e) => {
     >
       <img
         class="absolute object-contain"
+        :alt="`${post.fileName}.${post.extension}`"
         :draggable="false"
+        :width="imgContentWidth"
+        :height="imgContentHeight"
         :style="{
           minWidth: `${imgContentWidth * scale}px`,
           minHeight: `${imgContentHeight * scale}px`,
@@ -376,7 +403,7 @@ onKeyStroke(['f', 'F'], (e) => {
           height: `${scaledHeight}px`,
           left: `${x}px`,
           top: `${y}px`,
-          transform: `scaleX(${filpVertical ? -1 : 1})`,
+          transform: `scaleX(${flipHorizontal ? -1 : 1})`,
         }"
         :src="imgSrc"
       >
@@ -397,6 +424,8 @@ onKeyStroke(['f', 'F'], (e) => {
           }"
         >
           <img
+            alt=""
+            aria-hidden="true"
             :draggable="false"
             class="absolute object-contain"
             :src="imgSrc"

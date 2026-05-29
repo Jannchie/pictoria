@@ -6,6 +6,8 @@ const props = withDefaults(defineProps<{
   onIcon?: string
   offIcon?: string
   disabled?: boolean
+  ariaLabel?: string
+  ariaLabelledby?: string
 }>(), {
   size: 'md',
 })
@@ -26,14 +28,16 @@ function toggle() {
     type="button"
     role="switch"
     :aria-checked="model"
+    :aria-label="ariaLabel"
+    :aria-labelledby="ariaLabelledby"
     :disabled="disabled"
     class="p-switch"
     :class="[sizeClass, { 'p-switch--on': model }]"
     @click="toggle"
   >
     <span class="p-switch__thumb">
-      <i v-if="model && onIcon" :class="onIcon" />
-      <i v-else-if="!model && offIcon" :class="offIcon" />
+      <i v-if="model && onIcon" :class="onIcon" aria-hidden="true" />
+      <i v-else-if="!model && offIcon" :class="offIcon" aria-hidden="true" />
     </span>
   </button>
 </template>
@@ -96,4 +100,9 @@ function toggle() {
 .p-switch--sm.p-switch--on .p-switch__thumb { transform: translateX(14px); }
 .p-switch--md.p-switch--on .p-switch__thumb { transform: translateX(18px); }
 .p-switch--lg.p-switch--on .p-switch__thumb { transform: translateX(24px); }
+
+@media (prefers-reduced-motion: reduce) {
+  .p-switch,
+  .p-switch__thumb { transition: none; }
+}
 </style>
