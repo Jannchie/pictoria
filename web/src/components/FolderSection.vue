@@ -34,7 +34,7 @@ const subFolders = computed(() => {
       v-for="f in subFolders"
       :key="f.value"
       class="text-xs text-fg-muted px-3 py-1.5 border border-border-subtle rounded-md bg-surface-1 flex flex-1 gap-1.5 max-w-56 min-w-32 truncate transition-colors items-center hover:text-fg hover:border-border-strong hover:bg-surface-2"
-      :to="`/dir/${f.value}`"
+      :to="{ path: `/dir/${f.value}`, query: $route.query }"
       @pointerdown.stop
     >
       <i class="i-tabler-folder text-primary/70 shrink-0" />

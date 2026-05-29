@@ -3,7 +3,7 @@ import type { TreeListCollapseData, TreeListItemData, TreeListLeafData } from '.
 import type { DirectorySummary } from '@/api'
 import { Pane, Splitpanes } from 'splitpanes'
 import { computed, ref, watch } from 'vue'
-import { RouterLink, useRouter } from 'vue-router'
+import { RouterLink, useRoute, useRouter } from 'vue-router'
 import { useWatchRoute } from './composables'
 import TreeList from './roku/TreeList.vue'
 import { menuData, showMenu, useCurrentFolder, useFoldersQuery } from './shared'
@@ -13,6 +13,7 @@ useWatchRoute()
 
 const currentFolder = useCurrentFolder()
 const router = useRouter()
+const route = useRoute()
 const foldersQuery = useFoldersQuery()
 
 const folderFilter = ref('')
@@ -118,7 +119,7 @@ function openFolder() {
   if (!contextTarget.value?.value) {
     return
   }
-  router.push(`/dir/${contextTarget.value.value}`)
+  router.push({ path: `/dir/${contextTarget.value.value}`, query: route.query })
   closeMenu()
 }
 
@@ -232,7 +233,7 @@ function splitHighlight(text: string, filter: string): HighlightPart[] {
           >
             <template #collapse="{ data, level, isOpen, isSelected, inChain, toggle }">
               <RouterLink
-                :to="`/dir/${data.value}`"
+                :to="{ path: `/dir/${data.value}`, query: $route.query }"
                 tabindex="0"
                 :data-tree-value="data.value"
                 :title="data.value"
@@ -292,7 +293,7 @@ function splitHighlight(text: string, filter: string): HighlightPart[] {
             </template>
             <template #link="{ data, level, isSelected, inChain }">
               <RouterLink
-                :to="`/dir/${data.value}`"
+                :to="{ path: `/dir/${data.value}`, query: $route.query }"
                 tabindex="0"
                 :data-tree-value="data.value"
                 :title="data.value"
