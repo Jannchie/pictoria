@@ -90,3 +90,9 @@ button {
     scroll-behavior: auto !important;
   }
 }
+
+html.is-dragging,
+html.is-dragging * {
+  user-select: none !important;
+  -webkit-user-select: none !important;
+}

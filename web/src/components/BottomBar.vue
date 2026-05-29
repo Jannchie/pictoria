@@ -50,7 +50,7 @@ const numberFormat = new Intl.NumberFormat('en-US')
   >
     <template v-if="inGalleryView">
       <span class="flex gap-1 items-center">
-        <i class="i-tabler-photo text-fg-subtle" />
+        <i class="i-tabler-photo text-fg-subtle" aria-hidden="true" />
         <span class="font-mono tabular-nums">{{ numberFormat.format(posts.length) }}</span>
         <span class="text-fg-subtle">displayed</span>
       </span>
@@ -58,39 +58,39 @@ const numberFormat = new Intl.NumberFormat('en-US')
         v-if="selectedPostIdSet.size > 0"
         class="text-primary flex gap-1 items-center"
       >
-        <i class="i-tabler-checks" />
+        <i class="i-tabler-checks" aria-hidden="true" />
         <span class="font-mono tabular-nums">{{ numberFormat.format(selectedPostIdSet.size) }}</span>
         <span>selected</span>
       </span>
       <template v-if="statsQuery.data.value">
-        <span class="bg-border-subtle h-3 w-px" />
+        <span class="bg-border-subtle h-3 w-px" aria-hidden="true" />
         <span
           class="flex gap-1 items-center"
-          :title="`Average human score across ${statsQuery.data.value.scoredCount} scored posts`"
+          :aria-label="`Average human score across ${statsQuery.data.value.scoredCount} scored posts`"
         >
-          <i class="i-tabler-star text-fg-subtle" />
+          <i class="i-tabler-star text-fg-subtle" aria-hidden="true" />
           <span class="font-mono tabular-nums">{{ fmtAvg(statsQuery.data.value.avgScore) }}</span>
-          <span class="text-fg-subtle">·</span>
+          <span class="text-fg-subtle" aria-hidden="true">·</span>
           <span class="text-fg-subtle font-mono tabular-nums">{{ numberFormat.format(statsQuery.data.value.scoredCount) }}</span>
         </span>
         <span
           class="flex gap-1 items-center"
-          :title="`Average waifu score across ${statsQuery.data.value.waifuCount} scored posts`"
+          :aria-label="`Average waifu score across ${statsQuery.data.value.waifuCount} scored posts`"
         >
-          <i class="i-tabler-trophy text-fg-subtle" />
+          <i class="i-tabler-trophy text-fg-subtle" aria-hidden="true" />
           <span class="font-mono tabular-nums">{{ fmtAvg(statsQuery.data.value.avgWaifuScore) }}</span>
-          <span class="text-fg-subtle">·</span>
+          <span class="text-fg-subtle" aria-hidden="true">·</span>
           <span class="text-fg-subtle font-mono tabular-nums">{{ numberFormat.format(statsQuery.data.value.waifuCount) }}</span>
         </span>
         <template v-if="ratingCounts.length > 0">
-          <span class="bg-border-subtle h-3 w-px" />
+          <span class="bg-border-subtle h-3 w-px" aria-hidden="true" />
           <span
             v-for="r in ratingCounts"
             :key="r.rating"
             class="flex gap-1 items-center"
-            :title="r.full"
+            :aria-label="`${r.full}: ${numberFormat.format(r.count)}`"
           >
-            <span class="text-fg-subtle">{{ r.short }}</span>
+            <span class="text-fg-subtle" aria-hidden="true">{{ r.short }}</span>
             <span class="font-mono tabular-nums">{{ numberFormat.format(r.count) }}</span>
           </span>
         </template>

@@ -187,7 +187,7 @@ function onKeyDown(e: KeyboardEvent) {
     tabindex="0"
     :aria-pressed="selected"
     :aria-label="`${post.fileName}.${post.extension}`"
-    class="post-item rounded-lg flex flex-col gap-1 items-center focus:outline-none focus-visible:ring-2 focus-visible:ring-primary/60"
+    class="post-item flex flex-col gap-1 items-center focus:outline-none"
     :class="{ selected }"
     draggable="true"
     @dragstart.stop
@@ -278,6 +278,9 @@ function onKeyDown(e: KeyboardEvent) {
     box-shadow var(--p-duration-fast) var(--p-ease);
   outline: 2px solid transparent;
   outline-offset: 2px;
+}
+.post-item:focus-visible .post-content {
+  outline-color: rgb(var(--p-primary-rgb) / 0.7);
 }
 @media (prefers-reduced-motion: reduce) {
   .post-item,

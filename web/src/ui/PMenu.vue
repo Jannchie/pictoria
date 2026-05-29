@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { onBeforeUnmount, ref, watch } from 'vue'
+import { nextTick, onBeforeUnmount, ref, watch } from 'vue'
 
 export interface PMenuItem {
   role?: 'label' | 'divider' | 'item'
@@ -9,7 +9,7 @@ export interface PMenuItem {
   disabled?: boolean
 }
 
-withDefaults(defineProps<{
+const props = withDefaults(defineProps<{
   data: PMenuItem[]
   trigger?: 'contextmenu' | 'click'
 }>(), {
@@ -71,11 +71,90 @@ watch(open, (v) => {
   }
 })
 
-function onKey(e: KeyboardEvent) {
-  if (e.key === 'Escape') {
-    close()
+function focusableItemIndexes(): number[] {
+  return props.data
+    .map((item, i) => ({ item, i }))
+    .filter(({ item }) => item.role !== 'label' && item.role !== 'divider' && !item.disabled)
+    .map(({ i }) => i)
+}
+
+function focusItem(index: number) {
+  const el = menuRef.value?.querySelectorAll<HTMLElement>('[role="menuitem"]')[index]
+  el?.focus()
+}
+
+function focusByDataIndex(dataIdx: number) {
+  const indexes = focusableItemIndexes()
+  const pos = indexes.indexOf(dataIdx)
+  if (pos !== -1) {
+    focusItem(pos)
   }
 }
+
+function moveFocus(delta: 1 | -1) {
+  const indexes = focusableItemIndexes()
+  if (indexes.length === 0) {
+    return
+  }
+  const items = menuRef.value?.querySelectorAll<HTMLElement>('[role="menuitem"]')
+  if (!items || items.length === 0) {
+    return
+  }
+  const active = document.activeElement
+  let pos = -1
+  for (const [i, el] of items.entries()) {
+    if (el === active) {
+      pos = i
+    }
+  }
+  const next = pos === -1
+    ? (delta === 1 ? 0 : items.length - 1)
+    : (pos + delta + items.length) % items.length
+  items[next]?.focus()
+}
+
+function onKey(e: KeyboardEvent) {
+  if (e.key === 'Escape') {
+    e.preventDefault()
+    close()
+    return
+  }
+  if (e.key === 'ArrowDown') {
+    e.preventDefault()
+    moveFocus(1)
+    return
+  }
+  if (e.key === 'ArrowUp') {
+    e.preventDefault()
+    moveFocus(-1)
+    return
+  }
+  if (e.key === 'Home') {
+    e.preventDefault()
+    const indexes = focusableItemIndexes()
+    if (indexes.length > 0) {
+      focusByDataIndex(indexes[0])
+    }
+  }
+  else if (e.key === 'End') {
+    e.preventDefault()
+    const indexes = focusableItemIndexes()
+    if (indexes.length > 0) {
+      focusByDataIndex(indexes.at(-1)!)
+    }
+  }
+}
+
+watch(open, async (v) => {
+  if (!v) {
+    return
+  }
+  await nextTick()
+  const indexes = focusableItemIndexes()
+  if (indexes.length > 0) {
+    focusByDataIndex(indexes[0])
+  }
+})
 
 onBeforeUnmount(() => {
   document.removeEventListener('pointerdown', onDocPointer, true)

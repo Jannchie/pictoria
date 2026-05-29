@@ -275,6 +275,50 @@ onKeyStroke(['f', 'F'], (e) => {
 
 const dialogRef = ref<HTMLElement | null>(null)
 const previouslyFocused = ref<HTMLElement | null>(null)
+
+const FOCUSABLE_SELECTOR = [
+  'a[href]',
+  'button:not([disabled])',
+  'input:not([disabled])',
+  'select:not([disabled])',
+  'textarea:not([disabled])',
+  '[tabindex]:not([tabindex="-1"])',
+  '[role="slider"]:not([aria-disabled="true"])',
+].join(',')
+
+function getFocusable(): HTMLElement[] {
+  if (!dialogRef.value) {
+    return []
+  }
+  return [...dialogRef.value.querySelectorAll<HTMLElement>(FOCUSABLE_SELECTOR)]
+    .filter(el => !el.hasAttribute('inert') && el.offsetParent !== null)
+}
+
+function onDialogKeyDown(e: KeyboardEvent) {
+  if (e.key !== 'Tab') {
+    return
+  }
+  const focusables = getFocusable()
+  if (focusables.length === 0) {
+    e.preventDefault()
+    dialogRef.value?.focus()
+    return
+  }
+  const first = focusables[0]
+  const last = focusables.at(-1)!
+  const active = document.activeElement as HTMLElement | null
+  if (e.shiftKey) {
+    if (active === first || active === dialogRef.value) {
+      e.preventDefault()
+      last.focus()
+    }
+  }
+  else if (active === last) {
+    e.preventDefault()
+    first.focus()
+  }
+}
+
 onMounted(() => {
   previouslyFocused.value = document.activeElement instanceof HTMLElement ? document.activeElement : null
   dialogRef.value?.focus()
@@ -293,6 +337,7 @@ onUnmounted(() => {
     tabindex="-1"
     class="bg-bg flex flex-col inset-0 absolute z-10000 focus:outline-none"
     style="overscroll-behavior: contain;"
+    @keydown="onDialogKeyDown"
   >
     <header class="px-2 py-2 border-b border-border-default flex gap-2 items-center justify-between">
       <div class="flex flex-1 basis-0 gap-2 items-center overflow-hidden">

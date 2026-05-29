@@ -244,7 +244,13 @@ function splitHighlight(text: string, filter: string): HighlightPart[] {
             @item-context="onItemContext"
           >
             <template #collapse="{ data, level, isOpen, isSelected, inChain, toggle }">
-              <div class="relative">
+              <div
+                role="treeitem"
+                :aria-expanded="isOpen"
+                :aria-selected="isSelected"
+                :aria-level="level + 1"
+                class="relative"
+              >
                 <RouterLink
                   :to="{ path: `/dir/${data.value}`, query: $route.query }"
                   tabindex="0"
@@ -311,6 +317,9 @@ function splitHighlight(text: string, filter: string): HighlightPart[] {
             <template #link="{ data, level, isSelected, inChain }">
               <RouterLink
                 :to="{ path: `/dir/${data.value}`, query: $route.query }"
+                role="treeitem"
+                :aria-selected="isSelected"
+                :aria-level="level + 1"
                 tabindex="0"
                 :data-tree-value="data.value"
                 :title="data.value"

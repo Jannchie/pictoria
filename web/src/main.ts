@@ -40,6 +40,16 @@ window.addEventListener('scroll', () => {
   }, SCROLL_END_MS)
 }, { capture: true, passive: true })
 
+globalThis.addEventListener('dragstart', () => {
+  document.documentElement.classList.add('is-dragging')
+}, { capture: true, passive: true })
+globalThis.addEventListener('dragend', () => {
+  document.documentElement.classList.remove('is-dragging')
+}, { capture: true, passive: true })
+globalThis.addEventListener('drop', () => {
+  document.documentElement.classList.remove('is-dragging')
+}, { capture: true, passive: true })
+
 // Apply persisted color scheme before mount so it survives full-page reloads
 // outside of <PSchemeSwitch> (which only mounts on /settings).
 const storedScheme = localStorage.getItem('pictoria-color-scheme') ?? 'dark'
