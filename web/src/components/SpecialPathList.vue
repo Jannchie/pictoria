@@ -21,7 +21,7 @@ const { data: allCount } = useQuery({
       title="All"
       :extra-info="allCount"
       :active="$route.path === '/all'"
-      @click="$router.push('/all')"
+      @click="$router.push({ path: '/all', query: $route.query })"
     />
     <ListItem
       icon="i-tabler-bookmarks"
@@ -33,13 +33,13 @@ const { data: allCount } = useQuery({
       icon="i-tabler-clock"
       title="Recently"
       :active="$route.path === '/recently'"
-      @click="$router.push('/recently')"
+      @click="$router.push({ path: '/recently', query: $route.query })"
     />
     <ListItem
       icon="i-tabler-arrows-cross"
       :active="$route.path === '/random'"
       title="Random"
-      @click="$router.push('/random')"
+      @click="$router.push({ path: '/random', query: $route.query })"
     />
   </div>
 </template>
