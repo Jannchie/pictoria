@@ -63,13 +63,15 @@ const RATING_COLORS = [
   '#ef4444',
 ]
 const SCORE_LABELS = ['Unscored', '1', '2', '3', '4', '5']
+// Quality ramp: low score = red, high score = green (0 = unscored, muted).
+// Mirrors RATING_COLORS' hard-coded hex so both distribution bars read alike.
 const SCORE_COLORS = [
   'var(--p-fg-subtle)',
-  'rgb(var(--p-primary-rgb) / 0.35)',
-  'rgb(var(--p-primary-rgb) / 0.5)',
-  'rgb(var(--p-primary-rgb) / 0.65)',
-  'rgb(var(--p-primary-rgb) / 0.8)',
-  'var(--p-primary)',
+  '#ef4444',
+  '#f97316',
+  '#eab308',
+  '#84cc16',
+  '#22c55e',
 ]
 
 const THUMB_LIMIT = 12
@@ -291,13 +293,18 @@ function pct(n: number) {
   }
   return (n / distributionTotal.value) * 100
 }
+
+// Section heading style, kept in sync with PostDetailPanel.vue so both side
+// panels share one editorial rhythm: small uppercase label with a leading icon.
+const sectionTitleClass
+  = 'flex items-center gap-1.5 text-fg-subtle text-[11px] font-semibold uppercase tracking-wider'
 </script>
 
 <template>
   <ScrollArea
-    class="text-xs flex flex-col gap-3 h-full overflow-x-hidden overflow-y-auto"
+    class="text-xs flex flex-col h-full overflow-x-hidden overflow-y-auto"
   >
-    <div class="flex flex-col gap-1">
+    <div class="pb-3 pt-1 flex flex-col gap-1">
       <div class="flex items-center justify-between">
         <div class="text-lg text-fg font-semibold tabular-nums">
           {{ numberFormat.format(count) }} <span class="text-sm text-fg-muted font-normal">selected</span>
@@ -373,9 +380,13 @@ function pct(n: number) {
       </div>
     </div>
 
-    <div>
-      <div class="text-fg font-semibold py-2">
-        Batch
+    <section class="py-4 border-t border-border-default">
+      <div
+        :class="sectionTitleClass"
+        class="mb-2"
+      >
+        <i class="i-tabler-edit" />
+        <span>Batch</span>
       </div>
       <div class="gap-x-3 gap-y-2 grid grid-cols-[auto_1fr_auto] items-center">
         <div>Rating</div>
@@ -416,11 +427,18 @@ function pct(n: number) {
           Copy paths
         </PButton>
       </div>
-    </div>
+    </section>
 
-    <div v-if="knownCount > 0">
-      <div class="text-fg font-semibold py-2">
-        Distribution
+    <section
+      v-if="knownCount > 0"
+      class="py-4 border-t border-border-default"
+    >
+      <div
+        :class="sectionTitleClass"
+        class="mb-2"
+      >
+        <i class="i-tabler-chart-bar" />
+        <span>Distribution</span>
       </div>
       <div class="flex flex-col gap-2.5">
         <div class="flex flex-col gap-1">
@@ -452,11 +470,18 @@ function pct(n: number) {
           </div>
         </div>
       </div>
-    </div>
+    </section>
 
-    <div v-if="knownCount > 0">
-      <div class="text-fg font-semibold py-2">
-        Files
+    <section
+      v-if="knownCount > 0"
+      class="py-4 border-t border-border-default"
+    >
+      <div
+        :class="sectionTitleClass"
+        class="mb-2"
+      >
+        <i class="i-tabler-files" />
+        <span>Files</span>
       </div>
       <div
         class="gap-x-3 gap-y-1.5 grid grid-cols-[auto_1fr] children:break-words odd:children:text-fg-subtle"
@@ -490,9 +515,9 @@ function pct(n: number) {
           {{ commonFolder || '—' }}
         </div>
       </div>
-    </div>
+    </section>
 
-    <div class="mt-auto pt-3">
+    <div class="mt-auto pt-4 border-t border-border-default">
       <PButton
         size="sm"
         block
