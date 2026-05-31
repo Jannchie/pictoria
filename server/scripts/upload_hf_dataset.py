@@ -27,6 +27,8 @@ import json
 import logging
 import os
 import shutil
+import sqlite3
+import struct
 import sys
 import tempfile
 from collections.abc import Iterable, Iterator
@@ -36,7 +38,6 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Literal
 
-import duckdb
 import httpx
 import pyarrow as pa
 import pyarrow.parquet as pq
@@ -64,7 +65,7 @@ README_PATH = "README.md"
 METADATA_DIR = "metadata"
 IMAGES_DIR = "images"
 SCHEMA_VERSION = 1
-DEFAULT_DB = SERVER_ROOT / "illustration" / "images" / ".pictoria" / "pictoria.duckdb"
+DEFAULT_DB = SERVER_ROOT / "illustration" / "images" / ".pictoria" / "pictoria.sqlite"
 DEFAULT_SERVER_URL = "http://localhost:4777"
 
 logger = logging.getLogger("pictoria.hf-upload")
@@ -695,46 +696,75 @@ _POST_SQL = """
         p.source, p.caption, p.arthash, p.dominant_color,
         p.created_at, p.updated_at,
         COALESCE((
-            SELECT list({name: t.name, group: tg.name, is_auto: pht.is_auto})
+            SELECT json_group_array(
+                json_object('name', t.name, 'group', tg.name, 'is_auto', pht.is_auto)
+            )
             FROM post_has_tag pht
             JOIN tags t ON t.name = pht.tag_name
             LEFT JOIN tag_groups tg ON tg.id = t.group_id
             WHERE pht.post_id = p.id
-        ), []) AS tags,
+        ), '[]') AS tags,
         COALESCE((
-            SELECT list(color ORDER BY "order")
-            FROM post_has_color
-            WHERE post_id = p.id
-        ), []) AS colors,
+            SELECT json_group_array(color)
+            FROM (
+                SELECT color FROM post_has_color
+                WHERE post_id = p.id ORDER BY "order"
+            )
+        ), '[]') AS colors,
         (SELECT score FROM post_waifu_scores WHERE post_id = p.id) AS waifu_score
     FROM posts p
     ORDER BY p.id
 """
 
 
+def _parse_dt(value: object) -> datetime | None:
+    """SQLite returns timestamps as text; parse to a datetime (DuckDB gave one)."""
+    if value is None or isinstance(value, datetime):
+        return value
+    try:
+        return datetime.fromisoformat(str(value))
+    except ValueError:
+        return None
+
+
+def _decode_color(value: object) -> list[float] | None:
+    """Decode posts.dominant_color (sqlite-vec serialized float32 BLOB) to floats.
+
+    DuckDB stored this as a native FLOAT[3] array (``list(r[18])`` sufficed);
+    SQLite stores the sqlite-vec little-endian float32 BLOB, so unpack it.
+    """
+    if value is None:
+        return None
+    raw = bytes(value)
+    n = len(raw) // 4
+    return list(struct.unpack(f"{n}f", raw))
+
+
 def _row_to_postrow(r: tuple) -> PostRow:
     return PostRow(
         id=r[0], file_path=r[1], file_name=r[2], extension=r[3], full_path=r[4],
         width=r[5] or 0, height=r[6] or 0, aspect_ratio=r[7],
-        published_at=r[8], score=r[9] or 0, rating=r[10] or 0,
+        published_at=_parse_dt(r[8]), score=r[9] or 0, rating=r[10] or 0,
         description=r[11] or "", meta=r[12] or "", sha256=r[13] or "",
         size=r[14] or 0, source=r[15] or "", caption=r[16] or "",
-        arthash=r[17], dominant_color=list(r[18]) if r[18] is not None else None,
-        created_at=r[19], updated_at=r[20],
-        tags=list(r[21] or []), colors=list(r[22] or []),
+        arthash=r[17], dominant_color=_decode_color(r[18]),
+        created_at=_parse_dt(r[19]), updated_at=_parse_dt(r[20]),
+        tags=json.loads(r[21]) if r[21] else [],
+        colors=json.loads(r[22]) if r[22] else [],
         waifu_score=r[23],
     )
 
 
-def fetch_all_posts(conn: duckdb.DuckDBPyConnection, limit: int | None) -> tuple[int, Iterator[PostRow]]:
+def fetch_all_posts(conn: sqlite3.Connection, limit: int | None) -> tuple[int, Iterator[PostRow]]:
     raw_total = int(conn.execute("SELECT count(*) FROM posts").fetchone()[0])
     total = min(raw_total, limit) if limit is not None else raw_total
 
     sql = _POST_SQL + (f" LIMIT {int(limit)}" if limit is not None else "")
-    conn.execute(sql)
+    cur = conn.execute(sql)
 
     def stream() -> Iterator[PostRow]:
-        while chunk := conn.fetchmany(500):
+        # SQLite's fetchmany lives on the cursor, not the connection.
+        while chunk := cur.fetchmany(500):
             for r in chunk:
                 yield _row_to_postrow(r)
 
@@ -759,7 +789,7 @@ def _validate_s3_config(args: argparse.Namespace) -> None:
     args.source = "local-only"
 
 
-def _collect_plan(args: argparse.Namespace, previous: Manifest, conn: duckdb.DuckDBPyConnection) -> Plan:
+def _collect_plan(args: argparse.Namespace, previous: Manifest, conn: sqlite3.Connection) -> Plan:
     total, posts_iter = fetch_all_posts(conn, args.limit)
     logger.info("Scanning %d posts...", total)
     progress = get_progress()
@@ -799,7 +829,7 @@ def _request_server_snapshot(server_url: str) -> tuple[Path, Path] | None:
     return Path(data["path"]), Path(data["dir"])
 
 
-def _open_db_readonly(args: argparse.Namespace) -> tuple[duckdb.DuckDBPyConnection, Path | None]:
+def _open_db_readonly(args: argparse.Namespace) -> tuple[sqlite3.Connection, Path | None]:
     """Open the DB read-only. Prefer a server-side snapshot (works while server runs);
     fall back to opening the live file directly (only works if no one holds the write lock).
     Returns (connection, cleanup_dir_or_None).
@@ -808,14 +838,15 @@ def _open_db_readonly(args: argparse.Namespace) -> tuple[duckdb.DuckDBPyConnecti
     if snap is not None:
         snap_path, snap_dir = snap
         logger.info("Using DB snapshot from server: %s", snap_path)
-        return duckdb.connect(str(snap_path), read_only=True), snap_dir
+        return sqlite3.connect(f"{snap_path.resolve().as_uri()}?mode=ro", uri=True, timeout=10.0), snap_dir
 
     db_path = args.db_path or DEFAULT_DB
     if not db_path.exists():
-        msg = f"DuckDB not found at {db_path}"
+        msg = f"SQLite DB not found at {db_path}"
         raise SystemExit(msg)
     logger.info("Server unreachable at %s; opening DB file directly (will fail if server is running)", args.server)
-    return duckdb.connect(str(db_path), read_only=True), None
+    # as_uri() avoids embedding Windows backslashes into the file: URI.
+    return sqlite3.connect(f"{db_path.resolve().as_uri()}?mode=ro", uri=True, timeout=10.0), None
 
 
 def _report_missing(missing: list[PendingImage]) -> None:
