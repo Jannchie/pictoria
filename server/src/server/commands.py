@@ -175,7 +175,7 @@ class CommandController(Controller):
 
     @litestar.put("/silva-scorer")
     async def auto_silva_scorer(self, state: State) -> None:
-        """Batch-score all posts that don't yet have a SILVA aesthetic score."""
+        """Batch-score all posts that have a SigLIP2 embedding but no SILVA score."""
         from processors import run_silva_worker  # noqa: PLC0415  # lazy: defer ML stack load
         from progress import get_progress  # noqa: PLC0415
 
@@ -183,26 +183,46 @@ class CommandController(Controller):
         conn = db.new_connection()
         try:
             with get_progress() as progress:
-                await run_silva_worker(PostRepo(conn.cursor()), progress=progress)
+                await run_silva_worker(
+                    PostRepo(conn.cursor()),
+                    VectorRepo(conn.cursor(), table="post_vectors_siglip2", dim=1152),
+                    progress=progress,
+                )
         finally:
             with contextlib.suppress(Exception):
                 conn.close()
 
     @litestar.get("/silva-scorer/{post_id:int}")
-    async def get_silva_scorer_one(self, posts: PostRepo, scores: ScoreRepo, post_id: int) -> float:
-        """Compute (and persist) the SILVA aesthetic score for a single post."""
+    async def get_silva_scorer_one(
+        self, posts: PostRepo, scores: ScoreRepo, vectors: VectorRepo, post_id: int,
+    ) -> float:
+        """Compute (and persist) the SILVA score for one post from its embedding.
+
+        Reuses the stored SigLIP2 embedding; if the post has none yet, computes
+        and stores the embedding first so the score is available immediately.
+        """
         post = await posts.get(post_id)
         if post is None:
             raise PostNotFoundError(post_id)
         if not is_image(post.absolute_path):
             raise NotAnImageError(post_id)
-        from ai.silva_scorer import SCORER_NAME, score_images  # noqa: PLC0415  # lazy: defer ML stack load
+        from ai.silva_scorer import SCORER_NAME, score_embeddings  # noqa: PLC0415  # lazy: defer ML stack load
 
         existing = await scores.get_aesthetic_score(post_id, SCORER_NAME)
         if existing is not None:
             return existing
-        result = await asyncio.to_thread(score_images, [post.absolute_path])
-        score = float(result[0])
+
+        embedding = await vectors.get(post_id)
+        if embedding is None:
+            import numpy as np  # noqa: PLC0415
+
+            from ai.siglip_embed import calculate_image_features  # noqa: PLC0415
+
+            features = await asyncio.to_thread(calculate_image_features, post.absolute_path)
+            embedding = features.cpu().numpy()[0].astype(np.float32)
+            await vectors.upsert(post_id, embedding)
+
+        score = float((await asyncio.to_thread(score_embeddings, [embedding]))[0])
         await scores.upsert_aesthetic_score(post_id, SCORER_NAME, score)
         return score
 

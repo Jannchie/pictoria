@@ -88,8 +88,9 @@ TAGGER_BATCH_SIZE = 32
 # SigLIP-so400m is a noticeably larger ViT than CLIP-L/14; batch=16 fits
 # comfortably in 12GB at bfloat16 with the rest of the model stack loaded.
 SIGLIP_BATCH_SIZE = 16
-# SILVA rides a SigLIP2 backbone in the same size tier; batch=16 matches.
-SILVA_BATCH_SIZE = 16
+# SILVA scores stored embeddings (no image decode / backbone) — a pure head
+# forward, so batches can be large and cheap.
+SILVA_BATCH_SIZE = 256
 
 # When the full GPU batch crashes (typically one unreadable image in the
 # collate), we shrink to this size before going single-image. Mid-size
@@ -216,6 +217,11 @@ async def run_all_backfill(db: DB) -> None:
                 workers.append(
                     run_silva_worker(
                         PostRepo(silva_conn.cursor()),
+                        VectorRepo(
+                            silva_conn.cursor(),
+                            table="post_vectors_siglip2",
+                            dim=1152,
+                        ),
                         progress=progress,
                     ),
                 )
@@ -280,7 +286,7 @@ async def process_post(
     if shared.enable_siglip_scorer:
         await _process_siglip_batch(posts, [post.id])
     if shared.enable_silva_scorer:
-        await _process_silva_batch(posts, [post.id])
+        await _process_silva_batch(posts, vectors, [post.id])
 
 
 # ─── Worker drivers ─────────────────────────────────────────────────────
@@ -428,21 +434,24 @@ async def run_siglip_worker(
 
 async def run_silva_worker(
     posts: PostRepo,
+    vectors: VectorRepo,
     *,
     progress: Progress | None = None,
 ) -> None:
-    """Backfill the SILVA aesthetic score (Jannchie/silva-aesthetic)."""
+    """Backfill the SILVA aesthetic score from stored SigLIP2 embeddings.
+
+    Pending = posts that already have a ``post_vectors_siglip2`` embedding but no
+    ``silva`` score yet. Scoring reuses that embedding (see ``ai.silva_scorer``),
+    so this worker never opens the image files or loads the SigLIP2 backbone.
+    """
     from ai.silva_scorer import SCORER_NAME  # noqa: PLC0415  # lazy: defer ML stack load
 
-    pending = await _list_aesthetic_pending(posts, SCORER_NAME)
+    pending = await _list_silva_pending(posts, SCORER_NAME)
 
     async def _process(batch_ids: list[int]) -> None:
-        await _process_silva_batch(posts, batch_ids)
+        await _process_silva_batch(posts, vectors, batch_ids)
 
-    await _drive(
-        progress, "SILVA scorer", pending, SILVA_BATCH_SIZE, _process,
-        gpu_adaptive=True,
-    )
+    await _drive(progress, "SILVA scorer", pending, SILVA_BATCH_SIZE, _process)
 
 
 # ─── Pending queries ────────────────────────────────────────────────────
@@ -538,6 +547,40 @@ async def _list_aesthetic_pending(posts: PostRepo, scorer: str) -> list[int]:
               )
             ORDER BY p.id
             """,  # noqa: S608
+            [scorer, f"aesthetic:{scorer}"],
+        )
+        return [r[0] for r in posts.cur.fetchall()]
+
+    return await asyncio.to_thread(_impl)
+
+
+async def _list_silva_pending(posts: PostRepo, scorer: str) -> list[int]:
+    """Posts that have a SigLIP2 embedding but no ``scorer`` aesthetic score.
+
+    Unlike ``_list_aesthetic_pending``, SILVA scores the *embedding*, not the
+    image, so it requires one to exist. The ``EXISTS`` against
+    post_vectors_siglip2 is a per-post primary-key lookup on the vec0 table (the
+    same ``WHERE post_id = ?`` access VectorRepo.get uses) — not a vector scan —
+    so it stays fast on a large library.
+    """
+
+    def _impl() -> list[int]:
+        posts.cur.execute(
+            """
+            SELECT p.id FROM posts p
+            WHERE EXISTS (
+                SELECT 1 FROM post_vectors_siglip2 pv WHERE pv.post_id = p.id
+              )
+              AND NOT EXISTS (
+                SELECT 1 FROM post_aesthetic_scores pas
+                WHERE pas.post_id = p.id AND pas.scorer = ?
+              )
+              AND NOT EXISTS (
+                SELECT 1 FROM post_process_failures f
+                WHERE f.post_id = p.id AND f.worker = ?
+              )
+            ORDER BY p.id
+            """,
             [scorer, f"aesthetic:{scorer}"],
         )
         return [r[0] for r in posts.cur.fetchall()]
@@ -955,31 +998,33 @@ async def _process_siglip_batch(posts: PostRepo, post_ids: list[int]) -> None:
         await FailureRepo(posts.cur).record_failures([(pid, failure_worker, err) for pid, err in failures])
 
 
-async def _process_silva_batch(posts: PostRepo, post_ids: list[int]) -> None:
-    """Score a batch with the SILVA aesthetic scorer."""
-    from ai.silva_scorer import SCORER_NAME, score_images  # noqa: PLC0415  # lazy: defer ML stack load
+async def _process_silva_batch(posts: PostRepo, vectors: VectorRepo, post_ids: list[int]) -> None:
+    """Score a batch from stored SigLIP2 embeddings (no image decode / backbone).
 
-    failure_worker = f"aesthetic:{SCORER_NAME}"
-    posts_map = await posts.get_many(post_ids)
-    items: list[tuple[int, Path]] = []
-    for pid in post_ids:
-        post = posts_map.get(pid)
-        if post is None:
-            continue
-        abs_path = post.absolute_path
-        if abs_path.suffix.lower() not in IMAGE_EXTS or not abs_path.exists():
-            continue
-        items.append((pid, abs_path))
+    Posts without a stored embedding are silently skipped — they get scored on a
+    later pass, once the embedding worker has filled them in. A head-forward
+    failure is logged but not blacklisted: an embedding that exists should always
+    be scoreable, so a failure is a transient/code problem worth retrying, not
+    bad data to permanently skip.
+    """
+    from ai.silva_scorer import SCORER_NAME, score_embeddings  # noqa: PLC0415  # lazy: defer ML stack load
+
+    emb_map = await vectors.get_many(post_ids)
+    items = [(pid, emb_map[pid]) for pid in post_ids if pid in emb_map]
     if not items:
         return
 
-    successes, failures = await _score_batch_with_fallback(
-        score_images, items, worker_label="silva",
-    )
-    for pid, score in successes:
-        await ScoreRepo(posts.cur).upsert_aesthetic_score(pid, SCORER_NAME, score)
-    if failures:
-        await FailureRepo(posts.cur).record_failures([(pid, failure_worker, err) for pid, err in failures])
+    pids = [pid for pid, _ in items]
+    embeddings = [emb for _, emb in items]
+    try:
+        scores = await asyncio.to_thread(score_embeddings, embeddings)
+    except Exception:
+        logger.exception(f"[silva] head forward failed for {len(pids)} posts starting at id {pids[0]}")
+        return
+
+    score_repo = ScoreRepo(posts.cur)
+    for pid, score in zip(pids, scores, strict=True):
+        await score_repo.upsert_aesthetic_score(pid, SCORER_NAME, float(score))
 
 
 # ─── Basics compute / persist helpers ───────────────────────────────────

@@ -2,7 +2,7 @@
 
 **日期**: 2026-05-31
 **作者**: Jianqi Pan
-**状态**: 已批准设计，待实现
+**状态**: 已实现（含修订 1：复用已存 SigLIP2 embedding）
 
 ## 背景与目标
 
@@ -45,7 +45,43 @@ scorer.score(["a.png", "b.png"])  # -> list[float]，批量
   ×10**（对齐 waifu/siglip 的 ~0–10 视觉量级）。silva 不进入 waifu 专用的分数
   直方图统计（YAGNI）。
 
+## 修订 1（2026-05-31）：复用已存 SigLIP2 embedding
+
+实现期间发现一个让 silva 打分几乎零成本的优化，已采纳（**取代下方"改动清单"
+中关于 silva 解码图片 / 跑 backbone 的描述**）：
+
+**核心洞察**：silva 的 backbone 正是 `google/siglip2-so400m-patch14-384` 的
+`get_image_features().pooler_output` —— 与 `ai/siglip_embed.py` 给
+`post_vectors_siglip2` 生成检索向量的**完全同一模型、同一特征路径**。差异仅在
+我们存的是 L2-normalized 向量、而 silva head 训练用 raw pooled feature；但
+**silva head 第一层是 `LayerNorm`，对正标量缩放不变**（`LayerNorm(v)` ≡
+`LayerNorm(v/‖v‖)`），所以已存的归一化向量喂进 head 与 raw 向量**结果完全相同**
+（上游在 cosine 0.9998 验证过）。
+
+**结果**：silva 打分从"解码图片 + 跑 SigLIP2 backbone"变成"取已存向量 + 跑极轻
+的 head 前向"，几乎不占 GPU。落地：
+
+- `ai/silva_scorer.py`：只加载纯 head
+  `HubAestheticModel.from_pretrained("Jannchie/silva-aesthetic")`，
+  `score_embeddings([N,1152]) -> list[float]`；不再加载 backbone、不碰图片。
+- `VectorRepo.get_many(post_ids)`：批量取已存 embedding。
+- worker pending 改为 `_list_silva_pending`：**有 `post_vectors_siglip2`
+  embedding 但无 silva 分**的 post（`EXISTS` 子查询走 vec0 主键查找，非向量扫描）。
+- `_process_silva_batch(posts, vectors, ids)`：取 embedding → head → upsert；
+  无坏图问题故去掉 mini-batch 降级；head 前向失败只记日志、不进黑名单
+  （embedding 存在就该可打分，失败属暂时/代码问题，留待重试）。
+- `run_silva_worker(posts, vectors, ...)` / `run_all_backfill` / `process_post`
+  / 两个端点都串入 `VectorRepo`；`GET /silva-scorer/{id}` 在该 post 尚无
+  embedding 时先用 `ai.siglip_embed.calculate_image_features` 算一个并存下再打分。
+- `SILVA_BATCH_SIZE` 提到 256（head 前向便宜），不需要 `gpu_adaptive`。
+
+这实际采纳并超越了下方"不做的事"里原本搁置的"方案 C：与 siglip 共享 backbone"
+—— 不是共享 backbone 实例，而是直接复用已物化的 embedding，连 backbone 都不加载。
+
 ## 改动清单
+
+> 注：`silva_scorer` / worker / 端点的实现以上方"修订 1"为准（基于 embedding，
+> 非解码图片）。下方其余条目（开关、排序、前端、测试）不受影响。
 
 ### 后端
 
@@ -120,7 +156,8 @@ scorer.score(["a.png", "b.png"])  # -> list[float]，批量
 ## 不做的事（YAGNI）
 
 - 不在 `posts` 表加专用列（方案 B）。
-- 不让 silva 与 siglip 共享 backbone（方案 C，未来优化）。
+- ~~不让 silva 与 siglip 共享 backbone（方案 C）~~ —— 修订 1 采纳了更优做法：
+  直接复用已物化的 SigLIP2 embedding，连 backbone 都不加载（见上"修订 1"）。
 - 不加 silva 专用的分数直方图统计 / 区间筛选（siglip 也只有排序，无直方图）。
 - 不在后端 / 数据库做归一化：原始 [0,1] 入库与排序，仅前端展示层 ×10。
 
@@ -128,5 +165,6 @@ scorer.score(["a.png", "b.png"])  # -> list[float]，批量
 
 - silva 首跑需从 HF Hub 下载 `Jannchie/silva-aesthetic` 权重 —— 需联网；
   与现有所有模型加载行为一致。
-- silva 与 siglip-embedding、siglip-scorer 同为 SigLIP 系 backbone，开启后
-  GPU 显存压力增加 —— 已由 opt-in 默认关闭 + `gpu_adaptive` 自适应批大小缓解。
+- silva 打分本身几乎不占 GPU（只跑纯 head 前向，复用已存 embedding，见修订 1）。
+  它依赖 `post_vectors_siglip2` embedding 先由 siglip-embedding worker 物化：没有
+  embedding 的 post 不会被 silva 选中，待 embedding 回填后下一轮 sync 再打分。

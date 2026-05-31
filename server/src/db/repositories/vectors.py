@@ -68,6 +68,22 @@ class VectorRepo:
 
         return await asyncio.to_thread(_impl)
 
+    async def get_many(self, post_ids: list[int]) -> dict[int, list[float]]:
+        """Batch-fetch embeddings by post_id; ids without a vector are absent."""
+
+        def _impl() -> dict[int, list[float]]:
+            if not post_ids:
+                return {}
+            placeholders = ",".join("?" * len(post_ids))
+            self.cur.execute(
+                f"SELECT post_id, embedding FROM {self.table} "  # noqa: S608
+                f"WHERE post_id IN ({placeholders})",
+                post_ids,
+            )
+            return {pid: _decode_vec_blob(blob) for pid, blob in self.cur.fetchall()}
+
+        return await asyncio.to_thread(_impl)
+
     async def upsert(self, post_id: int, embedding: np.ndarray | list[float]) -> None:
         """Insert or replace an embedding for ``post_id``.
 

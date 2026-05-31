@@ -1,30 +1,35 @@
 """SILVA aesthetic scorer (``Jannchie/silva-aesthetic``).
 
-A third quality scorer kept side-by-side with ``ai.siglip_scorer`` and
-``ai.waifu_scorer`` so they can be compared on the same posts. The published
-head rides a SigLIP2 backbone (loaded lazily on the first ``score`` call),
-independent from the other scorers' backbones — they cannot share weights.
+Scores the published ordinal head DIRECTLY on the SigLIP2 image embeddings
+already stored in ``post_vectors_siglip2``. The head's backbone is the same
+``google/siglip2-so400m-patch14-384`` ``pooler_output`` that ``ai.siglip_embed``
+produces for retrieval, so the stored vectors are exactly the head's training
+input — with one twist: we store them L2-normalised (for vec0 cosine), while the
+head was trained on raw pooled features. That difference is harmless here because
+the head opens with a ``LayerNorm``, which is invariant to the positive scaling
+L2-normalisation applies; the normalised vector yields the identical score as the
+raw one (verified upstream at cosine 0.9998).
 
-Outputs a single scalar in ``[0, 1]``; the frontend multiplies by 10 for
-display to line up with the waifu / SigLIP ~0-10 visual scale. The raw [0, 1]
-value is what gets persisted and ordered on.
+Net effect: scoring skips image decode + the SigLIP2 backbone entirely — it is a
+tiny head forward over a ``[B, 1152]`` tensor of already-computed embeddings.
+
+Outputs ``[0, 1]``; the frontend multiplies by 10 for display.
 """
 
 from __future__ import annotations
 
-import contextlib
 from functools import cache
-from pathlib import Path
 from typing import TYPE_CHECKING
 
-from PIL import Image
+import numpy as np
+import torch
 
-from ai.torch_runtime import DEVICE, to_rgb
+from ai.torch_runtime import DEVICE
 
 if TYPE_CHECKING:
     from collections.abc import Sequence
 
-    from silva import AestheticScorer
+    from silva import HubAestheticModel
 
 
 SCORER_NAME = "silva"
@@ -32,35 +37,26 @@ _REPO_ID = "Jannchie/silva-aesthetic"
 
 
 @cache
-def _load() -> AestheticScorer:
-    from silva import AestheticScorer  # noqa: PLC0415  # lazy: defer ML stack load
+def _load_head() -> HubAestheticModel:
+    from silva import HubAestheticModel  # noqa: PLC0415  # lazy: defer ML stack load
 
-    return AestheticScorer.from_pretrained(_REPO_ID, device=DEVICE)
-
-
-ImageInput = Image.Image | Path | str
+    return HubAestheticModel.from_pretrained(_REPO_ID).to(DEVICE).eval()
 
 
-def score_images(inputs: Sequence[ImageInput]) -> list[float]:
-    """Score a batch of images. Returns one float per input, in order."""
-    if not inputs:
+def score_embeddings(embeddings: Sequence[Sequence[float]] | np.ndarray) -> list[float]:
+    """Score pre-computed SigLIP2 embeddings, one ``[0, 1]`` float per row.
+
+    ``embeddings`` is ``[N, 1152]``. The stored, L2-normalised vectors are fine
+    as-is — the head's leading LayerNorm cancels the normalisation, so no
+    re-scaling is needed here.
+    """
+    arr = np.asarray(embeddings, dtype=np.float32)
+    if arr.ndim == 1:
+        arr = arr[None, :]
+    if arr.size == 0:
         return []
-
-    scorer = _load()
-    opened: list[tuple[Image.Image, bool]] = []
-    try:
-        for src in inputs:
-            if isinstance(src, (str, Path)):
-                opened.append((to_rgb(Image.open(src)), True))
-            else:
-                opened.append((to_rgb(src), False))
-        images = [img for img, _ in opened]
-        # score() returns a float for a single image and a list for a
-        # sequence; we always hand it a list, so the result is a list.
-        scores = scorer.score(images)
-        return [float(s) for s in scores]
-    finally:
-        for img, was_opened in opened:
-            if was_opened:
-                with contextlib.suppress(Exception):
-                    img.close()
+    head = _load_head()
+    with torch.inference_mode():
+        x = torch.from_numpy(arr).to(DEVICE)
+        scores = head(x)["score"]
+        return scores.float().cpu().reshape(-1).tolist()
