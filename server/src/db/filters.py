@@ -46,6 +46,17 @@ class PostFilter(Struct):
             examples=[("A", "B")],
         ),
     ] = ()
+    silva_score_levels: Annotated[
+        tuple[str, ...] | None,
+        Meta(
+            description=(
+                "SILVA aesthetic bucket filter. Each value is one of "
+                "'A' (0.8-1.0), 'B' (0.6-0.8), 'C' (0.4-0.6), 'D' (0.2-0.4), "
+                "'E' (0-0.2), or 'UNSCORED' (no SILVA score yet). OR together."
+            ),
+            examples=[("A", "B")],
+        ),
+    ] = ()
 
 
 class PostFilterWithOrder(PostFilter):
@@ -105,31 +116,43 @@ WAIFU_SCORE_BUCKETS: dict[str, tuple[float, float]] = {
     "B": (6.0, 8.0),
     "A": (8.0, 10.001),
 }
-WAIFU_SCORE_BUCKET_UNSCORED = "UNSCORED"
+# SILVA aesthetic scores are [0, 1]; same five A-E grades on a /10 scale.
+SILVA_SCORE_BUCKETS: dict[str, tuple[float, float]] = {
+    "E": (0.0, 0.2),
+    "D": (0.2, 0.4),
+    "C": (0.4, 0.6),
+    "B": (0.6, 0.8),
+    "A": (0.8, 1.0001),
+}
+SCORE_BUCKET_UNSCORED = "UNSCORED"
 
 
-def waifu_bucket_case_sql(score_col: str = "pws.score", null_col: str = "pws.post_id") -> str:
-    """Build the ``CASE`` that labels a row's waifu bucket from the boundaries above.
+def bucket_case_sql(
+    buckets: dict[str, tuple[float, float]],
+    score_col: str,
+    null_col: str,
+) -> str:
+    """Build the ``CASE`` that labels a row's score bucket from ``buckets``.
 
-    Both the bucket *filter* (``build_where`` ``waifu_score_levels``) and the bucket
-    *aggregation* (``count_by_waifu_bucket``) read the same ``WAIFU_SCORE_BUCKETS``,
-    so the S/A/B/C/D edges live in exactly one place. Labels and bounds come from
-    that trusted constant only — no caller input reaches this string.
+    Shared by the waifu and SILVA bucket *filters* (``build_where``) and
+    *aggregations* (``count_by_*_bucket``), so each scorer's A-E edges live in
+    exactly one constant. Labels and bounds come from the trusted ``buckets``
+    mapping only - no caller input reaches this string.
     """
     # Highest lower-bound first; the lowest bucket falls through to ELSE.
-    ordered = sorted(WAIFU_SCORE_BUCKETS.items(), key=lambda kv: kv[1][0], reverse=True)
+    ordered = sorted(buckets.items(), key=lambda kv: kv[1][0], reverse=True)
     *above, (lowest_label, _) = ordered
     whens = "\n".join(f"WHEN {score_col} >= {lo} THEN '{label}'" for label, (lo, _hi) in above)
     return (
         "CASE\n"
-        f"WHEN {null_col} IS NULL THEN '{WAIFU_SCORE_BUCKET_UNSCORED}'\n"
+        f"WHEN {null_col} IS NULL THEN '{SCORE_BUCKET_UNSCORED}'\n"
         f"{whens}\n"
         f"ELSE '{lowest_label}'\n"
         "END"
     )
 
 
-def build_where(f: PostFilter) -> tuple[list[str], list[Any], list[str]]:  # noqa: C901, PLR0912
+def build_where(f: PostFilter) -> tuple[list[str], list[Any], list[str]]:  # noqa: C901, PLR0912, PLR0915
     """Translate a ``PostFilter`` into ``(where_clauses, params, joins)``.
 
     ``lab`` is intentionally not handled here: distance ordering needs a
@@ -174,7 +197,7 @@ def build_where(f: PostFilter) -> tuple[list[str], list[Any], list[str]]:  # noq
         clauses: list[str] = []
         include_unscored = False
         for lvl in f.waifu_score_levels:
-            if lvl == WAIFU_SCORE_BUCKET_UNSCORED:
+            if lvl == SCORE_BUCKET_UNSCORED:
                 include_unscored = True
                 continue
             if lvl not in WAIFU_SCORE_BUCKETS:
@@ -186,5 +209,28 @@ def build_where(f: PostFilter) -> tuple[list[str], list[Any], list[str]]:  # noq
             clauses.append("pws.post_id IS NULL")
         if clauses:
             where.append("(" + " OR ".join(clauses) + ")")
+
+    if f.silva_score_levels:
+        # vec0-free: aesthetic scores live in post_aesthetic_scores (scorer
+        # 'silva'). Same alias as the order-by join so they dedupe in search().
+        joins.append(
+            "LEFT JOIN post_aesthetic_scores pas_silva "
+            "ON pas_silva.post_id = p.id AND pas_silva.scorer = 'silva'",
+        )
+        silva_clauses: list[str] = []
+        silva_unscored = False
+        for lvl in f.silva_score_levels:
+            if lvl == SCORE_BUCKET_UNSCORED:
+                silva_unscored = True
+                continue
+            if lvl not in SILVA_SCORE_BUCKETS:
+                continue
+            lo, hi = SILVA_SCORE_BUCKETS[lvl]
+            silva_clauses.append("(pas_silva.score >= ? AND pas_silva.score < ?)")
+            params.extend([lo, hi])
+        if silva_unscored:
+            silva_clauses.append("pas_silva.post_id IS NULL")
+        if silva_clauses:
+            where.append("(" + " OR ".join(silva_clauses) + ")")
 
     return where, params, joins

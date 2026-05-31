@@ -131,6 +131,10 @@ class TestCounts:
             ({"waifu_score_levels": ("A",)}, 1),
             ({"waifu_score_levels": ("UNSCORED",)}, 1),
             ({"waifu_score_range": (4.0, 9.0)}, 2),
+            ({"silva_score_levels": ("A",)}, 1),
+            ({"silva_score_levels": ("C",)}, 1),
+            ({"silva_score_levels": ("UNSCORED",)}, 3),
+            ({"silva_score_levels": ("A", "C")}, 2),
         ],
     )
     async def test_count_filtered(self, query: PostQueryService, filters: dict, expected: int) -> None:
@@ -151,6 +155,11 @@ class TestCounts:
     async def test_count_by_waifu_bucket(self, query: PostQueryService) -> None:
         rows = await query.count_by_waifu_bucket(PostFilter())
         assert {r["bucket"]: r["count"] for r in rows} == {"A": 1, "C": 1, "D": 1, "E": 1, "UNSCORED": 1}
+
+    async def test_count_by_silva_bucket(self, query: PostQueryService) -> None:
+        rows = await query.count_by_silva_bucket(PostFilter())
+        # silva scores: post 5 (0.9) -> A, post 4 (0.4) -> C; the rest unscored.
+        assert {r["bucket"]: r["count"] for r in rows} == {"A": 1, "C": 1, "UNSCORED": 3}
 
     async def test_aggregate_stats(self, query: PostQueryService) -> None:
         s = await query.aggregate_stats(PostFilter())

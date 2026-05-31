@@ -22,7 +22,16 @@ from typing import TYPE_CHECKING, Any
 import sqlite_vec
 
 from db.entities import POST_COLUMNS
-from db.filters import GROUPABLE_COLUMNS, ORDERABLE_COLUMNS, PostFilter, PostFilterWithOrder, build_where, waifu_bucket_case_sql
+from db.filters import (
+    GROUPABLE_COLUMNS,
+    ORDERABLE_COLUMNS,
+    SILVA_SCORE_BUCKETS,
+    WAIFU_SCORE_BUCKETS,
+    PostFilter,
+    PostFilterWithOrder,
+    bucket_case_sql,
+    build_where,
+)
 from db.helpers import fetch_all_dicts, fetch_one_dict
 from db.repositories.colors import ColorRepo
 from db.repositories.scores import ScoreRepo
@@ -180,7 +189,7 @@ class PostQueryService:
 
         return await asyncio.to_thread(_impl)
 
-    async def search(self, f: PostFilterWithOrder, *, limit: int = 100, offset: int = 0) -> list[dict]:
+    async def search(self, f: PostFilterWithOrder, *, limit: int = 100, offset: int = 0) -> list[dict]:  # noqa: C901
         """Search posts, returning rows ready for ``PostSimplePublic``.
 
         ``f.lab`` triggers brute-force L2 distance ordering over dominant_color
@@ -241,10 +250,13 @@ class PostQueryService:
                             )
                         order_sql = f"ORDER BY pws.score {direction} NULLS LAST{tiebreak}"
                     elif f.order_by == "silva_score":
-                        extra_joins.append(
-                            "LEFT JOIN post_aesthetic_scores pas_silva "
-                            "ON pas_silva.post_id = p.id AND pas_silva.scorer = 'silva'",
-                        )
+                        # build_where may already have joined pas_silva for a
+                        # silva_score_levels filter; don't double-join the alias.
+                        if not any("pas_silva" in j for j in joins):
+                            extra_joins.append(
+                                "LEFT JOIN post_aesthetic_scores pas_silva "
+                                "ON pas_silva.post_id = p.id AND pas_silva.scorer = 'silva'",
+                            )
                         order_sql = f"ORDER BY pas_silva.score {direction} NULLS LAST{tiebreak}"
                     else:
                         order_sql = f"ORDER BY p.{f.order_by} {direction}{tiebreak}"
@@ -370,7 +382,35 @@ class PostQueryService:
             self.cur.execute(
                 f"""
                 SELECT
-                    {waifu_bucket_case_sql()} AS bucket,
+                    {bucket_case_sql(WAIFU_SCORE_BUCKETS, "pws.score", "pws.post_id")} AS bucket,
+                    count(*) AS count
+                FROM posts p
+                {joins_sql}
+                {where_sql}
+                GROUP BY bucket
+                """,  # noqa: S608
+                params,
+            )
+            return fetch_all_dicts(self.cur)
+
+        return await asyncio.to_thread(_impl)
+
+    async def count_by_silva_bucket(self, f: PostFilter) -> list[dict]:
+        """Group posts into the 5 SILVA buckets (A/B/C/D/E) plus UNSCORED."""
+
+        def _impl() -> list[dict]:
+            where_clauses, params, joins = build_where(f)
+            if not any("pas_silva" in j for j in joins):
+                joins.append(
+                    "LEFT JOIN post_aesthetic_scores pas_silva "
+                    "ON pas_silva.post_id = p.id AND pas_silva.scorer = 'silva'",
+                )
+            joins_sql = "\n".join(joins)
+            where_sql = ("WHERE " + " AND ".join(where_clauses)) if where_clauses else ""
+            self.cur.execute(
+                f"""
+                SELECT
+                    {bucket_case_sql(SILVA_SCORE_BUCKETS, "pas_silva.score", "pas_silva.post_id")} AS bucket,
                     count(*) AS count
                 FROM posts p
                 {joins_sql}

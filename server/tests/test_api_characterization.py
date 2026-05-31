@@ -95,6 +95,14 @@ def test_count_by_waifu_bucket(api_client: TestClient) -> None:
     assert buckets == {"A": 1, "C": 1, "D": 1, "E": 1, "UNSCORED": 1}
 
 
+def test_count_by_silva_bucket(api_client: TestClient) -> None:
+    resp = api_client.post("/v2/posts/count/silva", json={})
+    assert resp.status_code == 200
+    buckets = {item["bucket"]: item["count"] for item in resp.json()}
+    # seed: 0.9->A, 0.4->C, posts 1/3/5... only 4 & 5 scored, rest unscored
+    assert buckets == {"A": 1, "C": 1, "UNSCORED": 3}
+
+
 def test_stats(api_client: TestClient) -> None:
     resp = api_client.post("/v2/posts/stats", json={})
     assert resp.status_code == 200

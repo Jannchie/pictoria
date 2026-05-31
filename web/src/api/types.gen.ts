@@ -183,6 +183,10 @@ export type PostFilterWithOrder = {
      */
     waifu_score_levels?: Array<string> | null;
     /**
+     * SILVA aesthetic bucket filter. Each value is one of 'A' (0.8-1.0), 'B' (0.6-0.8), 'C' (0.4-0.6), 'D' (0.2-0.4), 'E' (0-0.2), or 'UNSCORED' (no SILVA score yet). OR together.
+     */
+    silva_score_levels?: Array<string> | null;
+    /**
      * Order column.
      */
     order_by?: 'id' | 'score' | 'rating' | 'created_at' | 'published_at' | 'file_name' | 'last_accessed_at' | 'waifu_score' | 'silva_score' | null;
@@ -394,6 +398,14 @@ export type TextSearchRequest = {
  * WaifuBucketCountItem
  */
 export type WaifuBucketCountItem = {
+    bucket: string;
+    count: number;
+};
+
+/**
+ * SilvaBucketCountItem
+ */
+export type SilvaBucketCountItem = {
     bucket: string;
     count: number;
 };
@@ -831,6 +843,37 @@ export type V2GetWaifuBucketCountResponses = {
 };
 
 export type V2GetWaifuBucketCountResponse = V2GetWaifuBucketCountResponses[keyof V2GetWaifuBucketCountResponses];
+
+export type V2GetSilvaBucketCountData = {
+    body: PostFilter;
+    path?: never;
+    query?: never;
+    url: '/v2/posts/count/silva';
+};
+
+export type V2GetSilvaBucketCountErrors = {
+    /**
+     * Validation Exception
+     */
+    400: {
+        status_code: number;
+        detail: string;
+        extra?: null | {
+            [key: string]: unknown;
+        } | Array<unknown>;
+    };
+};
+
+export type V2GetSilvaBucketCountError = V2GetSilvaBucketCountErrors[keyof V2GetSilvaBucketCountErrors];
+
+export type V2GetSilvaBucketCountResponses = {
+    /**
+     * Request fulfilled, document follows
+     */
+    200: Array<SilvaBucketCountItem>;
+};
+
+export type V2GetSilvaBucketCountResponse = V2GetSilvaBucketCountResponses[keyof V2GetSilvaBucketCountResponses];
 
 export type V2ListPostsData = {
     body?: never;

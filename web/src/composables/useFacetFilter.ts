@@ -13,7 +13,7 @@ import { postFilter, queryKeys } from '@/shared'
  */
 
 type PostFilterValue = typeof postFilter.value
-type ArrayFilterField = 'rating' | 'score' | 'extension' | 'waifu_score_levels'
+type ArrayFilterField = 'rating' | 'score' | 'extension' | 'waifu_score_levels' | 'silva_score_levels'
 
 export function useFacetFilter<T extends string | number, TRow>(opts: {
   field: ArrayFilterField

@@ -20,6 +20,7 @@ interface PostFilter {
   folder?: string
   waifu_score_range?: [number, number]
   waifu_score_levels: string[]
+  silva_score_levels: string[]
 }
 export type RightPanelDatum = PostSimplePublic | ImageDatum | InputDatum
 export const postFilter = ref<PostFilter>({
@@ -28,6 +29,7 @@ export const postFilter = ref<PostFilter>({
   tags: [],
   extension: [],
   waifu_score_levels: [],
+  silva_score_levels: [],
 })
 export const textSearchQuery = ref('')
 

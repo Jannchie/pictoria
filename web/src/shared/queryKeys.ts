@@ -11,7 +11,7 @@
 
 import type { MaybeRef } from 'vue'
 
-export type CountKind = 'rating' | 'score' | 'extension' | 'waifu'
+export type CountKind = 'rating' | 'score' | 'extension' | 'waifu' | 'silva'
 
 export const queryKeys = {
   /** Infinite gallery list, keyed by the full request body. */

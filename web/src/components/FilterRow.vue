@@ -15,6 +15,7 @@ function clearTextSearch() {
       <RatingFilter />
       <ExtensionFilter />
       <WaifuScoreFilter />
+      <SilvaScoreFilter />
     </div>
     <div class="flex gap-2 items-center">
       <PInput
