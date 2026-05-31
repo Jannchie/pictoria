@@ -166,9 +166,10 @@ async def run_all_backfill(db: DB) -> None:
     basics_conn = _checkout()
     tagger_conn = _checkout()
     waifu_conn = _checkout()
-    # SILVA aesthetic backfill is opt-in (see shared.enable_silva_scorer): skip
-    # its connection / worker coroutine entirely when disabled.
-    silva_conn = _checkout() if shared.enable_silva_scorer else None
+    # SILVA aesthetic backfill: scores stored SigLIP2 embeddings (no image
+    # decode / backbone), so it scoops up every post that has an embedding but
+    # no silva score yet — including the existing library.
+    silva_conn = _checkout()
     # SigLIP 2 retrieval-embedding backfill — the sole search/retrieval
     # embedding worker now that CLIP retrieval has been removed.
     siglip_embed_conn = _checkout()
@@ -198,19 +199,16 @@ async def run_all_backfill(db: DB) -> None:
                     PostRepo(waifu_conn.cursor()),
                     progress=progress,
                 ),
-            ]
-            if silva_conn is not None:
-                workers.append(
-                    run_silva_worker(
-                        PostRepo(silva_conn.cursor()),
-                        VectorRepo(
-                            silva_conn.cursor(),
-                            table="post_vectors_siglip2",
-                            dim=1152,
-                        ),
-                        progress=progress,
+                run_silva_worker(
+                    PostRepo(silva_conn.cursor()),
+                    VectorRepo(
+                        silva_conn.cursor(),
+                        table="post_vectors_siglip2",
+                        dim=1152,
                     ),
-                )
+                    progress=progress,
+                ),
+            ]
             await asyncio.gather(*workers)
     finally:
         for conn in connections:
@@ -269,8 +267,9 @@ async def process_post(
     await _process_siglip_embedding_batch(posts, vectors, [post.id])
     await _process_tagger_batch(posts, tag_groups, [post.id])
     await _process_waifu_batch(posts, [post.id])
-    if shared.enable_silva_scorer:
-        await _process_silva_batch(posts, vectors, [post.id])
+    # Scores the embedding just written above (read back from the vec0 table),
+    # so this never touches the image or the SigLIP2 backbone.
+    await _process_silva_batch(posts, vectors, [post.id])
 
 
 # ─── Worker drivers ─────────────────────────────────────────────────────

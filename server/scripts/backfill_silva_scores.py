@@ -1,9 +1,10 @@
 """Backfill SILVA aesthetic scores across the whole library.
 
 Standalone CLI that runs the same ``run_silva_worker`` the server uses during
-metadata sync, but without booting the HTTP app. Use it for a one-off backfill
-of an existing library — e.g. after enabling the scorer — instead of leaving
-``ENABLE_SILVA_SCORER=1`` set on the long-running server.
+metadata sync, but without booting the HTTP app. The server now runs this
+worker on every sync, so an existing library backfills automatically on the
+next boot; reach for this script only to run the backfill on its own — e.g.
+against a DB without starting the server.
 
 It reuses the worker's pending query (posts with no ``silva`` row in
 ``post_aesthetic_scores`` and not already on the ``aesthetic:silva`` failure

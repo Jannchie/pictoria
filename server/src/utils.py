@@ -79,10 +79,6 @@ def prepare_feature_flags() -> None:
     if shared.disable_arthash:
         logger.info("DISABLE_ARTHASH=1: skipping arthash computation in the basics worker")
 
-    shared.enable_silva_scorer = os.environ.get("ENABLE_SILVA_SCORER", "").lower() in _TRUTHY
-    if shared.enable_silva_scorer:
-        logger.info("ENABLE_SILVA_SCORER=1: SILVA aesthetic scorer enabled")
-
 
 def initialize(target_dir: os.PathLike, openai_key: str | None = None) -> None:
     prepare_paths(Path(target_dir))

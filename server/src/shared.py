@@ -95,7 +95,3 @@ s3_base_dir = "collections"
 # stops re-selecting posts whose only missing column is arthash. Driven by the
 # ``DISABLE_ARTHASH`` env var; flipped on by ``utils.initialize``.
 disable_arthash = False
-
-# SILVA aesthetic backfill is off by default. Set ``ENABLE_SILVA_SCORER=1`` to
-# enable the worker and the per-upload scoring step.
-enable_silva_scorer = False
