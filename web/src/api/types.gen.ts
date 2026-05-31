@@ -185,7 +185,7 @@ export type PostFilterWithOrder = {
     /**
      * Order column.
      */
-    order_by?: 'id' | 'score' | 'rating' | 'created_at' | 'published_at' | 'file_name' | 'last_accessed_at' | 'waifu_score' | 'siglip_score' | 'silva_score' | null;
+    order_by?: 'id' | 'score' | 'rating' | 'created_at' | 'published_at' | 'file_name' | 'last_accessed_at' | 'waifu_score' | 'silva_score' | null;
     /**
      * Order direction.
      */
@@ -1197,20 +1197,6 @@ export type V2AutoCaptionResponses = {
 
 export type V2AutoCaptionResponse = V2AutoCaptionResponses[keyof V2AutoCaptionResponses];
 
-export type V2AutoSiglipScorerData = {
-    body?: never;
-    path?: never;
-    query?: never;
-    url: '/v2/cmd/siglip-scorer';
-};
-
-export type V2AutoSiglipScorerResponses = {
-    /**
-     * Request fulfilled, document follows
-     */
-    200: unknown;
-};
-
 export type V2AutoSilvaScorerData = {
     body?: never;
     path?: never;
@@ -1350,39 +1336,6 @@ export type V2DownloadFromDanbooruResponses = {
 };
 
 export type V2DownloadFromDanbooruResponse = V2DownloadFromDanbooruResponses[keyof V2DownloadFromDanbooruResponses];
-
-export type V2GetSiglipScorerOneData = {
-    body?: never;
-    path: {
-        post_id: number;
-    };
-    query?: never;
-    url: '/v2/cmd/siglip-scorer/{post_id}';
-};
-
-export type V2GetSiglipScorerOneErrors = {
-    /**
-     * Validation Exception
-     */
-    400: {
-        status_code: number;
-        detail: string;
-        extra?: null | {
-            [key: string]: unknown;
-        } | Array<unknown>;
-    };
-};
-
-export type V2GetSiglipScorerOneError = V2GetSiglipScorerOneErrors[keyof V2GetSiglipScorerOneErrors];
-
-export type V2GetSiglipScorerOneResponses = {
-    /**
-     * Request fulfilled, document follows
-     */
-    200: number;
-};
-
-export type V2GetSiglipScorerOneResponse = V2GetSiglipScorerOneResponses[keyof V2GetSiglipScorerOneResponses];
 
 export type V2GetSilvaScorerOneData = {
     body?: never;

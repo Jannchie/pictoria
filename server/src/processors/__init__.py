@@ -79,15 +79,11 @@ _IMAGE_EXT_WHERE = f"LOWER(p.extension) IN ({_IMAGE_EXT_SQL_LIST})"
 
 BASICS_BATCH_SIZE = 32
 WAIFU_BATCH_SIZE = 32
-# SigLIP 2 so400m is a larger ViT than CLIP-L/14; batch=16 sits in the same
-# tier as the SigLIP aesthetic scorer and fits 12GB at bf16.
+# SigLIP 2 so400m is a larger ViT than CLIP-L/14; batch=16 fits 12GB at bf16.
 SIGLIP_EMBED_BATCH_SIZE = 16
 # WDTagger (wd-vit-large) runs on GPU; batch=32 keeps it saturated on a
 # single 30xx-class card.
 TAGGER_BATCH_SIZE = 32
-# SigLIP-so400m is a noticeably larger ViT than CLIP-L/14; batch=16 fits
-# comfortably in 12GB at bfloat16 with the rest of the model stack loaded.
-SIGLIP_BATCH_SIZE = 16
 # SILVA scores stored embeddings (no image decode / backbone) — a pure head
 # forward, so batches can be large and cheap.
 SILVA_BATCH_SIZE = 256
@@ -170,11 +166,8 @@ async def run_all_backfill(db: DB) -> None:
     basics_conn = _checkout()
     tagger_conn = _checkout()
     waifu_conn = _checkout()
-    # SigLIP backfill is opt-in (see shared.enable_siglip_scorer): skip
-    # allocating its connection and worker coroutine entirely when disabled
-    # so the GPU isn't held by a model load we'll never use.
-    siglip_conn = _checkout() if shared.enable_siglip_scorer else None
-    # SILVA aesthetic backfill is opt-in too (see shared.enable_silva_scorer).
+    # SILVA aesthetic backfill is opt-in (see shared.enable_silva_scorer): skip
+    # its connection / worker coroutine entirely when disabled.
     silva_conn = _checkout() if shared.enable_silva_scorer else None
     # SigLIP 2 retrieval-embedding backfill — the sole search/retrieval
     # embedding worker now that CLIP retrieval has been removed.
@@ -206,13 +199,6 @@ async def run_all_backfill(db: DB) -> None:
                     progress=progress,
                 ),
             ]
-            if siglip_conn is not None:
-                workers.append(
-                    run_siglip_worker(
-                        PostRepo(siglip_conn.cursor()),
-                        progress=progress,
-                    ),
-                )
             if silva_conn is not None:
                 workers.append(
                     run_silva_worker(
@@ -283,8 +269,6 @@ async def process_post(
     await _process_siglip_embedding_batch(posts, vectors, [post.id])
     await _process_tagger_batch(posts, tag_groups, [post.id])
     await _process_waifu_batch(posts, [post.id])
-    if shared.enable_siglip_scorer:
-        await _process_siglip_batch(posts, [post.id])
     if shared.enable_silva_scorer:
         await _process_silva_batch(posts, vectors, [post.id])
 
@@ -413,25 +397,6 @@ async def run_waifu_worker(
     )
 
 
-async def run_siglip_worker(
-    posts: PostRepo,
-    *,
-    progress: Progress | None = None,
-) -> None:
-    """Backfill the SigLIP-based aesthetic score (Aesthetic Predictor V2.5)."""
-    from ai.siglip_scorer import SCORER_NAME  # noqa: PLC0415  # lazy: defer ML stack load
-
-    pending = await _list_aesthetic_pending(posts, SCORER_NAME)
-
-    async def _process(batch_ids: list[int]) -> None:
-        await _process_siglip_batch(posts, batch_ids)
-
-    await _drive(
-        progress, "SigLIP scorer", pending, SIGLIP_BATCH_SIZE, _process,
-        gpu_adaptive=True,
-    )
-
-
 async def run_silva_worker(
     posts: PostRepo,
     vectors: VectorRepo,
@@ -526,38 +491,10 @@ async def _list_waifu_pending(posts: PostRepo) -> list[int]:
     return await asyncio.to_thread(_impl)
 
 
-async def _list_aesthetic_pending(posts: PostRepo, scorer: str) -> list[int]:
-    """Pending posts for an entry in ``post_aesthetic_scores`` keyed by scorer.
-
-    The failure-blacklist worker name is ``aesthetic:<scorer>`` so each scorer
-    has its own one-shot failure log instead of sharing a single bucket.
-    """
-
-    def _impl() -> list[int]:
-        posts.cur.execute(
-            f"""
-            SELECT p.id FROM posts p
-            LEFT JOIN post_aesthetic_scores pas
-              ON pas.post_id = p.id AND pas.scorer = ?
-            WHERE pas.post_id IS NULL
-              AND {_IMAGE_EXT_WHERE}
-              AND NOT EXISTS (
-                SELECT 1 FROM post_process_failures f
-                WHERE f.post_id = p.id AND f.worker = ?
-              )
-            ORDER BY p.id
-            """,  # noqa: S608
-            [scorer, f"aesthetic:{scorer}"],
-        )
-        return [r[0] for r in posts.cur.fetchall()]
-
-    return await asyncio.to_thread(_impl)
-
-
 async def _list_silva_pending(posts: PostRepo, scorer: str) -> list[int]:
     """Posts that have a SigLIP2 embedding but no ``scorer`` aesthetic score.
 
-    Unlike ``_list_aesthetic_pending``, SILVA scores the *embedding*, not the
+    SILVA scores the *embedding*, not the
     image, so it requires one to exist. The ``EXISTS`` against
     post_vectors_siglip2 is a per-post primary-key lookup on the vec0 table (the
     same ``WHERE post_id = ?`` access VectorRepo.get uses) — not a vector scan —
@@ -969,33 +906,6 @@ async def _process_waifu_batch(posts: PostRepo, post_ids: list[int]) -> None:
         await ScoreRepo(posts.cur).upsert_waifu_score(pid, score)
     if failures:
         await FailureRepo(posts.cur).record_failures([(pid, "waifu", err) for pid, err in failures])
-
-
-async def _process_siglip_batch(posts: PostRepo, post_ids: list[int]) -> None:
-    """Score a batch with SigLIP Aesthetic Predictor V2.5."""
-    from ai.siglip_scorer import SCORER_NAME, score_images  # noqa: PLC0415  # lazy: defer ML stack load
-
-    failure_worker = f"aesthetic:{SCORER_NAME}"
-    posts_map = await posts.get_many(post_ids)
-    items: list[tuple[int, Path]] = []
-    for pid in post_ids:
-        post = posts_map.get(pid)
-        if post is None:
-            continue
-        abs_path = post.absolute_path
-        if abs_path.suffix.lower() not in IMAGE_EXTS or not abs_path.exists():
-            continue
-        items.append((pid, abs_path))
-    if not items:
-        return
-
-    successes, failures = await _score_batch_with_fallback(
-        score_images, items, worker_label="siglip",
-    )
-    for pid, score in successes:
-        await ScoreRepo(posts.cur).upsert_aesthetic_score(pid, SCORER_NAME, score)
-    if failures:
-        await FailureRepo(posts.cur).record_failures([(pid, failure_worker, err) for pid, err in failures])
 
 
 async def _process_silva_batch(posts: PostRepo, vectors: VectorRepo, post_ids: list[int]) -> None:

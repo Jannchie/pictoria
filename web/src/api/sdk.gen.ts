@@ -2,7 +2,7 @@
 
 import { type Client, formDataBodySerializer, type Options as Options2, type TDataShape } from './client';
 import { client } from './client.gen';
-import type { V2AddTagToPostData, V2AddTagToPostErrors, V2AddTagToPostResponses, V2AutoCaptionData, V2AutoCaptionErrors, V2AutoCaptionResponses, V2AutoSiglipScorerData, V2AutoSiglipScorerResponses, V2AutoSilvaScorerData, V2AutoSilvaScorerResponses, V2AutoTagsAllData, V2AutoTagsAllResponses, V2AutoTagsData, V2AutoTagsErrors, V2AutoTagsResponses, V2AutoWaifuScorerData, V2AutoWaifuScorerResponses, V2BulkUpdatePostRatingData, V2BulkUpdatePostRatingErrors, V2BulkUpdatePostRatingResponses, V2BulkUpdatePostScoreData, V2BulkUpdatePostScoreErrors, V2BulkUpdatePostScoreResponses, V2CalculateEmbeddingData, V2CalculateEmbeddingResponses, V2CreateTagData, V2CreateTagErrors, V2CreateTagResponses, V2DbSnapshotData, V2DbSnapshotResponses, V2DeletePostsData, V2DeletePostsErrors, V2DeletePostsResponses, V2DeleteTagData, V2DeleteTagErrors, V2DeleteTagResponses, V2DeleteTagsData, V2DeleteTagsErrors, V2DeleteTagsResponses, V2DownloadFromDanbooruData, V2DownloadFromDanbooruErrors, V2DownloadFromDanbooruResponses, V2GetExtensionCountData, V2GetExtensionCountErrors, V2GetExtensionCountResponses, V2GetFoldersData, V2GetFoldersResponses, V2GetOriginalByIdData, V2GetOriginalByIdErrors, V2GetOriginalByIdResponses, V2GetOriginalData, V2GetOriginalErrors, V2GetOriginalResponses, V2GetPostData, V2GetPostErrors, V2GetPostResponses, V2GetPostsCountData, V2GetPostsCountErrors, V2GetPostsCountResponses, V2GetPostsStatsData, V2GetPostsStatsErrors, V2GetPostsStatsResponses, V2GetRatingCountData, V2GetRatingCountErrors, V2GetRatingCountResponses, V2GetScoreCountData, V2GetScoreCountErrors, V2GetScoreCountResponses, V2GetSiglipScorerOneData, V2GetSiglipScorerOneErrors, V2GetSiglipScorerOneResponses, V2GetSilvaScorerOneData, V2GetSilvaScorerOneErrors, V2GetSilvaScorerOneResponses, V2GetSimilarPostsData, V2GetSimilarPostsErrors, V2GetSimilarPostsResponses, V2GetThumbnailByIdData, V2GetThumbnailByIdErrors, V2GetThumbnailByIdResponses, V2GetThumbnailData, V2GetThumbnailErrors, V2GetThumbnailResponses, V2GetWaifuBucketCountData, V2GetWaifuBucketCountErrors, V2GetWaifuBucketCountResponses, V2GetWaifuScorerOneData, V2GetWaifuScorerOneErrors, V2GetWaifuScorerOneResponses, V2GetWaifuScorerStatisticsData, V2GetWaifuScorerStatisticsResponses, V2ListPostsData, V2ListPostsErrors, V2ListPostsResponses, V2ListTagGroupData, V2ListTagGroupResponses, V2ListTagsData, V2ListTagsErrors, V2ListTagsResponses, V2RemoveTagFromPostData, V2RemoveTagFromPostErrors, V2RemoveTagFromPostResponses, V2RotatePostImageData, V2RotatePostImageErrors, V2RotatePostImageResponses, V2SearchPostsByTextData, V2SearchPostsByTextErrors, V2SearchPostsByTextResponses, V2SearchPostsData, V2SearchPostsErrors, V2SearchPostsResponses, V2SyncMetadataEndpointData, V2SyncMetadataEndpointResponses, V2TouchPostData, V2TouchPostErrors, V2TouchPostResponses, V2UpdatePostCaptionData, V2UpdatePostCaptionErrors, V2UpdatePostCaptionResponses, V2UpdatePostRatingData, V2UpdatePostRatingErrors, V2UpdatePostRatingResponses, V2UpdatePostScoreData, V2UpdatePostScoreErrors, V2UpdatePostScoreResponses, V2UpdatePostSourceData, V2UpdatePostSourceErrors, V2UpdatePostSourceResponses, V2UpdateTagData, V2UpdateTagErrors, V2UpdateTagResponses, V2UploadFileData, V2UploadFileErrors, V2UploadFileResponses } from './types.gen';
+import type { V2AddTagToPostData, V2AddTagToPostErrors, V2AddTagToPostResponses, V2AutoCaptionData, V2AutoCaptionErrors, V2AutoCaptionResponses, V2AutoSilvaScorerData, V2AutoSilvaScorerResponses, V2AutoTagsAllData, V2AutoTagsAllResponses, V2AutoTagsData, V2AutoTagsErrors, V2AutoTagsResponses, V2AutoWaifuScorerData, V2AutoWaifuScorerResponses, V2BulkUpdatePostRatingData, V2BulkUpdatePostRatingErrors, V2BulkUpdatePostRatingResponses, V2BulkUpdatePostScoreData, V2BulkUpdatePostScoreErrors, V2BulkUpdatePostScoreResponses, V2CalculateEmbeddingData, V2CalculateEmbeddingResponses, V2CreateTagData, V2CreateTagErrors, V2CreateTagResponses, V2DbSnapshotData, V2DbSnapshotResponses, V2DeletePostsData, V2DeletePostsErrors, V2DeletePostsResponses, V2DeleteTagData, V2DeleteTagErrors, V2DeleteTagResponses, V2DeleteTagsData, V2DeleteTagsErrors, V2DeleteTagsResponses, V2DownloadFromDanbooruData, V2DownloadFromDanbooruErrors, V2DownloadFromDanbooruResponses, V2GetExtensionCountData, V2GetExtensionCountErrors, V2GetExtensionCountResponses, V2GetFoldersData, V2GetFoldersResponses, V2GetOriginalByIdData, V2GetOriginalByIdErrors, V2GetOriginalByIdResponses, V2GetOriginalData, V2GetOriginalErrors, V2GetOriginalResponses, V2GetPostData, V2GetPostErrors, V2GetPostResponses, V2GetPostsCountData, V2GetPostsCountErrors, V2GetPostsCountResponses, V2GetPostsStatsData, V2GetPostsStatsErrors, V2GetPostsStatsResponses, V2GetRatingCountData, V2GetRatingCountErrors, V2GetRatingCountResponses, V2GetScoreCountData, V2GetScoreCountErrors, V2GetScoreCountResponses, V2GetSilvaScorerOneData, V2GetSilvaScorerOneErrors, V2GetSilvaScorerOneResponses, V2GetSimilarPostsData, V2GetSimilarPostsErrors, V2GetSimilarPostsResponses, V2GetThumbnailByIdData, V2GetThumbnailByIdErrors, V2GetThumbnailByIdResponses, V2GetThumbnailData, V2GetThumbnailErrors, V2GetThumbnailResponses, V2GetWaifuBucketCountData, V2GetWaifuBucketCountErrors, V2GetWaifuBucketCountResponses, V2GetWaifuScorerOneData, V2GetWaifuScorerOneErrors, V2GetWaifuScorerOneResponses, V2GetWaifuScorerStatisticsData, V2GetWaifuScorerStatisticsResponses, V2ListPostsData, V2ListPostsErrors, V2ListPostsResponses, V2ListTagGroupData, V2ListTagGroupResponses, V2ListTagsData, V2ListTagsErrors, V2ListTagsResponses, V2RemoveTagFromPostData, V2RemoveTagFromPostErrors, V2RemoveTagFromPostResponses, V2RotatePostImageData, V2RotatePostImageErrors, V2RotatePostImageResponses, V2SearchPostsByTextData, V2SearchPostsByTextErrors, V2SearchPostsByTextResponses, V2SearchPostsData, V2SearchPostsErrors, V2SearchPostsResponses, V2SyncMetadataEndpointData, V2SyncMetadataEndpointResponses, V2TouchPostData, V2TouchPostErrors, V2TouchPostResponses, V2UpdatePostCaptionData, V2UpdatePostCaptionErrors, V2UpdatePostCaptionResponses, V2UpdatePostRatingData, V2UpdatePostRatingErrors, V2UpdatePostRatingResponses, V2UpdatePostScoreData, V2UpdatePostScoreErrors, V2UpdatePostScoreResponses, V2UpdatePostSourceData, V2UpdatePostSourceErrors, V2UpdatePostSourceResponses, V2UpdateTagData, V2UpdateTagErrors, V2UpdateTagResponses, V2UploadFileData, V2UploadFileErrors, V2UploadFileResponses } from './types.gen';
 
 export type Options<TData extends TDataShape = TDataShape, ThrowOnError extends boolean = boolean, TResponse = unknown> = Options2<TData, ThrowOnError, TResponse> & {
     /**
@@ -281,16 +281,9 @@ export const v2AutoCaption = <ThrowOnError extends boolean = false>(options: Opt
 });
 
 /**
- * AutoSiglipScorer
- *
- * Batch-score all posts that don't yet have a SigLIP aesthetic score.
- */
-export const v2AutoSiglipScorer = <ThrowOnError extends boolean = false>(options?: Options<V2AutoSiglipScorerData, ThrowOnError>) => (options?.client ?? client).put<V2AutoSiglipScorerResponses, unknown, ThrowOnError>({ url: '/v2/cmd/siglip-scorer', ...options });
-
-/**
  * AutoSilvaScorer
  *
- * Batch-score all posts that don't yet have a SILVA aesthetic score.
+ * Batch-score all posts that have a SigLIP2 embedding but no SILVA score.
  */
 export const v2AutoSilvaScorer = <ThrowOnError extends boolean = false>(options?: Options<V2AutoSilvaScorerData, ThrowOnError>) => (options?.client ?? client).put<V2AutoSilvaScorerResponses, unknown, ThrowOnError>({ url: '/v2/cmd/silva-scorer', ...options });
 
@@ -353,20 +346,12 @@ export const v2DownloadFromDanbooru = <ThrowOnError extends boolean = false>(opt
 });
 
 /**
- * GetSiglipScorerOne
- *
- * Compute (and persist) the SigLIP aesthetic score for a single post.
- */
-export const v2GetSiglipScorerOne = <ThrowOnError extends boolean = false>(options: Options<V2GetSiglipScorerOneData, ThrowOnError>) => (options.client ?? client).get<V2GetSiglipScorerOneResponses, V2GetSiglipScorerOneErrors, ThrowOnError>({
-    responseType: 'json',
-    url: '/v2/cmd/siglip-scorer/{post_id}',
-    ...options
-});
-
-/**
  * GetSilvaScorerOne
  *
- * Compute (and persist) the SILVA aesthetic score for a single post.
+ * Compute (and persist) the SILVA score for one post from its embedding.
+ *
+ * Reuses the stored SigLIP2 embedding; if the post has none yet, computes
+ * and stores the embedding first so the score is available immediately.
  */
 export const v2GetSilvaScorerOne = <ThrowOnError extends boolean = false>(options: Options<V2GetSilvaScorerOneData, ThrowOnError>) => (options.client ?? client).get<V2GetSilvaScorerOneResponses, V2GetSilvaScorerOneErrors, ThrowOnError>({
     responseType: 'json',

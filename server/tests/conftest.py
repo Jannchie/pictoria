@@ -124,14 +124,11 @@ def _seed(cur: sqlite3.Cursor) -> None:
         """,
     )
 
-    # ── aesthetic scores, only on a subset ────────────────────────────
-    # siglip lives on posts 1/3; silva (raw [0,1] scale) on posts 4/5 — kept
-    # off 1/2/3 so the existing aesthetic_scores list assertions stay valid.
+    # ── aesthetic scores (silva), only on a subset ────────────────────
+    # silva (raw [0,1] scale) on posts 4/5; posts 1/2/3 have none.
     cur.executescript(
         """
         INSERT INTO post_aesthetic_scores(post_id, scorer, score) VALUES
-            (1, 'siglip-v2-5', 4.25),
-            (3, 'siglip-v2-5', 6.5),
             (4, 'silva', 0.4),
             (5, 'silva', 0.9);
         """,

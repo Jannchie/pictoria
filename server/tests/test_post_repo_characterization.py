@@ -54,7 +54,7 @@ class TestGetDetail:
             {"order": 1, "color": 65280},
         ]
         assert d["waifu_score"] == {"score": 8.5}
-        assert d["aesthetic_scores"] == [{"scorer": "siglip-v2-5", "score": 4.25}]
+        assert d["aesthetic_scores"] == []
 
     async def test_tag_ordering_by_canonical_group(self, query: PostQueryService) -> None:
         # artist group (rank 0) sorts before general group (rank 3).
@@ -97,7 +97,7 @@ class TestListPaginated:
         by_id = {p["id"]: p for p in items}
         assert by_id[1]["waifu_score"] == {"score": 8.5}
         assert by_id[2]["waifu_score"] is None
-        assert by_id[1]["aesthetic_scores"] == [{"scorer": "siglip-v2-5", "score": 4.25}]
+        assert by_id[4]["aesthetic_scores"] == [{"scorer": "silva", "score": 0.4}]
         assert by_id[3]["colors"] == [{"order": 0, "color": 255}]
 
     async def test_tag_order_matches_get_detail(self, query: PostQueryService) -> None:
@@ -191,10 +191,6 @@ class TestSearch:
         rows = await query.search(PostFilterWithOrder(order_by="waifu_score", order="desc"))
         assert [r["id"] for r in rows] == [1, 3, 5, 4, 2]
 
-    async def test_order_by_siglip_score_nulls_last(self, query: PostQueryService) -> None:
-        rows = await query.search(PostFilterWithOrder(order_by="siglip_score", order="desc"))
-        assert [r["id"] for r in rows][:2] == [3, 1]
-
     async def test_order_by_silva_score_nulls_last(self, query: PostQueryService) -> None:
         rows = await query.search(PostFilterWithOrder(order_by="silva_score", order="desc"))
         # silva scores: post 5 (0.9) > post 4 (0.4); the rest (NULL) sink last.
@@ -269,15 +265,15 @@ class TestScores:
         assert await score_repo.get_waifu_score(1) == 9.9
 
     async def test_get_aesthetic_score(self, score_repo: ScoreRepo) -> None:
-        assert await score_repo.get_aesthetic_score(1, "siglip-v2-5") == 4.25
-        assert await score_repo.get_aesthetic_score(2, "siglip-v2-5") is None
+        assert await score_repo.get_aesthetic_score(4, "silva") == 0.4
+        assert await score_repo.get_aesthetic_score(2, "silva") is None
 
     async def test_get_aesthetic_scores_list(self, score_repo: ScoreRepo) -> None:
-        assert await score_repo.get_aesthetic_scores(3) == [{"scorer": "siglip-v2-5", "score": 6.5}]
+        assert await score_repo.get_aesthetic_scores(5) == [{"scorer": "silva", "score": 0.9}]
 
     async def test_upsert_aesthetic_score(self, score_repo: ScoreRepo) -> None:
-        await score_repo.upsert_aesthetic_score(2, "siglip-v2-5", 5.0)
-        assert await score_repo.get_aesthetic_score(2, "siglip-v2-5") == 5.0
+        await score_repo.upsert_aesthetic_score(2, "silva", 5.0)
+        assert await score_repo.get_aesthetic_score(2, "silva") == 5.0
 
     async def test_waifu_score_distribution(self, score_repo: ScoreRepo) -> None:
         # Seed scores: 8.5 (bucket 8), 5.0 (bucket 5), 1.0 (bucket 1), 3.5 (bucket 3).

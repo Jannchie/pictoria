@@ -2,7 +2,7 @@
 import type { PostDetailPublic, PostHasTagPublic } from '@/api'
 import { useQueryClient } from '@tanstack/vue-query'
 import { filesize } from 'filesize'
-import { v2GetSiglipScorerOne, v2GetSilvaScorerOne, v2GetWaifuScorerOne, v2UpdatePostCaption, v2UpdatePostRating, v2UpdatePostScore, v2UpdatePostSource } from '@/api'
+import { v2GetSilvaScorerOne, v2GetWaifuScorerOne, v2UpdatePostCaption, v2UpdatePostRating, v2UpdatePostScore, v2UpdatePostSource } from '@/api'
 import { useAPIError } from '@/composables/useAPIError'
 import { hideNSFW, openTagSelectorWindow, patchPostsInListCache, queryKeys, showPostDetail } from '@/shared'
 import { getPostThumbnailURL } from '@/utils'
@@ -172,34 +172,6 @@ async function calculateWaifuScore() {
   }
 }
 
-const SIGLIP_SCORER = 'siglip-v2-5'
-const siglipScore = computed(
-  () => post.value.aestheticScores?.find(s => s.scorer === SIGLIP_SCORER)?.score,
-)
-const isCalculatingSiglipScore = ref(false)
-
-async function calculateSiglipScore() {
-  if (isCalculatingSiglipScore.value) {
-    return
-  }
-
-  isCalculatingSiglipScore.value = true
-  try {
-    await v2GetSiglipScorerOne({
-      path: {
-        post_id: post.value.id,
-      },
-    })
-    queryClient.invalidateQueries({ queryKey: queryKeys.post(post.value.id) })
-  }
-  catch (error) {
-    handleAPIError(error, 'Failed to calculate SigLIP score')
-  }
-  finally {
-    isCalculatingSiglipScore.value = false
-  }
-}
-
 const SILVA_SCORER = 'silva'
 const silvaScore = computed(
   () => post.value.aestheticScores?.find(s => s.scorer === SILVA_SCORER)?.score,
@@ -351,24 +323,6 @@ async function calculateSilvaScore() {
               @click="calculateWaifuScore"
             >
               {{ isCalculatingWaifuScore ? 'Computing...' : 'Compute' }}
-            </PButton>
-          </template>
-        </div>
-        <div>
-          SigLIP Score
-        </div>
-        <div>
-          <template v-if="siglipScore !== undefined">
-            <WaifuScoreLevel :score="siglipScore" />
-          </template>
-          <template v-else>
-            <PButton
-              size="sm"
-              variant="subtle"
-              :loading="isCalculatingSiglipScore"
-              @click="calculateSiglipScore"
-            >
-              {{ isCalculatingSiglipScore ? 'Computing...' : 'Compute' }}
             </PButton>
           </template>
         </div>

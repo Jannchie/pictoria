@@ -96,13 +96,6 @@ s3_base_dir = "collections"
 # ``DISABLE_ARTHASH`` env var; flipped on by ``utils.initialize``.
 disable_arthash = False
 
-# SigLIP Aesthetic v2.5 backfill is off by default — its output distribution
-# collapses on this image library (mostly anime/AI art, OOD for the predictor)
-# so it isn't worth the GPU time. Set ``ENABLE_SIGLIP_SCORER=1`` to re-enable
-# the worker and the per-upload scoring step.
-enable_siglip_scorer = False
-
-# SILVA aesthetic backfill is off by default — like the SigLIP scorer it adds a
-# SigLIP-family backbone to the GPU. Set ``ENABLE_SILVA_SCORER=1`` to enable the
-# worker and the per-upload scoring step.
+# SILVA aesthetic backfill is off by default. Set ``ENABLE_SILVA_SCORER=1`` to
+# enable the worker and the per-upload scoring step.
 enable_silva_scorer = False

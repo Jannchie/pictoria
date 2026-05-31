@@ -3,7 +3,7 @@ import { ref } from 'vue'
 import { postSort, postSortColor, postSortOrder } from '@/shared'
 
 const sortOptions: {
-  id: 'created_at' | 'published_at' | 'score' | 'rating' | 'file_name' | 'waifu_score' | 'siglip_score' | 'silva_score'
+  id: 'created_at' | 'published_at' | 'score' | 'rating' | 'file_name' | 'waifu_score' | 'silva_score'
   label: string
   icon: string
 }[] = [
@@ -13,7 +13,6 @@ const sortOptions: {
   { id: 'rating', label: 'Rating', icon: 'i-tabler-thumb-up' },
   { id: 'file_name', label: 'File name', icon: 'i-tabler-file' },
   { id: 'waifu_score', label: 'Waifu score', icon: 'i-tabler-heart' },
-  { id: 'siglip_score', label: 'SigLIP score', icon: 'i-tabler-sparkles' },
   { id: 'silva_score', label: 'SILVA score', icon: 'i-tabler-rosette' },
 ]
 

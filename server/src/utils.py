@@ -79,10 +79,6 @@ def prepare_feature_flags() -> None:
     if shared.disable_arthash:
         logger.info("DISABLE_ARTHASH=1: skipping arthash computation in the basics worker")
 
-    shared.enable_siglip_scorer = os.environ.get("ENABLE_SIGLIP_SCORER", "").lower() in _TRUTHY
-    if shared.enable_siglip_scorer:
-        logger.info("ENABLE_SIGLIP_SCORER=1: SigLIP aesthetic scorer enabled")
-
     shared.enable_silva_scorer = os.environ.get("ENABLE_SILVA_SCORER", "").lower() in _TRUTHY
     if shared.enable_silva_scorer:
         logger.info("ENABLE_SILVA_SCORER=1: SILVA aesthetic scorer enabled")

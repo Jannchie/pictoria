@@ -1,7 +1,7 @@
 """Shared torch runtime knobs for the model backends.
 
-``ai.clip``, ``ai.siglip_embed`` and ``ai.siglip_scorer`` all picked the same
-device/dtype and (for the two ``transformers`` backbones) carried an identical
+``ai.clip`` and ``ai.siglip_embed`` both picked the same
+device/dtype and (for the ``transformers`` backbones) carried an identical
 copy of the 5.x feature-unwrap patch. Those bits live here once now, so a change
 to "where do models run" or "how do we unwrap features" touches one place.
 """
