@@ -66,7 +66,7 @@ const btnText = computed(() => {
       </PButton>
       <template #content>
         <div
-          class="p-1 border border-border-default rounded bg-surface min-w-56 shadow-lg"
+          class="p-1 border border-border-default rounded bg-surface max-w-sm w-max shadow-lg"
         >
           <div
             v-for="bucket in BUCKETS"
@@ -91,7 +91,7 @@ const btnText = computed(() => {
               </span>
               <span
                 v-if="bucket.range"
-                class="text-fg-muted"
+                class="text-fg-muted whitespace-nowrap"
               >
                 {{ bucket.label }} ({{ bucket.range }})
               </span>
