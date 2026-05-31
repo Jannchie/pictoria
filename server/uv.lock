@@ -2360,7 +2360,7 @@ requires-dist = [
     { name = "pytz", specifier = ">=2026.2" },
     { name = "rich", specifier = ">=15.0.0" },
     { name = "scikit-image", specifier = ">=0.26.0" },
-    { name = "silva-scorer", specifier = ">=0.1.1" },
+    { name = "silva-scorer", specifier = ">=0.2.0" },
     { name = "sqlite-vec", specifier = ">=0.1.6" },
     { name = "torch", specifier = ">=2.6.0", index = "https://download.pytorch.org/whl/cu128" },
     { name = "torchvision", specifier = ">=0.21.0", index = "https://download.pytorch.org/whl/cu128" },
@@ -3497,15 +3497,15 @@ wheels = [
 
 [[package]]
 name = "silva-scorer"
-version = "0.1.1"
+version = "0.2.0"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "huggingface-hub" },
     { name = "torch" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/11/46/9a1c6bc4a64d61d257d6f508d16d121084dfb78296eb9fa961443782fb1f/silva_scorer-0.1.1.tar.gz", hash = "sha256:010d91ef1ddf8bd05c0c619c3e11455eb97be25a9feedfe2c47ad92935750ab9", size = 9267, upload-time = "2026-05-30T18:41:12.881Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/f6/f9/e1a3eb2555594e0fc94ea0be255fbd4ca2d8e856a021ae6dc258fe9c96ef/silva_scorer-0.2.0.tar.gz", hash = "sha256:d5ebd63ccc39a3484b51360f88f56f6740697ec5e61c6272c288f7f372c4c3d7", size = 9928, upload-time = "2026-05-31T14:08:19.461Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/03/70/a34417fe1d654b7ee4e241ed2773732fdac0d751a2e4e6c12d3123470067/silva_scorer-0.1.1-py3-none-any.whl", hash = "sha256:29c27f3aa18eceee6d7097964c0995d259fe7fb4da3ca979dea73d2bc2426dad", size = 10543, upload-time = "2026-05-30T18:41:11.666Z" },
+    { url = "https://files.pythonhosted.org/packages/c5/df/314db0a4fa3dafccb6247756b7aa761df8a903d0dce0b086afbd231373d1/silva_scorer-0.2.0-py3-none-any.whl", hash = "sha256:5c837aafbb5f6ce29488060a093668f400d3ca2e7e55e0f143b68e49391702bc", size = 10605, upload-time = "2026-05-31T14:08:18.185Z" },
 ]
 
 [[package]]

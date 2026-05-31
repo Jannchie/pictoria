@@ -30,7 +30,7 @@ dependencies = [
     "sqlite-vec>=0.1.6",
     "pytz>=2026.2",
     "arthash>=0.2.0",
-    "silva-scorer>=0.1.1",
+    "silva-scorer>=0.2.0",
 ]
 
 requires-python = ">=3.11"
