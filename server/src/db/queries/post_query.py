@@ -359,7 +359,7 @@ class PostQueryService:
         return await asyncio.to_thread(_impl)
 
     async def count_by_waifu_bucket(self, f: PostFilter) -> list[dict]:
-        """Group posts into the 5 waifu-score buckets (S/A/B/C/D) plus UNSCORED."""
+        """Group posts into the 5 waifu-score buckets (A/B/C/D/E) plus UNSCORED."""
 
         def _impl() -> list[dict]:
             where_clauses, params, joins = build_where(f)

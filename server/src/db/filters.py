@@ -40,10 +40,10 @@ class PostFilter(Struct):
         Meta(
             description=(
                 "Waifu-score bucket filter. Each value is one of "
-                "'S' (8-10), 'A' (6-8), 'B' (4-6), 'C' (2-4), 'D' (0-2), "
+                "'A' (8-10), 'B' (6-8), 'C' (4-6), 'D' (2-4), 'E' (0-2), "
                 "or 'UNSCORED' (no waifu score yet). Multiple values OR together."
             ),
-            examples=[("S", "A")],
+            examples=[("A", "B")],
         ),
     ] = ()
 
@@ -96,14 +96,14 @@ GROUPABLE_COLUMNS: frozenset[str] = frozenset({"rating", "score", "extension"})
 
 
 # ─── Waifu-score buckets ────────────────────────────────────────────────────
-# Half-open intervals [min, max). 'D' covers [0, 2), 'S' actually [8, 10] —
+# Half-open intervals [min, max). 'E' covers [0, 2), 'A' actually [8, 10] —
 # the upper edge is enforced by the source domain (scores clamp to [0, 10]).
 WAIFU_SCORE_BUCKETS: dict[str, tuple[float, float]] = {
-    "D": (0.0, 2.0),
-    "C": (2.0, 4.0),
-    "B": (4.0, 6.0),
-    "A": (6.0, 8.0),
-    "S": (8.0, 10.001),
+    "E": (0.0, 2.0),
+    "D": (2.0, 4.0),
+    "C": (4.0, 6.0),
+    "B": (6.0, 8.0),
+    "A": (8.0, 10.001),
 }
 WAIFU_SCORE_BUCKET_UNSCORED = "UNSCORED"
 

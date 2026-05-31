@@ -128,7 +128,7 @@ class TestCounts:
             ({"tags": ("tag_general",)}, 2),
             ({"folder": "photos"}, 3),
             ({"folder": "."}, 5),
-            ({"waifu_score_levels": ("S",)}, 1),
+            ({"waifu_score_levels": ("A",)}, 1),
             ({"waifu_score_levels": ("UNSCORED",)}, 1),
             ({"waifu_score_range": (4.0, 9.0)}, 2),
         ],
@@ -150,7 +150,7 @@ class TestCounts:
 
     async def test_count_by_waifu_bucket(self, query: PostQueryService) -> None:
         rows = await query.count_by_waifu_bucket(PostFilter())
-        assert {r["bucket"]: r["count"] for r in rows} == {"S": 1, "B": 1, "C": 1, "D": 1, "UNSCORED": 1}
+        assert {r["bucket"]: r["count"] for r in rows} == {"A": 1, "C": 1, "D": 1, "E": 1, "UNSCORED": 1}
 
     async def test_aggregate_stats(self, query: PostQueryService) -> None:
         s = await query.aggregate_stats(PostFilter())
@@ -180,7 +180,7 @@ class TestSearch:
         assert sorted(r["id"] for r in rows) == [1, 5]
 
     async def test_waifu_levels_filter(self, query: PostQueryService) -> None:
-        rows = await query.search(PostFilterWithOrder(waifu_score_levels=("S", "UNSCORED")))
+        rows = await query.search(PostFilterWithOrder(waifu_score_levels=("A", "UNSCORED")))
         assert sorted(r["id"] for r in rows) == [1, 2]
 
     async def test_order_by_id_asc(self, query: PostQueryService) -> None:

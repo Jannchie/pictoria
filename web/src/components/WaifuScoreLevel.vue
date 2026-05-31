@@ -13,14 +13,15 @@ interface ScoreLevel {
   max: number
 }
 
-// Continuous green-warm gradient. Same RGB triples used by the dots in
-// WaifuScoreFilter.vue so the chip and the filter row read consistently.
+// A/B both green, C amber, D orange, E red — a green→warm→danger ramp.
+// Same RGB triples used by the dots in WaifuScoreFilter.vue so the chip and
+// the filter row read consistently.
 const scoreLevels: ScoreLevel[] = [
-  { level: 'S', label: 'Excellent', rgb: 'var(--p-success-rgb)', min: 8, max: 10.001 },
-  { level: 'A', label: 'Good', rgb: '120 200 80', min: 6, max: 8 },
-  { level: 'B', label: 'Average', rgb: '180 180 80', min: 4, max: 6 },
-  { level: 'C', label: 'Fair', rgb: '170 130 60', min: 2, max: 4 },
-  { level: 'D', label: 'Poor', rgb: '140 110 90', min: 0, max: 2 },
+  { level: 'A', label: 'Best', rgb: 'var(--p-success-rgb)', min: 8, max: 10.001 },
+  { level: 'B', label: 'Good', rgb: '90 190 90', min: 6, max: 8 },
+  { level: 'C', label: 'Normal', rgb: 'var(--p-warning-rgb)', min: 4, max: 6 },
+  { level: 'D', label: 'Bad', rgb: '235 125 45', min: 2, max: 4 },
+  { level: 'E', label: 'Worst', rgb: 'var(--p-danger-rgb)', min: 0, max: 2 },
 ]
 
 const currentLevel = computed(() => {
@@ -41,14 +42,13 @@ const levelStyle = computed(() => {
 </script>
 
 <template>
-  <div class="flex gap-2 items-center">
-    <div
-      class="text-xs font-bold px-2 py-1 rounded flex gap-1 items-center"
-      :style="levelStyle"
-    >
-      <span>{{ currentLevel.level }}</span>
-      <span class="text-xs opacity-80">{{ currentLevel.label }}</span>
-    </div>
-    <span class="text-xs opacity-60">{{ score.toFixed(2) }}</span>
-  </div>
+  <span
+    class="text-xs font-mono px-2 py-1 rounded inline-flex gap-1.5 items-baseline"
+    :style="levelStyle"
+  >
+    <span class="font-bold">{{ currentLevel.level }}</span>
+    <span class="opacity-80 w-[6ch] inline-block">{{ currentLevel.label }}</span>
+    <span class="opacity-40">·</span>
+    <span class="opacity-70 tabular-nums">{{ score.toFixed(2) }}</span>
+  </span>
 </template>

@@ -11,23 +11,22 @@ interface BucketDef {
 
 // Order matches the popover row order (top → bottom).
 const BUCKETS: BucketDef[] = [
-  { level: 'S', label: 'Excellent', range: '8 – 10' },
-  { level: 'A', label: 'Good', range: '6 – 8' },
-  { level: 'B', label: 'Average', range: '4 – 6' },
-  { level: 'C', label: 'Fair', range: '2 – 4' },
-  { level: 'D', label: 'Poor', range: '0 – 2' },
+  { level: 'A', label: 'Best', range: '8 – 10' },
+  { level: 'B', label: 'Good', range: '6 – 8' },
+  { level: 'C', label: 'Normal', range: '4 – 6' },
+  { level: 'D', label: 'Bad', range: '2 – 4' },
+  { level: 'E', label: 'Worst', range: '0 – 2' },
   { level: 'UNSCORED', label: 'Unscored', range: '' },
 ]
 
-// Continuous green gradient — picked to read "from very good to so-so" without
-// triggering "danger" semantics for low scores. Each entry is one of @roku-ui's
-// chip color tokens; the dot below uses the same set via CSS vars.
+// A/B green, C amber, D orange, E red — a green→warm→danger ramp. The dot
+// below uses the same triples as WaifuScoreLevel.vue's chip via CSS vars.
 const LEVEL_DOT_RGB: Record<string, string> = {
-  S: 'var(--p-success-rgb)', // saturated green
-  A: '120 200 80', // lime
-  B: '180 180 80', // olive
-  C: '170 130 60', // muted ochre
-  D: '140 110 90', // dusty brown
+  A: 'var(--p-success-rgb)', // green
+  B: '90 190 90', // green (close to A)
+  C: 'var(--p-warning-rgb)', // amber
+  D: '235 125 45', // orange
+  E: 'var(--p-danger-rgb)', // red
   UNSCORED: 'var(--p-fg-muted-rgb)',
 }
 
@@ -41,7 +40,7 @@ const { selected: waifuLevels, has: hasLevel, toggle, countQuery } = useFacetFil
 })
 
 const bucketCounts = computed<Record<string, number>>(() => {
-  const out: Record<string, number> = { S: 0, A: 0, B: 0, C: 0, D: 0, UNSCORED: 0 }
+  const out: Record<string, number> = { A: 0, B: 0, C: 0, D: 0, E: 0, UNSCORED: 0 }
   const data = countQuery.data
   if (data.value) {
     for (const d of data.value) {

@@ -61,7 +61,7 @@ class ExtensionCountItem:
 
 @dataclass
 class WaifuBucketCountItem:
-    bucket: str  # one of 'S', 'A', 'B', 'C', 'D', 'UNSCORED'
+    bucket: str  # one of 'A', 'B', 'C', 'D', 'E', 'UNSCORED'
     count: int
 
 
@@ -205,7 +205,7 @@ class PostController(Controller):
         rows = await post_query.count_by_column("extension", data)
         return [ExtensionCountItem(extension=r["extension"], count=r["count"]) for r in rows]
 
-    @litestar.post("/count/waifu", status_code=200, description="Count posts by waifu-score bucket (S/A/B/C/D/UNSCORED).")
+    @litestar.post("/count/waifu", status_code=200, description="Count posts by waifu-score bucket (A/B/C/D/E/UNSCORED).")
     async def get_waifu_bucket_count(self, post_query: PostQueryService, data: PostFilter) -> list[WaifuBucketCountItem]:
         rows = await post_query.count_by_waifu_bucket(data)
         return [WaifuBucketCountItem(bucket=r["bucket"], count=r["count"]) for r in rows]

@@ -116,7 +116,7 @@ def _seed(cur: sqlite3.Cursor) -> None:
         """,
     )
 
-    # ── waifu scores: S/B/D/C buckets + post 2 UNSCORED ───────────────
+    # ── waifu scores: A/C/D/E buckets + post 2 UNSCORED ───────────────
     cur.executescript(
         """
         INSERT INTO post_waifu_scores(post_id, score) VALUES
