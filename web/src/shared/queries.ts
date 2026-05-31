@@ -7,7 +7,7 @@ import { computed } from 'vue'
 import { useRoute } from 'vue-router'
 import { v2BulkUpdatePostRating, v2BulkUpdatePostScore, v2GetFolders, v2SearchPosts } from '@/api'
 import { queryKeys } from './queryKeys'
-import { postFilter, postSort, postSortColor, postSortOrder, selectedPostIdSet } from './state'
+import { postFilter, postSort, postSortColor, postSortOrder, randomSeed, selectedPostIdSet } from './state'
 
 const postSortColorDebounce = useDebounce(postSortColor, 1000)
 const toLab = converter('lab')
@@ -61,6 +61,9 @@ export function useInfinityPostsQuery() {
       ...postFilter.value,
       order_by: orderBy.value,
       order: order.value,
+      // Pin the random shuffle seed so every page of the infinite query shares
+      // one ordering; it's part of the queryKey, so a new seed → a fresh query.
+      ...(isRandomPage.value ? { order_seed: randomSeed.value } : {}),
     }
     return labTuple.value ? { ...base, lab: labTuple.value } : base
   })

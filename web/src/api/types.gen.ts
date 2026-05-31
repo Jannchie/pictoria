@@ -190,6 +190,10 @@ export type PostFilterWithOrder = {
      * Order direction.
      */
     order?: 'asc' | 'desc' | 'random';
+    /**
+     * Seed for ``order='random'``. The same seed yields a stable shuffle, so offset pagination stays consistent across pages; a fresh seed reshuffles. Ignored unless ``order='random'``.
+     */
+    order_seed?: number | null;
 };
 
 /**

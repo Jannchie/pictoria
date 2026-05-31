@@ -35,6 +35,11 @@ export const postSort = useLocalStorage<'id' | 'score' | 'rating' | 'created_at'
 export const postSortColor = useLocalStorage<string | undefined>('pictoria.posts.color', undefined)
 export const postSortOrder = useLocalStorage<'asc' | 'desc'>('pictoria.posts.sortOrder', 'desc')
 
+// Seed for the /random page's random ordering. SQLite's random() re-rolls per
+// query, so offset pagination needs a fixed seed to page consistently; this is
+// regenerated on each visit to /random (see useWatchRoute) for a fresh shuffle.
+export const randomSeed = ref(1)
+
 // Sync postFilter with URL query parameters
 export function useSyncFilterWithUrl() {
   const route = useRoute()

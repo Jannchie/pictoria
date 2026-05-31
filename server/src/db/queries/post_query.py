@@ -216,33 +216,45 @@ class PostQueryService:
                 # ``NULLS LAST`` so unscored posts sink to the bottom.
                 extra_joins: list[str] = []
                 order_sql = ""
-                if f.order_by and f.order_by in ORDERABLE_COLUMNS:
-                    if f.order == "random":
-                        order_sql = "ORDER BY random()"
-                    elif f.order_by == "waifu_score":
+                order_params: list[Any] = []
+                if f.order == "random":
+                    # SQLite's random() re-rolls every row on every execution, so
+                    # offset pagination over `ORDER BY random()` reshuffles each
+                    # page (duplicates + gaps — the list never converges). Instead
+                    # order by a multiplicative hash of (id, seed) mod a Mersenne
+                    # prime: for a seed coprime to the prime this is a stable
+                    # permutation of the ids — same seed → identical order across
+                    # pages, a fresh seed → a new shuffle.
+                    seed = (f.order_seed or 1) % 2147483647 or 1
+                    order_sql = "ORDER BY ((p.id * ?) % 2147483647)"
+                    order_params.append(seed)
+                elif f.order_by and f.order_by in ORDERABLE_COLUMNS:
+                    direction = "ASC" if f.order == "asc" else "DESC"
+                    # Unique tie-breaker so offset pagination is stable: rows tied
+                    # on the sort column (many share score/rating, NULLs galore)
+                    # otherwise order arbitrarily and differ between page fetches.
+                    tiebreak = "" if f.order_by == "id" else f", p.id {direction}"
+                    if f.order_by == "waifu_score":
                         if not any("post_waifu_scores" in j for j in joins):
                             extra_joins.append(
                                 "LEFT JOIN post_waifu_scores pws ON pws.post_id = p.id",
                             )
-                        direction = "ASC" if f.order == "asc" else "DESC"
-                        order_sql = f"ORDER BY pws.score {direction} NULLS LAST"
+                        order_sql = f"ORDER BY pws.score {direction} NULLS LAST{tiebreak}"
                     elif f.order_by == "silva_score":
                         extra_joins.append(
                             "LEFT JOIN post_aesthetic_scores pas_silva "
                             "ON pas_silva.post_id = p.id AND pas_silva.scorer = 'silva'",
                         )
-                        direction = "ASC" if f.order == "asc" else "DESC"
-                        order_sql = f"ORDER BY pas_silva.score {direction} NULLS LAST"
+                        order_sql = f"ORDER BY pas_silva.score {direction} NULLS LAST{tiebreak}"
                     else:
-                        direction = "ASC" if f.order == "asc" else "DESC"
-                        order_sql = f"ORDER BY p.{f.order_by} {direction}"
+                        order_sql = f"ORDER BY p.{f.order_by} {direction}{tiebreak}"
 
                 all_joins = joins + extra_joins
                 from_clause = "FROM posts p" + ("\n" + "\n".join(all_joins) if all_joins else "")
                 sql = (
                     f"{select_cols} {from_clause} {where_sql} {order_sql} LIMIT ? OFFSET ?"
                 )
-                self.cur.execute(sql, [*params, limit, offset])
+                self.cur.execute(sql, [*params, *order_params, limit, offset])
 
             rows = fetch_all_dicts(self.cur)
             for r in rows:

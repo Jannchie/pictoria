@@ -196,6 +196,27 @@ class TestSearch:
         # silva scores: post 5 (0.9) > post 4 (0.4); the rest (NULL) sink last.
         assert [r["id"] for r in rows][:2] == [5, 4]
 
+    async def test_random_seed_is_stable_across_pages(self, query: PostQueryService) -> None:
+        # Same seed must yield one stable permutation so offset pagination
+        # neither duplicates nor drops rows. Page through 5 rows two-at-a-time.
+        f = PostFilterWithOrder(order="random", order_seed=12345)
+        page1 = await query.search(f, limit=2, offset=0)
+        page2 = await query.search(f, limit=2, offset=2)
+        page3 = await query.search(f, limit=2, offset=4)
+        paged = [r["id"] for r in (*page1, *page2, *page3)]
+        assert sorted(paged) == [1, 2, 3, 4, 5]  # no dupes, no gaps
+        # Re-fetching the full set with the same seed reproduces the order.
+        again = await query.search(f, limit=100, offset=0)
+        assert paged == [r["id"] for r in again]
+
+    async def test_random_seed_changes_order(self, query: PostQueryService) -> None:
+        # Real seeds span [1, 2**31-2]; two well-separated seeds give the id*seed
+        # hash enough room to wrap differently and reorder these 5 ids.
+        a = await query.search(PostFilterWithOrder(order="random", order_seed=1234567890), limit=100)
+        b = await query.search(PostFilterWithOrder(order="random", order_seed=1987654321), limit=100)
+        assert sorted(r["id"] for r in a) == sorted(r["id"] for r in b) == [1, 2, 3, 4, 5]
+        assert [r["id"] for r in a] != [r["id"] for r in b]
+
     async def test_lab_distance_ordering(self, query: PostQueryService) -> None:
         rows = await query.search(PostFilterWithOrder(lab=(50.0, 10.0, -5.0)))
         # only posts with a dominant_color participate; exact match sorts first

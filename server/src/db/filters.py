@@ -65,6 +65,17 @@ class PostFilterWithOrder(PostFilter):
         Meta(description="Order direction.", examples=["desc", "asc", "random"],
              extra_json_schema={"enum": ["asc", "desc", "random"]}),
     ] = "desc"
+    order_seed: Annotated[
+        int | None,
+        Meta(
+            description=(
+                "Seed for ``order='random'``. The same seed yields a stable shuffle, "
+                "so offset pagination stays consistent across pages; a fresh seed "
+                "reshuffles. Ignored unless ``order='random'``."
+            ),
+            examples=[42],
+        ),
+    ] = None
 
 
 # ─── Column allowlists (centralized; previously scattered across PostRepo) ───
