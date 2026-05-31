@@ -137,9 +137,13 @@ export type PostFilter = {
         number
     ] | null;
     /**
-     * Waifu-score bucket filter. Each value is one of 'S' (8-10), 'A' (6-8), 'B' (4-6), 'C' (2-4), 'D' (0-2), or 'UNSCORED' (no waifu score yet). Multiple values OR together.
+     * Waifu-score bucket filter. Each value is one of 'A' (8-10), 'B' (6-8), 'C' (4-6), 'D' (2-4), 'E' (0-2), or 'UNSCORED' (no waifu score yet). Multiple values OR together.
      */
     waifu_score_levels?: Array<string> | null;
+    /**
+     * SILVA aesthetic bucket filter. Each value is one of 'A' (0.8-1.0), 'B' (0.6-0.8), 'C' (0.4-0.6), 'D' (0.2-0.4), 'E' (0-0.2), or 'UNSCORED' (no SILVA score yet). OR together.
+     */
+    silva_score_levels?: Array<string> | null;
 };
 
 /**
@@ -179,7 +183,7 @@ export type PostFilterWithOrder = {
         number
     ] | null;
     /**
-     * Waifu-score bucket filter. Each value is one of 'S' (8-10), 'A' (6-8), 'B' (4-6), 'C' (2-4), 'D' (0-2), or 'UNSCORED' (no waifu score yet). Multiple values OR together.
+     * Waifu-score bucket filter. Each value is one of 'A' (8-10), 'B' (6-8), 'C' (4-6), 'D' (2-4), 'E' (0-2), or 'UNSCORED' (no waifu score yet). Multiple values OR together.
      */
     waifu_score_levels?: Array<string> | null;
     /**
@@ -280,6 +284,14 @@ export type ScoreUpdate = {
      * Score from 0 to 5.
      */
     score: number;
+};
+
+/**
+ * SilvaBucketCountItem
+ */
+export type SilvaBucketCountItem = {
+    bucket: string;
+    count: number;
 };
 
 /**
@@ -385,9 +397,13 @@ export type TextSearchRequest = {
         number
     ] | null;
     /**
-     * Waifu-score bucket filter. Each value is one of 'S' (8-10), 'A' (6-8), 'B' (4-6), 'C' (2-4), 'D' (0-2), or 'UNSCORED' (no waifu score yet). Multiple values OR together.
+     * Waifu-score bucket filter. Each value is one of 'A' (8-10), 'B' (6-8), 'C' (4-6), 'D' (2-4), 'E' (0-2), or 'UNSCORED' (no waifu score yet). Multiple values OR together.
      */
     waifu_score_levels?: Array<string> | null;
+    /**
+     * SILVA aesthetic bucket filter. Each value is one of 'A' (0.8-1.0), 'B' (0.6-0.8), 'C' (0.4-0.6), 'D' (0.2-0.4), 'E' (0-0.2), or 'UNSCORED' (no SILVA score yet). OR together.
+     */
+    silva_score_levels?: Array<string> | null;
     /**
      * Natural-language search prompt.
      */
@@ -398,14 +414,6 @@ export type TextSearchRequest = {
  * WaifuBucketCountItem
  */
 export type WaifuBucketCountItem = {
-    bucket: string;
-    count: number;
-};
-
-/**
- * SilvaBucketCountItem
- */
-export type SilvaBucketCountItem = {
     bucket: string;
     count: number;
 };
@@ -778,6 +786,37 @@ export type V2GetScoreCountResponses = {
 
 export type V2GetScoreCountResponse = V2GetScoreCountResponses[keyof V2GetScoreCountResponses];
 
+export type V2GetSilvaBucketCountData = {
+    body: PostFilter;
+    path?: never;
+    query?: never;
+    url: '/v2/posts/count/silva';
+};
+
+export type V2GetSilvaBucketCountErrors = {
+    /**
+     * Validation Exception
+     */
+    400: {
+        status_code: number;
+        detail: string;
+        extra?: null | {
+            [key: string]: unknown;
+        } | Array<unknown>;
+    };
+};
+
+export type V2GetSilvaBucketCountError = V2GetSilvaBucketCountErrors[keyof V2GetSilvaBucketCountErrors];
+
+export type V2GetSilvaBucketCountResponses = {
+    /**
+     * Request fulfilled, document follows
+     */
+    200: Array<SilvaBucketCountItem>;
+};
+
+export type V2GetSilvaBucketCountResponse = V2GetSilvaBucketCountResponses[keyof V2GetSilvaBucketCountResponses];
+
 export type V2GetSimilarPostsData = {
     body?: never;
     path: {
@@ -843,37 +882,6 @@ export type V2GetWaifuBucketCountResponses = {
 };
 
 export type V2GetWaifuBucketCountResponse = V2GetWaifuBucketCountResponses[keyof V2GetWaifuBucketCountResponses];
-
-export type V2GetSilvaBucketCountData = {
-    body: PostFilter;
-    path?: never;
-    query?: never;
-    url: '/v2/posts/count/silva';
-};
-
-export type V2GetSilvaBucketCountErrors = {
-    /**
-     * Validation Exception
-     */
-    400: {
-        status_code: number;
-        detail: string;
-        extra?: null | {
-            [key: string]: unknown;
-        } | Array<unknown>;
-    };
-};
-
-export type V2GetSilvaBucketCountError = V2GetSilvaBucketCountErrors[keyof V2GetSilvaBucketCountErrors];
-
-export type V2GetSilvaBucketCountResponses = {
-    /**
-     * Request fulfilled, document follows
-     */
-    200: Array<SilvaBucketCountItem>;
-};
-
-export type V2GetSilvaBucketCountResponse = V2GetSilvaBucketCountResponses[keyof V2GetSilvaBucketCountResponses];
 
 export type V2ListPostsData = {
     body?: never;

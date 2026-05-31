@@ -136,6 +136,21 @@ export const v2GetScoreCount = <ThrowOnError extends boolean = false>(options: O
 });
 
 /**
+ * GetSilvaBucketCount
+ *
+ * Count posts by SILVA aesthetic bucket (A/B/C/D/E/UNSCORED).
+ */
+export const v2GetSilvaBucketCount = <ThrowOnError extends boolean = false>(options: Options<V2GetSilvaBucketCountData, ThrowOnError>) => (options.client ?? client).post<V2GetSilvaBucketCountResponses, V2GetSilvaBucketCountErrors, ThrowOnError>({
+    responseType: 'json',
+    url: '/v2/posts/count/silva',
+    ...options,
+    headers: {
+        'Content-Type': 'application/json',
+        ...options.headers
+    }
+});
+
+/**
  * GetSimilarPosts
  */
 export const v2GetSimilarPosts = <ThrowOnError extends boolean = false>(options: Options<V2GetSimilarPostsData, ThrowOnError>) => (options.client ?? client).get<V2GetSimilarPostsResponses, V2GetSimilarPostsErrors, ThrowOnError>({
@@ -147,26 +162,11 @@ export const v2GetSimilarPosts = <ThrowOnError extends boolean = false>(options:
 /**
  * GetWaifuBucketCount
  *
- * Count posts by waifu-score bucket (S/A/B/C/D/UNSCORED).
+ * Count posts by waifu-score bucket (A/B/C/D/E/UNSCORED).
  */
 export const v2GetWaifuBucketCount = <ThrowOnError extends boolean = false>(options: Options<V2GetWaifuBucketCountData, ThrowOnError>) => (options.client ?? client).post<V2GetWaifuBucketCountResponses, V2GetWaifuBucketCountErrors, ThrowOnError>({
     responseType: 'json',
     url: '/v2/posts/count/waifu',
-    ...options,
-    headers: {
-        'Content-Type': 'application/json',
-        ...options.headers
-    }
-});
-
-/**
- * GetSilvaBucketCount
- *
- * Count posts by SILVA aesthetic bucket (A/B/C/D/E/UNSCORED).
- */
-export const v2GetSilvaBucketCount = <ThrowOnError extends boolean = false>(options: Options<V2GetSilvaBucketCountData, ThrowOnError>) => (options.client ?? client).post<V2GetSilvaBucketCountResponses, V2GetSilvaBucketCountErrors, ThrowOnError>({
-    responseType: 'json',
-    url: '/v2/posts/count/silva',
     ...options,
     headers: {
         'Content-Type': 'application/json',
