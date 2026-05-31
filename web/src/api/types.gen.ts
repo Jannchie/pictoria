@@ -185,7 +185,7 @@ export type PostFilterWithOrder = {
     /**
      * Order column.
      */
-    order_by?: 'id' | 'score' | 'rating' | 'created_at' | 'published_at' | 'file_name' | 'last_accessed_at' | 'waifu_score' | 'siglip_score' | null;
+    order_by?: 'id' | 'score' | 'rating' | 'created_at' | 'published_at' | 'file_name' | 'last_accessed_at' | 'waifu_score' | 'siglip_score' | 'silva_score' | null;
     /**
      * Order direction.
      */
@@ -1211,6 +1211,20 @@ export type V2AutoSiglipScorerResponses = {
     200: unknown;
 };
 
+export type V2AutoSilvaScorerData = {
+    body?: never;
+    path?: never;
+    query?: never;
+    url: '/v2/cmd/silva-scorer';
+};
+
+export type V2AutoSilvaScorerResponses = {
+    /**
+     * Request fulfilled, document follows
+     */
+    200: unknown;
+};
+
 export type V2AutoTagsData = {
     body?: never;
     path: {
@@ -1369,6 +1383,39 @@ export type V2GetSiglipScorerOneResponses = {
 };
 
 export type V2GetSiglipScorerOneResponse = V2GetSiglipScorerOneResponses[keyof V2GetSiglipScorerOneResponses];
+
+export type V2GetSilvaScorerOneData = {
+    body?: never;
+    path: {
+        post_id: number;
+    };
+    query?: never;
+    url: '/v2/cmd/silva-scorer/{post_id}';
+};
+
+export type V2GetSilvaScorerOneErrors = {
+    /**
+     * Validation Exception
+     */
+    400: {
+        status_code: number;
+        detail: string;
+        extra?: null | {
+            [key: string]: unknown;
+        } | Array<unknown>;
+    };
+};
+
+export type V2GetSilvaScorerOneError = V2GetSilvaScorerOneErrors[keyof V2GetSilvaScorerOneErrors];
+
+export type V2GetSilvaScorerOneResponses = {
+    /**
+     * Request fulfilled, document follows
+     */
+    200: number;
+};
+
+export type V2GetSilvaScorerOneResponse = V2GetSilvaScorerOneResponses[keyof V2GetSilvaScorerOneResponses];
 
 export type V2GetWaifuScorerOneData = {
     body?: never;

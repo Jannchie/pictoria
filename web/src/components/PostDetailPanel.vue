@@ -2,7 +2,7 @@
 import type { PostDetailPublic, PostHasTagPublic } from '@/api'
 import { useQueryClient } from '@tanstack/vue-query'
 import { filesize } from 'filesize'
-import { v2GetSiglipScorerOne, v2GetWaifuScorerOne, v2UpdatePostCaption, v2UpdatePostRating, v2UpdatePostScore, v2UpdatePostSource } from '@/api'
+import { v2GetSiglipScorerOne, v2GetSilvaScorerOne, v2GetWaifuScorerOne, v2UpdatePostCaption, v2UpdatePostRating, v2UpdatePostScore, v2UpdatePostSource } from '@/api'
 import { useAPIError } from '@/composables/useAPIError'
 import { hideNSFW, openTagSelectorWindow, patchPostsInListCache, queryKeys, showPostDetail } from '@/shared'
 import { getPostThumbnailURL } from '@/utils'
@@ -199,6 +199,34 @@ async function calculateSiglipScore() {
     isCalculatingSiglipScore.value = false
   }
 }
+
+const SILVA_SCORER = 'silva'
+const silvaScore = computed(
+  () => post.value.aestheticScores?.find(s => s.scorer === SILVA_SCORER)?.score,
+)
+const isCalculatingSilvaScore = ref(false)
+
+async function calculateSilvaScore() {
+  if (isCalculatingSilvaScore.value) {
+    return
+  }
+
+  isCalculatingSilvaScore.value = true
+  try {
+    await v2GetSilvaScorerOne({
+      path: {
+        post_id: post.value.id,
+      },
+    })
+    queryClient.invalidateQueries({ queryKey: queryKeys.post(post.value.id) })
+  }
+  catch (error) {
+    handleAPIError(error, 'Failed to calculate SILVA score')
+  }
+  finally {
+    isCalculatingSilvaScore.value = false
+  }
+}
 </script>
 
 <template>
@@ -341,6 +369,24 @@ async function calculateSiglipScore() {
               @click="calculateSiglipScore"
             >
               {{ isCalculatingSiglipScore ? 'Computing...' : 'Compute' }}
+            </PButton>
+          </template>
+        </div>
+        <div>
+          SILVA Score
+        </div>
+        <div>
+          <template v-if="silvaScore !== undefined">
+            <WaifuScoreLevel :score="silvaScore * 10" />
+          </template>
+          <template v-else>
+            <PButton
+              size="sm"
+              variant="subtle"
+              :loading="isCalculatingSilvaScore"
+              @click="calculateSilvaScore"
+            >
+              {{ isCalculatingSilvaScore ? 'Computing...' : 'Compute' }}
             </PButton>
           </template>
         </div>

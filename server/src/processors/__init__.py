@@ -88,6 +88,8 @@ TAGGER_BATCH_SIZE = 32
 # SigLIP-so400m is a noticeably larger ViT than CLIP-L/14; batch=16 fits
 # comfortably in 12GB at bfloat16 with the rest of the model stack loaded.
 SIGLIP_BATCH_SIZE = 16
+# SILVA rides a SigLIP2 backbone in the same size tier; batch=16 matches.
+SILVA_BATCH_SIZE = 16
 
 # When the full GPU batch crashes (typically one unreadable image in the
 # collate), we shrink to this size before going single-image. Mid-size
@@ -171,6 +173,8 @@ async def run_all_backfill(db: DB) -> None:
     # allocating its connection and worker coroutine entirely when disabled
     # so the GPU isn't held by a model load we'll never use.
     siglip_conn = _checkout() if shared.enable_siglip_scorer else None
+    # SILVA aesthetic backfill is opt-in too (see shared.enable_silva_scorer).
+    silva_conn = _checkout() if shared.enable_silva_scorer else None
     # SigLIP 2 retrieval-embedding backfill — the sole search/retrieval
     # embedding worker now that CLIP retrieval has been removed.
     siglip_embed_conn = _checkout()
@@ -205,6 +209,13 @@ async def run_all_backfill(db: DB) -> None:
                 workers.append(
                     run_siglip_worker(
                         PostRepo(siglip_conn.cursor()),
+                        progress=progress,
+                    ),
+                )
+            if silva_conn is not None:
+                workers.append(
+                    run_silva_worker(
+                        PostRepo(silva_conn.cursor()),
                         progress=progress,
                     ),
                 )
@@ -268,6 +279,8 @@ async def process_post(
     await _process_waifu_batch(posts, [post.id])
     if shared.enable_siglip_scorer:
         await _process_siglip_batch(posts, [post.id])
+    if shared.enable_silva_scorer:
+        await _process_silva_batch(posts, [post.id])
 
 
 # ─── Worker drivers ─────────────────────────────────────────────────────
@@ -409,6 +422,25 @@ async def run_siglip_worker(
 
     await _drive(
         progress, "SigLIP scorer", pending, SIGLIP_BATCH_SIZE, _process,
+        gpu_adaptive=True,
+    )
+
+
+async def run_silva_worker(
+    posts: PostRepo,
+    *,
+    progress: Progress | None = None,
+) -> None:
+    """Backfill the SILVA aesthetic score (Jannchie/silva-aesthetic)."""
+    from ai.silva_scorer import SCORER_NAME  # noqa: PLC0415  # lazy: defer ML stack load
+
+    pending = await _list_aesthetic_pending(posts, SCORER_NAME)
+
+    async def _process(batch_ids: list[int]) -> None:
+        await _process_silva_batch(posts, batch_ids)
+
+    await _drive(
+        progress, "SILVA scorer", pending, SILVA_BATCH_SIZE, _process,
         gpu_adaptive=True,
     )
 
@@ -916,6 +948,33 @@ async def _process_siglip_batch(posts: PostRepo, post_ids: list[int]) -> None:
 
     successes, failures = await _score_batch_with_fallback(
         score_images, items, worker_label="siglip",
+    )
+    for pid, score in successes:
+        await ScoreRepo(posts.cur).upsert_aesthetic_score(pid, SCORER_NAME, score)
+    if failures:
+        await FailureRepo(posts.cur).record_failures([(pid, failure_worker, err) for pid, err in failures])
+
+
+async def _process_silva_batch(posts: PostRepo, post_ids: list[int]) -> None:
+    """Score a batch with the SILVA aesthetic scorer."""
+    from ai.silva_scorer import SCORER_NAME, score_images  # noqa: PLC0415  # lazy: defer ML stack load
+
+    failure_worker = f"aesthetic:{SCORER_NAME}"
+    posts_map = await posts.get_many(post_ids)
+    items: list[tuple[int, Path]] = []
+    for pid in post_ids:
+        post = posts_map.get(pid)
+        if post is None:
+            continue
+        abs_path = post.absolute_path
+        if abs_path.suffix.lower() not in IMAGE_EXTS or not abs_path.exists():
+            continue
+        items.append((pid, abs_path))
+    if not items:
+        return
+
+    successes, failures = await _score_batch_with_fallback(
+        score_images, items, worker_label="silva",
     )
     for pid, score in successes:
         await ScoreRepo(posts.cur).upsert_aesthetic_score(pid, SCORER_NAME, score)

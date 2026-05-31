@@ -52,12 +52,12 @@ class PostFilterWithOrder(PostFilter):
     order_by: Annotated[
         Literal[
             "id", "score", "rating", "created_at", "published_at", "file_name",
-            "last_accessed_at", "waifu_score", "siglip_score",
+            "last_accessed_at", "waifu_score", "siglip_score", "silva_score",
         ] | None,
         Meta(description="Order column.", examples=["id"],
              extra_json_schema={"enum": [
                  "id", "score", "rating", "created_at", "published_at", "file_name",
-                 "last_accessed_at", "waifu_score", "siglip_score",
+                 "last_accessed_at", "waifu_score", "siglip_score", "silva_score",
              ]}),
     ] = None
     order: Annotated[
@@ -72,7 +72,7 @@ class PostFilterWithOrder(PostFilter):
 # virtual: they resolve to joined-table columns, handled by the query layer.
 ORDERABLE_COLUMNS: frozenset[str] = frozenset({
     "id", "score", "rating", "created_at", "published_at", "file_name",
-    "last_accessed_at", "waifu_score", "siglip_score",
+    "last_accessed_at", "waifu_score", "siglip_score", "silva_score",
 })
 # Scalar columns a single-field update may target.
 UPDATABLE_FIELDS: frozenset[str] = frozenset({

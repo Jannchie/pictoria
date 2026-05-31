@@ -101,3 +101,8 @@ disable_arthash = False
 # so it isn't worth the GPU time. Set ``ENABLE_SIGLIP_SCORER=1`` to re-enable
 # the worker and the per-upload scoring step.
 enable_siglip_scorer = False
+
+# SILVA aesthetic backfill is off by default — like the SigLIP scorer it adds a
+# SigLIP-family backbone to the GPU. Set ``ENABLE_SILVA_SCORER=1`` to enable the
+# worker and the per-upload scoring step.
+enable_silva_scorer = False

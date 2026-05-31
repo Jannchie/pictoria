@@ -195,6 +195,11 @@ class TestSearch:
         rows = await query.search(PostFilterWithOrder(order_by="siglip_score", order="desc"))
         assert [r["id"] for r in rows][:2] == [3, 1]
 
+    async def test_order_by_silva_score_nulls_last(self, query: PostQueryService) -> None:
+        rows = await query.search(PostFilterWithOrder(order_by="silva_score", order="desc"))
+        # silva scores: post 5 (0.9) > post 4 (0.4); the rest (NULL) sink last.
+        assert [r["id"] for r in rows][:2] == [5, 4]
+
     async def test_lab_distance_ordering(self, query: PostQueryService) -> None:
         rows = await query.search(PostFilterWithOrder(lab=(50.0, 10.0, -5.0)))
         # only posts with a dominant_color participate; exact match sorts first

@@ -41,8 +41,9 @@ scorer.score(["a.png", "b.png"])  # -> list[float]，批量
   才挂 backfill worker / 单图打分，避免默认占用 GPU。
 - **支持按 silva 分排序**：新增虚拟排序列 `silva_score`，与 `siglip_score`
   同构，按需 JOIN 表、`NULLS LAST` 让未打分的图沉底。
-- **分数区间差异不特殊处理**：通用表只存原始 `float`，前端展示与排序都用原始
-  值。silva 不进入 waifu 专用的分数直方图统计（YAGNI）。
+- **分数区间差异**：通用表存原始 `float` [0,1]，排序用原始值。**前端展示时
+  ×10**（对齐 waifu/siglip 的 ~0–10 视觉量级）。silva 不进入 waifu 专用的分数
+  直方图统计（YAGNI）。
 
 ## 改动清单
 
@@ -85,17 +86,27 @@ scorer.score(["a.png", "b.png"])  # -> list[float]，批量
    pas_silva.scorer = 'silva'`，`ORDER BY pas_silva.score {direction} NULLS LAST`
    （镜像 `siglip_score` 分支）。
 
+7. **`src/server/commands.py`** — 镜像 siglip 的两个手动端点：
+   - `PUT /silva-scorer` → `auto_silva_scorer`：跑全库 backfill（`run_silva_worker`）
+   - `GET /silva-scorer/{post_id}` → `get_silva_scorer_one`：单图打分并 upsert，
+     已存在则直接返回（镜像 `get_siglip_scorer_one`）
+
 ### 前端
 
-7. **`just web-genapi`** — 重新生成 `web/src/api/types.gen.ts`（`order_by` 枚举
-   自动带上 `silva_score`）。
+8. **`just web-genapi`** — 重新生成 `web/src/api/{types,sdk}.gen.ts`（`order_by`
+   枚举自动带上 `silva_score`，并生成 silva 端点的 SDK 调用）。
 
-8. 手写的 `order_by` 联合类型三处 + 排序下拉补 `silva_score`：
+9. 手写的 `order_by` 联合类型三处 + 排序下拉补 `silva_score`：
    - `web/src/components/PostSorter.vue`：联合类型 + 选项
-     `{ id: 'silva_score', label: 'SILVA score', icon: 'i-tabler-sparkles' }`
-     （icon 可与 siglip 区分，实现时定）
+     `{ id: 'silva_score', label: 'SILVA score', icon: 'i-tabler-rosette' }`
    - `web/src/shared/queries.ts`：联合类型
    - `web/src/shared/state.ts`：`postSort` 联合类型
+
+10. **`web/src/components/PostDetailPanel.vue`** — 镜像 siglip 展示块：
+    - `SILVA_SCORER = 'silva'`，`silvaScore` computed，`calculateSilvaScore`
+      调用生成的 silva 单图端点
+    - 展示 `<WaifuScoreLevel :score="silvaScore * 10" />`（**×10**），未打分时
+      显示 Compute 按钮
 
 ### 测试
 
@@ -111,7 +122,7 @@ scorer.score(["a.png", "b.png"])  # -> list[float]，批量
 - 不在 `posts` 表加专用列（方案 B）。
 - 不让 silva 与 siglip 共享 backbone（方案 C，未来优化）。
 - 不加 silva 专用的分数直方图统计 / 区间筛选（siglip 也只有排序，无直方图）。
-- 不做分数归一化到 0–10（前端展示原始 [0,1] 值即可）。
+- 不在后端 / 数据库做归一化：原始 [0,1] 入库与排序，仅前端展示层 ×10。
 
 ## 风险
 

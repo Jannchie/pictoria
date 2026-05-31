@@ -31,6 +31,7 @@ dependencies = [
     "pytz>=2026.2",
     "arthash>=0.2.0",
     "aesthetic-predictor-v2-5>=2024.12.18.1",
+    "silva-scorer>=0.1.1",
 ]
 
 requires-python = ">=3.11"

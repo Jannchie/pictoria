@@ -31,7 +31,7 @@ export const postFilter = ref<PostFilter>({
 })
 export const textSearchQuery = ref('')
 
-export const postSort = useLocalStorage<'id' | 'score' | 'rating' | 'created_at' | 'file_name' | 'published_at' | 'waifu_score' | 'siglip_score'>('pictoria.posts.sort', 'id')
+export const postSort = useLocalStorage<'id' | 'score' | 'rating' | 'created_at' | 'file_name' | 'published_at' | 'waifu_score' | 'siglip_score' | 'silva_score'>('pictoria.posts.sort', 'id')
 export const postSortColor = useLocalStorage<string | undefined>('pictoria.posts.color', undefined)
 export const postSortOrder = useLocalStorage<'asc' | 'desc'>('pictoria.posts.sortOrder', 'desc')
 

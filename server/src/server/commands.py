@@ -173,6 +173,39 @@ class CommandController(Controller):
         await scores.upsert_aesthetic_score(post_id, SCORER_NAME, score)
         return score
 
+    @litestar.put("/silva-scorer")
+    async def auto_silva_scorer(self, state: State) -> None:
+        """Batch-score all posts that don't yet have a SILVA aesthetic score."""
+        from processors import run_silva_worker  # noqa: PLC0415  # lazy: defer ML stack load
+        from progress import get_progress  # noqa: PLC0415
+
+        db: DB = state.db
+        conn = db.new_connection()
+        try:
+            with get_progress() as progress:
+                await run_silva_worker(PostRepo(conn.cursor()), progress=progress)
+        finally:
+            with contextlib.suppress(Exception):
+                conn.close()
+
+    @litestar.get("/silva-scorer/{post_id:int}")
+    async def get_silva_scorer_one(self, posts: PostRepo, scores: ScoreRepo, post_id: int) -> float:
+        """Compute (and persist) the SILVA aesthetic score for a single post."""
+        post = await posts.get(post_id)
+        if post is None:
+            raise PostNotFoundError(post_id)
+        if not is_image(post.absolute_path):
+            raise NotAnImageError(post_id)
+        from ai.silva_scorer import SCORER_NAME, score_images  # noqa: PLC0415  # lazy: defer ML stack load
+
+        existing = await scores.get_aesthetic_score(post_id, SCORER_NAME)
+        if existing is not None:
+            return existing
+        result = await asyncio.to_thread(score_images, [post.absolute_path])
+        score = float(result[0])
+        await scores.upsert_aesthetic_score(post_id, SCORER_NAME, score)
+        return score
+
     @litestar.post("/posts/embedding", description="Calculate embedding for posts that don't have one yet")
     async def calculate_embedding(
         self,

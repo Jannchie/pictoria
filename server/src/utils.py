@@ -83,6 +83,10 @@ def prepare_feature_flags() -> None:
     if shared.enable_siglip_scorer:
         logger.info("ENABLE_SIGLIP_SCORER=1: SigLIP aesthetic scorer enabled")
 
+    shared.enable_silva_scorer = os.environ.get("ENABLE_SILVA_SCORER", "").lower() in _TRUTHY
+    if shared.enable_silva_scorer:
+        logger.info("ENABLE_SILVA_SCORER=1: SILVA aesthetic scorer enabled")
+
 
 def initialize(target_dir: os.PathLike, openai_key: str | None = None) -> None:
     prepare_paths(Path(target_dir))

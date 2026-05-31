@@ -180,7 +180,7 @@ class PostQueryService:
 
         return await asyncio.to_thread(_impl)
 
-    async def search(self, f: PostFilterWithOrder, *, limit: int = 100, offset: int = 0) -> list[dict]:
+    async def search(self, f: PostFilterWithOrder, *, limit: int = 100, offset: int = 0) -> list[dict]:  # noqa: C901
         """Search posts, returning rows ready for ``PostSimplePublic``.
 
         ``f.lab`` triggers brute-force L2 distance ordering over dominant_color
@@ -233,6 +233,13 @@ class PostQueryService:
                         )
                         direction = "ASC" if f.order == "asc" else "DESC"
                         order_sql = f"ORDER BY pas_siglip.score {direction} NULLS LAST"
+                    elif f.order_by == "silva_score":
+                        extra_joins.append(
+                            "LEFT JOIN post_aesthetic_scores pas_silva "
+                            "ON pas_silva.post_id = p.id AND pas_silva.scorer = 'silva'",
+                        )
+                        direction = "ASC" if f.order == "asc" else "DESC"
+                        order_sql = f"ORDER BY pas_silva.score {direction} NULLS LAST"
                     else:
                         direction = "ASC" if f.order == "asc" else "DESC"
                         order_sql = f"ORDER BY p.{f.order_by} {direction}"
