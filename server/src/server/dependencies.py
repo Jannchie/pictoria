@@ -37,11 +37,19 @@ def _cursor_scoped(make: Callable[[sqlite3.Cursor], T]) -> Callable[[State], Asy
     """Build a request-scoped provider that opens/closes a cursor around ``make``."""
 
     async def provide(state: State) -> AsyncGenerator[T, None]:
-        cur = state.db.cursor()
+        # Each request gets its OWN connection — not the event-loop thread's
+        # shared thread-local one. The cursor is created here (event-loop
+        # thread) but its SQL runs on asyncio.to_thread worker threads; when
+        # several concurrent requests shared one connection, their parallel
+        # execs desynced cursor.description and e.g. /count/score read
+        # /count/rating's column names -> KeyError('score'). A dedicated
+        # connection per request isolates that state entirely (see
+        # DB.new_connection's docstring).
+        conn = state.db.new_connection()
         try:
-            yield make(cur)
+            yield make(conn.cursor())
         finally:
-            cur.close()
+            state.db.discard_connection(conn)
 
     return provide
 

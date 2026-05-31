@@ -124,6 +124,20 @@ class DB:
         # opening a new connection.
         self._local = threading.local()
 
+    def discard_connection(self, conn: sqlite3.Connection) -> None:
+        """Close a ``new_connection()`` handle and stop tracking it.
+
+        Request-scoped providers open a fresh connection per request and must
+        release it when the request ends. Plain ``conn.close()`` would leave a
+        dead reference in ``_all_conns`` (only :meth:`close` clears that whole
+        set), so a long-running, high-traffic server would accumulate one dead
+        entry per request. This drops the reference *and* closes the connection.
+        """
+        with self._all_conns_lock:
+            self._all_conns.discard(conn)
+        with contextlib.suppress(Exception):
+            conn.close()
+
     @property
     def raw(self) -> sqlite3.Connection:
         return self._get_local()
