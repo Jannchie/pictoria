@@ -231,7 +231,8 @@ class PostQueryService:
                             select_cols += ", pas_silva.score AS _sort_col"
                         else:
                             select_cols += f", p.{f.order_by} AS _sort_col"
-                        resort_sql = "ORDER BY _sort_col DESC NULLS LAST"
+                        resort_dir = "ASC" if f.sort_direction == "asc" else "DESC"
+                        resort_sql = f"ORDER BY _sort_col {resort_dir} NULLS LAST"
                 elif f.order_by and f.order_by in ORDERABLE_COLUMNS:
                     direction = "ASC" if f.order == "asc" else "DESC"
                     # Unique tie-breaker so offset pagination is stable: rows tied

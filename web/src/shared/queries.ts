@@ -63,7 +63,7 @@ export function useInfinityPostsQuery() {
       order: order.value,
       // Pin the random shuffle seed so every page of the infinite query shares
       // one ordering; it's part of the queryKey, so a new seed → a fresh query.
-      ...(isRandomPage.value ? { order_seed: randomSeed.value } : {}),
+      ...(isRandomPage.value ? { order_seed: randomSeed.value, sort_direction: postSortOrder.value } : {}),
     }
     return labTuple.value ? { ...base, lab: labTuple.value } : base
   })

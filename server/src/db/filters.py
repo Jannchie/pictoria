@@ -89,6 +89,17 @@ class PostFilterWithOrder(PostFilter):
             examples=[42],
         ),
     ] = None
+    sort_direction: Annotated[
+        Literal["asc", "desc"] | None,
+        Meta(
+            description=(
+                "Sort direction for ``order_by`` when ``order='random'``. "
+                "Ignored unless both ``order='random'`` and ``order_by`` are set."
+            ),
+            examples=["desc"],
+            extra_json_schema={"enum": ["asc", "desc"]},
+        ),
+    ] = None
 
 
 # ─── Column allowlists (centralized; previously scattered across PostRepo) ───

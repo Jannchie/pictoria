@@ -6,8 +6,8 @@ export function useWatchRoute() {
   // Fresh shuffle seed on each *entry* to /random (path change only, not on
   // query/filter tweaks). Stable across the infinite query's pages so offset
   // pagination doesn't reshuffle mid-scroll.
-  watch(() => route.path, (path) => {
-    if (path === '/random') {
+  watch(() => route.path, (path, oldPath) => {
+    if (path === '/random' && !oldPath?.startsWith('/post/')) {
       randomSeed.value = Math.floor(Math.random() * 2_147_483_646) + 1
     }
   }, { immediate: true })
