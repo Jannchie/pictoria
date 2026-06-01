@@ -57,6 +57,7 @@ export function useSyncFilterWithUrl() {
       postFilter.value.extension.join(','),
       postFilter.value.waifu_score_range?.join(',') ?? '',
       postFilter.value.waifu_score_levels.join(','),
+      postFilter.value.silva_score_levels.join(','),
       postSort.value,
       postSortOrder.value,
       postSortColor.value ?? '',
@@ -93,6 +94,12 @@ export function useSyncFilterWithUrl() {
       }
       else {
         delete query.waifu_score_levels
+      }
+      if (f.silva_score_levels.length > 0) {
+        query.silva_score_levels = f.silva_score_levels.join(',')
+      }
+      else {
+        delete query.silva_score_levels
       }
       // Sort state: omit defaults (sort=id, order=desc) so URLs stay clean,
       // matching the filter fields above.
@@ -140,6 +147,10 @@ export function useSyncFilterWithUrl() {
 
     if (newQuery.waifu_score_levels !== undefined) {
       postFilter.value.waifu_score_levels = (newQuery.waifu_score_levels as string).split(',')
+    }
+
+    if (newQuery.silva_score_levels !== undefined) {
+      postFilter.value.silva_score_levels = (newQuery.silva_score_levels as string).split(',')
     }
 
     if (newQuery.sort !== undefined) {
