@@ -42,22 +42,26 @@ export const postSortOrder = useLocalStorage<'asc' | 'desc'>('pictoria.posts.sor
 // regenerated on each visit to /random (see useWatchRoute) for a fresh shuffle.
 export const randomSeed = ref(1)
 
+// Declarative filter-to-URL mapping for array-typed PostFilter fields.
+// Add a new entry here to sync a new array filter — no other changes needed.
+const ARRAY_FILTERS: { key: keyof PostFilter & string, numeric?: boolean }[] = [
+  { key: 'score', numeric: true },
+  { key: 'rating', numeric: true },
+  { key: 'extension' },
+  { key: 'waifu_score_levels' },
+  { key: 'silva_score_levels' },
+]
+
 // Sync postFilter with URL query parameters
 export function useSyncFilterWithUrl() {
   const route = useRoute()
   const router = useRouter()
 
-  // Watch each field separately so unrelated changes (e.g. tags) don't pay
-  // the cost of deep traversal + full URL rebuild. Each watcher uses a
-  // primitive-comparable signature derived from the array/tuple value.
+  // Primitive-comparable signatures avoid deep traversal on every reactive flush.
   watch(
     () => [
-      postFilter.value.score.join(','),
-      postFilter.value.rating.join(','),
-      postFilter.value.extension.join(','),
+      ...ARRAY_FILTERS.map(({ key }) => (postFilter.value[key] as unknown[]).join(',')),
       postFilter.value.waifu_score_range?.join(',') ?? '',
-      postFilter.value.waifu_score_levels.join(','),
-      postFilter.value.silva_score_levels.join(','),
       postSort.value,
       postSortOrder.value,
       postSortColor.value ?? '',
@@ -65,44 +69,25 @@ export function useSyncFilterWithUrl() {
     () => {
       const f = postFilter.value
       const query = { ...route.query }
-      if (f.score.length > 0) {
-        query.score = f.score.join(',')
+
+      for (const { key } of ARRAY_FILTERS) {
+        const arr = f[key] as unknown[]
+        if (arr.length > 0) {
+          query[key] = arr.join(',')
+        }
+        else {
+          delete query[key]
+        }
       }
-      else {
-        delete query.score
-      }
-      if (f.rating.length > 0) {
-        query.rating = f.rating.join(',')
-      }
-      else {
-        delete query.rating
-      }
-      if (f.extension.length > 0) {
-        query.extension = f.extension.join(',')
-      }
-      else {
-        delete query.extension
-      }
+
       if (f.waifu_score_range) {
         query.waifu_score_range = f.waifu_score_range.join(',')
       }
       else {
         delete query.waifu_score_range
       }
-      if (f.waifu_score_levels.length > 0) {
-        query.waifu_score_levels = f.waifu_score_levels.join(',')
-      }
-      else {
-        delete query.waifu_score_levels
-      }
-      if (f.silva_score_levels.length > 0) {
-        query.silva_score_levels = f.silva_score_levels.join(',')
-      }
-      else {
-        delete query.silva_score_levels
-      }
-      // Sort state: omit defaults (sort=id, order=desc) so URLs stay clean,
-      // matching the filter fields above.
+
+      // Sort state: omit defaults (sort=id, order=desc) so URLs stay clean.
       if (postSort.value === 'id') {
         delete query.sort
       }
@@ -127,30 +112,16 @@ export function useSyncFilterWithUrl() {
 
   // Watch for URL changes and update postFilter
   watch(() => route.query, (newQuery) => {
-    // Only update if the component is watching (to avoid initial load overriding filter state)
-    if (newQuery.score !== undefined) {
-      postFilter.value.score = (newQuery.score as string).split(',').map(Number)
-    }
-
-    if (newQuery.rating !== undefined) {
-      postFilter.value.rating = (newQuery.rating as string).split(',').map(Number)
-    }
-
-    if (newQuery.extension !== undefined) {
-      postFilter.value.extension = (newQuery.extension as string).split(',')
+    for (const { key, numeric } of ARRAY_FILTERS) {
+      if (newQuery[key] !== undefined) {
+        const parts = (newQuery[key] as string).split(',')
+        ;(postFilter.value[key] as any) = numeric ? parts.map(Number) : parts
+      }
     }
 
     if (newQuery.waifu_score_range !== undefined) {
       const range = (newQuery.waifu_score_range as string).split(',').map(Number) as [number, number]
       postFilter.value.waifu_score_range = range
-    }
-
-    if (newQuery.waifu_score_levels !== undefined) {
-      postFilter.value.waifu_score_levels = (newQuery.waifu_score_levels as string).split(',')
-    }
-
-    if (newQuery.silva_score_levels !== undefined) {
-      postFilter.value.silva_score_levels = (newQuery.silva_score_levels as string).split(',')
     }
 
     if (newQuery.sort !== undefined) {
