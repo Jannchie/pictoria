@@ -8,7 +8,9 @@ which lets us zip rows into dicts and validate them into entity models.
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, TypeVar
+import json
+import struct
+from typing import TYPE_CHECKING, Any, TypeVar
 
 from pydantic import BaseModel
 
@@ -16,6 +18,29 @@ if TYPE_CHECKING:
     import sqlite3
 
 T = TypeVar("T", bound=BaseModel)
+
+
+def decode_dominant_color(v: Any) -> list[float] | None:
+    """Decode a sqlite-vec FLOAT[3] BLOB, JSON string, or list to ``list[float]``."""
+    if v is None:
+        return None
+    if isinstance(v, (bytes, bytearray, memoryview)):
+        b = bytes(v)
+        n = len(b) // 4
+        if n == 0:
+            return None
+        return list(struct.unpack(f"{n}f", b))
+    if isinstance(v, list):
+        return v
+    if isinstance(v, str):
+        return json.loads(v)
+    msg = f"Cannot decode dominant_color from {type(v).__name__}"
+    raise ValueError(msg)
+
+
+def sql_placeholders(items: tuple | list) -> str:
+    """Return a comma-separated ``?`` placeholder string for SQL ``IN (...)``."""
+    return ",".join("?" * len(items))
 
 
 def _column_names(cur: sqlite3.Cursor) -> list[str]:

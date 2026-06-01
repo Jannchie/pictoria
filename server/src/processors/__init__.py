@@ -34,6 +34,7 @@ from PIL import Image, UnidentifiedImageError
 from skimage import color
 
 import shared
+from db.helpers import sql_placeholders
 from db.repositories.failures import FailureRepo
 from db.repositories.posts import PostRepo
 from db.repositories.scores import ScoreRepo
@@ -724,7 +725,7 @@ async def _find_posts_without_auto_tags(posts: PostRepo, post_ids: list[int]) ->
     """
 
     def _impl() -> list[int]:
-        placeholders = ",".join("?" * len(post_ids))
+        placeholders = sql_placeholders(post_ids)
         posts.cur.execute(
             f"""
             SELECT p.id FROM posts p
@@ -1042,7 +1043,7 @@ def _persist_basics_batch(
     # post_has_color: replace the palette for every post that produced one.
     palette_post_ids = [post.id for post, _, b in valid if b["colors"]]
     if palette_post_ids:
-        placeholders = ",".join("?" * len(palette_post_ids))
+        placeholders = sql_placeholders(palette_post_ids)
         cur.execute(
             f"DELETE FROM post_has_color WHERE post_id IN ({placeholders})",  # noqa: S608
             palette_post_ids,

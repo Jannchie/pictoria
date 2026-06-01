@@ -18,6 +18,8 @@ from typing import Annotated, Any, Literal
 
 from msgspec import Meta, Struct
 
+from db.helpers import sql_placeholders
+
 
 class PostFilter(Struct):
     rating: Annotated[tuple[int, ...] | None, Meta(description="Rating filter.", examples=[(1, 2, 3)])] = ()
@@ -152,7 +154,31 @@ def bucket_case_sql(
     )
 
 
-def build_where(f: PostFilter) -> tuple[list[str], list[Any], list[str]]:  # noqa: C901, PLR0912, PLR0915
+def _build_bucket_level_filter(
+    levels: tuple[str, ...],
+    buckets: dict[str, tuple[float, float]],
+    score_col: str,
+    null_col: str,
+) -> tuple[str, list[Any]]:
+    """Return a ``(clause, params)`` pair for score-bucket level filtering."""
+    clauses: list[str] = []
+    params: list[Any] = []
+    include_unscored = False
+    for lvl in levels:
+        if lvl == SCORE_BUCKET_UNSCORED:
+            include_unscored = True
+            continue
+        if lvl not in buckets:
+            continue
+        lo, hi = buckets[lvl]
+        clauses.append(f"({score_col} >= ? AND {score_col} < ?)")
+        params.extend([lo, hi])
+    if include_unscored:
+        clauses.append(f"{null_col} IS NULL")
+    return ("(" + " OR ".join(clauses) + ")") if clauses else "", params
+
+
+def build_where(f: PostFilter) -> tuple[list[str], list[Any], list[str]]:  # noqa: C901
     """Translate a ``PostFilter`` into ``(where_clauses, params, joins)``.
 
     ``lab`` is intentionally not handled here: distance ordering needs a
@@ -162,26 +188,21 @@ def build_where(f: PostFilter) -> tuple[list[str], list[Any], list[str]]:  # noq
     params: list[Any] = []
     joins: list[str] = []
     if f.rating:
-        ph = ",".join("?" * len(f.rating))
-        where.append(f"p.rating IN ({ph})")
+        where.append(f"p.rating IN ({sql_placeholders(f.rating)})")
         params.extend(f.rating)
     if f.score:
-        ph = ",".join("?" * len(f.score))
-        where.append(f"p.score IN ({ph})")
+        where.append(f"p.score IN ({sql_placeholders(f.score)})")
         params.extend(f.score)
     if f.tags:
-        ph = ",".join("?" * len(f.tags))
         where.append(
             f"EXISTS (SELECT 1 FROM post_has_tag pht "  # noqa: S608
-            f"WHERE pht.post_id = p.id AND pht.tag_name IN ({ph}))",
+            f"WHERE pht.post_id = p.id AND pht.tag_name IN ({sql_placeholders(f.tags)}))",
         )
         params.extend(f.tags)
     if f.extension:
-        ph = ",".join("?" * len(f.extension))
-        where.append(f"p.extension IN ({ph})")
+        where.append(f"p.extension IN ({sql_placeholders(f.extension)})")
         params.extend(f.extension)
     if f.folder and f.folder != ".":
-        # GLOB is case-sensitive and uses the default index, unlike LIKE in SQLite.
         where.append("p.file_path GLOB ?")
         params.append(f"{f.folder}*")
 
@@ -194,43 +215,19 @@ def build_where(f: PostFilter) -> tuple[list[str], list[Any], list[str]]:  # noq
         params.extend([f.waifu_score_range[0], f.waifu_score_range[1]])
 
     if f.waifu_score_levels:
-        clauses: list[str] = []
-        include_unscored = False
-        for lvl in f.waifu_score_levels:
-            if lvl == SCORE_BUCKET_UNSCORED:
-                include_unscored = True
-                continue
-            if lvl not in WAIFU_SCORE_BUCKETS:
-                continue
-            lo, hi = WAIFU_SCORE_BUCKETS[lvl]
-            clauses.append("(pws.score >= ? AND pws.score < ?)")
-            params.extend([lo, hi])
-        if include_unscored:
-            clauses.append("pws.post_id IS NULL")
-        if clauses:
-            where.append("(" + " OR ".join(clauses) + ")")
+        clause, bucket_params = _build_bucket_level_filter(f.waifu_score_levels, WAIFU_SCORE_BUCKETS, "pws.score", "pws.post_id")
+        if clause:
+            where.append(clause)
+            params.extend(bucket_params)
 
     if f.silva_score_levels:
-        # vec0-free: aesthetic scores live in post_aesthetic_scores (scorer
-        # 'silva'). Same alias as the order-by join so they dedupe in search().
         joins.append(
             "LEFT JOIN post_aesthetic_scores pas_silva "
             "ON pas_silva.post_id = p.id AND pas_silva.scorer = 'silva'",
         )
-        silva_clauses: list[str] = []
-        silva_unscored = False
-        for lvl in f.silva_score_levels:
-            if lvl == SCORE_BUCKET_UNSCORED:
-                silva_unscored = True
-                continue
-            if lvl not in SILVA_SCORE_BUCKETS:
-                continue
-            lo, hi = SILVA_SCORE_BUCKETS[lvl]
-            silva_clauses.append("(pas_silva.score >= ? AND pas_silva.score < ?)")
-            params.extend([lo, hi])
-        if silva_unscored:
-            silva_clauses.append("pas_silva.post_id IS NULL")
-        if silva_clauses:
-            where.append("(" + " OR ".join(silva_clauses) + ")")
+        clause, bucket_params = _build_bucket_level_filter(f.silva_score_levels, SILVA_SCORE_BUCKETS, "pas_silva.score", "pas_silva.post_id")
+        if clause:
+            where.append(clause)
+            params.extend(bucket_params)
 
     return where, params, joins

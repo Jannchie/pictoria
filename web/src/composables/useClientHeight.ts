@@ -3,16 +3,15 @@ import { tryOnMounted, unrefElement, useEventListener, useMediaQuery, useResizeO
 import { computed, ref, watch } from 'vue'
 
 export function useClientHeight(target: MaybeComputedElementRef, options: {
-  initialWidth?: number
   initialHeight?: number
   listenOrientation?: boolean
 } = {}) {
   const {
-    initialWidth = Number.POSITIVE_INFINITY,
+    initialHeight = Number.POSITIVE_INFINITY,
     listenOrientation = true,
   } = options
 
-  const clientHeight = ref(initialWidth)
+  const clientHeight = ref(initialHeight)
   const element = computed(() => unrefElement(target))
   const update = () => {
     if (element.value) {

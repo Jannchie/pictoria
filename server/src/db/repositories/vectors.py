@@ -17,7 +17,7 @@ from typing import TYPE_CHECKING
 import sqlite_vec
 
 from db import SimilarImageResult
-from db.helpers import fetch_all_dicts
+from db.helpers import fetch_all_dicts, sql_placeholders
 
 if TYPE_CHECKING:
     import sqlite3
@@ -74,7 +74,7 @@ class VectorRepo:
         def _impl() -> dict[int, list[float]]:
             if not post_ids:
                 return {}
-            placeholders = ",".join("?" * len(post_ids))
+            placeholders = sql_placeholders(post_ids)
             self.cur.execute(
                 f"SELECT post_id, embedding FROM {self.table} "  # noqa: S608
                 f"WHERE post_id IN ({placeholders})",
@@ -225,7 +225,7 @@ class VectorRepo:
             if image_exts:
                 # The `?` placeholder count is derived from len(image_exts);
                 # ext strings flow through cur.execute params, never into SQL.
-                placeholders = ",".join("?" * len(image_exts))
+                placeholders = sql_placeholders(image_exts)
                 ext_clause = f"AND LOWER(p.extension) IN ({placeholders})"
                 self.cur.execute(
                     f"SELECT p.id FROM posts p "  # noqa: S608

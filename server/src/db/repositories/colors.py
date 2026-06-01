@@ -11,6 +11,8 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
+from db.helpers import sql_placeholders
+
 if TYPE_CHECKING:
     import sqlite3
 
@@ -22,7 +24,7 @@ class ColorRepo:
     def fetch_by_ids(self, ids: list[int]) -> dict[int, list[dict]]:
         if not ids:
             return {}
-        placeholders = ",".join("?" * len(ids))
+        placeholders = sql_placeholders(ids)
         self.cur.execute(
             f'SELECT post_id, "order", color FROM post_has_color '  # noqa: S608
             f'WHERE post_id IN ({placeholders}) ORDER BY post_id, "order"',

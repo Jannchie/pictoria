@@ -1,4 +1,4 @@
-"""PostQueryService — the read/query side of the posts domain.
+﻿"""PostQueryService 窶・the read/query side of the posts domain.
 
 This owns everything that turns a ``PostFilter`` (or a post id) into a
 read model: detail/list/search assembly and filtered counts/aggregates. It
@@ -16,7 +16,6 @@ hand-builds them.
 from __future__ import annotations
 
 import asyncio
-import struct
 from typing import TYPE_CHECKING, Any
 
 import sqlite_vec
@@ -32,7 +31,7 @@ from db.filters import (
     bucket_case_sql,
     build_where,
 )
-from db.helpers import fetch_all_dicts, fetch_one_dict
+from db.helpers import decode_dominant_color, fetch_all_dicts, fetch_one_dict, sql_placeholders
 from db.repositories.colors import ColorRepo
 from db.repositories.scores import ScoreRepo
 from db.repositories.tags import TagRepo
@@ -49,26 +48,11 @@ SIMPLE_POST_COLUMNS = (
 )
 
 
-def _decode_dominant_color_blob(value: Any) -> list[float] | None:
-    """Convert an sqlite-vec serialized FLOAT[3] BLOB to a list[float].
-
-    Returns ``None`` for NULL / empty inputs and passes through values that
-    are already lists (e.g. when an in-memory value short-circuits the DB).
-    """
-    if value is None or isinstance(value, list):
-        return value
-    raw = bytes(value)
-    n = len(raw) // 4
-    if n == 0:
-        return None
-    return list(struct.unpack(f"{n}f", raw))
-
-
 def _decode_dominant_colors_in(rows: list[dict]) -> None:
     """Decode the ``dominant_color`` field on a batch of result dicts in place."""
     for r in rows:
         if "dominant_color" in r:
-            r["dominant_color"] = _decode_dominant_color_blob(r["dominant_color"])
+            r["dominant_color"] = decode_dominant_color(r["dominant_color"])
 
 
 class PostQueryService:
@@ -80,7 +64,7 @@ class PostQueryService:
         self._colors = ColorRepo(cur)
         self._scores = ScoreRepo(cur)
 
-    # ─── Read single ──────────────────────────────────────────────────
+    # 笏笏笏 Read single 笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏
     async def get_detail(self, post_id: int) -> dict | None:
         """Detail read model: post columns + joined tags / colors / scores.
 
@@ -126,7 +110,7 @@ class PostQueryService:
 
         return await asyncio.to_thread(_impl)
 
-    # ─── Read many ────────────────────────────────────────────────────
+    # 笏笏笏 Read many 笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏
     async def list_paginated(self, start: int, limit: int) -> tuple[list[dict], int | None]:
         """Return ``(items_as_detail_dicts, next_cursor)``.
 
@@ -172,7 +156,7 @@ class PostQueryService:
         def _impl() -> list[dict]:
             if not id_list:
                 return []
-            placeholders = ",".join("?" * len(id_list))
+            placeholders = sql_placeholders(id_list)
             self.cur.execute(
                 f"SELECT {SIMPLE_POST_COLUMNS} FROM posts WHERE id IN ({placeholders})",  # noqa: S608
                 id_list,
@@ -189,7 +173,7 @@ class PostQueryService:
 
         return await asyncio.to_thread(_impl)
 
-    async def search(self, f: PostFilterWithOrder, *, limit: int = 100, offset: int = 0) -> list[dict]:  # noqa: C901
+    async def search(self, f: PostFilterWithOrder, *, limit: int = 100, offset: int = 0) -> list[dict]:  # noqa: C901, PLR0915
         """Search posts, returning rows ready for ``PostSimplePublic``.
 
         ``f.lab`` triggers brute-force L2 distance ordering over dominant_color
@@ -197,7 +181,7 @@ class PostQueryService:
         whitelisted columns; ``f.order`` is ``asc`` | ``desc`` | ``random``.
         """
 
-        def _impl() -> list[dict]:
+        def _impl() -> list[dict]:  # noqa: C901, PLR0912, PLR0915
             where_clauses, params, joins = build_where(f)
 
             select_cols = (
@@ -226,17 +210,28 @@ class PostQueryService:
                 extra_joins: list[str] = []
                 order_sql = ""
                 order_params: list[Any] = []
+                resort_sql = ""
                 if f.order == "random":
-                    # SQLite's random() re-rolls every row on every execution, so
-                    # offset pagination over `ORDER BY random()` reshuffles each
-                    # page (duplicates + gaps — the list never converges). Instead
-                    # order by a multiplicative hash of (id, seed) mod a Mersenne
-                    # prime: for a seed coprime to the prime this is a stable
-                    # permutation of the ids — same seed → identical order across
-                    # pages, a fresh seed → a new shuffle.
                     seed = (f.order_seed or 1) % 2147483647 or 1
                     order_sql = "ORDER BY ((p.id * ?) % 2147483647)"
                     order_params.append(seed)
+                    if f.order_by and f.order_by in ORDERABLE_COLUMNS:
+                        if f.order_by == "waifu_score":
+                            if not any("post_waifu_scores" in j for j in joins):
+                                extra_joins.append(
+                                    "LEFT JOIN post_waifu_scores pws ON pws.post_id = p.id",
+                                )
+                            select_cols += ", pws.score AS _sort_col"
+                        elif f.order_by == "silva_score":
+                            if not any("pas_silva" in j for j in joins):
+                                extra_joins.append(
+                                    "LEFT JOIN post_aesthetic_scores pas_silva "
+                                    "ON pas_silva.post_id = p.id AND pas_silva.scorer = 'silva'",
+                                )
+                            select_cols += ", pas_silva.score AS _sort_col"
+                        else:
+                            select_cols += f", p.{f.order_by} AS _sort_col"
+                        resort_sql = "ORDER BY _sort_col DESC NULLS LAST"
                 elif f.order_by and f.order_by in ORDERABLE_COLUMNS:
                     direction = "ASC" if f.order == "asc" else "DESC"
                     # Unique tie-breaker so offset pagination is stable: rows tied
@@ -263,14 +258,17 @@ class PostQueryService:
 
                 all_joins = joins + extra_joins
                 from_clause = "FROM posts p" + ("\n" + "\n".join(all_joins) if all_joins else "")
-                sql = (
-                    f"{select_cols} {from_clause} {where_sql} {order_sql} LIMIT ? OFFSET ?"
-                )
+                if resort_sql:
+                    inner_sql = f"{select_cols} {from_clause} {where_sql} {order_sql} LIMIT ? OFFSET ?"
+                    sql = f"SELECT * FROM ({inner_sql}) {resort_sql}"  # noqa: S608
+                else:
+                    sql = f"{select_cols} {from_clause} {where_sql} {order_sql} LIMIT ? OFFSET ?"
                 self.cur.execute(sql, [*params, *order_params, limit, offset])
 
             rows = fetch_all_dicts(self.cur)
             for r in rows:
                 r.pop("_dist", None)
+                r.pop("_sort_col", None)
             _decode_dominant_colors_in(rows)
             ids = [r["id"] for r in rows]
             colors_by_post = self._colors.fetch_by_ids(ids)
@@ -337,7 +335,7 @@ class PostQueryService:
 
         return await asyncio.to_thread(_impl)
 
-    # ─── Counts / aggregates ──────────────────────────────────────────
+    # 笏笏笏 Counts / aggregates 笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏
     async def count(self, f: PostFilter) -> int:
         def _impl() -> int:
             where_clauses, params, joins = build_where(f)
@@ -370,23 +368,29 @@ class PostQueryService:
 
         return await asyncio.to_thread(_impl)
 
-    async def count_by_waifu_bucket(self, f: PostFilter) -> list[dict]:
-        """Group posts into the 5 waifu-score buckets (A/B/C/D/E) plus UNSCORED."""
-
+    async def _count_by_scorer_bucket(  # noqa: PLR0913
+        self,
+        f: PostFilter,
+        buckets: dict[str, tuple[float, float]],
+        score_col: str,
+        null_col: str,
+        join_sql: str,
+        join_marker: str,
+    ) -> list[dict]:
         def _impl() -> list[dict]:
             where_clauses, params, joins = build_where(f)
-            if not any("post_waifu_scores" in j for j in joins):
-                joins.append("LEFT JOIN post_waifu_scores pws ON pws.post_id = p.id")
-            joins_sql = "\n".join(joins)
-            where_sql = ("WHERE " + " AND ".join(where_clauses)) if where_clauses else ""
+            if not any(join_marker in j for j in joins):
+                joins.append(join_sql)
+            joins_str = "\n".join(joins)
+            where_str = ("WHERE " + " AND ".join(where_clauses)) if where_clauses else ""
             self.cur.execute(
                 f"""
                 SELECT
-                    {bucket_case_sql(WAIFU_SCORE_BUCKETS, "pws.score", "pws.post_id")} AS bucket,
+                    {bucket_case_sql(buckets, score_col, null_col)} AS bucket,
                     count(*) AS count
                 FROM posts p
-                {joins_sql}
-                {where_sql}
+                {joins_str}
+                {where_str}
                 GROUP BY bucket
                 """,  # noqa: S608
                 params,
@@ -394,34 +398,23 @@ class PostQueryService:
             return fetch_all_dicts(self.cur)
 
         return await asyncio.to_thread(_impl)
+
+    async def count_by_waifu_bucket(self, f: PostFilter) -> list[dict]:
+        """Group posts into the 5 waifu-score buckets (A/B/C/D/E) plus UNSCORED."""
+        return await self._count_by_scorer_bucket(
+            f, WAIFU_SCORE_BUCKETS, "pws.score", "pws.post_id",
+            "LEFT JOIN post_waifu_scores pws ON pws.post_id = p.id",
+            "post_waifu_scores",
+        )
 
     async def count_by_silva_bucket(self, f: PostFilter) -> list[dict]:
         """Group posts into the 5 SILVA buckets (A/B/C/D/E) plus UNSCORED."""
-
-        def _impl() -> list[dict]:
-            where_clauses, params, joins = build_where(f)
-            if not any("pas_silva" in j for j in joins):
-                joins.append(
-                    "LEFT JOIN post_aesthetic_scores pas_silva "
-                    "ON pas_silva.post_id = p.id AND pas_silva.scorer = 'silva'",
-                )
-            joins_sql = "\n".join(joins)
-            where_sql = ("WHERE " + " AND ".join(where_clauses)) if where_clauses else ""
-            self.cur.execute(
-                f"""
-                SELECT
-                    {bucket_case_sql(SILVA_SCORE_BUCKETS, "pas_silva.score", "pas_silva.post_id")} AS bucket,
-                    count(*) AS count
-                FROM posts p
-                {joins_sql}
-                {where_sql}
-                GROUP BY bucket
-                """,  # noqa: S608
-                params,
-            )
-            return fetch_all_dicts(self.cur)
-
-        return await asyncio.to_thread(_impl)
+        return await self._count_by_scorer_bucket(
+            f, SILVA_SCORE_BUCKETS, "pas_silva.score", "pas_silva.post_id",
+            "LEFT JOIN post_aesthetic_scores pas_silva "
+            "ON pas_silva.post_id = p.id AND pas_silva.scorer = 'silva'",
+            "pas_silva",
+        )
 
     async def aggregate_stats(self, f: PostFilter) -> dict:
         """Aggregate post-quality stats for a filter (used by the footer)."""

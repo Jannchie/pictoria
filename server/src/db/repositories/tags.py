@@ -6,7 +6,7 @@ import asyncio
 from typing import TYPE_CHECKING
 
 from db.entities import Tag, TagGroup
-from db.helpers import fetch_all_as, fetch_all_dicts, fetch_one_as
+from db.helpers import fetch_all_as, fetch_all_dicts, fetch_one_as, sql_placeholders
 
 if TYPE_CHECKING:
     import sqlite3
@@ -114,7 +114,7 @@ class TagRepo:
             return
 
         def _impl() -> None:
-            ph = ",".join("?" * len(names))
+            ph = sql_placeholders(names)
             self.cur.execute(f"DELETE FROM tags WHERE name IN ({ph})", names)  # noqa: S608
 
         await asyncio.to_thread(_impl)
@@ -183,7 +183,7 @@ class TagRepo:
         """
         if not ids:
             return {}
-        placeholders = ",".join("?" * len(ids))
+        placeholders = sql_placeholders(ids)
         self.cur.execute(
             f"""
             SELECT pht.post_id AS post_id,

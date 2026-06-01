@@ -57,11 +57,10 @@ class ImageController(Controller):
     async def get_thumbnail(self, post_path: str) -> File:
         """Get thumbnail image by file path (creates one if missing)."""
         thumbnail_file_path = shared.thumbnails_dir / post_path[1:]
-        if not thumbnail_file_path.exists():
-            thumbnail_file_path.parent.mkdir(parents=True, exist_ok=True)
         original_file_path = shared.target_dir / post_path[1:]
         if not original_file_path.exists():
             raise NotFoundException(detail="Original image not found")
+        thumbnail_file_path.parent.mkdir(parents=True, exist_ok=True)
         if not thumbnail_file_path.exists():
             await asyncio.to_thread(create_thumbnail, original_file_path, thumbnail_file_path)
         media_type, _ = mimetypes.guess_type(thumbnail_file_path)
@@ -96,14 +95,12 @@ class ImageController(Controller):
         if not post:
             raise NotFoundException(detail=f"Post with id {post_id} not found")
 
-        thumbnail_file_path = post.thumbnail_path
-        if not thumbnail_file_path.exists():
-            thumbnail_file_path.parent.mkdir(parents=True, exist_ok=True)
-
         original_file_path = post.absolute_path
         if not original_file_path.exists():
             raise NotFoundException(detail=f"Original image for post {post_id} not found")
 
+        thumbnail_file_path = post.thumbnail_path
+        thumbnail_file_path.parent.mkdir(parents=True, exist_ok=True)
         if not thumbnail_file_path.exists():
             await asyncio.to_thread(create_thumbnail, original_file_path, thumbnail_file_path)
 

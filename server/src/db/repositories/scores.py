@@ -12,6 +12,8 @@ from __future__ import annotations
 import asyncio
 from typing import TYPE_CHECKING
 
+from db.helpers import sql_placeholders
+
 if TYPE_CHECKING:
     import sqlite3
 
@@ -112,7 +114,7 @@ class ScoreRepo:
     def fetch_waifu_by_ids(self, ids: list[int]) -> dict[int, dict]:
         if not ids:
             return {}
-        placeholders = ",".join("?" * len(ids))
+        placeholders = sql_placeholders(ids)
         self.cur.execute(
             f"SELECT post_id, score FROM post_waifu_scores "  # noqa: S608
             f"WHERE post_id IN ({placeholders})",
@@ -123,7 +125,7 @@ class ScoreRepo:
     def fetch_aesthetic_by_ids(self, ids: list[int]) -> dict[int, list[dict]]:
         if not ids:
             return {}
-        placeholders = ",".join("?" * len(ids))
+        placeholders = sql_placeholders(ids)
         self.cur.execute(
             f"SELECT post_id, scorer, score FROM post_aesthetic_scores "  # noqa: S608
             f"WHERE post_id IN ({placeholders}) ORDER BY post_id, scorer",

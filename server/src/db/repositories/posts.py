@@ -27,7 +27,7 @@ import sqlite_vec
 
 from db.entities import POST_COLUMNS, Post
 from db.filters import BULK_UPDATABLE_FIELDS, UPDATABLE_FIELDS
-from db.helpers import fetch_all_as, fetch_one_as
+from db.helpers import fetch_all_as, fetch_one_as, sql_placeholders
 
 if TYPE_CHECKING:
     import sqlite3
@@ -59,7 +59,7 @@ class PostRepo:
             return {}
 
         def _impl() -> dict[int, Post]:
-            placeholders = ",".join("?" * len(post_ids))
+            placeholders = sql_placeholders(post_ids)
             self.cur.execute(
                 f"SELECT {POST_COLUMNS} FROM posts WHERE id IN ({placeholders})",  # noqa: S608
                 post_ids,
@@ -108,7 +108,7 @@ class PostRepo:
             return
 
         def _impl() -> None:
-            placeholders = ",".join("?" * len(ids))
+            placeholders = sql_placeholders(ids)
             self.cur.execute(
                 f"UPDATE posts SET {field} = ?, updated_at = CURRENT_TIMESTAMP, "  # noqa: S608
                 f"last_accessed_at = CURRENT_TIMESTAMP "
@@ -169,7 +169,7 @@ class PostRepo:
             return
 
         def _impl() -> None:
-            placeholders = ",".join("?" * len(ids))
+            placeholders = sql_placeholders(ids)
             # vec0 virtual table — no FK CASCADE
             self.cur.execute(
                 f"DELETE FROM post_vectors_siglip2 WHERE post_id IN ({placeholders})",  # noqa: S608

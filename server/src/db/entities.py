@@ -15,32 +15,16 @@ Storage notes:
 
 from __future__ import annotations
 
-import json
-import struct
 from datetime import datetime  # noqa: TC003  # Pydantic needs runtime types
 from pathlib import Path  # noqa: TC003  # Pydantic needs runtime types
-from typing import Annotated, Any
+from typing import Annotated
 
 from pydantic import BaseModel, BeforeValidator, ConfigDict
 
 import shared
+from db.helpers import decode_dominant_color
 
-
-def _decode_dominant_color(v: Any) -> list[float] | None:
-    if v is None or isinstance(v, list):
-        return v
-    if isinstance(v, str):
-        # JSON form (e.g. `vec_to_json(dominant_color)` in SELECT)
-        return json.loads(v)
-    if isinstance(v, (bytes, bytearray, memoryview)):
-        b = bytes(v)
-        n = len(b) // 4
-        return list(struct.unpack(f"{n}f", b))
-    msg = f"Cannot decode dominant_color from {type(v).__name__}"
-    raise ValueError(msg)
-
-
-DominantColor = Annotated[list[float] | None, BeforeValidator(_decode_dominant_color)]
+DominantColor = Annotated[list[float] | None, BeforeValidator(decode_dominant_color)]
 
 
 class _Entity(BaseModel):
