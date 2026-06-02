@@ -7,14 +7,13 @@ import { useRoute } from 'vue-router'
 import { v2DeletePosts } from '@/api'
 import { useSelectedPostStats } from '@/composables/useSelectedPostStats'
 import {
+  commitRating,
+  commitScore,
   currentPostList,
-  patchPostsInListCache,
   queryKeys,
   selectedPostIdSet,
   showPostDetail,
   similarPostList,
-  updateRatingForSelectedPosts,
-  updateScoreForSelectedPosts,
 } from '@/shared'
 import { getPostThumbnailURL } from '@/utils'
 
@@ -237,18 +236,12 @@ function focusOne(id: number) {
 
 async function applyRating(rating: number) {
   const ids = [...selectedPostIdSet.value].filter((id): id is number => typeof id === 'number')
-  await updateRatingForSelectedPosts(rating)
-  patchPostsInListCache(queryClient, ids, { rating })
-  queryClient.invalidateQueries({ queryKey: queryKeys.countRoot('rating') })
-  queryClient.invalidateQueries({ queryKey: queryKeys.postsStatsRoot })
+  await commitRating(queryClient, selectedPosts.value, ids, rating)
 }
 
 async function applyScore(score: number) {
   const ids = [...selectedPostIdSet.value].filter((id): id is number => typeof id === 'number')
-  await updateScoreForSelectedPosts(score)
-  patchPostsInListCache(queryClient, ids, { score })
-  queryClient.invalidateQueries({ queryKey: queryKeys.countRoot('score') })
-  queryClient.invalidateQueries({ queryKey: queryKeys.postsStatsRoot })
+  await commitScore(queryClient, selectedPosts.value, ids, score)
 }
 
 async function copyPaths() {
