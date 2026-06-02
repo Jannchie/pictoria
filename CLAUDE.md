@@ -8,7 +8,7 @@ Pictoria is a full-stack image gallery application for managing and displaying i
 
 ## Tech Stack
 
-- **Backend**: Python 3.12+ with Litestar framework, embedded SQLite (WAL) + `sqlite-vec` (vec0 virtual tables for vector search), Pydantic entities, hand-written Repository + query-service layer (no ORM)
+- **Backend**: Python 3.11+ (dev pins 3.12) with Litestar framework, embedded SQLite (WAL) + `sqlite-vec` (vec0 virtual tables for vector search), Pydantic entities, hand-written Repository + query-service layer (no ORM)
 - **Frontend**: Vue 3 with Composition API, Vite, UnoCSS, TypeScript
 - **Package Managers**: `uv` for Python, `pnpm` for JavaScript
 
@@ -22,8 +22,8 @@ just dev
 
 # Run backend only
 just server-dev
-# Or directly:
-uv run ./src/app.py --target_dir ./illustration/images
+# Or directly (must run from server/ — app.py reads pyproject.toml relative to cwd):
+cd server && uv run ./src/app.py --target_dir ./illustration/images
 
 # Run frontend only
 just web-dev
@@ -61,8 +61,8 @@ automatically on startup by `db.migrator.run_migrations`.
 ```bash
 cd server
 # Migrations run on app startup; no manual command needed.
-# To create a new one, add a numbered SQL file:
-#   migrations/0002_<short_description>.sql
+# To create a new one, add a numbered SQL file (use the next free number):
+#   migrations/NNNN_<short_description>.sql
 # It will be applied (idempotently) on the next process boot.
 
 # Inspect a DB file:
@@ -87,6 +87,7 @@ uv run python scripts/tags/clean_tags.py
 - **migrations/**: Hand-written, ordered SQL migration files (`0001_initial.sql`, ...)
 - **src/server/**: API controllers organized by resource:
   - `posts.py`: Image CRUD operations, batch updates
+  - `commands.py`: Imperative `/v2/cmd/*` operations (metadata sync, Danbooru import, waifu/SILVA scoring, embedding backfill, auto-caption/auto-tags, DB snapshot)
   - `tags.py`: Tag management and grouping
   - `images.py`: Image serving and thumbnails
   - `folders.py`: Directory traversal and sync
@@ -114,11 +115,11 @@ uv run python scripts/tags/clean_tags.py
 
 ## Database Schema
 
-- **posts**: Main image entity with metadata, dimensions, ratings; `dominant_color` is a serialized `FLOAT[3]` (Lab) BLOB (no index); `full_path` and `aspect_ratio` are `GENERATED ALWAYS AS ... VIRTUAL` columns
-- **tags** & **tag_groups**: Hierarchical tagging system
+- **posts**: Main image entity with metadata, dimensions, ratings; `dominant_color` is a serialized `FLOAT[3]` (Lab) BLOB (no index); `full_path` and `aspect_ratio` are `GENERATED ALWAYS AS ... VIRTUAL` columns; `arthash` (TEXT placeholder-image hash, renamed from `thumbhash` in migrations `0003`/`0004`); `last_accessed_at` (TEXT, indexed, backs the Recently view, migration `0003`)
+- **tags** & **tag_groups**: Hierarchical tagging system; `tags.post_count` is a denormalised per-tag count maintained by AFTER INSERT/DELETE triggers on `post_has_tag` (migration `0008`), backing the tag-filter facet counts
 - **post_has_tag**: Many-to-many relationship (FK `ON DELETE CASCADE` to `posts.id` / `tags.name`)
 - **post_vectors_siglip2**: 1152-dim SigLIP 2 image embeddings (`vec0` virtual table, `FLOAT[1152]`, cosine); the sole search/retrieval embedding (image-to-image + text-to-image). CLIP retrieval and its `post_vectors` table were removed (see migration `0007_drop_post_vectors.sql`). CLIP ViT-L/14 survives only as the waifu-scorer backbone (`ai/clip.py` → `ai/waifu_scorer.py`)
-- **post_waifu_scores**: legacy single-scorer quality scores; **post_aesthetic_scores**: generic per-(post, scorer) scores (e.g. `siglip-v2-5`)
+- **post_waifu_scores**: legacy single-scorer quality scores; **post_aesthetic_scores**: generic per-(post, scorer) scores (e.g. `silva`, the SILVA aesthetic scorer in `ai/silva_scorer.py`)
 - **post_has_color**: Dominant color palette (per-post `INT` colors with order)
 - **post_process_failures**: per-(post, worker) one-shot failure blacklist
 - **_schema_versions**: internal table used by `db.migrator` to track applied migrations
@@ -127,7 +128,7 @@ uv run python scripts/tags/clean_tags.py
 
 ### When modifying the backend
 
-1. If the schema changes: add a new numbered SQL file to `server/migrations/` (e.g. `0002_add_foo.sql`). It is applied on the next process boot; do not edit existing migration files.
+1. If the schema changes: add a new numbered SQL file to `server/migrations/` (e.g. `NNNN_add_foo.sql`, using the next free number). It is applied on the next process boot; do not edit existing migration files.
 2. Update the matching Pydantic entity in `src/db/entities.py`. Put **write** logic on the relevant focused repo (`PostRepo`/`ScoreRepo`/`ColorRepo`/`TagRepo`/...); put **read** logic (assembly, filtered counts/aggregates) on `PostQueryService`; add filter fields / column allowlists in `db/filters.py`.
 3. Update API endpoints in `src/server/` (reads inject `PostQueryService`, writes inject the focused repo).
 4. Regenerate frontend API client: `just web-genapi`
@@ -164,7 +165,7 @@ This ensures type safety between frontend and backend.
 ## Important Configuration Files
 
 - **server/pyproject.toml**: Python dependencies and tool settings
-- **server/.env**: Local DB/runtime overrides — `DB_PATH`, S3 credentials
+- **server/.env**: Local runtime overrides — S3 credentials, Danbooru API keys; optional `DB_PATH` overrides the default `<target_dir>/.pictoria/pictoria.sqlite`
 - **server/migrations/*.sql**: Ordered, idempotent schema migrations (applied at startup)
 - **web/vite.config.ts**: Vite build configuration
 - **web/uno.config.ts**: UnoCSS styling configuration
