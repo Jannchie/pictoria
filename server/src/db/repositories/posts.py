@@ -21,10 +21,12 @@ synchronous SQLite calls onto a worker thread. ``self.cur`` is a real
 from __future__ import annotations
 
 import asyncio
+from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 import sqlite_vec
 
+import shared
 from db.entities import POST_COLUMNS, Post
 from db.filters import BULK_UPDATABLE_FIELDS, UPDATABLE_FIELDS
 from db.helpers import fetch_all_as, fetch_one_as, sql_placeholders
@@ -158,7 +160,7 @@ class PostRepo:
 
     # ─── Mutation: delete ─────────────────────────────────────────────
     async def delete_many(self, ids: list[int]) -> None:
-        """Delete posts and all dependent rows.
+        """Delete posts and all dependent rows, then remove files from disk.
 
         ``ON DELETE CASCADE`` (declared in 0001_initial.sql) handles
         ``post_has_tag`` / ``post_has_color`` / ``post_waifu_scores``
@@ -168,8 +170,14 @@ class PostRepo:
         if not ids:
             return
 
-        def _impl() -> None:
+        def _impl() -> list[str]:
             placeholders = sql_placeholders(ids)
+            # Collect file paths before deleting rows.
+            self.cur.execute(
+                f"SELECT full_path FROM posts WHERE id IN ({placeholders})",  # noqa: S608
+                ids,
+            )
+            full_paths = [row[0] for row in self.cur.fetchall()]
             # vec0 virtual table — no FK CASCADE
             self.cur.execute(
                 f"DELETE FROM post_vectors_siglip2 WHERE post_id IN ({placeholders})",  # noqa: S608
@@ -179,8 +187,17 @@ class PostRepo:
                 f"DELETE FROM posts WHERE id IN ({placeholders})",  # noqa: S608
                 ids,
             )
+            return full_paths
 
-        await asyncio.to_thread(_impl)
+        full_paths = await asyncio.to_thread(_impl)
+
+        def _unlink_files() -> None:
+            for fp in full_paths:
+                relative = Path(fp)
+                (shared.target_dir / relative).unlink(missing_ok=True)
+                (shared.thumbnails_dir / relative).unlink(missing_ok=True)
+
+        await asyncio.to_thread(_unlink_files)
 
     async def delete_one(self, post_id: int) -> None:
         await self.delete_many([post_id])
@@ -223,11 +240,7 @@ class PostRepo:
         dominant_color: list[float] | None = None,
         published_at: Any = None,
     ) -> Post:
-        dom_blob = (
-            sqlite_vec.serialize_float32(list(dominant_color))
-            if dominant_color is not None
-            else None
-        )
+        dom_blob = sqlite_vec.serialize_float32(list(dominant_color)) if dominant_color is not None else None
 
         def _impl() -> Post:
             self.cur.execute(
@@ -241,9 +254,20 @@ class PostRepo:
                 RETURNING id
                 """,
                 [
-                    file_path, file_name, extension, source, width, height,
-                    size, sha256, meta, caption, description, arthash,
-                    dom_blob, published_at,
+                    file_path,
+                    file_name,
+                    extension,
+                    source,
+                    width,
+                    height,
+                    size,
+                    sha256,
+                    meta,
+                    caption,
+                    description,
+                    arthash,
+                    dom_blob,
+                    published_at,
                 ],
             )
             row = self.cur.fetchone()
