@@ -8,8 +8,7 @@ import { onBeforeRouteLeave, useRoute, useRouter } from 'vue-router'
 import { Waterfall } from 'vue-wf'
 import { v2DeletePosts, v2SearchPostsByText } from '@/api'
 import Dialog from '@/components/Dialog.vue'
-import { useRotateImageMutation } from '@/composables/mutations/useRotateImageMutation'
-import { currentPostList, galleryScrollPositions, patchPostsInListCache, postFilter, queryKeys, selectedPostIdSet, showPostDetail, textSearchQuery, updateScoreForSelectedPosts, useInfinityPostsQuery, waterfallRowCount } from '@/shared'
+import { commitRotate, commitScore, currentPostList, galleryScrollPositions, postFilter, queryKeys, selectedPostIdSet, showPostDetail, textSearchQuery, useInfinityPostsQuery, waterfallRowCount } from '@/shared'
 import { POverlay } from '@/ui'
 import { isImageExtension } from '@/utils'
 
@@ -294,30 +293,11 @@ const { 1: one, 2: two, 3: three, 4: four, 5: five } = useMagicKeys()
 const queryClient = useQueryClient()
 
 async function applyScoreToSelection(score: number) {
-  if (selectedPostIdSet.value.size === 0) {
+  const ids = [...selectedPostIdSet.value].filter((id): id is number => typeof id === 'number')
+  if (ids.length === 0) {
     return
   }
-  const selectedIds = [...selectedPostIdSet.value].filter(id => id !== undefined) as number[]
-  await updateScoreForSelectedPosts(score)
-  patchPostsInListCache(queryClient, selectedIds, { score })
-  // One predicate sweep covers count/stats caches plus every selected
-  // post-detail cache; the old loop was O(selected) full cache scans.
-  const idSet = new Set(selectedIds)
-  queryClient.invalidateQueries({
-    predicate: (q) => {
-      const k = q.queryKey
-      if (!Array.isArray(k)) {
-        return false
-      }
-      if (k[0] === 'count' && k[1] === 'score') {
-        return true
-      }
-      if (k[0] === 'posts' && k[1] === 'stats') {
-        return true
-      }
-      return k[0] === 'post' && typeof k[1] === 'number' && idSet.has(k[1])
-    },
-  })
+  await commitScore(queryClient, posts.value, ids, score)
 }
 
 whenever(logicAnd(one, notUsingInput), () => applyScoreToSelection(1))
@@ -464,26 +444,20 @@ onKeyStroke('Delete', (e) => {
   requestDelete()
 })
 
-const rotateImageMutation = useRotateImageMutation()
-function onMenuSelect(value: string | number | symbol) {
-  const selectedPostIds = [...selectedPostIdSet.value]
-  for (const postId of selectedPostIds) {
-    if (!postId) {
-      continue
+async function onMenuSelect(value: string | number | symbol) {
+  const ids = [...selectedPostIdSet.value].filter((id): id is number => typeof id === 'number')
+  switch (value) {
+    case 'rotate-clockwise': {
+      await commitRotate(queryClient, ids, true)
+      break
     }
-    switch (value) {
-      case 'rotate-clockwise': {
-        rotateImageMutation.mutate({ postId, clockwise: true })
-        break
-      }
-      case 'rotate-counterclockwise': {
-        rotateImageMutation.mutate({ postId, clockwise: false })
-        break
-      }
-      case 'delete': {
-        requestDelete()
-        return
-      }
+    case 'rotate-counterclockwise': {
+      await commitRotate(queryClient, ids, false)
+      break
+    }
+    case 'delete': {
+      requestDelete()
+      break
     }
   }
 }
