@@ -2,12 +2,16 @@
 import type { PostSimplePublic } from '@/api'
 import { useElementBounding, useMouse } from '@vueuse/core'
 import { computed, ref, watchEffect } from 'vue'
+import { useRouter } from 'vue-router'
 import { currentPostList, showPostDetail } from '@/shared'
 import { getPostImageURL } from '@/utils'
 
 const props = defineProps<{
   post: PostSimplePublic
 }>()
+
+const router = useRouter()
+
 const post = computed(() => props.post)
 const imgSrc = computed(() => getPostImageURL(post.value))
 const imgWrapperRef = ref<HTMLDivElement | null>(null)
@@ -208,7 +212,14 @@ function navigateDetail(delta: -1 | 1) {
   if (nextIdx === idx) {
     return
   }
-  showPostDetail.value = list[nextIdx]
+  const next = list[nextIdx]
+  showPostDetail.value = next
+  // Keep the underlying detail route in sync so the right-panel sidebar,
+  // selection and the page behind the overlay all follow the viewed image
+  // (mirrors Post.vue's navigatePost).
+  if (next?.id !== undefined) {
+    router.replace(`/post/${next.id}`)
+  }
 }
 
 function zoomBy(factor: number) {
