@@ -35,9 +35,7 @@ function onAction() {
         v-if="data"
         role="status"
         aria-live="polite"
-        class="text-sm text-fg px-4 py-3 border border-border-default rounded-xl bg-surface flex gap-3 max-w-full pointer-events-auto shadow-lg items-center"
-        @mouseenter="stop"
-        @mouseleave="start"
+        class="text-sm text-fg px-4 py-3 border border-border-default rounded-xl bg-surface flex gap-3 max-w-full pointer-events-none shadow-lg items-center"
       >
         <i
           v-if="data.tone === 'error'"
@@ -48,8 +46,10 @@ function onAction() {
         <button
           v-if="data.action"
           type="button"
-          class="text-primary font-medium px-2 py-0.5 rounded flex flex-shrink-0 gap-1 transition-colors items-center focus-visible:outline-2 focus-visible:outline-primary focus-visible:outline-offset-2 focus-visible:outline hover:bg-surface-2"
+          class="text-primary font-medium px-2 py-0.5 rounded flex flex-shrink-0 gap-1 pointer-events-auto transition-colors items-center focus-visible:outline-2 focus-visible:outline-primary focus-visible:outline-offset-2 focus-visible:outline hover:bg-surface-2"
           @click="onAction"
+          @mouseenter="stop"
+          @mouseleave="start"
         >
           <i :class="actionIcon" aria-hidden="true" />
           {{ actionLabel }}
