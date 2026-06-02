@@ -126,6 +126,9 @@ class TestCounts:
             ({"score": (3,)}, 2),
             ({"extension": ("jpg",)}, 3),
             ({"tags": ("tag_general",)}, 2),
+            # AND semantics: only post 1 carries BOTH tags (post 5 has artist_a
+            # only, post 4 has tag_general only).
+            ({"tags": ("artist_a", "tag_general")}, 1),
             ({"folder": "photos"}, 3),
             ({"folder": "."}, 5),
             ({"waifu_score_levels": ("A",)}, 1),
@@ -151,6 +154,44 @@ class TestCounts:
     async def test_count_by_column_rejects_unsafe(self, query: PostQueryService) -> None:
         with pytest.raises(ValueError, match="unsafe column"):
             await query.count_by_column("file_path; DROP TABLE posts", PostFilter())
+
+    async def test_count_by_tag(self, query: PostQueryService) -> None:
+        rows = await query.count_by_tag(PostFilter())
+        assert {r["tag_name"]: r["count"] for r in rows} == {
+            "artist_a": 2, "tag_general": 2, "no_group_tag": 1,
+        }
+
+    async def test_count_by_tag_search(self, query: PostQueryService) -> None:
+        rows = await query.count_by_tag(PostFilter(), query="general")
+        assert {r["tag_name"]: r["count"] for r in rows} == {"tag_general": 2}
+
+    async def test_count_by_tag_search_escapes_wildcards(self, query: PostQueryService) -> None:
+        # '%' is escaped to a literal: it matches no tag (none contain '%')
+        # instead of acting as a match-everything wildcard.
+        rows = await query.count_by_tag(PostFilter(), query="%")
+        assert rows == []
+
+    async def test_count_by_tag_respects_filter(self, query: PostQueryService) -> None:
+        # Among jpg posts (1, 3, 5): artist_a on 1 & 5, tag_general on 1 only.
+        rows = await query.count_by_tag(PostFilter(extension=("jpg",)))
+        assert {r["tag_name"]: r["count"] for r in rows} == {"artist_a": 2, "tag_general": 1}
+
+    async def test_count_by_tag_limit(self, query: PostQueryService) -> None:
+        # Ordered by descending count; limit caps the rows returned.
+        rows = await query.count_by_tag(PostFilter(), limit=1)
+        assert len(rows) == 1
+        assert rows[0]["count"] == 2
+        assert rows[0]["tag_name"] == "artist_a"  # count=2 tie broken by name ASC
+
+    async def test_count_by_tag_count_maintained_on_add_remove(self, tag_repo: TagRepo, query: PostQueryService) -> None:
+        # The no-filter facet reads tags.post_count, which the post_has_tag
+        # triggers keep in step with associations.
+        await tag_repo.add_tag(3, "artist_a")  # post 3 gains artist_a: 2 -> 3
+        rows = await query.count_by_tag(PostFilter())
+        assert {r["tag_name"]: r["count"] for r in rows}["artist_a"] == 3
+        await tag_repo.remove_tag(3, "artist_a")  # back to 2
+        rows = await query.count_by_tag(PostFilter())
+        assert {r["tag_name"]: r["count"] for r in rows}["artist_a"] == 2
 
     async def test_count_by_waifu_bucket(self, query: PostQueryService) -> None:
         rows = await query.count_by_waifu_bucket(PostFilter())
@@ -187,6 +228,11 @@ class TestSearch:
     async def test_tags_filter(self, query: PostQueryService) -> None:
         rows = await query.search(PostFilterWithOrder(tags=("artist_a",)))
         assert sorted(r["id"] for r in rows) == [1, 5]
+
+    async def test_tags_filter_and_semantics(self, query: PostQueryService) -> None:
+        # Multiple tags AND together: only post 1 has both artist_a & tag_general.
+        rows = await query.search(PostFilterWithOrder(tags=("artist_a", "tag_general")))
+        assert [r["id"] for r in rows] == [1]
 
     async def test_waifu_levels_filter(self, query: PostQueryService) -> None:
         rows = await query.search(PostFilterWithOrder(waifu_score_levels=("A", "UNSCORED")))

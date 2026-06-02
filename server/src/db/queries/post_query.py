@@ -369,6 +369,62 @@ class PostQueryService:
 
         return await asyncio.to_thread(_impl)
 
+    async def count_by_tag(self, f: PostFilter, query: str = "", limit: int = 50) -> list[dict]:
+        """Count how many filtered posts carry each tag — the tag-filter facet.
+
+        Tags are many-to-many, so (unlike ``count_by_column``) we JOIN
+        ``post_has_tag`` and GROUP BY ``tag_name``. The client clears the ``tags``
+        facet before counting (see ``filterWithoutSelf``), so this answers "if I
+        add tag X, how many posts match". ``query`` substring-filters tag names so
+        the searchable dropdown can surface rare tags outside the top-N; ``limit``
+        caps the rows, ordered by descending count then name.
+        """
+
+        def _impl() -> list[dict]:
+            where_clauses, params, joins = build_where(f)
+            escaped_like: str | None = None
+            if query:
+                # Escape LIKE metacharacters so '%' / '_' typed in the search box
+                # match literally (the default ESCAPE char '\' is escaped first).
+                escaped = query.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+                escaped_like = f"%{escaped}%"
+
+            # Fast path: no post filter, so each tag's match count is just its
+            # global post total, maintained on tags.post_count by trigger. Served
+            # from ix_tags_post_count instead of GROUP BY-ing the ~9.4M-row
+            # post_has_tag table on every dropdown open.
+            if not where_clauses and not joins:
+                fast_params: list[Any] = []
+                sql = "SELECT name AS tag_name, post_count AS count FROM tags WHERE post_count > 0"
+                if escaped_like is not None:
+                    sql += " AND name LIKE ? ESCAPE '\\'"
+                    fast_params.append(escaped_like)
+                sql += " ORDER BY post_count DESC, name ASC LIMIT ?"
+                fast_params.append(limit)
+                self.cur.execute(sql, fast_params)
+                return fetch_all_dicts(self.cur)
+
+            # Filtered path: live GROUP BY over the join. The filter narrows the
+            # post set first, so this scans far fewer than the full association table.
+            if escaped_like is not None:
+                where_clauses.append("pt.tag_name LIKE ? ESCAPE '\\'")
+                params.append(escaped_like)
+            params.append(limit)  # bound LAST — matches the trailing ? in LIMIT
+            joins_sql = "\n".join(joins)
+            where_sql = ("WHERE " + " AND ".join(where_clauses)) if where_clauses else ""
+            self.cur.execute(
+                f"SELECT pt.tag_name AS tag_name, count(*) AS count "  # noqa: S608
+                f"FROM posts p JOIN post_has_tag pt ON pt.post_id = p.id "
+                f"{joins_sql} {where_sql} "
+                f"GROUP BY pt.tag_name "
+                f"ORDER BY count DESC, pt.tag_name ASC "
+                f"LIMIT ?",
+                params,
+            )
+            return fetch_all_dicts(self.cur)
+
+        return await asyncio.to_thread(_impl)
+
     async def _count_by_scorer_bucket(  # noqa: PLR0913
         self,
         f: PostFilter,

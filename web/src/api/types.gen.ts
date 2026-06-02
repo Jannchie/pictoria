@@ -202,6 +202,10 @@ export type PostFilterWithOrder = {
      * Seed for ``order='random'``. The same seed yields a stable shuffle, so offset pagination stays consistent across pages; a fresh seed reshuffles. Ignored unless ``order='random'``.
      */
     order_seed?: number | null;
+    /**
+     * Sort direction for ``order_by`` when ``order='random'``. Ignored unless both ``order='random'`` and ``order_by`` are set.
+     */
+    sort_direction?: 'asc' | 'desc' | null;
 };
 
 /**
@@ -307,6 +311,68 @@ export type SnapshotResult = {
  */
 export type TagBatchDelete = {
     name_list: Array<string>;
+};
+
+/**
+ * TagCountItem
+ */
+export type TagCountItem = {
+    tag_name: string;
+    count: number;
+};
+
+/**
+ * TagCountRequest
+ */
+export type TagCountRequest = {
+    /**
+     * Rating filter.
+     */
+    rating?: Array<number> | null;
+    /**
+     * Score filter.
+     */
+    score?: Array<number> | null;
+    /**
+     * Tag filter.
+     */
+    tags?: Array<string> | null;
+    /**
+     * Extension filter.
+     */
+    extension?: Array<string> | null;
+    folder?: string | null;
+    /**
+     * LAB color filter.
+     */
+    lab?: [
+        number,
+        number,
+        number
+    ] | null;
+    /**
+     * Waifu score range filter.
+     */
+    waifu_score_range?: [
+        number,
+        number
+    ] | null;
+    /**
+     * Waifu-score bucket filter. Each value is one of 'A' (8-10), 'B' (6-8), 'C' (4-6), 'D' (2-4), 'E' (0-2), or 'UNSCORED' (no waifu score yet). Multiple values OR together.
+     */
+    waifu_score_levels?: Array<string> | null;
+    /**
+     * SILVA aesthetic bucket filter. Each value is one of 'A' (0.8-1.0), 'B' (0.6-0.8), 'C' (0.4-0.6), 'D' (0.2-0.4), 'E' (0-0.2), or 'UNSCORED' (no SILVA score yet). OR together.
+     */
+    silva_score_levels?: Array<string> | null;
+    /**
+     * Substring filter on tag names.
+     */
+    query?: string;
+    /**
+     * Max tags returned, by descending count.
+     */
+    limit?: number;
 };
 
 /**
@@ -851,6 +917,37 @@ export type V2GetSimilarPostsResponses = {
 };
 
 export type V2GetSimilarPostsResponse = V2GetSimilarPostsResponses[keyof V2GetSimilarPostsResponses];
+
+export type V2GetTagCountData = {
+    body: TagCountRequest;
+    path?: never;
+    query?: never;
+    url: '/v2/posts/count/tags';
+};
+
+export type V2GetTagCountErrors = {
+    /**
+     * Validation Exception
+     */
+    400: {
+        status_code: number;
+        detail: string;
+        extra?: null | {
+            [key: string]: unknown;
+        } | Array<unknown>;
+    };
+};
+
+export type V2GetTagCountError = V2GetTagCountErrors[keyof V2GetTagCountErrors];
+
+export type V2GetTagCountResponses = {
+    /**
+     * Request fulfilled, document follows
+     */
+    200: Array<TagCountItem>;
+};
+
+export type V2GetTagCountResponse = V2GetTagCountResponses[keyof V2GetTagCountResponses];
 
 export type V2GetWaifuBucketCountData = {
     body: PostFilter;

@@ -205,11 +205,15 @@ def build_where(f: PostFilter) -> tuple[list[str], list[Any], list[str]]:  # noq
         where.append(f"p.score IN ({sql_placeholders(f.score)})")
         params.extend(f.score)
     if f.tags:
-        where.append(
-            f"EXISTS (SELECT 1 FROM post_has_tag pht "  # noqa: S608
-            f"WHERE pht.post_id = p.id AND pht.tag_name IN ({sql_placeholders(f.tags)}))",
-        )
-        params.extend(f.tags)
+        # AND semantics: a post must carry *every* selected tag. One correlated
+        # EXISTS per tag (a single IN(...) would be OR) — each hits the
+        # post_has_tag PK (post_id, tag_name), so this stays index-friendly.
+        for tag in f.tags:
+            where.append(
+                "EXISTS (SELECT 1 FROM post_has_tag pht "
+                "WHERE pht.post_id = p.id AND pht.tag_name = ?)",
+            )
+            params.append(tag)
     if f.extension:
         where.append(f"p.extension IN ({sql_placeholders(f.extension)})")
         params.extend(f.extension)

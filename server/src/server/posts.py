@@ -36,6 +36,14 @@ class TextSearchRequest(PostFilter):
     query: Annotated[str, Meta(description="Natural-language search prompt.")] = ""
 
 
+class TagCountRequest(PostFilter):
+    # Tag-facet counts for the searchable tag filter: inherited PostFilter fields
+    # narrow the post set, then we count matching posts per tag. ``query``
+    # substring-filters tag names; ``limit`` caps rows (by descending count).
+    query: Annotated[str, Meta(description="Substring filter on tag names.")] = ""
+    limit: Annotated[int, Meta(description="Max tags returned, by descending count.")] = 50
+
+
 @dataclass
 class CountPostsResponse:
     count: int
@@ -56,6 +64,12 @@ class ScoreCountItem:
 @dataclass
 class ExtensionCountItem:
     extension: str
+    count: int
+
+
+@dataclass
+class TagCountItem:
+    tag_name: str
     count: int
 
 
@@ -210,6 +224,11 @@ class PostController(Controller):
     async def get_extension_count(self, post_query: PostQueryService, data: PostFilter) -> list[ExtensionCountItem]:
         rows = await post_query.count_by_column("extension", data)
         return [ExtensionCountItem(extension=r["extension"], count=r["count"]) for r in rows]
+
+    @litestar.post("/count/tags", status_code=200, description="Count posts per tag (searchable, top-N by count).")
+    async def get_tag_count(self, post_query: PostQueryService, data: TagCountRequest) -> list[TagCountItem]:
+        rows = await post_query.count_by_tag(data, query=data.query, limit=data.limit)
+        return [TagCountItem(tag_name=r["tag_name"], count=r["count"]) for r in rows]
 
     @litestar.post("/count/waifu", status_code=200, description="Count posts by waifu-score bucket (A/B/C/D/E/UNSCORED).")
     async def get_waifu_bucket_count(self, post_query: PostQueryService, data: PostFilter) -> list[WaifuBucketCountItem]:

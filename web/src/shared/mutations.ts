@@ -132,6 +132,9 @@ export async function writeTag(qc: QueryClient, id: number, tagName: string, add
   await (add ? v2AddTagToPost({ path: { post_id: id, tag_name: tagName } }) : v2RemoveTagFromPost({ path: { post_id: id, tag_name: tagName } }))
   qc.invalidateQueries({ queryKey: queryKeys.post(id) })
   qc.invalidateQueries({ queryKey: queryKeys.tags })
+  // The tag-filter facet counts (per-tag post totals) shift when a post gains or
+  // loses a tag, so refresh every tag-count query.
+  qc.invalidateQueries({ queryKey: queryKeys.countRoot('tags') })
 }
 
 export async function writeRotate(qc: QueryClient, id: number, clockwise: boolean): Promise<void> {

@@ -44,10 +44,14 @@ export const randomSeed = ref(1)
 
 // Declarative filter-to-URL mapping for array-typed PostFilter fields.
 // Add a new entry here to sync a new array filter — no other changes needed.
-const ARRAY_FILTERS: { key: keyof PostFilter & string, numeric?: boolean }[] = [
+// `encode`: percent-encode each value before the comma-join (and decode on the
+// way back), so values that may contain commas/other reserved chars (tag names)
+// round-trip safely. Omit it for value sets that never collide (numbers, exts).
+const ARRAY_FILTERS: { key: keyof PostFilter & string, numeric?: boolean, encode?: boolean }[] = [
   { key: 'score', numeric: true },
   { key: 'rating', numeric: true },
   { key: 'extension' },
+  { key: 'tags', encode: true },
   { key: 'waifu_score_levels' },
   { key: 'silva_score_levels' },
 ]
@@ -60,7 +64,12 @@ export function useSyncFilterWithUrl() {
   // Primitive-comparable signatures avoid deep traversal on every reactive flush.
   watch(
     () => [
-      ...ARRAY_FILTERS.map(({ key }) => (postFilter.value[key] as unknown[]).join(',')),
+      // Encode the same way the URL write does, so a value containing ',' can't
+      // make two distinct selections collapse to one signature (and skip a sync).
+      ...ARRAY_FILTERS.map(({ key, encode }) => {
+        const arr = postFilter.value[key] as unknown[]
+        return encode ? arr.map(v => encodeURIComponent(String(v))).join(',') : arr.join(',')
+      }),
       postFilter.value.waifu_score_range?.join(',') ?? '',
       postSort.value,
       postSortOrder.value,
@@ -70,10 +79,10 @@ export function useSyncFilterWithUrl() {
       const f = postFilter.value
       const query = { ...route.query }
 
-      for (const { key } of ARRAY_FILTERS) {
+      for (const { key, encode } of ARRAY_FILTERS) {
         const arr = f[key] as unknown[]
         if (arr.length > 0) {
-          query[key] = arr.join(',')
+          query[key] = encode ? arr.map(v => encodeURIComponent(String(v))).join(',') : arr.join(',')
         }
         else {
           delete query[key]
@@ -112,10 +121,11 @@ export function useSyncFilterWithUrl() {
 
   // Watch for URL changes and update postFilter
   watch(() => route.query, (newQuery) => {
-    for (const { key, numeric } of ARRAY_FILTERS) {
+    for (const { key, numeric, encode } of ARRAY_FILTERS) {
       if (newQuery[key] !== undefined) {
         const parts = (newQuery[key] as string).split(',')
-        ;(postFilter.value[key] as any) = numeric ? parts.map(Number) : parts
+        const decoded = encode ? parts.map(p => decodeURIComponent(p)) : parts
+        ;(postFilter.value[key] as any) = numeric ? decoded.map(Number) : decoded
       }
     }
 

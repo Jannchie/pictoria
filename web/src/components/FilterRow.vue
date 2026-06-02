@@ -14,6 +14,7 @@ function clearTextSearch() {
       <ScoreFilter />
       <RatingFilter />
       <ExtensionFilter />
+      <TagFilter />
       <WaifuScoreFilter />
       <SilvaScoreFilter />
     </div>
