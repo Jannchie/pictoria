@@ -214,9 +214,11 @@ onKeyStroke([' ', 'Enter'], (e) => {
       />
       <div class="px-2 pt-3 flex justify-center">
         <div
-          class="rounded-lg cursor-pointer relative overflow-hidden"
+          class="main-post-image rounded-lg cursor-pointer relative overflow-hidden"
+          :class="{ 'main-post-selected': selectedPostIdSet.has(postId) }"
           :style="containerStyle"
-          @click="showPostDetail = { ...post, width: post.width ?? 0, height: post.height ?? 0 }"
+          @click="selectedPostIdSet = new Set([postId])"
+          @dblclick="showPostDetail = { ...post, width: post.width ?? 0, height: post.height ?? 0 }"
         >
           <img
             :key="post.id"
@@ -249,3 +251,17 @@ onKeyStroke([' ', 'Enter'], (e) => {
     </ScrollArea>
   </div>
 </template>
+
+<style lang="css" scoped>
+.main-post-image {
+  outline: 2px solid transparent;
+  outline-offset: 2px;
+  transition:
+    outline-color var(--p-duration-fast) var(--p-ease),
+    box-shadow var(--p-duration-fast) var(--p-ease);
+}
+.main-post-selected {
+  outline-color: var(--p-primary);
+  box-shadow: 0 0 0 4px rgb(var(--p-primary-rgb) / 0.18);
+}
+</style>
