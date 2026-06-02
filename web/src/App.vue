@@ -4,12 +4,13 @@ import type { DirectorySummary } from '@/api'
 import { Pane, Splitpanes } from 'splitpanes'
 import { computed, ref, watch } from 'vue'
 import { RouterLink, useRoute, useRouter } from 'vue-router'
-import { useWatchRoute } from './composables'
+import { useGlobalUndoRedo, useWatchRoute } from './composables'
 import TreeList from './roku/TreeList.vue'
 import { menuData, showMenu, useCurrentFolder, useFoldersQuery } from './shared'
 import 'splitpanes/dist/splitpanes.css'
 
 useWatchRoute()
+useGlobalUndoRedo()
 
 const currentFolder = useCurrentFolder()
 const router = useRouter()
