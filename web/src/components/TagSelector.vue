@@ -1,7 +1,8 @@
 <script setup lang="ts">
 import { useQuery, useQueryClient } from '@tanstack/vue-query'
 import { computed, ref } from 'vue'
-import { v2AddTagToPost, v2ListTagGroup, v2ListTags, v2RemoveTagFromPost } from '@/api'
+import { v2ListTagGroup, v2ListTags } from '@/api'
+import { commitTag } from '@/shared'
 import { queryKeys } from '@/shared/queryKeys'
 import { usePostQuery } from '../composables/usePostQuery'
 
@@ -92,22 +93,9 @@ async function onPointerUp(tagName: string) {
   if (!postId.value) {
     return
   }
-  await (currentTags.value.some(tag => tag.tagInfo.name === tagName)
-    ? v2RemoveTagFromPost({
-        path: {
-          post_id: postId.value,
-          tag_name: tagName,
-        },
-      })
-    : v2AddTagToPost({
-        path: {
-          post_id: postId.value,
-          tag_name: tagName,
-        },
-      }))
-  queryClient.invalidateQueries({
-    queryKey: queryKeys.post(postId),
-  })
+  const isOn = currentTags.value.some(tag => tag.tagInfo.name === tagName)
+  // 已在 post 上 → 移除（add=false）；否则 → 添加（add=true）
+  await commitTag(queryClient, postId.value, tagName, !isOn)
 }
 const pinned = inject('pinned', ref(false))
 const addTagText = computed(() => {
@@ -134,18 +122,7 @@ async function addTag(tagName: string) {
   if (!postId.value) {
     return
   }
-  await v2AddTagToPost({
-    path: {
-      post_id: postId.value,
-      tag_name: tagName,
-    },
-  })
-  queryClient.invalidateQueries({
-    queryKey: queryKeys.post(postId),
-  })
-  queryClient.invalidateQueries({
-    queryKey: queryKeys.tags,
-  })
+  await commitTag(queryClient, postId.value, tagName, true)
 }
 
 const showAddTag = computed(() => {
