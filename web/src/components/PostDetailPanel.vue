@@ -2,6 +2,7 @@
 import type { PostDetailPublic, PostHasTagPublic } from '@/api'
 import { useQueryClient } from '@tanstack/vue-query'
 import { filesize } from 'filesize'
+import { useRoute } from 'vue-router'
 import { v2GetSilvaScorerOne, v2GetWaifuScorerOne } from '@/api'
 import { useAPIError } from '@/composables/useAPIError'
 import { commitCaption, commitRating, commitScore, commitSource, hideNSFW, openTagSelectorWindow, queryKeys, showPostDetail } from '@/shared'
@@ -22,14 +23,20 @@ async function onSelectScore(post_id: number, score: number = 0) {
   await commitScore(queryClient, [props.post], [post_id], score)
 }
 const post = computed(() => props.post)
+const route = useRoute()
 const { 1: one, 2: two, 3: three, 4: four, 5: five } = useMagicKeys()
 const activeElement = useActiveElement()
 const notUsingInput = computed(() =>
   activeElement.value?.tagName !== 'INPUT'
   && activeElement.value?.tagName !== 'TEXTAREA')
 
+// Number-key scoring is owned by MainSection on gallery routes (the gallery
+// and this side panel are mounted together when a single post is selected, so
+// without this guard one keypress would fire twice → two undo entries). Only
+// handle digits here on the dedicated /post/:postId detail page, where
+// MainSection is unmounted.
 watchEffect(async () => {
-  if (!notUsingInput.value) {
+  if (!notUsingInput.value || route.name !== 'post') {
     return
   }
   if (one.value) {
