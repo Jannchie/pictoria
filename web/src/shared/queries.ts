@@ -5,9 +5,9 @@ import { useDebounce } from '@vueuse/core'
 import { converter, parse } from 'culori'
 import { computed } from 'vue'
 import { useRoute } from 'vue-router'
-import { v2BulkUpdatePostRating, v2BulkUpdatePostScore, v2GetFolders, v2SearchPosts } from '@/api'
+import { v2GetFolders, v2SearchPosts } from '@/api'
 import { queryKeys } from './queryKeys'
-import { postFilter, postSort, postSortColor, postSortOrder, randomSeed, selectedPostIdSet } from './state'
+import { postFilter, postSort, postSortColor, postSortOrder, randomSeed } from './state'
 
 const postSortColorDebounce = useDebounce(postSortColor, 1000)
 const toLab = converter('lab')
@@ -136,34 +136,6 @@ export function patchPostsInListCache(
       }
     },
   )
-}
-
-// Utility function to update scores for multiple posts
-export async function updateScoreForSelectedPosts(score: number) {
-  const selectedIds = [...selectedPostIdSet.value].filter(id => id !== undefined) as number[]
-
-  if (selectedIds.length === 0) {
-    return
-  }
-
-  // Use the bulk update endpoint instead of individual requests
-  await v2BulkUpdatePostScore({
-    query: { ids: selectedIds, score },
-  })
-}
-
-// Utility function to update ratings for multiple posts
-export async function updateRatingForSelectedPosts(rating: number) {
-  const selectedIds = [...selectedPostIdSet.value].filter(id => id !== undefined) as number[]
-
-  if (selectedIds.length === 0) {
-    return
-  }
-
-  // Use the bulk update endpoint
-  await v2BulkUpdatePostRating({
-    query: { ids: selectedIds, rating },
-  })
 }
 
 export function useCurrentFolder() {
