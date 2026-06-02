@@ -2,9 +2,9 @@
 import type { PostDetailPublic, PostHasTagPublic } from '@/api'
 import { useQueryClient } from '@tanstack/vue-query'
 import { filesize } from 'filesize'
-import { v2GetSilvaScorerOne, v2GetWaifuScorerOne, v2UpdatePostCaption, v2UpdatePostRating, v2UpdatePostScore, v2UpdatePostSource } from '@/api'
+import { v2GetSilvaScorerOne, v2GetWaifuScorerOne } from '@/api'
 import { useAPIError } from '@/composables/useAPIError'
-import { hideNSFW, openTagSelectorWindow, patchPostsInListCache, queryKeys, showPostDetail } from '@/shared'
+import { commitCaption, commitRating, commitScore, commitSource, hideNSFW, openTagSelectorWindow, queryKeys, showPostDetail } from '@/shared'
 import { getPostThumbnailURL } from '@/utils'
 import { colorNumToHex, labToRgbaString } from '@/utils/color'
 
@@ -19,33 +19,7 @@ function formatTimestr(t: number | string) {
   return new Date(t).toLocaleString()
 }
 async function onSelectScore(post_id: number, score: number = 0) {
-  await v2UpdatePostScore({
-    path: {
-      post_id,
-    },
-    body: {
-      score,
-    },
-  })
-  // Patch the list cache so the new score appears immediately without a
-  // refetch. Stats/score-count caches still need invalidation — combine them
-  // into a single predicate pass over the query cache rather than two scans.
-  patchPostsInListCache(queryClient, [post_id], { score })
-  queryClient.invalidateQueries({
-    predicate: (q) => {
-      const k = q.queryKey
-      if (!Array.isArray(k)) {
-        return false
-      }
-      if (k[0] === 'count' && k[1] === 'score') {
-        return true
-      }
-      if (k[0] === 'posts' && k[1] === 'stats') {
-        return true
-      }
-      return k[0] === 'post' && k[1] === post_id
-    },
-  })
+  await commitScore(queryClient, [props.post], [post_id], score)
 }
 const post = computed(() => props.post)
 const { 1: one, 2: two, 3: three, 4: four, 5: five } = useMagicKeys()
@@ -98,30 +72,12 @@ function buildFolders(filePath: string) {
 }
 const folders = computed(() => buildFolders(post.value.filePath))
 
-const updateCaption = useDebounceFn(async (caption: any) => {
-  await v2UpdatePostCaption({
-
-    path: {
-      post_id: post.value.id,
-    },
-    query: {
-      caption,
-    },
-  })
-  queryClient.invalidateQueries({ queryKey: queryKeys.post(post.value.id) })
+const updateCaption = useDebounceFn(async (caption: string | number | null | undefined) => {
+  await commitCaption(queryClient, post.value.id, post.value.caption ?? '', String(caption ?? ''))
 }, 500)
 
-const updateSource = useDebounceFn(async (source: any) => {
-  await v2UpdatePostSource({
-
-    path: {
-      post_id: post.value.id,
-    },
-    query: {
-      source,
-    },
-  })
-  queryClient.invalidateQueries({ queryKey: queryKeys.post(post.value.id) })
+const updateSource = useDebounceFn(async (source: string | number | null | undefined) => {
+  await commitSource(queryClient, post.value.id, post.value.source ?? '', String(source ?? ''))
 }, 500)
 const groupNameOrder = ['artist', 'copyright', 'character', 'general', 'meta']
 function sortByGroup(a: PostHasTagPublic, b: PostHasTagPublic) {
@@ -263,14 +219,7 @@ const sectionTitleClass
               :count="4"
               :colors="['green', 'yellow', 'orange', 'red']"
               :icons="['i-tabler-seeding', 'i-tabler-mood-heart', 'i-tabler-eye-off', 'i-tabler-eyeglass-off']"
-              @select="async (d) => v2UpdatePostRating({
-                path: {
-                  post_id: post.id,
-                },
-                query: {
-                  rating: d,
-                },
-              })"
+              @select="(d) => commitRating(queryClient, [post], [post.id], d)"
             />
           </div>
           <div>Score</div>
