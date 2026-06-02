@@ -98,11 +98,12 @@ uv run python scripts/tags/clean_tags.py
 
 - **src/App.vue**: Root component with 3-panel splitpanes layout
 - **src/views/**: Page components (Home, Post, Settings, etc.)
-- **src/components/**: Reusable UI components
+- **src/components/**: Reusable feature/UI components
+- **src/ui/**: In-house design-system primitives (`PButton`, `PInput`, `PMenu`, `PSwitch`, …) styled with `--p-*` CSS variables + scoped styles; auto-registered alongside `src/components` (these replaced the former `@roku-ui` dependency)
 - **src/api/**: Auto-generated API client from OpenAPI schema
 - **src/composables/**: Vue composables for shared logic
 - **src/shared/**: Global state and utilities
-- **src/roku/**: Custom UI component library integration
+- **src/roku/**: Larger in-house components (`TreeList`, `Collapse`, `Image`, `AutoHeightTransition`)
 
 ### Key Patterns
 
@@ -142,7 +143,7 @@ Notes when writing SQL for SQLite:
 1. Follow Vue 3 Composition API patterns
 2. Use existing composables from `src/composables/`
 3. Maintain three-panel layout structure
-4. Use UnoCSS for styling with @roku-ui preset
+4. Use UnoCSS (`presetWind4` + `presetIcons`) for styling; UI primitives live in `src/ui` and read design tokens from `--p-*` CSS variables (no external component library)
 5. Run linting before commit: `pnpm lint`
 
 ### API Client Generation
