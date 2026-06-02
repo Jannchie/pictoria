@@ -146,6 +146,7 @@ function splitHighlight(text: string, filter: string): HighlightPart[] {
     Skip to main content
   </a>
   <DropOverlay />
+  <UndoSnackbar />
   <div
     class="text-fg bg-bg flex flex-col h-100vh w-100vw select-none overflow-hidden"
   >

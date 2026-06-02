@@ -1,4 +1,5 @@
 import type { QueryClient } from '@tanstack/vue-query'
+import type { UndoableCommand } from './history'
 import {
   v2AddTagToPost,
   v2BulkUpdatePostRating,
@@ -13,6 +14,15 @@ import {
 import { pushCommand } from './history'
 import { patchPostsInListCache } from './queries'
 import { queryKeys } from './queryKeys'
+import { notifyDid } from './undoSnackbar'
+
+// Push a command onto the undo stack AND surface the bottom snackbar. Every
+// commit* factory records through here so a single user action always produces
+// exactly one history entry and one popup.
+function record(command: UndoableCommand): void {
+  pushCommand(command)
+  notifyDid(command.label)
+}
 
 export interface IdValue<T> {
   id: number
@@ -64,12 +74,7 @@ export async function writeScore(qc: QueryClient, ids: number[], score: number):
   if (ids.length === 0) {
     return
   }
-  if (ids.length === 1) {
-    await v2UpdatePostScore({ path: { post_id: ids[0] }, body: { score } })
-  }
-  else {
-    await v2BulkUpdatePostScore({ query: { ids, score } })
-  }
+  await (ids.length === 1 ? v2UpdatePostScore({ path: { post_id: ids[0] }, body: { score } }) : v2BulkUpdatePostScore({ query: { ids, score } }))
   patchPostsInListCache(qc, ids, { score })
   const idSet = new Set(ids)
   qc.invalidateQueries({
@@ -93,12 +98,7 @@ export async function writeRating(qc: QueryClient, ids: number[], rating: number
   if (ids.length === 0) {
     return
   }
-  if (ids.length === 1) {
-    await v2UpdatePostRating({ path: { post_id: ids[0] }, query: { rating } })
-  }
-  else {
-    await v2BulkUpdatePostRating({ query: { ids, rating } })
-  }
+  await (ids.length === 1 ? v2UpdatePostRating({ path: { post_id: ids[0] }, query: { rating } }) : v2BulkUpdatePostRating({ query: { ids, rating } }))
   patchPostsInListCache(qc, ids, { rating })
   const idSet = new Set(ids)
   qc.invalidateQueries({
@@ -129,12 +129,7 @@ export async function writeSource(qc: QueryClient, id: number, source: string): 
 }
 
 export async function writeTag(qc: QueryClient, id: number, tagName: string, add: boolean): Promise<void> {
-  if (add) {
-    await v2AddTagToPost({ path: { post_id: id, tag_name: tagName } })
-  }
-  else {
-    await v2RemoveTagFromPost({ path: { post_id: id, tag_name: tagName } })
-  }
+  await (add ? v2AddTagToPost({ path: { post_id: id, tag_name: tagName } }) : v2RemoveTagFromPost({ path: { post_id: id, tag_name: tagName } }))
   qc.invalidateQueries({ queryKey: queryKeys.post(id) })
   qc.invalidateQueries({ queryKey: queryKeys.tags })
 }
@@ -171,7 +166,7 @@ export async function commitScore(
 ): Promise<{ missingIds: number[] }> {
   const { captured, missingIds } = captureOldValues(posts, ids, p => p.score)
   await writeScore(qc, ids, newScore)
-  pushCommand({
+  record({
     label: ids.length === 1 ? `评分 → ${newScore}` : `给 ${ids.length} 张图评分 ${newScore}`,
     postIds: ids,
     apply: () => writeScore(qc, ids, newScore),
@@ -189,7 +184,7 @@ export async function commitRating(
 ): Promise<{ missingIds: number[] }> {
   const { captured, missingIds } = captureOldValues(posts, ids, p => p.rating)
   await writeRating(qc, ids, newRating)
-  pushCommand({
+  record({
     label: ids.length === 1 ? `评级 → ${newRating}` : `给 ${ids.length} 张图评级 ${newRating}`,
     postIds: ids,
     apply: () => writeRating(qc, ids, newRating),
@@ -206,7 +201,7 @@ export async function commitCaption(
   newCaption: string,
 ): Promise<void> {
   await writeCaption(qc, id, newCaption)
-  pushCommand({
+  record({
     label: '编辑描述',
     postIds: [id],
     apply: () => writeCaption(qc, id, newCaption),
@@ -221,7 +216,7 @@ export async function commitSource(
   newSource: string,
 ): Promise<void> {
   await writeSource(qc, id, newSource)
-  pushCommand({
+  record({
     label: '编辑来源',
     postIds: [id],
     apply: () => writeSource(qc, id, newSource),
@@ -236,7 +231,7 @@ export async function commitTag(
   add: boolean,
 ): Promise<void> {
   await writeTag(qc, id, tagName, add)
-  pushCommand({
+  record({
     label: add ? `添加标签 ${tagName}` : `移除标签 ${tagName}`,
     postIds: [id],
     apply: () => writeTag(qc, id, tagName, add),
@@ -255,7 +250,7 @@ export async function commitRotate(
     }
   }
   await run(clockwise)
-  pushCommand({
+  record({
     label: ids.length === 1
       ? (clockwise ? '顺时针旋转' : '逆时针旋转')
       : `旋转 ${ids.length} 张图`,
