@@ -23,6 +23,12 @@ const scoreCountList = computed(() => {
   return resp
 })
 
+const total = computed(() => scoreCountList.value.reduce((a, b) => a + b, 0))
+
+function pct(count: number) {
+  return total.value > 0 ? ((count / total.value) * 100).toFixed(1) : '0.0'
+}
+
 const btnText = computed(() => {
   const item = ratingFilterData.value
   return item.length === 0 ? 'Rating' : item.map(s => getRatingName(s)).join(', ')
@@ -82,16 +88,11 @@ function getRatingName(rating: number) {
               </span>
             </div>
             <div
-              v-if="scoreCountList[rating]"
-              class="text-fg-muted flex-shrink-0 tabular-nums"
+              v-if="scoreCountList[rating] || hasRating(rating)"
+              class="font-mono inline-flex flex-shrink-0 tabular-nums"
             >
-              {{ scoreCountList[rating] }}
-            </div>
-            <div
-              v-else-if="hasRating(rating)"
-              class="text-fg-subtle flex-shrink-0 tabular-nums"
-            >
-              0
+              <span class="text-right flex-shrink-0 w-10" :class="scoreCountList[rating] ? 'text-fg-muted' : 'text-fg-subtle'">{{ scoreCountList[rating] }}</span>
+              <span v-if="scoreCountList[rating]" class="text-fg-subtle text-right flex-shrink-0 w-14">{{ pct(scoreCountList[rating]) }}%</span>
             </div>
           </div>
         </div>

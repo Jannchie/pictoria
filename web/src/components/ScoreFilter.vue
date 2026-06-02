@@ -22,6 +22,12 @@ const scoreCountList = computed(() => {
   return resp
 })
 
+const total = computed(() => scoreCountList.value.reduce((a, b) => a + b, 0))
+
+function pct(count: number) {
+  return total.value > 0 ? ((count / total.value) * 100).toFixed(1) : '0.0'
+}
+
 const btnText = computed(() => {
   const item = scoreFilterData.value
   return item.length === 0 ? 'Score' : item.map(s => s === 0 ? 'Not Scored Yet' : `${s} Star`).join(', ')
@@ -66,16 +72,11 @@ const btnText = computed(() => {
               </template>
             </div>
             <div
-              v-if="scoreCountList[score]"
-              class="text-fg-muted flex-shrink-0 tabular-nums"
+              v-if="scoreCountList[score] || hasScore(score)"
+              class="font-mono inline-flex flex-shrink-0 tabular-nums"
             >
-              {{ scoreCountList[score] }}
-            </div>
-            <div
-              v-else-if="hasScore(score)"
-              class="text-fg-subtle flex-shrink-0 tabular-nums"
-            >
-              0
+              <span class="text-right flex-shrink-0 w-10" :class="scoreCountList[score] ? 'text-fg-muted' : 'text-fg-subtle'">{{ scoreCountList[score] }}</span>
+              <span v-if="scoreCountList[score]" class="text-fg-subtle text-right flex-shrink-0 w-14">{{ pct(scoreCountList[score]) }}%</span>
             </div>
           </div>
         </div>

@@ -50,6 +50,12 @@ const bucketCounts = computed<Record<string, number>>(() => {
   return out
 })
 
+const total = computed(() => Object.values(bucketCounts.value).reduce((a, b) => a + b, 0))
+
+function pct(count: number) {
+  return total.value > 0 ? ((count / total.value) * 100).toFixed(1) : '0.0'
+}
+
 const btnText = computed(() => {
   const item = waifuLevels.value
   return item.length === 0 ? 'Waifu Score' : `Waifu: ${item.join(', ')}`
@@ -98,16 +104,11 @@ const btnText = computed(() => {
               </span>
             </div>
             <div
-              v-if="bucketCounts[bucket.level]"
-              class="text-fg-muted flex-shrink-0 tabular-nums"
+              v-if="bucketCounts[bucket.level] || hasLevel(bucket.level)"
+              class="font-mono inline-flex flex-shrink-0 tabular-nums"
             >
-              {{ bucketCounts[bucket.level] }}
-            </div>
-            <div
-              v-else-if="hasLevel(bucket.level)"
-              class="text-fg-subtle flex-shrink-0 tabular-nums"
-            >
-              0
+              <span class="text-right flex-shrink-0 w-10" :class="bucketCounts[bucket.level] ? 'text-fg-muted' : 'text-fg-subtle'">{{ bucketCounts[bucket.level] }}</span>
+              <span v-if="bucketCounts[bucket.level]" class="text-fg-subtle text-right flex-shrink-0 w-14">{{ pct(bucketCounts[bucket.level]) }}%</span>
             </div>
           </div>
         </div>

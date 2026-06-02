@@ -23,6 +23,12 @@ const scoreCountList = computed(() => {
   return resp
 })
 
+const total = computed(() => Object.values(scoreCountList.value).reduce((a, b) => a + b, 0))
+
+function pct(count: number) {
+  return total.value > 0 ? ((count / total.value) * 100).toFixed(1) : '0.0'
+}
+
 // 确保已选择的扩展名选项始终显示在列表中
 const extensions = computed(() => {
   // 从API获取的扩展名列表
@@ -78,16 +84,11 @@ function getExtensionName(extension: string) {
               </template>
             </div>
             <div
-              v-if="scoreCountList[ext]"
-              class="text-fg-muted flex-shrink-0 tabular-nums"
+              v-if="scoreCountList[ext] || hasExt(ext)"
+              class="font-mono inline-flex flex-shrink-0 tabular-nums"
             >
-              {{ scoreCountList[ext] }}
-            </div>
-            <div
-              v-else-if="hasExt(ext)"
-              class="text-fg-subtle flex-shrink-0 tabular-nums"
-            >
-              0
+              <span class="text-right flex-shrink-0 w-10" :class="scoreCountList[ext] ? 'text-fg-muted' : 'text-fg-subtle'">{{ scoreCountList[ext] || 0 }}</span>
+              <span v-if="scoreCountList[ext]" class="text-fg-subtle text-right flex-shrink-0 w-14">{{ pct(scoreCountList[ext]) }}%</span>
             </div>
           </div>
         </div>
