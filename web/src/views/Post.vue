@@ -10,6 +10,9 @@ import { colorNumToHex } from '@/utils/color'
 const route = useRoute()
 const router = useRouter()
 const postId = computed(() => Number.parseInt(route.params.postId as string))
+// Preload the neighbouring originals so ←→ navigation (page and fullscreen
+// overlay) swaps images instantly from cache.
+useAdjacentImagePreload(postId)
 const postQuery = usePostQuery(postId)
 const post = computed(() => postQuery.data.value)
 const scrollAreaRef = ref<HTMLElement>()
