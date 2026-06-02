@@ -1,3 +1,19 @@
+import type { QueryClient } from '@tanstack/vue-query'
+import {
+  v2AddTagToPost,
+  v2BulkUpdatePostRating,
+  v2BulkUpdatePostScore,
+  v2RemoveTagFromPost,
+  v2RotatePostImage,
+  v2UpdatePostCaption,
+  v2UpdatePostRating,
+  v2UpdatePostScore,
+  v2UpdatePostSource,
+} from '@/api'
+import { pushCommand } from './history'
+import { patchPostsInListCache } from './queries'
+import { queryKeys } from './queryKeys'
+
 export interface IdValue<T> {
   id: number
   value: T
@@ -40,4 +56,211 @@ export function captureOldValues<P extends { id: number }, T>(
     }
   }
   return { captured, missingIds }
+}
+
+// ---- 应用层：写 SDK + 复用乐观 patch + invalidate（apply / revert 共用）----
+
+export async function writeScore(qc: QueryClient, ids: number[], score: number): Promise<void> {
+  if (ids.length === 0) {
+    return
+  }
+  if (ids.length === 1) {
+    await v2UpdatePostScore({ path: { post_id: ids[0] }, body: { score } })
+  }
+  else {
+    await v2BulkUpdatePostScore({ query: { ids, score } })
+  }
+  patchPostsInListCache(qc, ids, { score })
+  const idSet = new Set(ids)
+  qc.invalidateQueries({
+    predicate: (q) => {
+      const k = q.queryKey
+      if (!Array.isArray(k)) {
+        return false
+      }
+      if (k[0] === 'count' && k[1] === 'score') {
+        return true
+      }
+      if (k[0] === 'posts' && k[1] === 'stats') {
+        return true
+      }
+      return k[0] === 'post' && typeof k[1] === 'number' && idSet.has(k[1])
+    },
+  })
+}
+
+export async function writeRating(qc: QueryClient, ids: number[], rating: number): Promise<void> {
+  if (ids.length === 0) {
+    return
+  }
+  if (ids.length === 1) {
+    await v2UpdatePostRating({ path: { post_id: ids[0] }, query: { rating } })
+  }
+  else {
+    await v2BulkUpdatePostRating({ query: { ids, rating } })
+  }
+  patchPostsInListCache(qc, ids, { rating })
+  const idSet = new Set(ids)
+  qc.invalidateQueries({
+    predicate: (q) => {
+      const k = q.queryKey
+      if (!Array.isArray(k)) {
+        return false
+      }
+      if (k[0] === 'count' && k[1] === 'rating') {
+        return true
+      }
+      if (k[0] === 'posts' && k[1] === 'stats') {
+        return true
+      }
+      return k[0] === 'post' && typeof k[1] === 'number' && idSet.has(k[1])
+    },
+  })
+}
+
+export async function writeCaption(qc: QueryClient, id: number, caption: string): Promise<void> {
+  await v2UpdatePostCaption({ path: { post_id: id }, query: { caption } })
+  qc.invalidateQueries({ queryKey: queryKeys.post(id) })
+}
+
+export async function writeSource(qc: QueryClient, id: number, source: string): Promise<void> {
+  await v2UpdatePostSource({ path: { post_id: id }, query: { source } })
+  qc.invalidateQueries({ queryKey: queryKeys.post(id) })
+}
+
+export async function writeTag(qc: QueryClient, id: number, tagName: string, add: boolean): Promise<void> {
+  if (add) {
+    await v2AddTagToPost({ path: { post_id: id, tag_name: tagName } })
+  }
+  else {
+    await v2RemoveTagFromPost({ path: { post_id: id, tag_name: tagName } })
+  }
+  qc.invalidateQueries({ queryKey: queryKeys.post(id) })
+  qc.invalidateQueries({ queryKey: queryKeys.tags })
+}
+
+export async function writeRotate(qc: QueryClient, id: number, clockwise: boolean): Promise<void> {
+  await v2RotatePostImage({ path: { post_id: id }, query: { clockwise } })
+  qc.invalidateQueries({ queryKey: queryKeys.post(id) })
+  qc.invalidateQueries({ queryKey: queryKeys.postsRoot })
+}
+
+// ---- 命令工厂：捕获旧值 → 执行 → 入栈 ----
+
+function buildNote(missingIds: number[]): string | undefined {
+  return missingIds.length > 0 ? `${missingIds.length} 张未加载，无法撤销` : undefined
+}
+
+function revertGrouped<T>(
+  qc: QueryClient,
+  captured: IdValue<T>[],
+  write: (qc: QueryClient, ids: number[], value: T) => Promise<void>,
+): () => Promise<void> {
+  return async () => {
+    for (const [value, ids] of groupIdsByValue(captured)) {
+      await write(qc, ids, value)
+    }
+  }
+}
+
+export async function commitScore(
+  qc: QueryClient,
+  posts: Array<{ id: number, score: number }>,
+  ids: number[],
+  newScore: number,
+): Promise<{ missingIds: number[] }> {
+  const { captured, missingIds } = captureOldValues(posts, ids, p => p.score)
+  await writeScore(qc, ids, newScore)
+  pushCommand({
+    label: ids.length === 1 ? `评分 → ${newScore}` : `给 ${ids.length} 张图评分 ${newScore}`,
+    postIds: ids,
+    apply: () => writeScore(qc, ids, newScore),
+    revert: revertGrouped(qc, captured, writeScore),
+    note: buildNote(missingIds),
+  })
+  return { missingIds }
+}
+
+export async function commitRating(
+  qc: QueryClient,
+  posts: Array<{ id: number, rating: number }>,
+  ids: number[],
+  newRating: number,
+): Promise<{ missingIds: number[] }> {
+  const { captured, missingIds } = captureOldValues(posts, ids, p => p.rating)
+  await writeRating(qc, ids, newRating)
+  pushCommand({
+    label: ids.length === 1 ? `评级 → ${newRating}` : `给 ${ids.length} 张图评级 ${newRating}`,
+    postIds: ids,
+    apply: () => writeRating(qc, ids, newRating),
+    revert: revertGrouped(qc, captured, writeRating),
+    note: buildNote(missingIds),
+  })
+  return { missingIds }
+}
+
+export async function commitCaption(
+  qc: QueryClient,
+  id: number,
+  oldCaption: string,
+  newCaption: string,
+): Promise<void> {
+  await writeCaption(qc, id, newCaption)
+  pushCommand({
+    label: '编辑描述',
+    postIds: [id],
+    apply: () => writeCaption(qc, id, newCaption),
+    revert: () => writeCaption(qc, id, oldCaption),
+  })
+}
+
+export async function commitSource(
+  qc: QueryClient,
+  id: number,
+  oldSource: string,
+  newSource: string,
+): Promise<void> {
+  await writeSource(qc, id, newSource)
+  pushCommand({
+    label: '编辑来源',
+    postIds: [id],
+    apply: () => writeSource(qc, id, newSource),
+    revert: () => writeSource(qc, id, oldSource),
+  })
+}
+
+export async function commitTag(
+  qc: QueryClient,
+  id: number,
+  tagName: string,
+  add: boolean,
+): Promise<void> {
+  await writeTag(qc, id, tagName, add)
+  pushCommand({
+    label: add ? `添加标签 ${tagName}` : `移除标签 ${tagName}`,
+    postIds: [id],
+    apply: () => writeTag(qc, id, tagName, add),
+    revert: () => writeTag(qc, id, tagName, !add),
+  })
+}
+
+export async function commitRotate(
+  qc: QueryClient,
+  ids: number[],
+  clockwise: boolean,
+): Promise<void> {
+  const run = async (cw: boolean) => {
+    for (const id of ids) {
+      await writeRotate(qc, id, cw)
+    }
+  }
+  await run(clockwise)
+  pushCommand({
+    label: ids.length === 1
+      ? (clockwise ? '顺时针旋转' : '逆时针旋转')
+      : `旋转 ${ids.length} 张图`,
+    postIds: ids,
+    apply: () => run(clockwise),
+    revert: () => run(!clockwise),
+  })
 }
