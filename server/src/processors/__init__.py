@@ -117,7 +117,9 @@ async def sync_metadata(db: DB) -> None:
     # between polls, this turns every subsequent poll into a sub-second walk.
     t0 = time.perf_counter()
     os_tuples = await asyncio.to_thread(
-        find_files_in_directory, shared.target_dir, _scan_cache,
+        find_files_in_directory,
+        shared.target_dir,
+        _scan_cache,
     )
     logger.info(f"[sync] find_files_in_directory: {time.perf_counter() - t0:.2f}s")
 
@@ -210,11 +212,36 @@ async def run_all_backfill(db: DB) -> None:
                     progress=progress,
                 ),
             ]
-            await asyncio.gather(*workers)
+            results = await asyncio.gather(*workers)
+        # Only run_siglip_embedding_worker returns an int (posts embedded this
+        # run). If it added any, rebuild near-duplicate groups now that the
+        # embeddings exist — one GPU matrix-multiply pass, idempotent. On a cold
+        # first backfill this auto-groups the whole existing library; on a sync
+        # that added a few posts it re-groups from the (now slightly larger) set.
+        # An idle poll embeds nothing, so this is skipped — no wasted GPU.
+        if any(isinstance(r, int) and r > 0 for r in results):
+            await _group_near_duplicates(db)
     finally:
         for conn in connections:
             with contextlib.suppress(Exception):
                 conn.close()
+
+
+async def _group_near_duplicates(db: DB) -> None:
+    """Rebuild near-duplicate groups on a fresh connection (logs, never raises)."""
+    from services.dedup import rebuild_groups  # noqa: PLC0415
+
+    conn = db.new_connection()
+    try:
+        await rebuild_groups(
+            PostRepo(conn.cursor()),
+            VectorRepo(conn.cursor(), table="post_vectors_siglip2", dim=1152),
+        )
+    except Exception:
+        logger.exception("Near-duplicate grouping failed")
+    finally:
+        with contextlib.suppress(Exception):
+            conn.close()
 
 
 async def process_post(
@@ -309,12 +336,8 @@ async def _drive(  # noqa: PLR0913
         if shared.shutdown_event.is_set():
             logger.info(f"[{name}] shutdown requested; stopping after {i}/{len(pending)} items")
             break
-        effective_size = (
-            adaptive_batch_size(batch_size, label=name)
-            if gpu_adaptive
-            else batch_size
-        )
-        batch = pending[i:i + effective_size]
+        effective_size = adaptive_batch_size(batch_size, label=name) if gpu_adaptive else batch_size
+        batch = pending[i : i + effective_size]
         try:
             await process(batch)
         except Exception:
@@ -343,10 +366,13 @@ async def run_siglip_embedding_worker(
     vectors: VectorRepo,
     *,
     progress: Progress | None = None,
-) -> None:
+) -> int:
     """Backfill SigLIP 2 image embeddings into post_vectors_siglip2.
 
     ``vectors`` must be a VectorRepo pointed at post_vectors_siglip2 (dim=1152).
+    Returns how many posts were pending (i.e. how many new embeddings this run
+    attempted) so the caller can decide whether a near-duplicate regroup is
+    worthwhile — a 0 means nothing changed and the regroup can be skipped.
     """
     pending = await vectors.list_missing_post_ids(
         image_exts=[ext.lstrip(".") for ext in IMAGE_EXTS],
@@ -357,9 +383,14 @@ async def run_siglip_embedding_worker(
         await _process_siglip_embedding_batch(posts, vectors, batch_ids)
 
     await _drive(
-        progress, "SigLIP embeddings", pending, SIGLIP_EMBED_BATCH_SIZE, _process,
+        progress,
+        "SigLIP embeddings",
+        pending,
+        SIGLIP_EMBED_BATCH_SIZE,
+        _process,
         gpu_adaptive=True,
     )
+    return len(pending)
 
 
 async def run_tagger_worker(
@@ -375,7 +406,11 @@ async def run_tagger_worker(
         await _process_tagger_batch(posts, tag_groups, batch_ids)
 
     await _drive(
-        progress, "Tags", pending, TAGGER_BATCH_SIZE, _process,
+        progress,
+        "Tags",
+        pending,
+        TAGGER_BATCH_SIZE,
+        _process,
         gpu_adaptive=True,
     )
 
@@ -392,7 +427,11 @@ async def run_waifu_worker(
         await _process_waifu_batch(posts, batch_ids)
 
     await _drive(
-        progress, "Waifu scorer", pending, WAIFU_BATCH_SIZE, _process,
+        progress,
+        "Waifu scorer",
+        pending,
+        WAIFU_BATCH_SIZE,
+        _process,
         gpu_adaptive=True,
     )
 
@@ -606,8 +645,7 @@ async def _process_siglip_embedding_batch(  # noqa: C901, PLR0912
         features = await asyncio.to_thread(calculate_image_features_batch, paths)
     except Exception as exc:
         logger.warning(
-            f"[siglip-embedding] batch failed ({exc!s}); "
-            f"retrying in mini-batches of {FALLBACK_MINI_BATCH_SIZE}",
+            f"[siglip-embedding] batch failed ({exc!s}); retrying in mini-batches of {FALLBACK_MINI_BATCH_SIZE}",
         )
         failed: list[tuple[int, str, str]] = []
         for i in range(0, len(items), FALLBACK_MINI_BATCH_SIZE):
@@ -615,7 +653,8 @@ async def _process_siglip_embedding_batch(  # noqa: C901, PLR0912
             chunk_paths = [p for _, p in chunk]
             try:
                 chunk_features = await asyncio.to_thread(
-                    calculate_image_features_batch, chunk_paths,
+                    calculate_image_features_batch,
+                    chunk_paths,
                 )
             except Exception as exc2:
                 logger.warning(
@@ -672,8 +711,7 @@ async def _process_tagger_batch(  # noqa: C901
         # the batch. Try mini-batches first to keep the GPU usefully busy, and
         # only drop the bad mini-batch to per-image.
         logger.warning(
-            f"[tagger] batch failed ({exc!s}); "
-            f"retrying in mini-batches of {FALLBACK_MINI_BATCH_SIZE}",
+            f"[tagger] batch failed ({exc!s}); retrying in mini-batches of {FALLBACK_MINI_BATCH_SIZE}",
         )
         await _tagger_fallback_mini_batch(posts, tag_groups, items)
         return
@@ -764,7 +802,12 @@ async def _tagger_fallback_mini_batch(
                 f"[tagger] mini-batch failed ({exc!s}); falling back per-image",
             )
             await _tagger_per_image(
-                tagger, posts, tag_groups, chunk, failed, persisted,
+                tagger,
+                posts,
+                tag_groups,
+                chunk,
+                failed,
+                persisted,
             )
             continue
         for (pid, post, _), resp in zip(chunk, results, strict=True):
@@ -783,9 +826,7 @@ async def _tagger_fallback_mini_batch(
         await attach_wdtagger_results_many(posts, tag_groups, tag_items, is_auto=True)
     if persisted:
         shadowed = await _find_posts_without_auto_tags(posts, persisted)
-        failed.extend(
-            (pid, "tagger", "all auto tags shadowed by manual tags") for pid in shadowed
-        )
+        failed.extend((pid, "tagger", "all auto tags shadowed by manual tags") for pid in shadowed)
     if failed:
         await FailureRepo(posts.cur).record_failures(failed)
 
@@ -846,8 +887,7 @@ async def _score_batch_with_fallback(
         results = await asyncio.to_thread(scorer_fn, paths)
     except Exception as exc:
         logger.warning(
-            f"[{worker_label}] full batch failed ({exc!s}); "
-            f"retrying in mini-batches of {FALLBACK_MINI_BATCH_SIZE}",
+            f"[{worker_label}] full batch failed ({exc!s}); retrying in mini-batches of {FALLBACK_MINI_BATCH_SIZE}",
         )
     else:
         return (
@@ -900,7 +940,9 @@ async def _process_waifu_batch(posts: PostRepo, post_ids: list[int]) -> None:
         return
 
     successes, failures = await _score_batch_with_fallback(
-        scorer, items, worker_label="waifu",
+        scorer,
+        items,
+        worker_label="waifu",
     )
     for pid, score in successes:
         await ScoreRepo(posts.cur).upsert_waifu_score(pid, score)
@@ -1028,15 +1070,10 @@ def _persist_basics_batch(
     # to NULL → value so we don't overwrite already-computed colors.
     import sqlite_vec  # noqa: PLC0415
 
-    dom_rows = [
-        (sqlite_vec.serialize_float32(list(b["dominant_lab"])), post.id)
-        for post, _, b in valid
-        if b["dominant_lab"] is not None
-    ]
+    dom_rows = [(sqlite_vec.serialize_float32(list(b["dominant_lab"])), post.id) for post, _, b in valid if b["dominant_lab"] is not None]
     if dom_rows:
         cur.executemany(
-            "UPDATE posts SET dominant_color = ? "
-            "WHERE id = ? AND dominant_color IS NULL",
+            "UPDATE posts SET dominant_color = ? WHERE id = ? AND dominant_color IS NULL",
             dom_rows,
         )
 
@@ -1048,11 +1085,7 @@ def _persist_basics_batch(
             f"DELETE FROM post_has_color WHERE post_id IN ({placeholders})",  # noqa: S608
             palette_post_ids,
         )
-        color_rows = [
-            (post.id, i, c)
-            for post, _, b in valid
-            for i, c in enumerate(b["colors"])
-        ]
+        color_rows = [(post.id, i, c) for post, _, b in valid for i, c in enumerate(b["colors"])]
         cur.executemany(
             'INSERT INTO post_has_color(post_id, "order", color) VALUES (?, ?, ?)',
             color_rows,

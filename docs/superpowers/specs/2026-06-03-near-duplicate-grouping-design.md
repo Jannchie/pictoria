@@ -2,7 +2,7 @@
 
 **日期**: 2026-06-03
 **作者**: Jianqi Pan
-**状态**: 设计已确认，待实现
+**状态**: 已实现（含修订 1：批处理改用 GPU 分块矩阵乘）
 
 ## 背景与目标
 
@@ -107,6 +107,22 @@ for P in posts order by id asc:
 
 触发点：① 一次性命令 `/v2/cmd/group-duplicates`（对存量约 17 万图建组、调阈值后重建，幂等）；
 ② 增量挂在 embedding backfill 完成之后。命令风格对齐现有 `src/server/commands.py` 的 `/v2/cmd/*`。
+
+> **修订 1（实现期）：批处理改用 GPU 分块矩阵乘，而非逐张 KNN。**
+> 实测单次 vec0 KNN(`MATCH k=N`)在 5 万行 ≈ 297ms、外推到 17 万行 ≈ 1s/次；逐张 KNN 给存量
+> 17 万图建组 ≈ **48 小时,不可行**(CPU 全量两两 BLAS 也要数十小时)。因此 `services/dedup.py`
+> 的 `rebuild_groups` 改为:`VectorRepo.load_all()` 把全部 embedding 读入内存矩阵 →
+> `torch` 分块 `X @ Xᵀ`(CUDA fp16,无则 CPU fp32)一次性算出所有"余弦相似度 ≥ 1−阈值"的近邻对
+> → 同样的"按 id 升序贪心、最早=代表、一层无链"装配。精确、不引入需常驻同步的 ANN 索引。
+> **增量路径仍用单次 KNN**(`assign_group_for_post`),因为一次同步只新增几张图,几次 KNN 即可。
+>
+> **自动触发(全自动)**:不再单独在 embedding worker 里逐张分组(冷启动会退化成 17 万次 KNN),
+> 而是在 `processors.run_all_backfill` 跑完后,**若本轮 embedding worker 确有新增**(它现在返回处理数),
+> 才调用一次 `rebuild_groups`(GPU 一次 matmul,幂等)。这样:首次冷启动自动给存量建组;每次同步带来
+> 新图后自动重建;空闲轮无新增则跳过、零浪费。`/v2/cmd/group-duplicates` 仍保留供手动调阈值重建。
+>
+> 默认阈值取 `DEFAULT_DEDUP_THRESHOLD = 0.01`(余弦相似度 ≥ 0.99,偏严,主打"同图不同分辨率/编码";
+> 想纳入更松的差分就调大),作为 query 参数可逐次覆盖。
 
 ### 5. 读取侧：只有代表图露面
 

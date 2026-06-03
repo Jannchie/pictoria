@@ -251,6 +251,16 @@ class TestSearch:
         # silva scores: post 5 (0.9) > post 4 (0.4); the rest (NULL) sink last.
         assert [r["id"] for r in rows][:2] == [5, 4]
 
+    async def test_order_by_updated_at_surfaces_recent_edit(
+        self, post_repo: PostRepo, query: PostQueryService,
+    ) -> None:
+        # All seed rows share updated_at=TS; a write bumps it to now (> TS), so
+        # the edited row sorts first under updated_at desc. Scoring is one such
+        # write — this backs the "sort by update time" option.
+        await post_repo.update_field(3, "score", 7)
+        rows = await query.search(PostFilterWithOrder(order_by="updated_at", order="desc"))
+        assert rows[0]["id"] == 3
+
     async def test_random_seed_is_stable_across_pages(self, query: PostQueryService) -> None:
         # Same seed must yield one stable permutation so offset pagination
         # neither duplicates nor drops rows. Page through 5 rows two-at-a-time.

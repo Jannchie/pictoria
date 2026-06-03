@@ -98,7 +98,19 @@ class PostRepo:
                 "last_accessed_at = CURRENT_TIMESTAMP WHERE id = ?",
                 [value, post_id],
             )
-            return self.cur.rowcount > 0
+            matched = self.cur.rowcount > 0
+            if field == "score":
+                # Scoring a canonical post mirrors the score onto *every* member
+                # of its near-duplicate group, so the whole group always shares
+                # the representative's score (members are hidden duplicates).
+                # This overwrites any score a member was given individually, and
+                # a score of 0 clears the group too.
+                self.cur.execute(
+                    "UPDATE posts SET score = ?, updated_at = CURRENT_TIMESTAMP "
+                    "WHERE canonical_post_id = ?",
+                    [value, post_id],
+                )
+            return matched
 
         return await asyncio.to_thread(_impl)
 
@@ -117,6 +129,16 @@ class PostRepo:
                 f"WHERE id IN ({placeholders})",
                 [value, *ids],
             )
+            if field == "score":
+                # Mirror the score onto every member of each canonical's group
+                # (see update_field): the hidden group always shares the
+                # representative's score, overwriting any individual member score
+                # (a score of 0 clears the group too).
+                self.cur.execute(
+                    f"UPDATE posts SET score = ?, updated_at = CURRENT_TIMESTAMP "  # noqa: S608
+                    f"WHERE canonical_post_id IN ({placeholders})",
+                    [value, *ids],
+                )
 
         await asyncio.to_thread(_impl)
 
@@ -158,14 +180,93 @@ class PostRepo:
 
         await asyncio.to_thread(_impl)
 
+    # ─── Mutation: grouping (near-duplicate canonical pointer) ─────────
+    async def set_canonical(self, member_ids: list[int], canonical_id: int) -> None:
+        """Point ``member_ids`` at ``canonical_id`` (hide them as group members).
+
+        The caller (the dedup service) guarantees ``canonical_id`` is itself
+        canonical and not in ``member_ids``, so this never builds a chain or a
+        self-loop. The UPDATE fires the canonical-grouping trigger that keeps
+        ``tags.post_count`` counting only visible (canonical) posts.
+        """
+        if not member_ids:
+            return
+
+        def _impl() -> None:
+            placeholders = sql_placeholders(member_ids)
+            self.cur.execute(
+                f"UPDATE posts SET canonical_post_id = ?, updated_at = CURRENT_TIMESTAMP "  # noqa: S608
+                f"WHERE id IN ({placeholders})",
+                [canonical_id, *member_ids],
+            )
+
+        await asyncio.to_thread(_impl)
+
+    async def clear_canonical(self, ids: list[int]) -> None:
+        """Ungroup ``ids`` — promote them back to standalone canonical posts."""
+        if not ids:
+            return
+
+        def _impl() -> None:
+            placeholders = sql_placeholders(ids)
+            self.cur.execute(
+                f"UPDATE posts SET canonical_post_id = NULL, updated_at = CURRENT_TIMESTAMP "  # noqa: S608
+                f"WHERE id IN ({placeholders})",
+                ids,
+            )
+
+        await asyncio.to_thread(_impl)
+
+    async def reset_all_canonical(self) -> None:
+        """Clear every grouping pointer — used before a full group rebuild."""
+
+        def _impl() -> None:
+            self.cur.execute(
+                "UPDATE posts SET canonical_post_id = NULL WHERE canonical_post_id IS NOT NULL",
+            )
+
+        await asyncio.to_thread(_impl)
+
+    async def make_canonical(self, post_id: int) -> bool:
+        """Promote ``post_id`` to be its group's canonical (the "set as cover").
+
+        Re-points the old canonical and every sibling member at ``post_id`` and
+        clears ``post_id``'s own pointer. No-op (returns False) if the post does
+        not exist or is already canonical.
+        """
+
+        def _impl() -> bool:
+            self.cur.execute("SELECT canonical_post_id FROM posts WHERE id = ?", [post_id])
+            row = self.cur.fetchone()
+            if row is None or row[0] is None:
+                return False
+            current = row[0]
+            # Old canonical + its other members all now point at post_id.
+            self.cur.execute(
+                "UPDATE posts SET canonical_post_id = ?, updated_at = CURRENT_TIMESTAMP "
+                "WHERE (id = ? OR canonical_post_id = ?) AND id != ?",
+                [post_id, current, current, post_id],
+            )
+            # post_id itself becomes canonical (visible).
+            self.cur.execute(
+                "UPDATE posts SET canonical_post_id = NULL, updated_at = CURRENT_TIMESTAMP WHERE id = ?",
+                [post_id],
+            )
+            return True
+
+        return await asyncio.to_thread(_impl)
+
     # ─── Mutation: delete ─────────────────────────────────────────────
     async def delete_many(self, ids: list[int]) -> None:
         """Delete posts and all dependent rows, then remove files from disk.
 
         ``ON DELETE CASCADE`` (declared in 0001_initial.sql) handles
-        ``post_has_tag`` / ``post_has_color`` / ``post_waifu_scores``
-        automatically. ``post_vectors_siglip2`` is a vec0 virtual table and
-        doesn't participate in foreign-key cascades — clear it explicitly.
+        ``post_has_color`` / ``post_waifu_scores`` automatically.
+        ``post_vectors_siglip2`` is a vec0 virtual table and doesn't participate
+        in foreign-key cascades — clear it explicitly. ``post_has_tag`` is also
+        deleted explicitly *before* the posts row so the canonical-aware
+        ``tags.post_count`` trigger (migration 0009) sees each post's real
+        canonical status instead of racing the FK cascade.
         """
         if not ids:
             return
@@ -178,6 +279,12 @@ class PostRepo:
                 ids,
             )
             full_paths = [row[0] for row in self.cur.fetchall()]
+            # Explicit, ahead of the posts delete, so trg_post_has_tag_count_ad
+            # fires while the post row still exists (correct canonical guard).
+            self.cur.execute(
+                f"DELETE FROM post_has_tag WHERE post_id IN ({placeholders})",  # noqa: S608
+                ids,
+            )
             # vec0 virtual table — no FK CASCADE
             self.cur.execute(
                 f"DELETE FROM post_vectors_siglip2 WHERE post_id IN ({placeholders})",  # noqa: S608

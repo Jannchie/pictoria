@@ -59,18 +59,29 @@ class PostFilter(Struct):
             examples=[("A", "B")],
         ),
     ] = ()
+    only_canonical: Annotated[
+        bool,
+        Meta(
+            description=(
+                "When true (default), hide near-duplicate group *members* and "
+                "return only canonical (representative) posts — those with "
+                "canonical_post_id NULL. Set false to include members."
+            ),
+            examples=[True],
+        ),
+    ] = True
 
 
 class PostFilterWithOrder(PostFilter):
     order_by: Annotated[
         Literal[
             "id", "score", "rating", "created_at", "published_at", "file_name",
-            "last_accessed_at", "waifu_score", "silva_score",
+            "last_accessed_at", "updated_at", "waifu_score", "silva_score",
         ] | None,
         Meta(description="Order column.", examples=["id"],
              extra_json_schema={"enum": [
                  "id", "score", "rating", "created_at", "published_at", "file_name",
-                 "last_accessed_at", "waifu_score", "silva_score",
+                 "last_accessed_at", "updated_at", "waifu_score", "silva_score",
              ]}),
     ] = None
     order: Annotated[
@@ -107,7 +118,7 @@ class PostFilterWithOrder(PostFilter):
 # virtual: they resolve to joined-table columns, handled by the query layer.
 ORDERABLE_COLUMNS: frozenset[str] = frozenset({
     "id", "score", "rating", "created_at", "published_at", "file_name",
-    "last_accessed_at", "waifu_score", "silva_score",
+    "last_accessed_at", "updated_at", "waifu_score", "silva_score",
 })
 # Scalar columns a single-field update may target.
 UPDATABLE_FIELDS: frozenset[str] = frozenset({
@@ -189,7 +200,28 @@ def _build_bucket_level_filter(
     return ("(" + " OR ".join(clauses) + ")") if clauses else "", params
 
 
-def build_where(f: PostFilter) -> tuple[list[str], list[Any], list[str]]:  # noqa: C901
+def has_active_filters(f: PostFilter) -> bool:
+    """True if any *content* filter is set, ignoring ``only_canonical``.
+
+    The tag-facet fast path (``count_by_tag``) reads the denormalised
+    ``tags.post_count`` (already maintained as a *canonical-only* count) when no
+    content filter narrows the post set. ``only_canonical`` alone does not
+    disqualify that fast path, so it is excluded from this predicate.
+    """
+    return bool(
+        f.rating
+        or f.score
+        or f.tags
+        or f.extension
+        or (f.folder and f.folder != ".")
+        or f.lab
+        or f.waifu_score_range
+        or f.waifu_score_levels
+        or f.silva_score_levels,
+    )
+
+
+def build_where(f: PostFilter) -> tuple[list[str], list[Any], list[str]]:  # noqa: C901, PLR0912
     """Translate a ``PostFilter`` into ``(where_clauses, params, joins)``.
 
     ``lab`` is intentionally not handled here: distance ordering needs a
@@ -198,6 +230,10 @@ def build_where(f: PostFilter) -> tuple[list[str], list[Any], list[str]]:  # noq
     where: list[str] = []
     params: list[Any] = []
     joins: list[str] = []
+    if f.only_canonical:
+        # Hide near-duplicate group members; only canonical posts represent
+        # their group in listings / search / facets.
+        where.append("p.canonical_post_id IS NULL")
     if f.rating:
         where.append(f"p.rating IN ({sql_placeholders(f.rating)})")
         params.extend(f.rating)

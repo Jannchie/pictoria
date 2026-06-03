@@ -45,7 +45,7 @@ class SnapshotResult:
 
 class CommandController(Controller):
     path = "/cmd"
-    tags: ClassVar[list[str]] = ["Commands"]
+    tags: ClassVar[list[str]] = ["Commands"]  # type: ignore
 
     @litestar.put("/auto-caption/{post_id:int}")
     async def auto_caption(self, posts: PostRepo, post_query: PostQueryService, post_id: int) -> PostDetailPublic:
@@ -135,7 +135,7 @@ class CommandController(Controller):
         from ai.waifu_scorer import get_waifu_scorer  # noqa: PLC0415  # lazy: defer ML stack load until first use
 
         scorer = get_waifu_scorer()
-        result = await asyncio.to_thread(scorer, post.absolute_path)
+        result = await asyncio.to_thread(scorer, [post.absolute_path])
         score = float(result[0]) if isinstance(result, (list, tuple)) else float(result)
         await scores.upsert_waifu_score(post_id, score)
         return score
@@ -258,6 +258,42 @@ class CommandController(Controller):
         state.background_tasks.add(task)
         task.add_done_callback(state.background_tasks.discard)
         return Result(msg="Sync started")
+
+    @litestar.post(
+        "/group-duplicates",
+        description="Rebuild near-duplicate groups (posts.canonical_post_id) from SigLIP2 similarity.",
+    )
+    async def group_duplicates(self, state: State, threshold: float | None = None) -> Result:
+        """Recompute every post's near-duplicate group in the background.
+
+        Fire-and-forget on a fresh connection (the rebuild does one KNN per
+        embedded post, so on a large library it runs for minutes): returns
+        immediately and logs the member count when done. ``threshold`` overrides
+        the default cosine-distance ceiling for tuning; smaller = stricter.
+        """
+        from services.dedup import DEFAULT_DEDUP_THRESHOLD, rebuild_groups  # noqa: PLC0415
+
+        db: DB = state.db
+        thr = DEFAULT_DEDUP_THRESHOLD if threshold is None else threshold
+
+        async def _run() -> None:
+            conn = db.new_connection()
+            try:
+                await rebuild_groups(
+                    PostRepo(conn.cursor()),
+                    VectorRepo(conn.cursor(), table="post_vectors_siglip2", dim=1152),
+                    threshold=thr,
+                )
+            except Exception:
+                logger.exception("Near-duplicate grouping failed")
+            finally:
+                with contextlib.suppress(Exception):
+                    conn.close()
+
+        task = asyncio.create_task(_run())
+        state.background_tasks.add(task)
+        task.add_done_callback(state.background_tasks.discard)
+        return Result(msg=f"Near-duplicate grouping started (threshold={thr}).")
 
     @litestar.post("/db/snapshot", description="Create a point-in-time SQLite snapshot for offline tooling")
     async def db_snapshot(self, state: State) -> SnapshotResult:

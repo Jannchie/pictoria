@@ -195,6 +195,33 @@ class VectorRepo:
 
         return await asyncio.to_thread(_impl)
 
+    async def load_all(self) -> tuple[list[int], np.ndarray]:
+        """Load every embedding into a ``(N, dim)`` float32 matrix + id list.
+
+        Returned ids are ascending and parallel to the matrix rows. Drives the
+        GPU near-duplicate batch, which needs all vectors in memory at once: a
+        per-post KNN over a large library is ~1s each (infeasible at 170k), so
+        the batch instead does one chunked matrix-multiply over this matrix. The
+        ascending id order makes the greedy "earliest post is canonical"
+        assignment deterministic.
+        """
+        import numpy as np  # noqa: PLC0415
+
+        def _impl() -> tuple[list[int], np.ndarray]:
+            self.cur.execute(
+                f"SELECT post_id, embedding FROM {self.table} ORDER BY post_id ASC",  # noqa: S608
+            )
+            ids: list[int] = []
+            vecs: list[np.ndarray] = []
+            for pid, blob in self.cur.fetchall():
+                ids.append(pid)
+                vecs.append(np.frombuffer(bytes(blob), dtype=np.float32))
+            if not vecs:
+                return [], np.empty((0, self.dim), dtype=np.float32)
+            return ids, np.vstack(vecs)
+
+        return await asyncio.to_thread(_impl)
+
     async def list_missing_post_ids(
         self,
         *,

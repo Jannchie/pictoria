@@ -121,6 +121,10 @@ class PostSimplePublic(DTOBaseModel):
     arthash: str | None = None
     colors: list[PostHasColorPublic]
     sha256: str
+    # Near-duplicate grouping (see PostPublic). canonical_post_id NULL => this is
+    # a canonical post; group_member_count is how many hidden members it heads.
+    canonical_post_id: int | None = None
+    group_member_count: int = 0
     # Populated only by /posts/search/text: SigLIP's official scoring is
     # `sigmoid(logit_scale.exp() * cos(t,i) + logit_bias)` — independent
     # per-pair probability that this image matches the text query.
@@ -191,6 +195,33 @@ class PostController(Controller):
             raise PostNotFoundError(post_id)
         return PostDetailPublic.model_validate(detail)
 
+    @litestar.get("/{post_id:int}/group", status_code=200, description="List the hidden near-duplicate members of this post's group.")
+    async def get_post_group(self, post_query: PostQueryService, post_id: int) -> list[PostSimplePublic]:
+        rows = await post_query.get_group_members(post_id)
+        return [PostSimplePublic.model_validate(r) for r in rows]
+
+    @litestar.put("/{post_id:int}/ungroup", status_code=200, description="Detach this post from its near-duplicate group (make it standalone).")
+    async def ungroup_post(self, posts: PostRepo, post_query: PostQueryService, post_id: int) -> PostDetailPublic:
+        post = await posts.get(post_id)
+        if post is None:
+            raise PostNotFoundError(post_id)
+        await posts.clear_canonical([post_id])
+        detail = await post_query.get_detail(post_id)
+        if detail is None:
+            raise PostNotFoundError(post_id)
+        return PostDetailPublic.model_validate(detail)
+
+    @litestar.put("/{post_id:int}/make-canonical", status_code=200, description="Promote this group member to be the group's canonical representative.")
+    async def make_post_canonical(self, posts: PostRepo, post_query: PostQueryService, post_id: int) -> PostDetailPublic:
+        post = await posts.get(post_id)
+        if post is None:
+            raise PostNotFoundError(post_id)
+        await posts.make_canonical(post_id)
+        detail = await post_query.get_detail(post_id)
+        if detail is None:
+            raise PostNotFoundError(post_id)
+        return PostDetailPublic.model_validate(detail)
+
     @litestar.get("/{post_id:int}/similar", status_code=200)
     async def get_similar_posts(
         self,
@@ -200,10 +231,18 @@ class PostController(Controller):
         limit: int = 100,
     ) -> list[PostSimplePublic]:
         sims = await vectors.similar_to_post(post_id, limit=limit)
-        id_list = [s.post_id for s in sims]
-        if not id_list:
+        if not sims:
             return []
-        rows = await post_query.list_simple_by_ids_preserving_order(id_list)
+        # Cosine similarity (1 - cosine distance) — the *same* SigLIP 2 metric the
+        # near-duplicate grouping uses (services/dedup.py), surfaced via match_prob
+        # so each tile can show how close it is (a near-duplicate scores ~100%).
+        similarity_by_id = {s.post_id: 1.0 - float(s.distance) for s in sims}
+        id_list = [s.post_id for s in sims]
+        # Hide near-duplicate group members — similar search surfaces only
+        # canonical representatives, never the copies collapsed behind them.
+        rows = await post_query.list_simple_by_ids_preserving_order(id_list, only_canonical=True)
+        for r in rows:
+            r["match_prob"] = similarity_by_id.get(r["id"])
         return [PostSimplePublic.model_validate(r) for r in rows]
 
     @litestar.post("/count", status_code=200, description="Count posts by filters.")

@@ -85,6 +85,11 @@ class PostPublic(DTOBaseModel):
     published_at: datetime | None
     dominant_color: list[float] | None
     arthash: str | None
+    # Near-duplicate grouping: NULL => this post is canonical (visible);
+    # non-NULL => it is a hidden member pointing at its canonical representative.
+    canonical_post_id: int | None = None
+    # How many hidden members this (canonical) post has; 0 when not a group head.
+    group_member_count: int = 0
     waifu_score: WaifuScorePublic | None
     aesthetic_scores: list[AestheticScorePublic] = []
 

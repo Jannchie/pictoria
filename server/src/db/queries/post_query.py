@@ -16,6 +16,7 @@ hand-builds them.
 from __future__ import annotations
 
 import asyncio
+from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 
 import sqlite_vec
@@ -30,6 +31,7 @@ from db.filters import (
     PostFilterWithOrder,
     bucket_case_sql,
     build_where,
+    has_active_filters,
 )
 from db.helpers import decode_dominant_color, fetch_all_dicts, fetch_one_dict, sql_placeholders
 from db.repositories.colors import ColorRepo
@@ -44,7 +46,7 @@ if TYPE_CHECKING:
 
 SIMPLE_POST_COLUMNS = (
     "id, file_path, file_name, extension, rating, score, size, width, height, "
-    "aspect_ratio, dominant_color, arthash, sha256"
+    "aspect_ratio, dominant_color, arthash, sha256, canonical_post_id"
 )
 
 
@@ -55,6 +57,31 @@ def _decode_dominant_colors_in(rows: list[dict]) -> None:
             r["dominant_color"] = decode_dominant_color(r["dominant_color"])
 
 
+@dataclass
+class FolderScoreAgg:
+    """Score/rating sums over the posts whose ``file_path`` is one directory.
+
+    Serves two roles: the per-directory direct aggregate returned by
+    ``folder_score_aggregates`` and the accumulator the folder-tree roll-up
+    adds children into (see ``server.folders.attach_folder_stats``).
+    """
+
+    posts: int = 0
+    scored: int = 0  # posts with score > 0 (manual star given)
+    score_total: float = 0.0  # sum of score over scored posts only
+    rating_total: float = 0.0  # sum of rating over all posts
+    silva_total: float = 0.0  # sum of raw silva score (0~1)
+    silva_n: int = 0  # posts that have a silva score
+
+    def add(self, other: FolderScoreAgg) -> None:
+        self.posts += other.posts
+        self.scored += other.scored
+        self.score_total += other.score_total
+        self.rating_total += other.rating_total
+        self.silva_total += other.silva_total
+        self.silva_n += other.silva_n
+
+
 class PostQueryService:
     def __init__(self, cur: sqlite3.Cursor) -> None:
         self.cur = cur
@@ -63,6 +90,56 @@ class PostQueryService:
         self._tags = TagRepo(cur)
         self._colors = ColorRepo(cur)
         self._scores = ScoreRepo(cur)
+
+    # ─── Near-duplicate group helpers ─────────────────────────────────
+    def _member_counts(self, canonical_ids: list[int]) -> dict[int, int]:
+        """How many hidden members each canonical post has: ``{canonical_id: n}``.
+
+        Sync helper — called inside the ``asyncio.to_thread`` blocks below so the
+        member-count lookup shares the read's single round-trip budget. Only
+        canonical posts (those whose id appears as another post's
+        ``canonical_post_id``) get an entry; non-grouped posts are absent (0).
+        """
+        if not canonical_ids:
+            return {}
+        placeholders = sql_placeholders(canonical_ids)
+        self.cur.execute(
+            f"SELECT canonical_post_id, count(*) FROM posts "  # noqa: S608
+            f"WHERE canonical_post_id IN ({placeholders}) GROUP BY canonical_post_id",
+            canonical_ids,
+        )
+        return {row[0]: row[1] for row in self.cur.fetchall()}
+
+    def _attach_member_counts(self, rows: list[dict]) -> None:
+        """Attach ``group_member_count`` to each row dict in place."""
+        counts = self._member_counts([r["id"] for r in rows])
+        for r in rows:
+            r["group_member_count"] = counts.get(r["id"], 0)
+
+    async def get_group_members(self, canonical_id: int) -> list[dict]:
+        """Return the hidden members of ``canonical_id``'s group, oldest first.
+
+        Used by the post-detail "same group" strip to reveal the other
+        resolutions / near-duplicates hidden from the main listings. Returns
+        ``[]`` when the post has no members.
+        """
+
+        def _impl() -> list[dict]:
+            self.cur.execute(
+                f"SELECT {SIMPLE_POST_COLUMNS} FROM posts "  # noqa: S608
+                "WHERE canonical_post_id = ? ORDER BY id ASC",
+                [canonical_id],
+            )
+            rows = fetch_all_dicts(self.cur)
+            _decode_dominant_colors_in(rows)
+            ids = [r["id"] for r in rows]
+            colors_by_post = self._colors.fetch_by_ids(ids)
+            for r in rows:
+                r["colors"] = colors_by_post.get(r["id"], [])
+                r["group_member_count"] = 0
+            return rows
+
+        return await asyncio.to_thread(_impl)
 
     # 笏笏笏 Read single 笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏
     async def get_detail(self, post_id: int) -> dict | None:
@@ -91,6 +168,7 @@ class PostQueryService:
                 "colors": colors,
                 "waifu_score": waifu_score,
                 "aesthetic_scores": aesthetic_scores,
+                "group_member_count": self._member_counts([post_id]).get(post_id, 0),
             }
 
         return await asyncio.to_thread(_impl)
@@ -120,7 +198,8 @@ class PostQueryService:
 
         def _impl() -> tuple[list[dict], int | None]:
             self.cur.execute(
-                f"SELECT {POST_COLUMNS} FROM posts WHERE id >= ? ORDER BY id ASC LIMIT ?",  # noqa: S608
+                f"SELECT {POST_COLUMNS} FROM posts "  # noqa: S608
+                "WHERE id >= ? AND canonical_post_id IS NULL ORDER BY id ASC LIMIT ?",
                 [start, limit + 1],
             )
             posts = fetch_all_dicts(self.cur)
@@ -135,6 +214,7 @@ class PostQueryService:
             colors_by_post = self._colors.fetch_by_ids(ids)
             waifu_by_post = self._scores.fetch_waifu_by_ids(ids)
             aesthetic_by_post = self._scores.fetch_aesthetic_by_ids(ids)
+            member_counts = self._member_counts(ids)
 
             details = [
                 {
@@ -143,6 +223,7 @@ class PostQueryService:
                     "colors": colors_by_post.get(p["id"], []),
                     "waifu_score": waifu_by_post.get(p["id"]),
                     "aesthetic_scores": aesthetic_by_post.get(p["id"], []),
+                    "group_member_count": member_counts.get(p["id"], 0),
                 }
                 for p in posts
             ]
@@ -150,8 +231,15 @@ class PostQueryService:
 
         return await asyncio.to_thread(_impl)
 
-    async def list_simple_by_ids_preserving_order(self, id_list: list[int]) -> list[dict]:
-        """Return PostSimplePublic-shape rows in the same order as ``id_list``."""
+    async def list_simple_by_ids_preserving_order(
+        self, id_list: list[int], *, only_canonical: bool = False,
+    ) -> list[dict]:
+        """Return PostSimplePublic-shape rows in the same order as ``id_list``.
+
+        ``only_canonical=True`` drops near-duplicate group members from the
+        result — used by the similar-image search so hidden members don't leak
+        into the grid (only their canonical representative should surface).
+        """
 
         def _impl() -> list[dict]:
             if not id_list:
@@ -165,10 +253,13 @@ class PostQueryService:
             _decode_dominant_colors_in(rows)
             by_id = {r["id"]: r for r in rows}
             ordered = [by_id[i] for i in id_list if i in by_id]
+            if only_canonical:
+                ordered = [r for r in ordered if r["canonical_post_id"] is None]
             ids = [r["id"] for r in ordered]
             colors_by_post = self._colors.fetch_by_ids(ids)
             for r in ordered:
                 r["colors"] = colors_by_post.get(r["id"], [])
+            self._attach_member_counts(ordered)
             return ordered
 
         return await asyncio.to_thread(_impl)
@@ -275,6 +366,7 @@ class PostQueryService:
             colors_by_post = self._colors.fetch_by_ids(ids)
             for r in rows:
                 r["colors"] = colors_by_post.get(r["id"], [])
+            self._attach_member_counts(rows)
             return rows
 
         return await asyncio.to_thread(_impl)
@@ -332,6 +424,7 @@ class PostQueryService:
             colors_by_post = self._colors.fetch_by_ids(ids)
             for r in rows:
                 r["colors"] = colors_by_post.get(r["id"], [])
+            self._attach_member_counts(rows)
             return rows
 
         return await asyncio.to_thread(_impl)
@@ -369,6 +462,47 @@ class PostQueryService:
 
         return await asyncio.to_thread(_impl)
 
+    async def folder_score_aggregates(self) -> dict[str, FolderScoreAgg]:
+        """Sum score / rating / silva per ``file_path`` directory in one GROUP BY.
+
+        Keyed by ``posts.file_path`` (the directory a post lives in, e.g.
+        ``'danbooru/wlop'``; root posts use ``'.'``). The folder controller
+        rolls these per-directory sums up the tree. ``score_total`` / ``scored``
+        cover only scored posts (``score > 0``) so unscored 0s don't drag the
+        manual-score average down; coverage is reported separately via the ratio.
+        """
+
+        def _impl() -> dict[str, FolderScoreAgg]:
+            self.cur.execute(
+                """
+                SELECT
+                    p.file_path                                          AS file_path,
+                    count(*)                                             AS posts,
+                    sum(CASE WHEN p.score > 0 THEN 1 ELSE 0 END)         AS scored,
+                    sum(CASE WHEN p.score > 0 THEN p.score ELSE 0 END)   AS score_total,
+                    sum(p.rating)                                        AS rating_total,
+                    sum(COALESCE(a.score, 0))                            AS silva_total,
+                    sum(CASE WHEN a.score IS NOT NULL THEN 1 ELSE 0 END) AS silva_n
+                FROM posts p
+                LEFT JOIN post_aesthetic_scores a
+                       ON a.post_id = p.id AND a.scorer = 'silva'
+                GROUP BY p.file_path
+                """,
+            )
+            return {
+                row[0]: FolderScoreAgg(
+                    posts=int(row[1]),
+                    scored=int(row[2]),
+                    score_total=float(row[3]),
+                    rating_total=float(row[4]),
+                    silva_total=float(row[5]),
+                    silva_n=int(row[6]),
+                )
+                for row in self.cur.fetchall()
+            }
+
+        return await asyncio.to_thread(_impl)
+
     async def count_by_tag(self, f: PostFilter, query: str = "", limit: int = 50) -> list[dict]:
         """Count how many filtered posts carry each tag — the tag-filter facet.
 
@@ -389,11 +523,15 @@ class PostQueryService:
                 escaped = query.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
                 escaped_like = f"%{escaped}%"
 
-            # Fast path: no post filter, so each tag's match count is just its
-            # global post total, maintained on tags.post_count by trigger. Served
-            # from ix_tags_post_count instead of GROUP BY-ing the ~9.4M-row
-            # post_has_tag table on every dropdown open.
-            if not where_clauses and not joins:
+            # Fast path: no *content* filter, so each tag's match count is just
+            # its canonical-post total, maintained on tags.post_count by trigger
+            # (the triggers count only canonical posts, so this already excludes
+            # hidden group members). Served from ix_tags_post_count instead of
+            # GROUP BY-ing the ~9.4M-row post_has_tag table on every dropdown
+            # open. ``only_canonical`` alone keeps us on this path; the live path
+            # is taken only when a real filter narrows the set (or members are
+            # explicitly requested via only_canonical=False).
+            if f.only_canonical and not has_active_filters(f):
                 fast_params: list[Any] = []
                 sql = "SELECT name AS tag_name, post_count AS count FROM tags WHERE post_count > 0"
                 if escaped_like is not None:

@@ -70,6 +70,7 @@ class Post(_Entity):
     caption: str = ""
     dominant_color: DominantColor = None
     arthash: str | None = None
+    canonical_post_id: int | None = None
     created_at: datetime
     updated_at: datetime
 
@@ -87,7 +88,7 @@ POST_COLUMNS = (
     "id, file_path, file_name, extension, full_path, width, height, "
     "aspect_ratio, published_at, score, rating, description, meta, "
     "sha256, size, source, caption, dominant_color, arthash, "
-    "created_at, updated_at"
+    "canonical_post_id, created_at, updated_at"
 )
 
 
