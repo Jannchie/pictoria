@@ -1,5 +1,6 @@
 import asyncio
 import mimetypes
+from pathlib import Path
 from typing import ClassVar
 
 import httpx
@@ -8,10 +9,12 @@ from litestar.datastructures import CacheControlHeader
 from litestar.exceptions import NotFoundException
 from litestar.response import File
 from litestar.status_codes import HTTP_200_OK
+from PIL import UnidentifiedImageError
 
 import shared
 from db.repositories.posts import PostRepo
 from services.s3 import presigned_get_object_from_s3
+from shared import logger
 from utils import create_thumbnail
 
 # Frontend image URLs are content-addressed via a `?hash=<sha256>` query, so
@@ -40,6 +43,21 @@ mimetypes.add_type("image/avif", ".avif")
 mimetypes.add_type("image/x-icon", ".ico")
 
 
+async def _create_thumbnail_or_404(original: Path, thumbnail: Path) -> None:
+    """Build a thumbnail, translating an undecodable original into a 404.
+
+    A 0-byte or otherwise corrupt original makes PIL raise
+    ``UnidentifiedImageError`` (or ``OSError`` for truncated files). That is a
+    data condition, not a server fault, so surface it as "not found" rather
+    than letting it bubble up as an unhandled 500.
+    """
+    try:
+        await asyncio.to_thread(create_thumbnail, original, thumbnail)
+    except (UnidentifiedImageError, OSError) as exc:
+        logger.warning(f"Cannot create thumbnail for {original}: {exc}")
+        raise NotFoundException(detail="Image cannot be decoded for thumbnail") from exc
+
+
 class ImageController(Controller):
     path = "/images"
     tags: ClassVar[list[str]] = ["Images"]  # type: ignore
@@ -62,7 +80,7 @@ class ImageController(Controller):
             raise NotFoundException(detail="Original image not found")
         thumbnail_file_path.parent.mkdir(parents=True, exist_ok=True)
         if not thumbnail_file_path.exists():
-            await asyncio.to_thread(create_thumbnail, original_file_path, thumbnail_file_path)
+            await _create_thumbnail_or_404(original_file_path, thumbnail_file_path)
         media_type, _ = mimetypes.guess_type(thumbnail_file_path)
         return File(thumbnail_file_path, media_type=media_type, filename=thumbnail_file_path.name, content_disposition_type="inline")
 
@@ -102,7 +120,7 @@ class ImageController(Controller):
         thumbnail_file_path = post.thumbnail_path
         thumbnail_file_path.parent.mkdir(parents=True, exist_ok=True)
         if not thumbnail_file_path.exists():
-            await asyncio.to_thread(create_thumbnail, original_file_path, thumbnail_file_path)
+            await _create_thumbnail_or_404(original_file_path, thumbnail_file_path)
 
         media_type, _ = mimetypes.guess_type(thumbnail_file_path)
         return File(thumbnail_file_path, media_type=media_type, filename=thumbnail_file_path.name, content_disposition_type="inline")
