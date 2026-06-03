@@ -20,6 +20,55 @@ const foldersQuery = useFoldersQuery()
 
 const folderFilter = ref('')
 
+type FolderSortKey = 'name' | 'count' | 'silva' | 'score' | 'rating'
+// Persisted to localStorage so the chosen folder-tree sort survives reloads.
+const folderSortKey = useLocalStorage<FolderSortKey>('pictoria.folderSort.key', 'name')
+const folderSortOrder = useLocalStorage<'asc' | 'desc'>('pictoria.folderSort.order', 'asc')
+const folderSortShow = ref(false)
+const sortOptions: { key: FolderSortKey, label: string, icon: string }[] = [
+  { key: 'name', label: '名称', icon: 'i-tabler-abc' },
+  { key: 'count', label: '文件数', icon: 'i-tabler-files' },
+  { key: 'silva', label: 'SILVA', icon: 'i-tabler-rosette' },
+  { key: 'score', label: 'Score', icon: 'i-tabler-star' },
+  { key: 'rating', label: 'Rating', icon: 'i-tabler-thumb-up' },
+]
+const orderOptions: { id: 'asc' | 'desc', label: string, icon: string }[] = [
+  { id: 'asc', label: '升序', icon: 'i-tabler-arrow-up' },
+  { id: 'desc', label: '降序', icon: 'i-tabler-arrow-down' },
+]
+const sortKeyLabel = computed(() => sortOptions.find(o => o.key === folderSortKey.value)?.label ?? '名称')
+
+// Recursively sort a directory's children by the chosen key/order. Missing
+// score averages sort as -1 so unscored folders sink to the bottom in desc.
+function sortNodes(nodes: DirectorySummary[]): DirectorySummary[] {
+  const dir = folderSortOrder.value === 'asc' ? 1 : -1
+  const key = folderSortKey.value
+  const valueOf = (d: DirectorySummary): number | string => {
+    switch (key) {
+      case 'name': { return d.name ?? ''
+      }
+      case 'count': { return d.file_count ?? 0
+      }
+      case 'silva': { return d.silva_avg ?? -1
+      }
+      case 'score': { return d.score_avg ?? -1
+      }
+      case 'rating': { return d.rating_avg ?? -1
+      }
+      default: { return ''
+      }
+    }
+  }
+  return [...nodes].sort((a, b) => {
+    const va = valueOf(a)
+    const vb = valueOf(b)
+    if (typeof va === 'string' && typeof vb === 'string') {
+      return dir * va.localeCompare(vb)
+    }
+    return dir * ((va as number) - (vb as number))
+  })
+}
+
 // Carried on each tree item's `meta` so the row slots can render the
 // second line (recursive per-directory SILVA / Score / Rating / coverage).
 function statsOf(d: DirectorySummary) {
@@ -33,7 +82,7 @@ function statsOf(d: DirectorySummary) {
 }
 
 function convertPathToTree(path: DirectorySummary): TreeListItemData[] {
-  const children = path.children ?? []
+  const children = sortNodes(path.children ?? [])
   return children.map((child): TreeListItemData => {
     const base = {
       title: child.name,
@@ -57,7 +106,6 @@ const folderTree = computed<TreeListItemData[]>(() => {
     {
       title: 'Root',
       value: '@',
-      icon: 'i-tabler-home',
       count: root.file_count,
       meta: statsOf(root),
     },
@@ -218,8 +266,8 @@ function splitHighlight(text: string, filter: string): HighlightPart[] {
         <div class="px-2 pb-2">
           <SpecialPathList />
         </div>
-        <div class="px-2 pb-2">
-          <div class="relative">
+        <div class="px-2 pb-2 flex gap-1.5 items-center">
+          <div class="flex-grow relative">
             <i class="i-tabler-search text-fg-subtle h-3.5 w-3.5 left-2.5 top-1/2 absolute -translate-y-1/2" aria-hidden="true" />
             <label for="folder-filter-input" class="sr-only">Filter folders</label>
             <input
@@ -243,6 +291,41 @@ function splitHighlight(text: string, filter: string): HighlightPart[] {
               <i class="i-tabler-x h-3.5 w-3.5" aria-hidden="true" />
             </button>
           </div>
+          <Popover v-model="folderSortShow" position="bottom-end">
+            <PButton size="sm" icon variant="secondary" aria-label="Sort folders" :title="`排序：${sortKeyLabel}`">
+              <i class="i-tabler-arrows-sort h-3.5 w-3.5" aria-hidden="true" />
+            </PButton>
+            <template #content>
+              <div class="p-1 border border-border-default rounded bg-surface min-w-36 shadow-lg">
+                <div class="flex flex-col gap-1">
+                  <div class="flex gap-1">
+                    <PButton
+                      v-for="order in orderOptions"
+                      :key="order.id"
+                      size="sm"
+                      block
+                      :variant="folderSortOrder === order.id ? 'primary' : 'secondary'"
+                      @click="folderSortOrder = order.id"
+                    >
+                      <i :class="order.icon" aria-hidden="true" />
+                      <span class="flex-grow">{{ order.label }}</span>
+                    </PButton>
+                  </div>
+                  <PButton
+                    v-for="opt in sortOptions"
+                    :key="opt.key"
+                    size="sm"
+                    block
+                    :variant="folderSortKey === opt.key ? 'primary' : 'secondary'"
+                    @click="folderSortKey = opt.key; folderSortShow = false"
+                  >
+                    <i :class="opt.icon" aria-hidden="true" />
+                    <span class="flex-grow">{{ opt.label }}</span>
+                  </PButton>
+                </div>
+              </div>
+            </template>
+          </Popover>
         </div>
         <ScrollArea class="px-2 pb-1 flex-grow">
           <TreeList
@@ -322,14 +405,14 @@ function splitHighlight(text: string, filter: string): HighlightPart[] {
                 </RouterLink>
                 <button
                   type="button"
-                  class="text-fg-subtle rounded flex shrink-0 h-3.5 w-3.5 transition items-center top-3 justify-center absolute hover:text-fg focus-visible:outline-none hover:bg-surface-2 focus-visible:ring-1 focus-visible:ring-primary/50 -translate-y-1/2"
-                  :style="{ left: `${16 + level * 14 - 14}px` }"
+                  class="text-fg-subtle rounded flex shrink-0 h-5 w-5 transition items-center top-1/2 justify-center absolute hover:text-fg focus-visible:outline-none hover:bg-surface-2 focus-visible:ring-1 focus-visible:ring-primary/50 -translate-y-1/2"
+                  :style="{ left: `${16 + level * 14 - 3}px` }"
                   :aria-label="isOpen ? '收起' : '展开'"
                   :aria-expanded="isOpen"
                   @click.stop.prevent="toggle"
                 >
                   <i
-                    class="i-tabler-chevron-down h-3 w-3 transition-transform"
+                    class="i-tabler-chevron-down h-4 w-4 transition-transform"
                     :class="[isOpen ? 'rotate-0' : '-rotate-90']"
                     aria-hidden="true"
                   />
@@ -367,12 +450,9 @@ function splitHighlight(text: string, filter: string): HighlightPart[] {
                 />
                 <div class="flex flex-grow flex-col min-w-0 justify-center">
                   <div class="flex gap-1.5 h-6 items-center">
-                    <i
-                      v-if="data.icon"
-                      aria-hidden="true"
-                      class="shrink-0 h-3.5 w-3.5"
-                      :class="[data.icon as string]"
-                    />
+                    <span aria-hidden="true" class="inline-flex shrink-0 h-3.5 w-3.5 items-center justify-center">
+                      <i v-if="data.icon" class="h-3.5 w-3.5" :class="[data.icon as string]" />
+                    </span>
                     <span class="truncate">
                       <template
                         v-for="(part, i) in splitHighlight(data.title, folderFilter)"
@@ -389,7 +469,7 @@ function splitHighlight(text: string, filter: string): HighlightPart[] {
                   <FolderStatsLine
                     v-if="data.meta && data.meta.postCount > 0"
                     v-bind="data.meta"
-                    :class="data.icon ? 'pl-5' : ''"
+                    class="pl-5"
                   />
                 </div>
                 <span
