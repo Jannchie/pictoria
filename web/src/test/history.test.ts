@@ -6,8 +6,12 @@ function cmd(label: string, log: string[]): UndoableCommand {
   return {
     label,
     postIds: [],
-    apply: async () => { log.push(`apply:${label}`) },
-    revert: async () => { log.push(`revert:${label}`) },
+    apply: async () => {
+      log.push(`apply:${label}`)
+    },
+    revert: async () => {
+      log.push(`revert:${label}`)
+    },
   }
 }
 
@@ -55,7 +59,9 @@ describe('history store', () => {
       label: 'boom',
       postIds: [],
       apply: async () => {},
-      revert: async () => { throw new Error('gone') },
+      revert: async () => {
+        throw new Error('gone')
+      },
     }
     pushCommand(failing)
     const r = await undo()

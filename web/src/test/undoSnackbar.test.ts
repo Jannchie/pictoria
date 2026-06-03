@@ -13,20 +13,20 @@ describe('undo snackbar', () => {
     dismissUndoSnackbar()
   })
 
-  it('notifyDid shows the label with an undo action', () => {
+  it('notifydid shows the label with an undo action', () => {
     notifyDid('评分 → 5')
     expect(undoSnackbar.value?.message).toBe('评分 → 5')
     expect(undoSnackbar.value?.action).toBe('undo')
   })
 
-  it('performUndo reverts and flips the snackbar to a redo action', async () => {
+  it('performundo reverts and flips the snackbar to a redo action', async () => {
     pushCommand(fakeCommand('评分 → 5'))
     await performUndo()
     expect(undoSnackbar.value?.message).toContain('已撤销')
     expect(undoSnackbar.value?.action).toBe('redo')
   })
 
-  it('performRedo re-applies and flips the snackbar to an undo action', async () => {
+  it('performredo re-applies and flips the snackbar to an undo action', async () => {
     pushCommand(fakeCommand('评分 → 5'))
     await performUndo()
     await performRedo()
@@ -34,12 +34,12 @@ describe('undo snackbar', () => {
     expect(undoSnackbar.value?.action).toBe('undo')
   })
 
-  it('performUndo on empty history leaves the snackbar untouched', async () => {
+  it('performundo on empty history leaves the snackbar untouched', async () => {
     await performUndo()
     expect(undoSnackbar.value).toBeNull()
   })
 
-  it('dismissUndoSnackbar clears it', () => {
+  it('dismissundosnackbar clears it', () => {
     notifyDid('x')
     dismissUndoSnackbar()
     expect(undoSnackbar.value).toBeNull()

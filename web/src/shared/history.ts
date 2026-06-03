@@ -13,8 +13,8 @@ export interface UndoableCommand {
   note?: string
 }
 
-export type UndoResult =
-  | { status: 'empty' }
+export type UndoResult
+  = | { status: 'empty' }
   | { status: 'done', command: UndoableCommand }
   | { status: 'failed', command: UndoableCommand, error: unknown }
 
