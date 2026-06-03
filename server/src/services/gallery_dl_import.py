@@ -10,11 +10,16 @@ docs/superpowers/specs/2026-06-03-gallery-dl-creator-fetch-design.md.
 
 from __future__ import annotations
 
+import concurrent.futures
 import json
 import subprocess
 import sys
+from collections.abc import Sequence
 from dataclasses import dataclass, field
+from pathlib import Path
 from typing import Any
+
+import httpx
 
 from services.danbooru_import import SUPPORTED_IMAGE_EXTS
 from utils import from_rating_to_int, logger, resolve_source
@@ -149,3 +154,41 @@ def build_tag_to_group(item: GalleryDLItem, type_to_group_id: dict[str, int]) ->
         for name in names:
             out.setdefault(name, gid)
     return out
+
+
+# Mirror danbooru's downloader: a curl-ish UA gets past naive UA blocks.
+_DL_HEADERS = {"User-Agent": "curl/8.5.0"}
+
+
+def download_items(
+    items: Sequence[GalleryDLItem],
+    save_dir: Path,
+    *,
+    headers: dict[str, str] | None = None,
+    n_worker: int = 16,
+) -> dict[str, int]:
+    """Download each item's direct URL into save_dir/<file_name>.<extension>.
+
+    headers lets Kemono pass cookies/UA (from gallery-dl.conf); defaults to a
+    curl UA (enough for Booru CDNs). Returns {"downloaded": N, "failed": M}.
+    """
+    save_dir.mkdir(parents=True, exist_ok=True)
+    hdrs = {**_DL_HEADERS, **(headers or {})}
+    stats = {"downloaded": 0, "failed": 0}
+
+    def _one(item: GalleryDLItem) -> None:
+        target = save_dir / f"{item.file_name}.{item.extension}"
+        resp = httpx.get(item.download_url, headers=hdrs, follow_redirects=True, timeout=60.0)
+        resp.raise_for_status()
+        target.write_bytes(resp.content)
+
+    with concurrent.futures.ThreadPoolExecutor(max_workers=n_worker) as ex:
+        futures = [ex.submit(_one, it) for it in items]
+        for fut in concurrent.futures.as_completed(futures):
+            try:
+                fut.result()
+                stats["downloaded"] += 1
+            except Exception as exc:  # noqa: BLE001
+                logger.warning(f"gallery-dl download failed: {exc}")
+                stats["failed"] += 1
+    return stats

@@ -151,3 +151,29 @@ def test_build_tag_to_group_maps_each_category() -> None:
 def test_build_tag_to_group_empty_for_kemono() -> None:
     type_to_group = {"artist": 1, "general": 4}
     assert gdl.build_tag_to_group(_item(tags_by_category={}), type_to_group) == {}
+
+
+def test_download_items_writes_files(tmp_path, monkeypatch) -> None:
+    class _FakeResp:
+        content = b"\x89PNG\r\n"
+
+        def raise_for_status(self) -> None:
+            """No-op: the fake response is always OK."""
+
+    monkeypatch.setattr(gdl.httpx, "get", lambda *a, **k: _FakeResp())
+    items = [_item(download_url="https://f/1.jpg", file_name="1", extension="jpg"),
+             _item(download_url="https://f/2.png", file_name="2", extension="png")]
+    stats = gdl.download_items(items, tmp_path)
+    assert (tmp_path / "1.jpg").read_bytes() == b"\x89PNG\r\n"
+    assert (tmp_path / "2.png").exists()
+    assert stats == {"downloaded": 2, "failed": 0}
+
+
+def test_download_items_counts_failures(tmp_path, monkeypatch) -> None:
+    def boom(*a, **k):
+        raise RuntimeError("network")
+
+    monkeypatch.setattr(gdl.httpx, "get", boom)
+    stats = gdl.download_items(
+        [_item(download_url="https://f/1.jpg", file_name="1", extension="jpg")], tmp_path)
+    assert stats == {"downloaded": 0, "failed": 1}
