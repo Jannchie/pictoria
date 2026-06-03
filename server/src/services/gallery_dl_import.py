@@ -132,3 +132,20 @@ def parse_entry(download_url: str, meta: dict, *, fallback_url: str) -> GalleryD
         published_at=meta.get("date") or meta.get("created_at"),
         tags_by_category=tags_by_category,
     )
+
+
+def build_tag_to_group(item: GalleryDLItem, type_to_group_id: dict[str, int]) -> dict[str, int]:
+    """Flatten the item's per-category tags into {tag_name: group_id}.
+
+    Tags whose category isn't in type_to_group_id are dropped (shouldn't happen
+    with the five canonical groups). Kemono items carry no categorised tags, so
+    this returns {} and auto-tagging fills them in later.
+    """
+    out: dict[str, int] = {}
+    for group_name, names in item.tags_by_category.items():
+        gid = type_to_group_id.get(group_name)
+        if gid is None:
+            continue
+        for name in names:
+            out.setdefault(name, gid)
+    return out

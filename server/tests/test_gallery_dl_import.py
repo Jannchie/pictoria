@@ -127,3 +127,27 @@ def test_parse_entry_kemono_no_tags_fallback_source() -> None:
     assert item.source == "https://kemono.cr/patreon/user/12345"
     assert item.creator == "alice"               # username
     assert item.file_name == "p001"
+
+
+def _item(**kw):
+    base = {
+        "download_url": "u", "file_name": "f", "extension": "jpg", "source": "s",
+        "category": "gelbooru", "creator": "hews", "rating": 0, "published_at": None,
+        "tags_by_category": {},
+    }
+    base.update(kw)
+    return gdl.GalleryDLItem(**base)
+
+
+def test_build_tag_to_group_maps_each_category() -> None:
+    item = _item(tags_by_category={"artist": ["hews"], "general": ["1girl", "solo"],
+                                   "meta": ["highres"]})
+    type_to_group = {"artist": 1, "character": 2, "copyright": 3, "general": 4, "meta": 5}
+    assert gdl.build_tag_to_group(item, type_to_group) == {
+        "hews": 1, "1girl": 4, "solo": 4, "highres": 5,
+    }
+
+
+def test_build_tag_to_group_empty_for_kemono() -> None:
+    type_to_group = {"artist": 1, "general": 4}
+    assert gdl.build_tag_to_group(_item(tags_by_category={}), type_to_group) == {}
