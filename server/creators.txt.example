@@ -1,0 +1,12 @@
+# 每行一个 gallery-dl 能直接识别的 URL；以 # 开头的行和空行会被忽略。
+# 复制为 creators.txt 后再编辑（creators.txt 已被 .gitignore，不入库）。
+#
+# Booru 的“作者”= 按 artist tag 搜索。yande.re / konachan 公开、无需登录：
+https://yande.re/post?tags=wlop
+https://konachan.com/post?tags=landscape
+#
+# gelbooru 现在需要 API key —— 在 gallery-dl.conf 里配好 api-key / user-id 再启用：
+# https://gelbooru.com/index.php?page=post&s=list&tags=hews
+#
+# Kemono 的 creator 页（付费内容镜像；可能需要在 gallery-dl.conf 配 cookies 过 Cloudflare）：
+https://kemono.cr/patreon/user/12345

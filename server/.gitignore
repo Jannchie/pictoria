@@ -4,3 +4,7 @@ __pycache__
 illustration
 
 .env
+
+# gallery-dl creator archiving: private URL list + config with cookies/keys
+creators.txt
+gallery-dl.conf
