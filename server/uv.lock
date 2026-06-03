@@ -256,19 +256,19 @@ wheels = [
 
 [[package]]
 name = "arthash"
-version = "0.4.0"
+version = "0.5.0"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "numpy" },
     { name = "pillow" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/91/07/fcc579d7faaecae2a4ab69bc6897767ce93cc465882dcdf6bfeaa375a025/arthash-0.4.0.tar.gz", hash = "sha256:b95952376d153509f86f36688f08f4167c1e8af67d4e17494eeffc4aa3d890cc", size = 113904, upload-time = "2026-05-21T14:39:32.378Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/2a/2b/fdcd6bfa53bdc11e9f6f1aa05bdd5a0b2c2bc4503a30e85dded5e92361b3/arthash-0.5.0.tar.gz", hash = "sha256:7a9ca7952984fcfef95751d183a0008a48b02d44c6951b8a088513980539f951", size = 125578, upload-time = "2026-06-03T14:03:50.642Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/f0/8e/ab1ae5a7eebca38ea9997e49d81fa6b5a7ea3f1eb2b3267eb3ed192c17f2/arthash-0.4.0-cp39-abi3-macosx_10_12_x86_64.whl", hash = "sha256:87929005cdc1123d12f5331597dd00306bbf76fb39aa4e142ebc408e4530c4a2", size = 380058, upload-time = "2026-05-21T14:39:24.643Z" },
-    { url = "https://files.pythonhosted.org/packages/bb/9c/f2578e7b1801055cb4e6be77f4c1f8ab201240e3d00f5c3151570ca73af9/arthash-0.4.0-cp39-abi3-macosx_11_0_arm64.whl", hash = "sha256:d021424911f5bec34e088d008e96704905cbfd83c0936cfec1dadc4c7447e640", size = 347339, upload-time = "2026-05-21T14:39:26.631Z" },
-    { url = "https://files.pythonhosted.org/packages/9d/df/b58284cac8b2f07449248944e14310a403d0b7b6c74966abf16c3d8c01cd/arthash-0.4.0-cp39-abi3-manylinux_2_17_aarch64.manylinux2014_aarch64.whl", hash = "sha256:5b05de81082d9a4dad18e3ea16a9e6e6a20c0693278f73f06f8613a07ad6c9b1", size = 367432, upload-time = "2026-05-21T14:39:28.231Z" },
-    { url = "https://files.pythonhosted.org/packages/da/93/5a02e219719ae935ae36ce1f8223d17cf0393af08fa3db9be5baefbde8f6/arthash-0.4.0-cp39-abi3-manylinux_2_17_x86_64.manylinux2014_x86_64.whl", hash = "sha256:6653cb8f82bce9fb142a1a25a1addfad5eefada61ec0d895d26d1f4c0fd3fa62", size = 401862, upload-time = "2026-05-21T14:39:29.633Z" },
-    { url = "https://files.pythonhosted.org/packages/7f/0b/7b90298f37d07274181835f1f8da94f27b39466d07263bb8300b1669ca82/arthash-0.4.0-cp39-abi3-win_amd64.whl", hash = "sha256:3de8b954b6e4b8daf5a1241cbedb2200b8737730e39f78a4f2f48e96b0570b55", size = 308717, upload-time = "2026-05-21T14:39:31.176Z" },
+    { url = "https://files.pythonhosted.org/packages/99/75/23913ab7e600e28731ca94935d04b8c80cf12ba7c0a0b9c569ed46643ec1/arthash-0.5.0-cp39-abi3-macosx_10_12_x86_64.whl", hash = "sha256:7bb27954c1dc9aadcc50ba0de8e769d4e81696c8f996f6eaf8d8f65e77780469", size = 379562, upload-time = "2026-06-03T14:03:43.751Z" },
+    { url = "https://files.pythonhosted.org/packages/6c/91/2e8f8a0f71f8a18bfdaf7501f13373d9d52392f6daa27515127cd8d6432c/arthash-0.5.0-cp39-abi3-macosx_11_0_arm64.whl", hash = "sha256:06b7d8184c607d0d85818d9977f7748138dd2ebc9a6850bfb3e4fbe37af477e7", size = 348196, upload-time = "2026-06-03T14:03:45.337Z" },
+    { url = "https://files.pythonhosted.org/packages/0a/0b/78acf11f3692c4f8511d59854d680ef2afd0c4f27ff82447d988ce8a8d7a/arthash-0.5.0-cp39-abi3-manylinux_2_17_aarch64.manylinux2014_aarch64.whl", hash = "sha256:b7aa0d2923b9a0a1b9e6861515dddef81377f1db98133ba3626967ac8768ca42", size = 367460, upload-time = "2026-06-03T14:03:46.636Z" },
+    { url = "https://files.pythonhosted.org/packages/31/8a/6791a852a190b904adef1e3d5e417c8a728597a9d95178f0a699e7416d50/arthash-0.5.0-cp39-abi3-manylinux_2_17_x86_64.manylinux2014_x86_64.whl", hash = "sha256:a60f171a4d45a38cb916b03286d6416a31a10b7f5b6e65dc7432f561ae148841", size = 402353, upload-time = "2026-06-03T14:03:47.991Z" },
+    { url = "https://files.pythonhosted.org/packages/83/21/8132da3c761a379222dd62ab91ffb699e678c2983ecfe9cc8f0e1cf2cc8f/arthash-0.5.0-cp39-abi3-win_amd64.whl", hash = "sha256:5a584361b6ce507ecfe19b5bbe9e50df20c9aba32e8bb0d61d8da635db413fd0", size = 309737, upload-time = "2026-06-03T14:03:49.312Z" },
 ]
 
 [[package]]
