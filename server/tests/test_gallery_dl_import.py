@@ -230,3 +230,8 @@ def test_import_from_url_apply_downloads_and_persists(db, monkeypatch, tmp_path)
     cur = db.cursor()
     cur.execute("SELECT file_path, source FROM posts WHERE file_name='g1'")
     assert tuple(cur.fetchone()) == ("gelbooru/hews", "https://pixiv.net/i/1")
+
+
+def test_parse_creators_file_strips_comments_and_blanks() -> None:
+    text = "# comment\n\nhttps://gelbooru.com/a\n  https://kemono.cr/b  \n# end\n"
+    assert gdl.parse_creators_file(text) == ["https://gelbooru.com/a", "https://kemono.cr/b"]

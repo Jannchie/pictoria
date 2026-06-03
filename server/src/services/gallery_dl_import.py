@@ -308,3 +308,12 @@ def import_from_url(
     stats.failed = dl_stats.get("failed", 0)
     _persist_gallery_items(db, file_path, new_items, type_to_group_id)
     return stats
+
+
+def parse_creators_file(text: str) -> list[str]:
+    """Return non-comment, non-blank, stripped URLs from a creators list."""
+    return [
+        s
+        for line in text.splitlines()
+        if (s := line.strip()) and not s.startswith("#")
+    ]
