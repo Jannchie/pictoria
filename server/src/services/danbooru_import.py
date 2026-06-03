@@ -16,7 +16,7 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
 import shared
-from utils import from_rating_to_int, logger
+from utils import from_rating_to_int, logger, resolve_source
 
 if TYPE_CHECKING:
     from collections.abc import Callable
@@ -240,7 +240,7 @@ def _insert_posts_and_links_tx(
                 file_path_str,
                 str(d_post.id),
                 d_post.file_ext,
-                f"https://danbooru.donmai.us/posts/{d_post.id}",
+                resolve_source(d_post.source, f"https://danbooru.donmai.us/posts/{d_post.id}"),
                 from_rating_to_int(d_post.rating),
                 d_post.created_at,
             ],

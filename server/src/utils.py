@@ -300,6 +300,15 @@ def from_rating_to_int(rating: str) -> int:
     return {"general": 1, "sensitive": 2, "questionable": 3, "explicit": 4}.get(rating, 0)
 
 
+def resolve_source(raw_source: str | None, fallback_url: str) -> str:
+    """Prefer the metadata-registered original source; fall back to the site page.
+
+    Booru/Danbooru leave an empty string when a post has no upstream source, so
+    `or` correctly routes both "" and None to the fallback.
+    """
+    return raw_source or fallback_url
+
+
 TAG_GROUP_COLORS: dict[str, str] = {
     "general":   "#006192",
     "character": "#8243ca",
