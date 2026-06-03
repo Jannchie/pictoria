@@ -1,9 +1,13 @@
-# 代表图评分同步给全组成员 设计
+# 代表图评分同步 + 按更新时间排序 设计
 
 **日期**: 2026-06-03
 **作者**: Jianqi Pan
 **状态**: 待实现
 **相关**: [近似重复图片分组（合并）设计](./2026-06-03-near-duplicate-grouping-design.md)
+
+本设计含两块相关但正交的改动：(1) 给代表图评分时把分数同步给全组成员；(2) 顺带新增按
+`updated_at` 排序（评分会刷新 `updated_at`，便于把最近改动过的图排到前面）。下文先写
+评分同步，再写排序。
 
 ## 背景与目标
 
@@ -76,9 +80,53 @@
 
 跑 `uv run pytest` 与 `uv run ruff check src` 验证。
 
+## 附加功能：按更新时间（updated_at）排序
+
+### 背景
+
+评分会刷新被评分 post 的 `updated_at`（`update_field` / `bulk_update_field` 都设
+`updated_at = CURRENT_TIMESTAMP`，级联给成员时也设），但 `updated_at` 目前不在排序白名单里。
+本次顺带把它加为一个可选排序列，便于把"最近改动过 / 最近评分过"的图排到前面。
+
+### 决策
+
+- **用 `updated_at`，不新增 `scored_at`**：`updated_at` 反映**任意修改**（评分、改标签、
+  描述、来源、旋转、设代表图、danbooru 重新同步等），不是严格的"最近评分"，但复用现有列、
+  零额外维护。用户已确认接受这一取舍。
+- **加索引**：与 `last_accessed_at`（"最近浏览"视图，migration 0003 已建索引）一致，给约
+  17 万行的时间排序建索引，避免每页排序全表扫。
+
+### 后端改动
+
+- 新 migration `server/migrations/0010_index_updated_at.sql`：
+  ```sql
+  CREATE INDEX ix_posts_updated_at ON posts(updated_at);
+  ```
+  （单列索引即可，SQLite 可正反向扫，asc/desc 都用得上。）
+- `server/src/db/filters.py`：
+  - `ORDERABLE_COLUMNS` 加 `"updated_at"`（运行时排序白名单）。
+  - `PostFilterWithOrder.order_by` 的 `Literal[...]` 与其 `extra_json_schema` 的 `enum` 各加
+    `"updated_at"`（API 校验 + OpenAPI schema，两处都要改）。
+
+### 前端改动
+
+- `web/src/shared/state.ts`：`postSort` 的联合类型加 `'updated_at'`。
+- `web/src/components/PostSorter.vue`：`sortOptions` 加一项
+  `{ id: 'updated_at', label: 'Updated', icon: 'i-tabler-calendar-event' }`，并扩展其 `id` 联合类型。
+- `just web-genapi` 重新生成客户端，使生成的 `order_by` enum 含 `updated_at`（否则
+  `order_by: postSort.value` 的赋值会因生成类型不含 `updated_at` 而 TS 报错）。
+
+### 测试
+
+`server/tests/` 既有排序/查询套件中新增：
+- `order_by="updated_at"` 能按 `updated_at` 正确排序、且在 `ORDERABLE_COLUMNS` 内被接受。
+- 串联两功能的用例：给某 post 评分后，它在 `updated_at desc` 排序里排到最前（评分刷新
+  `updated_at`）。
+
 ## 不在范围（YAGNI）
 
 - 成员被覆盖前各自原分的精确撤销恢复（已定尽力而为）。
 - `rating` 级联（仅 `score` 同步）。
 - 成员详情页 `post(memberId)` 的精确失效——客户端无法枚举成员 id；"同组成员"面板的刷新已
   覆盖主要可见场景。
+- 专用 `scored_at` 列（已选复用 `updated_at`）；"按更新时间"因此包含非评分类的改动。
