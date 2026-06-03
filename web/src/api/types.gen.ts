@@ -48,6 +48,11 @@ export type DirectorySummary = {
     name: string;
     path: string;
     file_count: number;
+    post_count?: number;
+    silva_avg?: number | null;
+    score_avg?: number | null;
+    rating_avg?: number | null;
+    scored_ratio?: number | null;
     children?: Array<DirectorySummary>;
 };
 
@@ -95,6 +100,8 @@ export type PostDetailPublic = {
     publishedAt?: string | null;
     dominantColor?: Array<number> | null;
     arthash?: string | null;
+    canonicalPostId?: number | null;
+    groupMemberCount?: number;
     waifuScore?: WaifuScorePublic | null;
     aestheticScores?: Array<AestheticScorePublic>;
     tags: Array<PostHasTagPublic>;
@@ -144,6 +151,10 @@ export type PostFilter = {
      * SILVA aesthetic bucket filter. Each value is one of 'A' (0.8-1.0), 'B' (0.6-0.8), 'C' (0.4-0.6), 'D' (0.2-0.4), 'E' (0-0.2), or 'UNSCORED' (no SILVA score yet). OR together.
      */
     silva_score_levels?: Array<string> | null;
+    /**
+     * When true (default), hide near-duplicate group *members* and return only canonical (representative) posts — those with canonical_post_id NULL. Set false to include members.
+     */
+    only_canonical?: boolean;
 };
 
 /**
@@ -191,9 +202,13 @@ export type PostFilterWithOrder = {
      */
     silva_score_levels?: Array<string> | null;
     /**
+     * When true (default), hide near-duplicate group *members* and return only canonical (representative) posts — those with canonical_post_id NULL. Set false to include members.
+     */
+    only_canonical?: boolean;
+    /**
      * Order column.
      */
-    order_by?: 'id' | 'score' | 'rating' | 'created_at' | 'published_at' | 'file_name' | 'last_accessed_at' | 'waifu_score' | 'silva_score' | null;
+    order_by?: 'id' | 'score' | 'rating' | 'created_at' | 'published_at' | 'file_name' | 'last_accessed_at' | 'updated_at' | 'waifu_score' | 'silva_score' | null;
     /**
      * Order direction.
      */
@@ -242,6 +257,8 @@ export type PostSimplePublic = {
     arthash?: string | null;
     colors: Array<PostHasColorPublic>;
     sha256: string;
+    canonicalPostId?: number | null;
+    groupMemberCount?: number;
     matchProb?: number | null;
 };
 
@@ -366,6 +383,10 @@ export type TagCountRequest = {
      */
     silva_score_levels?: Array<string> | null;
     /**
+     * When true (default), hide near-duplicate group *members* and return only canonical (representative) posts — those with canonical_post_id NULL. Set false to include members.
+     */
+    only_canonical?: boolean;
+    /**
      * Substring filter on tag names.
      */
     query?: string;
@@ -470,6 +491,10 @@ export type TextSearchRequest = {
      * SILVA aesthetic bucket filter. Each value is one of 'A' (0.8-1.0), 'B' (0.6-0.8), 'C' (0.4-0.6), 'D' (0.2-0.4), 'E' (0-0.2), or 'UNSCORED' (no SILVA score yet). OR together.
      */
     silva_score_levels?: Array<string> | null;
+    /**
+     * When true (default), hide near-duplicate group *members* and return only canonical (representative) posts — those with canonical_post_id NULL. Set false to include members.
+     */
+    only_canonical?: boolean;
     /**
      * Natural-language search prompt.
      */
@@ -727,6 +752,39 @@ export type V2GetPostResponses = {
 };
 
 export type V2GetPostResponse = V2GetPostResponses[keyof V2GetPostResponses];
+
+export type V2GetPostGroupData = {
+    body?: never;
+    path: {
+        post_id: number;
+    };
+    query?: never;
+    url: '/v2/posts/{post_id}/group';
+};
+
+export type V2GetPostGroupErrors = {
+    /**
+     * Validation Exception
+     */
+    400: {
+        status_code: number;
+        detail: string;
+        extra?: null | {
+            [key: string]: unknown;
+        } | Array<unknown>;
+    };
+};
+
+export type V2GetPostGroupError = V2GetPostGroupErrors[keyof V2GetPostGroupErrors];
+
+export type V2GetPostGroupResponses = {
+    /**
+     * Request fulfilled, document follows
+     */
+    200: Array<PostSimplePublic>;
+};
+
+export type V2GetPostGroupResponse = V2GetPostGroupResponses[keyof V2GetPostGroupResponses];
 
 export type V2GetPostsCountData = {
     body: PostFilter;
@@ -1014,6 +1072,39 @@ export type V2ListPostsResponses = {
 
 export type V2ListPostsResponse = V2ListPostsResponses[keyof V2ListPostsResponses];
 
+export type V2MakePostCanonicalData = {
+    body?: never;
+    path: {
+        post_id: number;
+    };
+    query?: never;
+    url: '/v2/posts/{post_id}/make-canonical';
+};
+
+export type V2MakePostCanonicalErrors = {
+    /**
+     * Validation Exception
+     */
+    400: {
+        status_code: number;
+        detail: string;
+        extra?: null | {
+            [key: string]: unknown;
+        } | Array<unknown>;
+    };
+};
+
+export type V2MakePostCanonicalError = V2MakePostCanonicalErrors[keyof V2MakePostCanonicalErrors];
+
+export type V2MakePostCanonicalResponses = {
+    /**
+     * Request fulfilled, document follows
+     */
+    200: PostDetailPublic;
+};
+
+export type V2MakePostCanonicalResponse = V2MakePostCanonicalResponses[keyof V2MakePostCanonicalResponses];
+
 export type V2RotatePostImageData = {
     body?: never;
     path: {
@@ -1148,6 +1239,39 @@ export type V2TouchPostResponses = {
 };
 
 export type V2TouchPostResponse = V2TouchPostResponses[keyof V2TouchPostResponses];
+
+export type V2UngroupPostData = {
+    body?: never;
+    path: {
+        post_id: number;
+    };
+    query?: never;
+    url: '/v2/posts/{post_id}/ungroup';
+};
+
+export type V2UngroupPostErrors = {
+    /**
+     * Validation Exception
+     */
+    400: {
+        status_code: number;
+        detail: string;
+        extra?: null | {
+            [key: string]: unknown;
+        } | Array<unknown>;
+    };
+};
+
+export type V2UngroupPostError = V2UngroupPostErrors[keyof V2UngroupPostErrors];
+
+export type V2UngroupPostResponses = {
+    /**
+     * Request fulfilled, document follows
+     */
+    200: PostDetailPublic;
+};
+
+export type V2UngroupPostResponse = V2UngroupPostResponses[keyof V2UngroupPostResponses];
 
 export type V2UpdatePostCaptionData = {
     body?: never;
@@ -1554,6 +1678,39 @@ export type V2GetWaifuScorerOneResponses = {
 };
 
 export type V2GetWaifuScorerOneResponse = V2GetWaifuScorerOneResponses[keyof V2GetWaifuScorerOneResponses];
+
+export type V2GroupDuplicatesData = {
+    body?: never;
+    path?: never;
+    query?: {
+        threshold?: number | null;
+    };
+    url: '/v2/cmd/group-duplicates';
+};
+
+export type V2GroupDuplicatesErrors = {
+    /**
+     * Validation Exception
+     */
+    400: {
+        status_code: number;
+        detail: string;
+        extra?: null | {
+            [key: string]: unknown;
+        } | Array<unknown>;
+    };
+};
+
+export type V2GroupDuplicatesError = V2GroupDuplicatesErrors[keyof V2GroupDuplicatesErrors];
+
+export type V2GroupDuplicatesResponses = {
+    /**
+     * Document created, URL follows
+     */
+    201: Result;
+};
+
+export type V2GroupDuplicatesResponse = V2GroupDuplicatesResponses[keyof V2GroupDuplicatesResponses];
 
 export type V2SyncMetadataEndpointData = {
     body?: never;

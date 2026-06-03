@@ -227,6 +227,7 @@ declare global {
   const usePointer: typeof import('@vueuse/core').usePointer
   const usePointerLock: typeof import('@vueuse/core').usePointerLock
   const usePointerSwipe: typeof import('@vueuse/core').usePointerSwipe
+  const usePostGroupQuery: typeof import('./composables/usePostGroupQuery').usePostGroupQuery
   const usePostQuery: typeof import('./composables/usePostQuery').usePostQuery
   const usePreferredColorScheme: typeof import('@vueuse/core').usePreferredColorScheme
   const usePreferredContrast: typeof import('@vueuse/core').usePreferredContrast
