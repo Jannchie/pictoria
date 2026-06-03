@@ -1,0 +1,40 @@
+[
+  [
+    2,
+    { "category": "kemono", "service": "patreon", "user": "12345", "username": "alice" }
+  ],
+  [
+    3,
+    "https://n1.kemono.cr/data/ab/cd/abcd.png",
+    {
+      "category": "kemono",
+      "service": "patreon",
+      "user": "12345",
+      "username": "alice",
+      "id": "p001",
+      "title": "Spring set",
+      "filename": "abcd",
+      "extension": "png",
+      "type": "file",
+      "num": 1,
+      "date": "2026-05-01 10:00:00"
+    }
+  ],
+  [
+    3,
+    "https://n2.kemono.cr/data/ef/gh/efgh.zip",
+    {
+      "category": "kemono",
+      "service": "patreon",
+      "user": "12345",
+      "username": "alice",
+      "id": "p001",
+      "title": "Spring set",
+      "filename": "efgh",
+      "extension": "zip",
+      "type": "attachment",
+      "num": 2,
+      "date": "2026-05-01 10:00:00"
+    }
+  ]
+]
