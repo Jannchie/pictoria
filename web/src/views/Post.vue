@@ -1,9 +1,12 @@
 <script setup lang="ts">
+import { useQueryClient } from '@tanstack/vue-query'
 import { useRoute, useRouter } from 'vue-router'
 import { v2TouchPost } from '@/api'
 import ArthashPlaceholder from '@/components/ArthashPlaceholder.vue'
+import Dialog from '@/components/Dialog.vue'
 import PostDetail from '@/components/PostDetail.vue'
-import { bottomBarInfo, currentPostList, enableArthash, enableFancyPlaceholder, selectedPostIdSet, showPostDetail, similarPostList } from '@/shared'
+import { bottomBarInfo, currentPostList, deletePosts, enableArthash, enableFancyPlaceholder, selectedPostIdSet, showPostDetail, similarPostList } from '@/shared'
+import { POverlay } from '@/ui'
 import { getPostImageURL } from '@/utils'
 import { colorNumToHex } from '@/utils/color'
 
@@ -176,6 +179,49 @@ onKeyStroke([' ', 'Enter'], (e) => {
   e.preventDefault()
   openOverlay()
 })
+
+// Delete 删除选中的相似图。详情页此前只有列表瀑布流(MainSection)能按 Delete，
+// 相似图网格没接，所以这里补上——复用统一的 deletePosts（会刷新 similarPosts 缓存）。
+const queryClient = useQueryClient()
+const showDeleteConfirm = ref(false)
+const isDeleting = ref(false)
+const pendingDeleteIds = computed(() =>
+  [...selectedPostIdSet.value].filter((id): id is number => typeof id === 'number'),
+)
+
+onKeyStroke('Delete', (e) => {
+  if (!notUsingInput.value || showPostDetail.value || pendingDeleteIds.value.length === 0) {
+    return
+  }
+  e.preventDefault()
+  showDeleteConfirm.value = true
+})
+
+async function confirmDelete() {
+  if (isDeleting.value) {
+    return
+  }
+  const ids = pendingDeleteIds.value
+  if (ids.length === 0) {
+    showDeleteConfirm.value = false
+    return
+  }
+  isDeleting.value = true
+  try {
+    // 选区可能含当前正在看的大图（点了主图）；删掉它后这个详情页就空了，删完返回
+    // 上一页。只删相似图时留在原地，列表由 deletePosts 自动刷新。
+    const removingCurrent = ids.includes(postId.value)
+    await deletePosts(queryClient, ids)
+    selectedPostIdSet.value = new Set()
+    if (removingCurrent) {
+      router.back()
+    }
+  }
+  finally {
+    isDeleting.value = false
+    showDeleteConfirm.value = false
+  }
+}
 </script>
 
 <template>
@@ -253,6 +299,26 @@ onKeyStroke([' ', 'Enter'], (e) => {
       />
     </ScrollArea>
   </div>
+  <POverlay
+    v-if="showDeleteConfirm"
+    class="flex items-center justify-center"
+    @click.self="showDeleteConfirm = false"
+  >
+    <Dialog
+      title="Delete selected posts?"
+      :confirm-label="isDeleting ? 'Deleting…' : `Delete ${pendingDeleteIds.length}`"
+      cancel-label="Cancel"
+      variant="danger"
+      @confirm="confirmDelete"
+      @cancel="showDeleteConfirm = false"
+    >
+      <p>
+        This will permanently delete
+        <span class="text-fg font-medium tabular-nums">{{ pendingDeleteIds.length }}</span>
+        post<span v-if="pendingDeleteIds.length !== 1">s</span>. This cannot be undone.
+      </p>
+    </Dialog>
+  </POverlay>
 </template>
 
 <style lang="css" scoped>

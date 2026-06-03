@@ -4,13 +4,12 @@ import { useQueryClient } from '@tanstack/vue-query'
 import { filesize } from 'filesize'
 import { computed, onUnmounted, ref, watch } from 'vue'
 import { useRoute } from 'vue-router'
-import { v2DeletePosts } from '@/api'
 import { useSelectedPostStats } from '@/composables/useSelectedPostStats'
 import {
   commitRating,
   commitScore,
   currentPostList,
-  queryKeys,
+  deletePosts,
   selectedPostIdSet,
   showPostDetail,
   similarPostList,
@@ -265,17 +264,9 @@ async function deleteSelected() {
     confirmingDelete.value = false
     return
   }
-  const batchSize = 100
-  for (let i = 0; i < ids.length; i += batchSize) {
-    await v2DeletePosts({ query: { ids: ids.slice(i, i + batchSize) } })
-  }
+  await deletePosts(queryClient, ids)
   selectedPostIdSet.value = new Set()
   confirmingDelete.value = false
-  queryClient.invalidateQueries({ queryKey: queryKeys.postsRoot })
-  queryClient.invalidateQueries({ queryKey: queryKeys.countRoot('score') })
-  queryClient.invalidateQueries({ queryKey: queryKeys.countRoot('rating') })
-  queryClient.invalidateQueries({ queryKey: queryKeys.countRoot('extension') })
-  queryClient.invalidateQueries({ queryKey: queryKeys.postsStatsRoot })
 }
 
 const distributionTotal = computed(() => knownCount.value)

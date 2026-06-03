@@ -6,9 +6,9 @@ import { refDebounced } from '@vueuse/core'
 import { logicAnd } from '@vueuse/math'
 import { onBeforeRouteLeave, useRoute, useRouter } from 'vue-router'
 import { Waterfall } from 'vue-wf'
-import { v2DeletePosts, v2SearchPostsByText } from '@/api'
+import { v2SearchPostsByText } from '@/api'
 import Dialog from '@/components/Dialog.vue'
-import { commitRotate, commitScore, currentPostList, galleryScrollPositions, postFilter, queryKeys, selectedPostIdSet, showPostDetail, textSearchQuery, useInfinityPostsQuery, waterfallRowCount } from '@/shared'
+import { commitRotate, commitScore, currentPostList, deletePosts, galleryScrollPositions, postFilter, queryKeys, selectedPostIdSet, showPostDetail, textSearchQuery, useInfinityPostsQuery, waterfallRowCount } from '@/shared'
 import { POverlay } from '@/ui'
 import { isImageExtension } from '@/utils'
 
@@ -411,19 +411,7 @@ async function confirmDelete() {
   }
   isDeleting.value = true
   try {
-    const batchSize = 100
-    for (let i = 0; i < ids.length; i += batchSize) {
-      const batch = ids.slice(i, i + batchSize)
-      await v2DeletePosts({
-        query: {
-          ids: batch,
-        },
-      })
-    }
-    queryClient.invalidateQueries({ queryKey: queryKeys.postsRoot })
-    queryClient.invalidateQueries({ queryKey: queryKeys.countRoot('score') })
-    queryClient.invalidateQueries({ queryKey: queryKeys.countRoot('rating') })
-    queryClient.invalidateQueries({ queryKey: queryKeys.countRoot('extension') })
+    await deletePosts(queryClient, ids)
     selectedPostIdSet.value = new Set()
   }
   finally {
