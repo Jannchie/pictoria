@@ -1,14 +1,15 @@
 <script setup lang="ts">
-import { ref } from 'vue'
+import { computed, ref } from 'vue'
 import { postSort, postSortColor, postSortOrder } from '@/shared'
 
 const sortOptions: {
-  id: 'created_at' | 'published_at' | 'score' | 'rating' | 'file_name' | 'waifu_score' | 'silva_score'
+  id: 'created_at' | 'published_at' | 'updated_at' | 'score' | 'rating' | 'file_name' | 'waifu_score' | 'silva_score'
   label: string
   icon: string
 }[] = [
   { id: 'created_at', label: 'Created', icon: 'i-tabler-calendar-event' },
   { id: 'published_at', label: 'Published', icon: 'i-tabler-calendar-event' },
+  { id: 'updated_at', label: 'Updated', icon: 'i-tabler-clock-edit' },
   { id: 'score', label: 'Score', icon: 'i-tabler-star' },
   { id: 'rating', label: 'Rating', icon: 'i-tabler-thumb-up' },
   { id: 'file_name', label: 'File name', icon: 'i-tabler-file' },
@@ -30,16 +31,30 @@ function underlineToSpace(s: string) {
 }
 
 const show = ref(false)
+
+// 默认排序 = 按 id / 降序 / 无颜色，等价于“无特定排序”。非默认时才提供取消入口。
+const isNonDefaultSort = computed(() =>
+  postSort.value !== 'id' || postSortOrder.value !== 'desc' || !!postSortColor.value,
+)
+
+function resetSort() {
+  postSort.value = 'id'
+  postSortOrder.value = 'desc'
+  postSortColor.value = undefined
+  show.value = false
+}
 </script>
 
 <template>
-  <div class="flex gap-2 relative">
+  <div class="sort-group flex relative">
     <Popover
       v-model="show"
       position="bottom-end"
     >
       <PButton
         size="sm"
+        class="sort-main-btn"
+        :class="{ joined: isNonDefaultSort }"
         aria-label="Sort posts"
       >
         <i class="i-tabler-arrows-sort" aria-hidden="true" />
@@ -120,7 +135,7 @@ const show = ref(false)
               block
               :disabled="!!postSortColor"
               :variant="postSort === option.id && !postSortColor ? 'primary' : 'secondary'"
-              @click="postSort = option.id; show = false"
+              @click="postSort = postSort === option.id ? 'id' : option.id; show = false"
             >
               <i :class="option.icon" aria-hidden="true" />
               <span class="flex-grow">
@@ -131,5 +146,35 @@ const show = ref(false)
         </div>
       </template>
     </Popover>
+    <PButton
+      v-if="isNonDefaultSort"
+      size="sm"
+      icon
+      class="sort-reset-btn"
+      aria-label="Reset sort"
+      title="取消排序"
+      @click="resetSort"
+    >
+      <i class="i-tabler-x" aria-hidden="true" />
+    </PButton>
   </div>
 </template>
+
+<style scoped>
+/* 取消排序按钮做成 Sort 主按钮的“附属”：去掉相邻侧圆角、让边框重叠，
+   两个 sm 按钮拼成一个 segmented 复合按钮。仅在 X 存在(.joined)时抹平主按钮右圆角。 */
+.sort-group :deep(.sort-main-btn.joined) {
+  border-top-right-radius: 0;
+  border-bottom-right-radius: 0;
+}
+.sort-group :deep(.sort-reset-btn) {
+  border-top-left-radius: 0;
+  border-bottom-left-radius: 0;
+  margin-left: -1px;
+}
+/* hover 时把该按钮的边框抬到上层，避免重叠处被相邻边框压住 */
+.sort-group :deep(.p-btn:hover) {
+  position: relative;
+  z-index: 1;
+}
+</style>
