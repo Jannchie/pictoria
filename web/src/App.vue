@@ -4,6 +4,7 @@ import type { DirectorySummary } from '@/api'
 import { Pane, Splitpanes } from 'splitpanes'
 import { computed, ref, watch } from 'vue'
 import { RouterLink, useRoute, useRouter } from 'vue-router'
+import FolderStatsLine from './components/FolderStatsLine.vue'
 import { useGlobalUndoRedo, useWatchRoute } from './composables'
 import TreeList from './roku/TreeList.vue'
 import { menuData, showMenu, useCurrentFolder, useFoldersQuery } from './shared'
@@ -19,22 +20,31 @@ const foldersQuery = useFoldersQuery()
 
 const folderFilter = ref('')
 
+// Carried on each tree item's `meta` so the row slots can render the
+// second line (recursive per-directory SILVA / Score / Rating / coverage).
+function statsOf(d: DirectorySummary) {
+  return {
+    silvaAvg: d.silva_avg,
+    scoreAvg: d.score_avg,
+    ratingAvg: d.rating_avg,
+    scoredRatio: d.scored_ratio,
+    postCount: d.post_count ?? 0,
+  }
+}
+
 function convertPathToTree(path: DirectorySummary): TreeListItemData[] {
   const children = path.children ?? []
   return children.map((child): TreeListItemData => {
-    if ((child.children?.length ?? 0) > 0) {
-      return {
-        title: child.name,
-        value: child.path,
-        count: child.file_count,
-        children: convertPathToTree(child),
-      }
-    }
-    return {
+    const base = {
       title: child.name,
       value: child.path,
       count: child.file_count,
+      meta: statsOf(child),
     }
+    if ((child.children?.length ?? 0) > 0) {
+      return { ...base, children: convertPathToTree(child) }
+    }
+    return base
   })
 }
 
@@ -49,6 +59,7 @@ const folderTree = computed<TreeListItemData[]>(() => {
       value: '@',
       icon: 'i-tabler-home',
       count: root.file_count,
+      meta: statsOf(root),
     },
     ...convertPathToTree(root),
   ]
@@ -258,7 +269,7 @@ function splitHighlight(text: string, filter: string): HighlightPart[] {
                   tabindex="0"
                   :data-tree-value="data.value"
                   :title="data.value"
-                  class="group/row text-sm pr-1 rounded-md flex gap-1.5 h-8 w-full cursor-pointer transition-colors items-center relative focus:outline-none focus-visible:ring-1 focus-visible:ring-primary/50 focus-visible:ring-inset"
+                  class="group/row text-sm pr-1 rounded-md flex min-h-8 w-full cursor-pointer transition-colors items-center relative focus:outline-none focus-visible:ring-1 focus-visible:ring-primary/50 focus-visible:ring-inset"
                   :class="[
                     isSelected ? 'text-fg bg-primary/10' : 'text-fg-muted hover:bg-surface-1 hover:text-fg',
                   ]"
@@ -278,21 +289,30 @@ function splitHighlight(text: string, filter: string): HighlightPart[] {
                     v-if="isSelected"
                     class="rounded-r-full bg-primary w-[2px] pointer-events-none bottom-1.5 left-0 top-1.5 absolute"
                   />
-                  <span aria-hidden="true" class="shrink-0 h-3.5 w-3.5 inline-block" />
-                  <span class="truncate">
-                    <template
-                      v-for="(part, i) in splitHighlight(data.title, folderFilter)"
-                      :key="i"
-                    >
-                      <mark
-                        v-if="part.match"
-                        class="text-fg px-0.5 rounded-sm bg-primary/30"
-                      >{{ part.text }}</mark>
-                      <template v-else>{{ part.text }}</template>
-                    </template>
-                  </span>
+                  <div class="flex flex-grow flex-col min-w-0 justify-center">
+                    <div class="flex gap-1.5 h-6 items-center">
+                      <span aria-hidden="true" class="shrink-0 h-3.5 w-3.5 inline-block" />
+                      <span class="truncate">
+                        <template
+                          v-for="(part, i) in splitHighlight(data.title, folderFilter)"
+                          :key="i"
+                        >
+                          <mark
+                            v-if="part.match"
+                            class="text-fg px-0.5 rounded-sm bg-primary/30"
+                          >{{ part.text }}</mark>
+                          <template v-else>{{ part.text }}</template>
+                        </template>
+                      </span>
+                    </div>
+                    <FolderStatsLine
+                      v-if="data.meta && data.meta.postCount > 0"
+                      v-bind="data.meta"
+                      class="pl-5"
+                    />
+                  </div>
                   <span
-                    class="text-[10px] font-mono ml-auto px-1.5 py-0.5 rounded shrink-0 transition-colors tabular-nums"
+                    class="text-[10px] font-mono ml-1.5 px-1.5 py-0.5 rounded shrink-0 transition-colors tabular-nums"
                     :class="[
                       isSelected ? 'bg-primary/15 text-primary' : 'text-fg-subtle group-hover/row:text-fg-muted',
                     ]"
@@ -302,7 +322,7 @@ function splitHighlight(text: string, filter: string): HighlightPart[] {
                 </RouterLink>
                 <button
                   type="button"
-                  class="text-fg-subtle rounded flex shrink-0 h-3.5 w-3.5 transition items-center top-1/2 justify-center absolute hover:text-fg focus-visible:outline-none hover:bg-surface-2 focus-visible:ring-1 focus-visible:ring-primary/50 -translate-y-1/2"
+                  class="text-fg-subtle rounded flex shrink-0 h-3.5 w-3.5 transition items-center top-3 justify-center absolute hover:text-fg focus-visible:outline-none hover:bg-surface-2 focus-visible:ring-1 focus-visible:ring-primary/50 -translate-y-1/2"
                   :style="{ left: `${16 + level * 14 - 14}px` }"
                   :aria-label="isOpen ? '收起' : '展开'"
                   :aria-expanded="isOpen"
@@ -325,7 +345,7 @@ function splitHighlight(text: string, filter: string): HighlightPart[] {
                 tabindex="0"
                 :data-tree-value="data.value"
                 :title="data.value"
-                class="group/row text-sm pr-1 rounded-md flex gap-1.5 h-8 w-full cursor-pointer transition-colors items-center relative focus:outline-none focus-visible:ring-1 focus-visible:ring-primary/50 focus-visible:ring-inset"
+                class="group/row text-sm pr-1 rounded-md flex min-h-8 w-full cursor-pointer transition-colors items-center relative focus:outline-none focus-visible:ring-1 focus-visible:ring-primary/50 focus-visible:ring-inset"
                 :class="[
                   isSelected ? 'text-fg bg-primary/10' : 'text-fg-muted hover:bg-surface-1 hover:text-fg',
                 ]"
@@ -345,27 +365,36 @@ function splitHighlight(text: string, filter: string): HighlightPart[] {
                   v-if="isSelected"
                   class="rounded-r-full bg-primary w-[2px] pointer-events-none bottom-1.5 left-0 top-1.5 absolute"
                 />
-                <i
-                  v-if="data.icon"
-                  aria-hidden="true"
-                  class="shrink-0 h-3.5 w-3.5"
-                  :class="[data.icon as string]"
-                />
-                <span class="truncate">
-                  <template
-                    v-for="(part, i) in splitHighlight(data.title, folderFilter)"
-                    :key="i"
-                  >
-                    <mark
-                      v-if="part.match"
-                      class="text-fg px-0.5 rounded-sm bg-primary/30"
-                    >{{ part.text }}</mark>
-                    <template v-else>{{ part.text }}</template>
-                  </template>
-                </span>
+                <div class="flex flex-grow flex-col min-w-0 justify-center">
+                  <div class="flex gap-1.5 h-6 items-center">
+                    <i
+                      v-if="data.icon"
+                      aria-hidden="true"
+                      class="shrink-0 h-3.5 w-3.5"
+                      :class="[data.icon as string]"
+                    />
+                    <span class="truncate">
+                      <template
+                        v-for="(part, i) in splitHighlight(data.title, folderFilter)"
+                        :key="i"
+                      >
+                        <mark
+                          v-if="part.match"
+                          class="text-fg px-0.5 rounded-sm bg-primary/30"
+                        >{{ part.text }}</mark>
+                        <template v-else>{{ part.text }}</template>
+                      </template>
+                    </span>
+                  </div>
+                  <FolderStatsLine
+                    v-if="data.meta && data.meta.postCount > 0"
+                    v-bind="data.meta"
+                    :class="data.icon ? 'pl-5' : ''"
+                  />
+                </div>
                 <span
                   v-if="data.count != null"
-                  class="text-[10px] font-mono ml-auto px-1.5 py-0.5 rounded shrink-0 transition-colors tabular-nums"
+                  class="text-[10px] font-mono ml-1.5 px-1.5 py-0.5 rounded shrink-0 transition-colors tabular-nums"
                   :class="[
                     isSelected ? 'bg-primary/15 text-primary' : 'text-fg-subtle group-hover/row:text-fg-muted',
                   ]"
