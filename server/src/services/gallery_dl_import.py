@@ -21,7 +21,11 @@ from typing import Any
 
 import httpx
 
-from services.danbooru_import import SUPPORTED_IMAGE_EXTS
+from services.danbooru_import import (
+    SUPPORTED_IMAGE_EXTS,
+    _insert_tags_tx,
+    _run_with_retry,
+)
 from utils import from_rating_to_int, logger, resolve_source
 
 # gallery-dl message type for "a downloadable file" (url + metadata). Confirmed
@@ -192,3 +196,60 @@ def download_items(
                 logger.warning(f"gallery-dl download failed: {exc}")
                 stats["failed"] += 1
     return stats
+
+
+def _persist_gallery_items(
+    db: Any,
+    file_path: str,
+    items: Sequence[GalleryDLItem],
+    type_to_group_id: dict[str, int],
+) -> None:
+    """Persist items + tags in two transactions, mirroring danbooru_import."""
+    if not items:
+        return
+    tag_maps = [build_tag_to_group(it, type_to_group_id) for it in items]
+    cur = db.cursor()
+    try:
+        all_tags: dict[str, int] = {}
+        for tm in tag_maps:
+            for name, gid in tm.items():
+                all_tags.setdefault(name, gid)
+        if all_tags:
+            _run_with_retry(cur, "tags", lambda: _insert_tags_tx(cur, all_tags))
+        _run_with_retry(cur, "posts", lambda: _insert_gallery_posts_tx(cur, file_path, items, tag_maps))
+    finally:
+        cur.close()
+
+
+def _insert_gallery_posts_tx(
+    cur: Any,
+    file_path: str,
+    items: Sequence[GalleryDLItem],
+    tag_maps: Sequence[dict[str, int]],
+) -> None:
+    cur.execute("BEGIN")
+    post_tag_pairs: list[tuple[int, dict[str, int]]] = []
+    for item, tag_map in zip(items, tag_maps, strict=True):
+        cur.execute(
+            """
+            INSERT INTO posts(file_path, file_name, extension, source, rating, published_at)
+            VALUES (?, ?, ?, ?, ?, ?)
+            ON CONFLICT (file_path, file_name, extension)
+            DO UPDATE SET source = excluded.source,
+                          published_at = excluded.published_at,
+                          updated_at = CURRENT_TIMESTAMP
+            RETURNING id
+            """,
+            [file_path, item.file_name, item.extension, item.source, item.rating, item.published_at],
+        )
+        row = cur.fetchone()
+        if row:
+            post_tag_pairs.append((int(row[0]), tag_map))
+    post_tag_rows = [(pid, name) for pid, tm in post_tag_pairs for name in tm]
+    if post_tag_rows:
+        cur.executemany(
+            "INSERT INTO post_has_tag(post_id, tag_name, is_auto) VALUES (?, ?, 0) "
+            "ON CONFLICT DO NOTHING",
+            post_tag_rows,
+        )
+    cur.execute("COMMIT")

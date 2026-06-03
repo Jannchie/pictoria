@@ -177,3 +177,19 @@ def test_download_items_counts_failures(tmp_path, monkeypatch) -> None:
     stats = gdl.download_items(
         [_item(download_url="https://f/1.jpg", file_name="1", extension="jpg")], tmp_path)
     assert stats == {"downloaded": 0, "failed": 1}
+
+
+def test_persist_gallery_items_writes_posts_and_tags(db) -> None:
+    # conftest seeds groups artist=1 / general=2 and tags artist_a / tag_general.
+    type_to_group = {"artist": 1, "general": 2}
+    items = [_item(file_name="g1", extension="jpg", source="https://pixiv.net/i/1",
+                   rating=2, published_at="2026-03-03 00:00:00+00:00",
+                   tags_by_category={"artist": ["artist_a"], "general": ["tag_general"]})]
+    gdl._persist_gallery_items(db, "gelbooru/hews", items, type_to_group)
+
+    cur = db.cursor()
+    cur.execute("SELECT extension, source, rating, published_at FROM posts WHERE file_name='g1'")
+    assert tuple(cur.fetchone()) == ("jpg", "https://pixiv.net/i/1", 2, "2026-03-03 00:00:00+00:00")
+    cur.execute("SELECT tag_name FROM post_has_tag pht "
+                "JOIN posts p ON p.id = pht.post_id WHERE p.file_name='g1' ORDER BY tag_name")
+    assert [r[0] for r in cur.fetchall()] == ["artist_a", "tag_general"]
