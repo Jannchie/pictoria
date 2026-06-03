@@ -7,6 +7,7 @@ import subprocess
 from pathlib import Path
 from types import SimpleNamespace
 
+import shared
 from services import gallery_dl_import as gdl
 from services.danbooru_import import _insert_posts_and_links_tx
 from utils import resolve_source
@@ -193,3 +194,39 @@ def test_persist_gallery_items_writes_posts_and_tags(db) -> None:
     cur.execute("SELECT tag_name FROM post_has_tag pht "
                 "JOIN posts p ON p.id = pht.post_id WHERE p.file_name='g1' ORDER BY tag_name")
     assert [r[0] for r in cur.fetchall()] == ["artist_a", "tag_general"]
+
+
+def test_import_from_url_dry_run_does_not_write(db, monkeypatch, tmp_path) -> None:
+    monkeypatch.setattr(shared, "target_dir", tmp_path)
+    monkeypatch.setattr(gdl, "run_gallery_dl_json", lambda url, **k: [
+        ("https://f/g1.jpg", {"category": "gelbooru", "id": "g1", "filename": "g1",
+                               "extension": "jpg", "search_tags": "hews", "rating": "general"}),
+    ])
+    called = {"downloaded": False}
+    monkeypatch.setattr(gdl, "download_items",
+                        lambda *a, **k: called.__setitem__("downloaded", True) or {})
+    stats = gdl.import_from_url("https://gelbooru.com/x", db=db,
+                                type_to_group_id={"artist": 1, "general": 2}, apply=False)
+    assert stats.new == 1
+    assert called["downloaded"] is False
+    cur = db.cursor()
+    cur.execute("SELECT COUNT(*) FROM posts WHERE file_name='g1'")
+    assert cur.fetchone()[0] == 0
+
+
+def test_import_from_url_apply_downloads_and_persists(db, monkeypatch, tmp_path) -> None:
+    monkeypatch.setattr(shared, "target_dir", tmp_path)
+    monkeypatch.setattr(gdl, "run_gallery_dl_json", lambda url, **k: [
+        ("https://f/g1.jpg", {"category": "gelbooru", "id": "g1", "filename": "g1",
+                               "extension": "jpg", "search_tags": "hews", "rating": "general",
+                               "source": "https://pixiv.net/i/1"}),
+    ])
+    monkeypatch.setattr(gdl, "download_items",
+                        lambda items, save_dir, **k: {"downloaded": len(items), "failed": 0})
+    stats = gdl.import_from_url("https://gelbooru.com/x", db=db,
+                                type_to_group_id={"artist": 1, "general": 2}, apply=True)
+    assert stats.new == 1
+    assert stats.downloaded == 1
+    cur = db.cursor()
+    cur.execute("SELECT file_path, source FROM posts WHERE file_name='g1'")
+    assert tuple(cur.fetchone()) == ("gelbooru/hews", "https://pixiv.net/i/1")

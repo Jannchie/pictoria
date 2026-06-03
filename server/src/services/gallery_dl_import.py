@@ -14,10 +14,8 @@ import concurrent.futures
 import json
 import subprocess
 import sys
-from collections.abc import Sequence
 from dataclasses import dataclass, field
-from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import httpx
 
@@ -27,6 +25,10 @@ from services.danbooru_import import (
     _run_with_retry,
 )
 from utils import from_rating_to_int, logger, resolve_source
+
+if TYPE_CHECKING:
+    from collections.abc import Sequence
+    from pathlib import Path
 
 # gallery-dl message type for "a downloadable file" (url + metadata). Confirmed
 # against real yande.re -j output: [3, "<url>", {meta}]; type 2 (Directory) is
@@ -59,11 +61,11 @@ def run_gallery_dl_json(url: str, *, config_path: str | None = None) -> list[tup
     except (json.JSONDecodeError, ValueError) as exc:
         logger.warning(f"gallery-dl produced unparseable JSON for {url}: {exc}")
         return []
-    out: list[tuple[str, dict[str, Any]]] = []
-    for msg in messages:
-        if isinstance(msg, list) and len(msg) >= 3 and msg[0] == _MSG_URL:
-            out.append((msg[1], msg[2]))
-    return out
+    return [
+        (msg[1], msg[2])
+        for msg in messages
+        if isinstance(msg, list) and len(msg) >= 3 and msg[0] == _MSG_URL  # noqa: PLR2004
+    ]
 
 
 # Booru tag-field name (in gallery-dl metadata) -> our canonical group name.
@@ -192,7 +194,7 @@ def download_items(
             try:
                 fut.result()
                 stats["downloaded"] += 1
-            except Exception as exc:  # noqa: BLE001
+            except Exception as exc:
                 logger.warning(f"gallery-dl download failed: {exc}")
                 stats["failed"] += 1
     return stats
@@ -253,3 +255,56 @@ def _insert_gallery_posts_tx(
             post_tag_rows,
         )
     cur.execute("COMMIT")
+
+
+@dataclass
+class GalleryDLStats:
+    fetched: int = 0       # entries from -j
+    images: int = 0        # after image filter
+    new: int = 0           # after DB dedupe
+    downloaded: int = 0
+    failed: int = 0
+
+
+def import_from_url(
+    url: str,
+    *,
+    db: Any,
+    type_to_group_id: dict[str, int],
+    apply: bool,
+    config_path: str | None = None,
+) -> GalleryDLStats:
+    """Fetch -> parse -> filter -> dedupe -> (apply: download + persist)."""
+    import shared  # noqa: PLC0415  # local import avoids any import cycle at load
+
+    raw = run_gallery_dl_json(url, config_path=config_path)
+    stats = GalleryDLStats(fetched=len(raw))
+    items: list[GalleryDLItem] = []
+    for dl_url, meta in raw:
+        it = parse_entry(dl_url, meta, fallback_url=url)
+        if it is not None:
+            items.append(it)
+    stats.images = len(items)
+    if not items:
+        return stats
+
+    # All items from one URL share category/creator -> one file_path dir.
+    file_path = f"{items[0].category}/{items[0].creator}"
+
+    cur = db.cursor()
+    try:
+        cur.execute("SELECT file_name FROM posts WHERE file_path = ?", [file_path])
+        existing = {r[0] for r in cur.fetchall()}
+    finally:
+        cur.close()
+    new_items = [it for it in items if it.file_name not in existing]
+    stats.new = len(new_items)
+    if not new_items or not apply:
+        return stats
+
+    save_dir = shared.target_dir / file_path
+    dl_stats = download_items(new_items, save_dir, headers=None)
+    stats.downloaded = dl_stats.get("downloaded", 0)
+    stats.failed = dl_stats.get("failed", 0)
+    _persist_gallery_items(db, file_path, new_items, type_to_group_id)
+    return stats
