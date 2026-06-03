@@ -1,7 +1,6 @@
 <script lang="tsx">
 import type { PropType, VNode } from 'vue'
 import { computed, defineComponent, nextTick, ref, watch, watchEffect } from 'vue'
-import AutoHeightTransition from './AutoHeightTransition.vue'
 
 type Rounded = 'none' | 'sm' | 'md' | 'lg' | 'full'
 
@@ -517,13 +516,11 @@ export default defineComponent({
         return (
           <li class="list-none relative">
             {slots.collapse ? slots.collapse(ctx) : CollapseDefault(item, level, isOpenComputed, isSelected, inChain)}
-            <AutoHeightTransition>
-              {isOpenComputed && (
-                <ul class="transition-height overflow-hidden">
-                  {(item.children ?? []).map(child => renderItem(child, level + 1))}
-                </ul>
-              )}
-            </AutoHeightTransition>
+            {isOpenComputed && (
+              <ul class="pt-1 flex flex-col gap-1">
+                {(item.children ?? []).map(child => renderItem(child, level + 1))}
+              </ul>
+            )}
           </li>
         )
       }
@@ -562,7 +559,7 @@ export default defineComponent({
       return (
         <ul
           ref={rootRef}
-          class="text-sm flex flex-col"
+          class="text-sm flex flex-col gap-1"
           role="tree"
           onKeydown={onRootKeydown}
         >
