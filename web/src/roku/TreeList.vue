@@ -1,6 +1,7 @@
 <script lang="tsx">
 import type { PropType, VNode } from 'vue'
-import { computed, defineComponent, nextTick, ref, watch, watchEffect } from 'vue'
+import { useVirtualList } from '@vueuse/core'
+import { computed, defineComponent, nextTick, watch, watchEffect } from 'vue'
 
 type Rounded = 'none' | 'sm' | 'md' | 'lg' | 'full'
 
@@ -111,6 +112,13 @@ export default defineComponent({
     emptyText: { type: String, default: '没有匹配的目录' },
     modelValue: { type: String, default: undefined },
     openPaths: { type: Object as PropType<Set<string>>, default: () => new Set<string>() },
+    // Row height (px) for the virtual scroller — a number, or a function of
+    // the item + level when rows differ (e.g. folders with a stats line).
+    // Must match what the slot actually renders, or rows overlap/jump.
+    itemHeight: {
+      type: [Number, Function] as PropType<number | ((item: TreeListItemData, level: number) => number)>,
+      default: 36,
+    },
   },
   emits: {
     'update:modelValue': (_v?: string) => true,
@@ -222,15 +230,15 @@ export default defineComponent({
       setOpen(value, !props.openPaths.has(value))
     }
 
-    const rootRef = ref<HTMLUListElement | null>(null)
-
     interface FlatRow {
-      value: string
-      type: 'link' | 'collapse'
+      item: TreeListItemData
+      type: 'link' | 'collapse' | 'header'
       level: number
       parents: string[]
     }
-    function flatten(): FlatRow[] {
+    // The whole visible tree as a flat list — the virtual scroller renders a
+    // window of these rows instead of a recursive ul/li tree.
+    const visibleRows = computed<FlatRow[]>(() => {
       const rows: FlatRow[] = []
       const walk = (items: TreeListItemData[], level: number, parents: string[]) => {
         for (const it of items) {
@@ -238,28 +246,46 @@ export default defineComponent({
             continue
           }
           if (isLeaf(it)) {
-            rows.push({ value: it.value, type: 'link', level, parents })
+            if (!filterActive.value || nodeMatches(it)) {
+              rows.push({ item: it, type: 'link', level, parents })
+            }
           }
           else if (hasChildren(it)) {
-            if (it.value) {
-              rows.push({ value: it.value, type: 'collapse', level, parents })
-            }
+            rows.push({ item: it, type: 'collapse', level, parents })
             const isOpen = filterActive.value || (it.value ? props.openPaths.has(it.value) : true)
             if (isOpen) {
               walk(it.children ?? [], level + 1, it.value ? [...parents, it.value] : parents)
             }
           }
+          else {
+            rows.push({ item: it, type: 'header', level, parents })
+          }
         }
       }
       walk(props.items, 0, [])
       return rows
-    }
+    })
+
+    const heightOf = (row: FlatRow): number =>
+      typeof props.itemHeight === 'function' ? props.itemHeight(row.item, row.level) : props.itemHeight
+
+    const { list, containerProps, wrapperProps, scrollTo } = useVirtualList(visibleRows, {
+      itemHeight: i => heightOf(visibleRows.value[i]),
+      overscan: 12,
+    })
+
+    const rowValue = (row: FlatRow | undefined): string | undefined =>
+      row && 'value' in row.item ? row.item.value : undefined
+
     function focusValue(value: string) {
-      if (!rootRef.value) {
-        return
+      const idx = visibleRows.value.findIndex(r => rowValue(r) === value)
+      if (idx !== -1) {
+        scrollTo(idx)
       }
-      const el = rootRef.value.querySelector(`[data-tree-value="${CSS.escape(value)}"]`) as HTMLElement | null
-      el?.focus()
+      nextTick(() => {
+        const el = containerProps.ref.value?.querySelector(`[data-tree-value="${CSS.escape(value)}"]`) as HTMLElement | null
+        el?.focus()
+      })
     }
 
     function onRootKeydown(e: KeyboardEvent) {
@@ -268,38 +294,52 @@ export default defineComponent({
       if (!value) {
         return
       }
-      const rows = flatten()
-      const idx = rows.findIndex(r => r.value === value)
+      const rows = visibleRows.value
+      const idx = rows.findIndex(r => rowValue(r) === value)
       if (idx === -1) {
         return
       }
       const row = rows[idx]
+      // Headers carry no value — step over them when navigating.
+      const focusable = (from: number, dir: 1 | -1): string | undefined => {
+        for (let i = from + dir; i >= 0 && i < rows.length; i += dir) {
+          const v = rowValue(rows[i])
+          if (v) {
+            return v
+          }
+        }
+        return undefined
+      }
       switch (e.key) {
         case 'ArrowDown': {
           e.preventDefault()
-          if (idx < rows.length - 1) {
-            focusValue(rows[idx + 1].value)
+          const v = focusable(idx, 1)
+          if (v) {
+            focusValue(v)
           }
           break
         }
         case 'ArrowUp': {
           e.preventDefault()
-          if (idx > 0) {
-            focusValue(rows[idx - 1].value)
+          const v = focusable(idx, -1)
+          if (v) {
+            focusValue(v)
           }
           break
         }
         case 'Home': {
           e.preventDefault()
-          if (rows.length > 0) {
-            focusValue(rows[0].value)
+          const v = focusable(-1, 1)
+          if (v) {
+            focusValue(v)
           }
           break
         }
         case 'End': {
           e.preventDefault()
-          if (rows.length > 0) {
-            focusValue(rows.at(-1)!.value)
+          const v = focusable(rows.length, -1)
+          if (v) {
+            focusValue(v)
           }
           break
         }
@@ -308,8 +348,9 @@ export default defineComponent({
           if (row.type === 'collapse') {
             if (props.openPaths.has(value)) {
               const next = rows[idx + 1]
-              if (next && next.level > row.level) {
-                focusValue(next.value)
+              const v = rowValue(next)
+              if (next && next.level > row.level && v) {
+                focusValue(v)
               }
             }
             else {
@@ -469,66 +510,48 @@ export default defineComponent({
       )
     }
 
-    function renderItem(item: TreeListItemData, level: number): any {
-      if (isLeaf(item)) {
-        if (filterActive.value && !nodeMatches(item)) {
-          return null
-        }
-        const isSelected = props.modelValue === item.value
-        const inChain = chainSet.value.has(item.value)
+    // Render one flattened row (no recursion — the virtual list owns the
+    // flat sequence; subtree expansion is reflected by visibleRows).
+    function renderRow(row: FlatRow): any {
+      const { item, level, type } = row
+      if (type === 'link') {
+        const leaf = item as TreeListLeafData
+        const isSelected = props.modelValue === leaf.value
+        const inChain = chainSet.value.has(leaf.value)
         const ctx: SlotLeafCtx = {
-          data: item,
+          data: leaf,
           level,
           isSelected,
           inChain,
           isMatch: nodeMatches(item),
           highlight,
-          count: countNode(item.count, isSelected),
+          count: countNode(leaf.count, isSelected),
           guides: guidesFor(level, inChain),
         }
-        return (
-          <li class="list-none relative">
-            {slots.link ? slots.link(ctx) : LeafDefault(item, level, isSelected, inChain)}
-          </li>
-        )
+        return slots.link ? slots.link(ctx) : LeafDefault(leaf, level, isSelected, inChain)
       }
-      if (hasChildren(item)) {
-        if (!subtreeMatches(item)) {
-          return null
-        }
-        const isOpenComputed = filterActive.value
-          ? true
-          : (item.value ? props.openPaths.has(item.value) : true)
-        const isSelected = !!item.value && props.modelValue === item.value
-        const inChain = !!item.value && chainSet.value.has(item.value)
+      if (type === 'collapse') {
+        const coll = item as TreeListCollapseData
+        const isOpenComputed = filterActive.value ? true : (coll.value ? props.openPaths.has(coll.value) : true)
+        const isSelected = !!coll.value && props.modelValue === coll.value
+        const inChain = !!coll.value && chainSet.value.has(coll.value)
         const ctx: SlotCollapseCtx = {
-          data: item,
+          data: coll,
           level,
           isOpen: isOpenComputed,
           isSelected,
           inChain,
-          isMatch: nodeMatches(item),
-          toggle: () => toggle(item.value),
+          isMatch: nodeMatches(coll),
+          toggle: () => toggle(coll.value),
           highlight,
-          count: countNode(item.count, isSelected),
+          count: countNode(coll.count, isSelected),
           guides: guidesFor(level, inChain),
         }
-        return (
-          <li class="list-none relative">
-            {slots.collapse ? slots.collapse(ctx) : CollapseDefault(item, level, isOpenComputed, isSelected, inChain)}
-            {isOpenComputed && (
-              <ul class="pt-1 flex flex-col gap-1">
-                {(item.children ?? []).map(child => renderItem(child, level + 1))}
-              </ul>
-            )}
-          </li>
-        )
+        return slots.collapse ? slots.collapse(ctx) : CollapseDefault(coll, level, isOpenComputed, isSelected, inChain)
       }
-      return (
-        <li class="list-none">
-          {slots.header ? slots.header({ data: item, level }) : HeaderDefault(item, level)}
-        </li>
-      )
+      return slots.header
+        ? slots.header({ data: item as TreeListHeaderData, level })
+        : HeaderDefault(item as TreeListHeaderData, level)
     }
 
     expose({ focusValue, setOpen, toggle })
@@ -547,8 +570,7 @@ export default defineComponent({
           </ul>
         )
       }
-      const visible = filterActive.value ? props.items.filter(subtreeMatches) : props.items
-      if (visible.length === 0) {
+      if (visibleRows.value.length === 0) {
         return (
           <div class="text-xs text-fg-subtle px-3 py-8 flex flex-col gap-2 items-center justify-center">
             <i class="i-tabler-folder-search h-6 w-6" />
@@ -557,14 +579,26 @@ export default defineComponent({
         )
       }
       return (
-        <ul
-          ref={rootRef}
-          class="text-sm flex flex-col gap-1"
+        <div
+          ref={containerProps.ref}
+          class="text-sm h-full overflow-y-auto"
+          style={containerProps.style}
           role="tree"
           onKeydown={onRootKeydown}
+          onScroll={containerProps.onScroll}
         >
-          {visible.map(item => renderItem(item, 0))}
-        </ul>
+          <div style={wrapperProps.value.style}>
+            {list.value.map(({ data: row, index }) => (
+              <div
+                key={rowValue(row) ?? `row-${index}`}
+                class="list-none relative"
+                style={{ height: `${heightOf(row)}px` }}
+              >
+                {renderRow(row)}
+              </div>
+            ))}
+          </div>
+        </div>
       )
     }
   },

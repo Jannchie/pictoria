@@ -47,7 +47,7 @@ const metrics = computed<{ key: string, label: string, value: string, color: str
 </script>
 
 <template>
-  <div class="text-[10px] leading-none flex flex-wrap gap-x-2 gap-y-0.5 items-center">
+  <div class="text-[10px] leading-none flex flex-nowrap gap-x-2 items-center overflow-hidden">
     <span
       v-for="m in metrics"
       :key="m.key"

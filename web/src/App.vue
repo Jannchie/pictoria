@@ -81,6 +81,15 @@ function statsOf(d: DirectorySummary) {
   }
 }
 
+// Virtual-list row heights — MUST match what the row slots render, or rows
+// overlap / jump. Folders with a stats line (postCount > 0) are taller.
+function treeItemHeight(item: TreeListItemData): number {
+  if (!('value' in item) && !('children' in item)) {
+    return 28 // header
+  }
+  return (item as TreeListLeafData).meta?.postCount ? 48 : 32
+}
+
 function convertPathToTree(path: DirectorySummary): TreeListItemData[] {
   const children = sortNodes(path.children ?? [])
   return children.map((child): TreeListItemData => {
@@ -327,13 +336,14 @@ function splitHighlight(text: string, filter: string): HighlightPart[] {
             </template>
           </Popover>
         </div>
-        <ScrollArea class="px-2 pb-1 flex-grow">
+        <div class="px-2 pb-1 flex-grow min-h-0">
           <TreeList
             :model-value="currentFolder"
             :open-paths="openPaths"
             :items="folderTree"
             :filter="folderFilter"
             :highlight-chain="highlightChain"
+            :item-height="treeItemHeight"
             :loading="foldersQuery.isPending.value && folderTree.length === 0"
             empty-text="没有匹配的目录"
             @update:open-paths="(v) => (openPaths = v)"
@@ -345,14 +355,14 @@ function splitHighlight(text: string, filter: string): HighlightPart[] {
                 :aria-expanded="isOpen"
                 :aria-selected="isSelected"
                 :aria-level="level + 1"
-                class="relative"
+                class="h-full relative"
               >
                 <RouterLink
                   :to="{ path: `/dir/${data.value}`, query: $route.query }"
                   tabindex="0"
                   :data-tree-value="data.value"
                   :title="data.value"
-                  class="group/row text-sm pr-1 rounded-md flex min-h-8 w-full cursor-pointer transition-colors items-center relative focus:outline-none focus-visible:ring-1 focus-visible:ring-primary/50 focus-visible:ring-inset"
+                  class="group/row text-sm pr-1 rounded-md flex h-full w-full cursor-pointer transition-colors items-center relative focus:outline-none focus-visible:ring-1 focus-visible:ring-primary/50 focus-visible:ring-inset"
                   :class="[
                     isSelected ? 'text-fg bg-primary/10' : 'text-fg-muted hover:bg-surface-1 hover:text-fg',
                   ]"
@@ -428,7 +438,7 @@ function splitHighlight(text: string, filter: string): HighlightPart[] {
                 tabindex="0"
                 :data-tree-value="data.value"
                 :title="data.value"
-                class="group/row text-sm pr-1 rounded-md flex min-h-8 w-full cursor-pointer transition-colors items-center relative focus:outline-none focus-visible:ring-1 focus-visible:ring-primary/50 focus-visible:ring-inset"
+                class="group/row text-sm pr-1 rounded-md flex h-full w-full cursor-pointer transition-colors items-center relative focus:outline-none focus-visible:ring-1 focus-visible:ring-primary/50 focus-visible:ring-inset"
                 :class="[
                   isSelected ? 'text-fg bg-primary/10' : 'text-fg-muted hover:bg-surface-1 hover:text-fg',
                 ]"
@@ -484,7 +494,7 @@ function splitHighlight(text: string, filter: string): HighlightPart[] {
               </RouterLink>
             </template>
           </TreeList>
-        </ScrollArea>
+        </div>
         <div class="p-2 border-t border-border-subtle">
           <RouterLink
             to="/settings"
