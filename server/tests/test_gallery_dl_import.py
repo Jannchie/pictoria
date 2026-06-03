@@ -77,3 +77,53 @@ def test_run_gallery_dl_json_parses_real_yandere_fixture(monkeypatch) -> None:
     assert url.startswith("https://files.yande.re/")
     assert meta["category"] == "yandere"
     assert meta["extension"] == "png"
+
+
+def test_parse_entry_moebooru_flat_tags_to_general() -> None:
+    # Real yande.re shape: flat `tags`, single-letter rating, numeric id.
+    meta = {"category": "yandere", "id": 1263248, "filename": "yande.re 1263248 landscape",
+            "extension": "png", "rating": "s", "source": "https://www.xiaohongshu.com/x",
+            "date": "2026-06-03 08:54:48", "search_tags": "landscape",
+            "tags": "dress landscape wuthering_waves"}
+    item = gdl.parse_entry("https://files.yande.re/image/x.png", meta,
+                           fallback_url="https://yande.re/post/show/1263248")
+    assert item is not None
+    assert item.file_name == "1263248"          # id, not the long filename
+    assert item.extension == "png"
+    assert item.rating == 2                      # booru "s" -> sensitive
+    assert item.source == "https://www.xiaohongshu.com/x"
+    assert item.published_at == "2026-06-03 08:54:48"
+    assert item.creator == "landscape"
+    assert item.tags_by_category == {"general": ["dress", "landscape", "wuthering_waves"]}
+
+
+def test_parse_entry_categorised_booru_tags() -> None:
+    # gelbooru/danbooru shape: per-category tag fields, single-letter rating "g".
+    meta = {"category": "gelbooru", "id": 5, "extension": "jpg", "rating": "g", "source": "",
+            "tags_artist": "hews", "tags_character": "rin", "tags_copyright": "vocaloid",
+            "tags_general": "1girl solo", "tags_metadata": "highres", "search_tags": "hews"}
+    item = gdl.parse_entry("https://f/5.jpg", meta, fallback_url="https://gelbooru.com/post/5")
+    assert item is not None
+    assert item.rating == 1                      # "g" -> general
+    assert item.source == "https://gelbooru.com/post/5"   # empty source -> fallback
+    assert item.tags_by_category["artist"] == ["hews"]
+    assert item.tags_by_category["general"] == ["1girl", "solo"]
+    assert item.tags_by_category["meta"] == ["highres"]
+    assert "tags" not in item.tags_by_category   # categorised path, not flat fallback
+
+
+def test_parse_entry_skips_non_image() -> None:
+    meta = {"category": "kemono", "id": "p001", "filename": "efgh", "extension": "zip"}
+    assert gdl.parse_entry("https://f/efgh.zip", meta, fallback_url="x") is None
+
+
+def test_parse_entry_kemono_no_tags_fallback_source() -> None:
+    meta = {"category": "kemono", "id": "p001", "filename": "abcd", "extension": "png",
+            "username": "alice", "date": "2026-05-01 10:00:00"}
+    item = gdl.parse_entry("https://n1.kemono.cr/data/abcd.png", meta,
+                           fallback_url="https://kemono.cr/patreon/user/12345")
+    assert item is not None
+    assert item.tags_by_category == {}
+    assert item.source == "https://kemono.cr/patreon/user/12345"
+    assert item.creator == "alice"               # username
+    assert item.file_name == "p001"
