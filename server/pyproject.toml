@@ -94,8 +94,10 @@ ignore = [
 [tool.ruff.lint.per-file-ignores]
 "**/test/**/*" = ["S101"]
 # pytest suite: asserts, magic values, missing annotations and private-member
-# access are all idiomatic in tests; raw SQL in fixtures is intentional.
-"tests/**/*" = ["S101", "PLR2004", "ANN", "SLF001", "S608", "PLR0913", "PLR2004"]
+# access are all idiomatic in tests; mock lambdas leave args unused (ARG),
+# test exceptions use string literals (EM) and pass booleans positionally
+# (FBT), and raw SQL in fixtures is intentional.
+"tests/**/*" = ["S101", "PLR2004", "ANN", "SLF001", "S608", "PLR0913", "ARG", "EM", "FBT"]
 # CLI scripts: print is the output mechanism, ANN/DOC noise unhelpful here.
 "scripts/**/*" = ["T201", "T203", "ANN001", "ANN201", "ANN202", "S608", "PLR2004", "E402", "FBT003", "B007", "E501", "TC003"]
 
