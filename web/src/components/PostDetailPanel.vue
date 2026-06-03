@@ -2,10 +2,11 @@
 import type { PostDetailPublic, PostHasTagPublic } from '@/api'
 import { useQueryClient } from '@tanstack/vue-query'
 import { filesize } from 'filesize'
-import { useRoute } from 'vue-router'
+import { useRoute, useRouter } from 'vue-router'
 import { v2GetSilvaScorerOne, v2GetWaifuScorerOne } from '@/api'
 import { useAPIError } from '@/composables/useAPIError'
-import { commitCaption, commitRating, commitScore, commitSource, hideNSFW, openTagSelectorWindow, queryKeys, showPostDetail } from '@/shared'
+import { usePostGroupQuery } from '@/composables/usePostGroupQuery'
+import { commitCaption, commitRating, commitScore, commitSource, hideNSFW, makePostCanonical, openTagSelectorWindow, queryKeys, showPostDetail, ungroupPost } from '@/shared'
 import { getPostThumbnailURL } from '@/utils'
 import { colorNumToHex, labToRgbaString } from '@/utils/color'
 
@@ -24,6 +25,24 @@ async function onSelectScore(post_id: number, score: number = 0) {
 }
 const post = computed(() => props.post)
 const route = useRoute()
+const router = useRouter()
+
+// Near-duplicate group: the hidden members this (canonical) post collapses.
+const groupQuery = usePostGroupQuery(computed(() => props.post.id))
+const groupMembers = computed(() => groupQuery.data.value ?? [])
+
+async function onMakeCanonical(memberId: number) {
+  await makePostCanonical(queryClient, memberId)
+  // The promoted member is now canonical; follow it so the panel stays on the
+  // visible representative instead of a now-hidden post.
+  router.push(`/post/${memberId}`)
+}
+async function onUngroupMember(memberId: number) {
+  await ungroupPost(queryClient, memberId)
+}
+async function onUngroupSelf() {
+  await ungroupPost(queryClient, post.value.id)
+}
 const { 1: one, 2: two, 3: three, 4: four, 5: five } = useMagicKeys()
 const activeElement = useActiveElement()
 const notUsingInput = computed(() =>
@@ -205,6 +224,90 @@ const sectionTitleClass
           />
         </div>
       </div>
+
+      <!-- Near-duplicate group: members hidden behind this canonical post -->
+      <section
+        v-if="post.canonicalPostId != null || groupMembers.length > 0"
+        class="py-4 border-t border-border-default"
+      >
+        <div
+          :class="sectionTitleClass"
+          class="mb-2"
+        >
+          <i class="i-tabler-stack-2" />
+          <span>Same Group</span>
+        </div>
+
+        <!-- This post is itself a hidden member of another group. -->
+        <div
+          v-if="post.canonicalPostId != null"
+          class="flex flex-col gap-2"
+        >
+          <div class="text-fg-muted">
+            此图是某组的附属，默认不在列表/搜索中显示。
+          </div>
+          <div class="flex gap-2">
+            <PButton
+              size="sm"
+              block
+              @pointerup="router.push(`/post/${post.canonicalPostId}`)"
+            >
+              <i class="i-tabler-arrow-up-right" />
+              查看代表图
+            </PButton>
+            <PButton
+              size="sm"
+              variant="subtle"
+              @pointerup="onUngroupSelf"
+            >
+              移出组
+            </PButton>
+          </div>
+        </div>
+
+        <!-- This post is the canonical head; list its hidden members. -->
+        <div
+          v-else
+          class="flex flex-col gap-2"
+        >
+          <div class="text-fg-subtle">
+            另有 {{ groupMembers.length }} 张近似图
+          </div>
+          <div
+            v-for="m in groupMembers"
+            :key="m.id"
+            class="p-1 rounded bg-surface-2 flex gap-2 items-center"
+          >
+            <img
+              :src="getPostThumbnailURL(m)"
+              class="rounded h-12 w-12 cursor-pointer object-cover"
+              :class="{ blur: (m.rating ?? 0) >= 3 && hideNSFW }"
+              @click="router.push(`/post/${m.id}`)"
+            >
+            <div class="text-fg-subtle flex-1 tabular-nums">
+              {{ m.width }} × {{ m.height }}
+            </div>
+            <PButton
+              size="sm"
+              icon
+              variant="subtle"
+              title="设为代表"
+              @pointerup="onMakeCanonical(m.id)"
+            >
+              <i class="i-tabler-crown" />
+            </PButton>
+            <PButton
+              size="sm"
+              icon
+              variant="subtle"
+              title="移出组"
+              @pointerup="onUngroupMember(m.id)"
+            >
+              <i class="i-tabler-unlink" />
+            </PButton>
+          </div>
+        </div>
+      </section>
 
       <!-- Ratings: every quality signal grouped together -->
       <section class="py-4 border-t border-border-default">

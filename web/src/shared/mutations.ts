@@ -4,8 +4,11 @@ import {
   v2AddTagToPost,
   v2BulkUpdatePostRating,
   v2BulkUpdatePostScore,
+  v2DeletePosts,
+  v2MakePostCanonical,
   v2RemoveTagFromPost,
   v2RotatePostImage,
+  v2UngroupPost,
   v2UpdatePostCaption,
   v2UpdatePostRating,
   v2UpdatePostScore,
@@ -89,7 +92,10 @@ export async function writeScore(qc: QueryClient, ids: number[], score: number):
       if (k[0] === 'posts' && k[1] === 'stats') {
         return true
       }
-      return k[0] === 'post' && typeof k[1] === 'number' && idSet.has(k[1])
+      // Scoring a canonical mirrors the score onto its hidden group members
+      // (server-side), so refresh both the post detail and the "same group"
+      // member panel (postGroup) for every scored id.
+      return (k[0] === 'post' || k[0] === 'postGroup') && typeof k[1] === 'number' && idSet.has(k[1])
     },
   })
 }
@@ -141,6 +147,108 @@ export async function writeRotate(qc: QueryClient, id: number, clockwise: boolea
   await v2RotatePostImage({ path: { post_id: id }, query: { clockwise } })
   qc.invalidateQueries({ queryKey: queryKeys.post(id) })
   qc.invalidateQueries({ queryKey: queryKeys.postsRoot })
+}
+
+// ---- 删除：从所有列表缓存剔除 + 刷新计数 ----
+
+// A PostSimplePublic list lives in the cache under two shapes: the gallery's
+// infinite query is `{ pages: Post[][] }`, while text-search / similar-posts /
+// group-member queries are a flat `Post[]`. Deleting a post must drop it from
+// whichever shape a given cache entry uses. (The old delete path only ran
+// `invalidate(['posts'])`, which never matched the latter three — different key
+// prefixes — so deleting from those grids left the card on screen.)
+export function removePostsFromCacheEntry(old: unknown, idSet: Set<number>): unknown {
+  if (!old) {
+    return old
+  }
+  // infinite-list shape: { pages: Post[][], pageParams }
+  if (typeof old === 'object' && Array.isArray((old as { pages?: unknown }).pages)) {
+    const o = old as { pages: (Array<{ id?: number }> | undefined)[], pageParams: unknown[] }
+    return {
+      ...o,
+      pages: o.pages.map(page =>
+        Array.isArray(page) ? page.filter(p => !(p && p.id != null && idSet.has(p.id))) : page,
+      ),
+    }
+  }
+  // flat-array shape: text-search / similar / group results
+  if (Array.isArray(old)) {
+    return (old as Array<{ id?: number }>).filter(p => !(p && p.id != null && idSet.has(p.id)))
+  }
+  return old
+}
+
+function removeDeletedPostsFromCaches(qc: QueryClient, ids: number[]): void {
+  const idSet = new Set(ids)
+  qc.setQueriesData<unknown>(
+    {
+      predicate: (q) => {
+        const k = q.queryKey
+        if (!Array.isArray(k)) {
+          return false
+        }
+        // gallery infinite list ['posts', <body object>]; exclude ['posts','stats',…]
+        if (k[0] === 'posts') {
+          return typeof k[1] === 'object' && k[1] !== null
+        }
+        // flat-array post lists keyed off their own prefixes
+        return k[0] === 'textSearch' || k[0] === 'similarPosts' || k[0] === 'postGroup'
+      },
+    },
+    (old: unknown) => removePostsFromCacheEntry(old, idSet),
+  )
+}
+
+/**
+ * Delete posts and refresh every view that could still show them. Drops the
+ * rows from all list caches (gallery + text-search + similar + group) so the
+ * card disappears immediately, then invalidates the cheap count/stats
+ * aggregates. The expensive vector searches (text/similar) are patched in place
+ * rather than re-run.
+ */
+export async function deletePosts(qc: QueryClient, ids: number[]): Promise<void> {
+  if (ids.length === 0) {
+    return
+  }
+  const batchSize = 100
+  for (let i = 0; i < ids.length; i += batchSize) {
+    await v2DeletePosts({ query: { ids: ids.slice(i, i + batchSize) } })
+  }
+  removeDeletedPostsFromCaches(qc, ids)
+  qc.invalidateQueries({ queryKey: queryKeys.countRoot('score') })
+  qc.invalidateQueries({ queryKey: queryKeys.countRoot('rating') })
+  qc.invalidateQueries({ queryKey: queryKeys.countRoot('extension') })
+  qc.invalidateQueries({ queryKey: queryKeys.countRoot('tags') })
+  qc.invalidateQueries({ queryKey: queryKeys.postsStatsRoot })
+}
+
+// Near-duplicate grouping edits shift which posts are canonical/visible, so they
+// touch the gallery list, the footer stats, the tag-facet counts and every
+// affected post detail + group query. invalidate broadly (these are infrequent
+// manual actions, so a slightly wide refresh is cheaper than tracking exactly
+// which sibling ids moved).
+function invalidateGrouping(qc: QueryClient): void {
+  qc.invalidateQueries({ queryKey: queryKeys.postsRoot })
+  qc.invalidateQueries({ queryKey: queryKeys.postsStatsRoot })
+  qc.invalidateQueries({ queryKey: queryKeys.countRoot('tags') })
+  qc.invalidateQueries({
+    predicate: (q) => {
+      const k = q.queryKey
+      return Array.isArray(k) && (k[0] === 'post' || k[0] === 'postGroup')
+    },
+  })
+}
+
+/** Detach a post from its near-duplicate group (make it standalone/visible). */
+export async function ungroupPost(qc: QueryClient, id: number): Promise<void> {
+  await v2UngroupPost({ path: { post_id: id } })
+  invalidateGrouping(qc)
+}
+
+/** Promote a group member to be the group's canonical representative. */
+export async function makePostCanonical(qc: QueryClient, id: number): Promise<void> {
+  await v2MakePostCanonical({ path: { post_id: id } })
+  invalidateGrouping(qc)
 }
 
 // ---- 命令工厂：捕获旧值 → 执行 → 入栈 ----

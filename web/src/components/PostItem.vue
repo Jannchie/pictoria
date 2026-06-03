@@ -234,6 +234,13 @@ function onKeyDown(e: KeyboardEvent) {
         >
           {{ (post.matchProb * 100).toFixed(1) }}%
         </div>
+        <div
+          v-if="(post.groupMemberCount ?? 0) > 0"
+          class="text-10px text-white tracking-wide font-bold font-mono px-1.5 py-0.5 rounded bg-black/60 flex gap-0.5 pointer-events-none items-center bottom-1.5 right-1.5 absolute tabular-nums"
+          :title="`同组另有 ${post.groupMemberCount} 张近似图`"
+        >
+          <i class="i-tabler-stack-2" />+{{ post.groupMemberCount }}
+        </div>
       </div>
     </PAspectRatio>
     <PAspectRatio

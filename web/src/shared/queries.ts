@@ -29,7 +29,7 @@ export function useInfinityPostsQuery() {
     return postSortOrder.value as 'asc' | 'desc'
   })
 
-  const orderBy = computed<'id' | 'score' | 'rating' | 'created_at' | 'file_name' | 'published_at' | 'last_accessed_at' | 'waifu_score' | 'silva_score'>(() => {
+  const orderBy = computed<'id' | 'score' | 'rating' | 'created_at' | 'updated_at' | 'file_name' | 'published_at' | 'last_accessed_at' | 'waifu_score' | 'silva_score'>(() => {
     if (isRecentlyPage.value) {
       return 'last_accessed_at'
     }

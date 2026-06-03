@@ -26,6 +26,8 @@ export const queryKeys = {
   post: (id: MaybeRef<number | undefined>) => ['post', id] as const,
   /** Similar-posts grid for a post (ref-keyed for reactive sharing). */
   similarPosts: (id: MaybeRef<number>) => ['similarPosts', { postId: id }] as const,
+  /** Near-duplicate group members for a canonical post (ref-keyed). */
+  postGroup: (id: MaybeRef<number | undefined>) => ['postGroup', id] as const,
 
   /** Per-bucket counts (rating/score/extension/waifu) for a filter. */
   count: (kind: CountKind, filter: unknown) => ['count', kind, filter] as const,
