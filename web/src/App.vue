@@ -529,6 +529,8 @@ function splitHighlight(text: string, filter: string): HighlightPart[] {
       </Pane>
     </Splitpanes>
     <BottomBar />
+    <!-- Global toast outlet — useToast()/useAPIError() push here. -->
+    <ToastSystem />
   </div>
 </template>
 
