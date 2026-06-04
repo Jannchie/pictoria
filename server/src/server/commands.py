@@ -24,13 +24,9 @@ from server.exceptions import MissingConfigError, NotAnImageError, PostNotFoundE
 from server.utils import is_image
 from services.danbooru_import import DanbooruDownloadStats, import_danbooru_posts
 from services.gallery_dl_import import import_from_url as run_url_import
-from utils import (
-    TAG_GROUP_COLORS,
-    attach_wdtagger_results,
-    from_rating_to_int,
-    get_tagger,
-    logger,
-)
+from services.wd_tagging import TAG_GROUP_COLORS, attach_wdtagger_results, get_tagger
+from shared import logger
+from utils import from_rating_to_int
 
 if TYPE_CHECKING:
     from collections.abc import Coroutine

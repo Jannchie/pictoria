@@ -21,6 +21,7 @@ from litestar.types.internal_types import PathParameterDefinition
 from rich import get_console
 
 import shared
+from bootstrap import initialize, parse_arguments
 from danbooru import DanbooruClient
 from db import DB, run_migrations
 from scheme import UrlImportStatus
@@ -32,7 +33,7 @@ from server.images import ImageController
 from server.posts import PostController
 from server.statistics import StatisticsController
 from server.tags import TagsController
-from utils import initialize, logger, parse_arguments
+from shared import logger
 
 console = get_console()
 

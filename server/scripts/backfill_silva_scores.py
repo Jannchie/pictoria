@@ -38,12 +38,13 @@ sys.path.insert(0, str(SERVER_ROOT / "src"))
 from dotenv import load_dotenv
 
 import shared
+from bootstrap import initialize
 from db import DB, run_migrations
 from db.repositories.posts import PostRepo
 from db.repositories.vectors import VectorRepo
 from processors import run_silva_worker
 from progress import get_progress
-from utils import initialize, logger
+from shared import logger
 
 MIGRATIONS_DIR = SERVER_ROOT / "migrations"
 

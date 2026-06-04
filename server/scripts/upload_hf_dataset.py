@@ -51,9 +51,9 @@ SERVER_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(SERVER_ROOT / "src"))
 
 import shared
+from bootstrap import prepare_s3
 from progress import get_progress
 from services.s3 import get_s3_client
-from utils import prepare_s3
 
 if TYPE_CHECKING:
     from minio import Minio

@@ -16,7 +16,8 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
 import shared
-from utils import from_rating_to_int, logger, resolve_source
+from shared import logger
+from utils import from_rating_to_int, resolve_source
 
 if TYPE_CHECKING:
     from collections.abc import Callable
