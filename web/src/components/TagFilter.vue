@@ -5,6 +5,7 @@ import { useDebounce } from '@vueuse/core'
 import { computed, ref } from 'vue'
 import { v2GetPostsCount, v2GetTagCount } from '@/api'
 import { postFilter, queryKeys } from '@/shared'
+import { naturalizeTagName } from '@/utils'
 
 // Max tags fetched per query (top-N by count). The search box narrows the set
 // server-side, so rare tags outside this window stay reachable by typing.
@@ -74,6 +75,17 @@ const countMap = computed(() => {
   }
   return map
 })
+
+// 本地化显示名（来自 count 响应）；搜索/筛选仍以原始下划线名为准。
+const translationMap = computed(() => {
+  const map: Record<string, string> = {}
+  for (const d of countQuery.data.value ?? []) {
+    if (d.translated_name) {
+      map[d.tag_name] = d.translated_name
+    }
+  }
+  return map
+})
 const total = computed(() => postTotalQuery.data.value ?? 0)
 function pct(count: number): string {
   return total.value > 0 ? ((count / total.value) * 100).toFixed(1) : '0.0'
@@ -87,7 +99,7 @@ const tagRows = computed(() => {
 })
 
 const isLoading = computed(() => countQuery.isLoading.value)
-const btnText = computed(() => (selected.value.length === 0 ? 'Tags' : selected.value.join(', ')))
+const btnText = computed(() => (selected.value.length === 0 ? 'Tags' : selected.value.map(naturalizeTagName).join(', ')))
 </script>
 
 <template>
@@ -132,7 +144,10 @@ const btnText = computed(() => (selected.value.length === 0 ? 'Tags' : selected.
                 class="flex-shrink-0 pointer-events-none"
                 :model-value="has(tag)"
               />
-              <span class="flex-grow truncate">{{ tag }}</span>
+              <span class="flex-grow truncate">
+                {{ naturalizeTagName(tag) }}
+                <span v-if="translationMap[tag]" class="text-fg-subtle ml-0.5">{{ translationMap[tag] }}</span>
+              </span>
               <div
                 v-if="countMap[tag] || has(tag)"
                 class="font-mono inline-flex flex-shrink-0 tabular-nums"

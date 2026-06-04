@@ -347,6 +347,7 @@ export type TagBatchDelete = {
 export type TagCountItem = {
     tag_name: string;
     count: number;
+    translated_name?: string | null;
 };
 
 /**
@@ -430,6 +431,7 @@ export type TagGroupPublic = {
 export type TagPublic = {
     name: string;
     group?: TagGroupPublic | null;
+    translatedName?: string | null;
 };
 
 /**
@@ -445,6 +447,7 @@ export type TagUpdate = {
 export type TagWithCountPublic = {
     name: string;
     group?: TagGroupPublic | null;
+    translatedName?: string | null;
     count: number;
 };
 
@@ -454,6 +457,7 @@ export type TagWithCountPublic = {
 export type TagWithGroupPublic = {
     group?: TagGroupPublic | null;
     name: string;
+    translatedName?: string | null;
     updatedAt: string;
     createdAt: string;
 };

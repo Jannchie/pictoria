@@ -4,6 +4,7 @@ import { computed, ref } from 'vue'
 import { v2ListTagGroup, v2ListTags } from '@/api'
 import { commitTag } from '@/shared'
 import { queryKeys } from '@/shared/queryKeys'
+import { naturalizeTagName } from '@/utils'
 import { usePostQuery } from '../composables/usePostQuery'
 
 const props = defineProps<{
@@ -129,6 +130,13 @@ const showAddTag = computed(() => {
   return search.value !== '' && !tags.value?.some(tag => search.value === tag.name)
 })
 
+// 行文本：自然英文名为主（去下划线兜底），有翻译时附在后面。
+// 搜索 / 提交仍用原始下划线名。
+function tagLabel(name: string, translated: string | null | undefined): string {
+  const natural = naturalizeTagName(name)
+  return translated ? `${natural}（${translated}）` : natural
+}
+
 const currentHoverIndex = ref(-1)
 const initCurrentTagsRef = ref([])
 const currentGroupTagsRef = ref([])
@@ -169,9 +177,11 @@ onKeyStroke('ArrowUp', () => {
 
 onKeyStroke('Enter', () => {
   const reference = referenceList.value[currentHoverIndex.value]
+  // data-tag-name 携带原始下划线名 —— title 现在是本地化显示文本
+  // （自然英文＋中文注解），不能再当 tag 名提交。
   currentHoverIndex.value === 0 && showAddTag.value
     ? addTag(search.value)
-    : reference && onPointerUp(reference.title)
+    : reference && onPointerUp(reference.$el?.dataset?.tagName ?? reference.title)
 })
 const searchRef = ref(null)
 onKeyStroke(true, (e) => {
@@ -276,7 +286,8 @@ const searchingInitCurrentTags = computed(() => {
               ref="initCurrentTagsRef"
               v-highlight="search"
               class="cursor-pointer"
-              :title="tag.tagInfo.name"
+              :data-tag-name="tag.tagInfo.name"
+              :title="tagLabel(tag.tagInfo.name, tag.tagInfo.translatedName)"
               :active="currentTags.some(predicate => predicate.tagInfo.name === tag.tagInfo.name)"
               type="checkbox"
               :class="{
@@ -299,7 +310,8 @@ const searchingInitCurrentTags = computed(() => {
               ref="currentGroupTagsRef"
               v-highlight="search"
               class="cursor-pointer"
-              :title="tag.name"
+              :data-tag-name="tag.name"
+              :title="tagLabel(tag.name, tag.translatedName)"
               :active="currentTags.some(predicate => predicate.tagInfo.name === tag.name)"
               type="checkbox"
               :class="{

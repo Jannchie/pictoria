@@ -25,6 +25,7 @@ from server.exceptions import (
     TagNotOnPostError,
 )
 from services.intake import UploadIntake
+from services.tag_i18n import translate_tag
 from shared import MAX_POST_RATING, MAX_POST_SCORE
 from utils import calculate_arthash, calculate_sha256, create_thumbnail_by_image
 
@@ -71,6 +72,9 @@ class ExtensionCountItem:
 class TagCountItem:
     tag_name: str
     count: int
+    # Localised display name (None when no translation exists); ``tag_name``
+    # stays the canonical underscore form used for filtering.
+    translated_name: str | None = None
 
 
 @dataclass
@@ -267,7 +271,10 @@ class PostController(Controller):
     @litestar.post("/count/tags", status_code=200, description="Count posts per tag (searchable, top-N by count).")
     async def get_tag_count(self, post_query: PostQueryService, data: TagCountRequest) -> list[TagCountItem]:
         rows = await post_query.count_by_tag(data, query=data.query, limit=data.limit)
-        return [TagCountItem(tag_name=r["tag_name"], count=r["count"]) for r in rows]
+        return [
+            TagCountItem(tag_name=r["tag_name"], count=r["count"], translated_name=translate_tag(r["tag_name"]))
+            for r in rows
+        ]
 
     @litestar.post("/count/waifu", status_code=200, description="Count posts by waifu-score bucket (A/B/C/D/E/UNSCORED).")
     async def get_waifu_bucket_count(self, post_query: PostQueryService, data: PostFilter) -> list[WaifuBucketCountItem]:

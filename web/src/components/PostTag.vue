@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import type { PostHasTagPublic, TagWithCountPublic } from '@/api'
 import { computed } from 'vue'
+import { naturalizeTagName } from '@/utils'
 
 const props = defineProps<{
   data: TagWithCountPublic | PostHasTagPublic
@@ -31,7 +32,7 @@ const colorStyle = computed(() => {
   }
 })
 
-const label = computed(() => {
+const tagName = computed(() => {
   if (isTagWithCount(data.value)) {
     return data.value.name
   }
@@ -39,6 +40,17 @@ const label = computed(() => {
     return data.value.tagInfo.name
   }
   return ''
+})
+
+// 本地化显示名优先（后端 translatedName）；无翻译时兜底为去下划线的
+// 自然英文。hover title 始终展示原始下划线英文名，便于核对/复制。
+const label = computed(() => {
+  const translated = isTagWithCount(data.value)
+    ? data.value.translatedName
+    : isPostHasTag(data.value)
+      ? data.value.tagInfo.translatedName
+      : null
+  return translated ?? naturalizeTagName(tagName.value)
 })
 </script>
 
@@ -48,6 +60,7 @@ const label = computed(() => {
     tone="primary"
     size="sm"
     :style="colorStyle"
+    :title="tagName"
   >
     {{ label }}
   </PTag>

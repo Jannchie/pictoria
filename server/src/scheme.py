@@ -25,6 +25,9 @@ class TagGroupPublic(DTOBaseModel):
 class TagPublic(DTOBaseModel):
     name: str
     group: TagGroupPublic | None
+    # Localised display name (see services/tag_i18n.py); None when no
+    # translation exists. ``name`` stays the canonical underscore form.
+    translated_name: str | None = None
 
 
 class TagWithCountPublic(TagPublic):
@@ -34,6 +37,7 @@ class TagWithCountPublic(TagPublic):
 class TagWithGroupPublic(DTOBaseModel):
     group: TagGroupPublic | None
     name: str
+    translated_name: str | None = None
     updated_at: datetime
     created_at: datetime
 

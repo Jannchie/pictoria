@@ -9,6 +9,7 @@ from msgspec import Meta, Struct
 from db.repositories.tags import TagGroupRepo, TagRepo
 from scheme import Result, TagGroupPublic, TagPublic, TagWithCountPublic
 from server.exceptions import TagGroupNotFoundError, TagNameExistsError, TagNameNotFoundError
+from services.tag_i18n import translate_tag
 
 MAX_TAG_LENGTH = 200
 
@@ -53,7 +54,10 @@ class TagsController(Controller):
     ) -> list[TagWithCountPublic]:
         """List tags with post counts; cursor-paginated by tag name."""
         rows = await tag_repo.list_with_counts(prev=prev, limit=limit)
-        return [TagWithCountPublic.model_validate(r) for r in rows]
+        return [
+            TagWithCountPublic.model_validate({**r, "translated_name": translate_tag(r["name"])})
+            for r in rows
+        ]
 
     @litestar.put("/{name:str}")
     async def update_tag(self, tag_repo: TagRepo, tag_group_repo: TagGroupRepo, name: str, data: TagUpdate) -> TagPublic:
@@ -71,6 +75,7 @@ class TagsController(Controller):
         group_obj = await tag_group_repo.get(updated.group_id) if updated.group_id else None
         return TagPublic.model_validate({
             "name": updated.name,
+            "translated_name": translate_tag(updated.name),
             "group": (
                 {"id": group_obj.id, "name": group_obj.name, "color": group_obj.color}
                 if group_obj else None

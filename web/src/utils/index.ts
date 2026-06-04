@@ -25,4 +25,12 @@ export function getPostThumbnailURL(post: PostImageRef) {
   return buildPostImageURL('thumbnails', post)
 }
 
+/**
+ * 无本地化翻译时的展示兜底：把数据库的下划线 tag 名还原成自然英文
+ * （green_eyes → green eyes）。筛选 / API 调用仍必须用原始下划线名。
+ */
+export function naturalizeTagName(name: string): string {
+  return name.replaceAll('_', ' ')
+}
+
 export { default as highlightDirective } from './highlight'

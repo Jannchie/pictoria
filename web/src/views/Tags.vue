@@ -121,9 +121,7 @@ const tagGroupByFirstChar = computed(() => {
                     class="cursor-pointer"
                     rounded="lg"
                     :data="tag"
-                  >
-                    {{ tag.name }}
-                  </PostTag>
+                  />
                   <span class="text-xs text-fg-subtle tabular-nums">
                     {{ tag.count }}
                   </span>

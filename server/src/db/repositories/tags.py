@@ -7,6 +7,7 @@ from typing import TYPE_CHECKING
 
 from db.entities import Tag, TagGroup
 from db.helpers import fetch_all_as, fetch_all_dicts, fetch_one_as, sql_placeholders
+from services.tag_i18n import translate_tag
 
 if TYPE_CHECKING:
     import sqlite3
@@ -198,6 +199,7 @@ class TagRepo:
                     "is_auto": bool(r["is_auto"]),
                     "tag_info": {
                         "name": r["name"],
+                        "translated_name": translate_tag(r["name"]),
                         "created_at": r["created_at"],
                         "updated_at": r["updated_at"],
                         "group": (
