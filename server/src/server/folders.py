@@ -1,6 +1,7 @@
 import asyncio
 import os
 import pathlib
+import shutil
 from typing import ClassVar
 
 import litestar
@@ -9,6 +10,8 @@ from pydantic import BaseModel, Field
 
 import shared
 from db.queries.post_query import FolderScoreAgg, PostQueryService
+from db.repositories.posts import PostRepo
+from scheme import Result
 from server.exceptions import DirectoryNotFoundError, PathNotADirectoryError
 
 
@@ -93,3 +96,47 @@ class FoldersController(Controller):
         aggregates = await post_query.folder_score_aggregates()
         attach_folder_stats(summary, aggregates)
         return summary
+
+    @litestar.delete("/{folder_path:path}", status_code=200, tags=["Folder"])
+    async def delete_folder(self, posts: PostRepo, folder_path: str) -> Result:
+        """Delete a library folder: its posts (DB + files + thumbnails) and the dir tree.
+
+        Refuses the library root and anything resolving outside the library
+        (or into ``.pictoria``). DB rows go through ``PostRepo.delete_many`` so
+        the FK cascade, the manual vec0 cascade and the per-file unlink all
+        apply; the remaining tree (non-image files, empty dirs) is then removed
+        from disk. If the disk removal partially fails, the next sync re-imports
+        whatever survived — no orphaned DB rows either way.
+        """
+        folder = folder_path.strip("/")
+        base = shared.target_dir.resolve()
+        target = (shared.target_dir / folder).resolve()
+        if (
+            not folder
+            or folder in {".", "@"}
+            or target == base
+            or not target.is_relative_to(base)
+            or target.is_relative_to(shared.pictoria_dir.resolve())
+        ):
+            msg = f"Refusing to delete: {folder!r} is not a library folder."
+            raise PathNotADirectoryError(msg)
+        if not target.exists():
+            msg = f"Directory not found: {folder}"
+            raise DirectoryNotFoundError(msg)
+        if not target.is_dir():
+            msg = f"Not a directory: {folder}"
+            raise PathNotADirectoryError(msg)
+
+        ids = await posts.list_ids_in_folder(folder)
+        # Batch to stay clear of SQLite's bound-parameter limit on huge folders.
+        for i in range(0, len(ids), 500):
+            await posts.delete_many(ids[i : i + 500])
+
+        def _rm_trees() -> None:
+            # Thumbnails are best-effort; the main tree raises on failure so a
+            # locked file surfaces as a 500 instead of silently surviving.
+            shutil.rmtree(shared.thumbnails_dir / folder, ignore_errors=True)
+            shutil.rmtree(target)
+
+        await asyncio.to_thread(_rm_trees)
+        return Result(msg=f"Deleted folder {folder} ({len(ids)} posts)")

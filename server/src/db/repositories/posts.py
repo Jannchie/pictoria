@@ -81,6 +81,23 @@ class PostRepo:
 
         return await asyncio.to_thread(_impl)
 
+    async def list_ids_in_folder(self, folder: str) -> list[int]:
+        """Ids of every post stored directly in ``folder`` or any subfolder.
+
+        Exact-prefix semantics (``folder`` or ``folder/...``) — unlike the
+        gallery filter's looser ``GLOB folder*``, this never matches a sibling
+        directory that merely shares the name as a prefix (``art`` vs ``art2``).
+        """
+
+        def _impl() -> list[int]:
+            self.cur.execute(
+                "SELECT id FROM posts WHERE file_path = ? OR file_path GLOB ? ORDER BY id",
+                [folder, f"{folder}/*"],
+            )
+            return [r[0] for r in self.cur.fetchall()]
+
+        return await asyncio.to_thread(_impl)
+
     # ─── Mutation: single field ───────────────────────────────────────
     async def update_field(self, post_id: int, field: str, value: Any) -> bool:
         """Update a whitelisted scalar column. Returns ``True`` if a row matched.

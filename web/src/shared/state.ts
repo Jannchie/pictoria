@@ -1,5 +1,5 @@
 import type { PostSimplePublic } from '@/api'
-import { useLocalStorage, useStorage } from '@vueuse/core'
+import { useActiveElement, useLocalStorage, useStorage } from '@vueuse/core'
 import { computed, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 
@@ -208,6 +208,16 @@ export const showPostDetail = ref<PostSimplePublic | null>(null)
 // own "is my dialog open" flag.
 export const openDialogCount = ref(0)
 export const isAnyDialogOpen = computed(() => openDialogCount.value > 0)
+
+// Path of the folder-tree row that currently has keyboard focus (the tree's
+// RouterLinks carry data-tree-value; clicking one focuses it). While a tree
+// row is focused, the tree owns the keyboard — gallery/page hotkeys
+// (canHandle*Keys) stand down, so e.g. Delete targets the focused folder
+// instead of whatever posts are still selected in the gallery.
+const activeElement = useActiveElement()
+export const focusedTreeFolder = computed(() =>
+  activeElement.value?.dataset.treeValue ?? null,
+)
 
 // Ordered list of posts currently visible/in-context. Producers (MainSection,
 // Post page) write to this so keyboard navigation can move prev/next.

@@ -5,7 +5,7 @@ import { v2TouchPost } from '@/api'
 import ArthashPlaceholder from '@/components/ArthashPlaceholder.vue'
 import Dialog from '@/components/Dialog.vue'
 import PostDetail from '@/components/PostDetail.vue'
-import { bottomBarInfo, currentPostList, deletePosts, enableArthash, enableFancyPlaceholder, isAnyDialogOpen, selectedPostIdSet, showPostDetail, similarPostList } from '@/shared'
+import { bottomBarInfo, currentPostList, deletePosts, enableArthash, enableFancyPlaceholder, focusedTreeFolder, isAnyDialogOpen, selectedPostIdSet, showPostDetail, similarPostList } from '@/shared'
 import { POverlay } from '@/ui'
 import { getPostImageURL } from '@/utils'
 import { colorNumToHex } from '@/utils/color'
@@ -130,8 +130,9 @@ const notUsingInput = computed(() =>
   && activeElement.value?.tagName !== 'TEXTAREA')
 
 // 确认弹窗打开时，页面级快捷键全部让位：Enter/Escape 归 Dialog（确认/
-// 取消），否则 Enter 会顺手打开大图、Escape 会退回上一页。
-const canHandlePageKeys = computed(() => notUsingInput.value && !showPostDetail.value && !isAnyDialogOpen.value)
+// 取消），否则 Enter 会顺手打开大图、Escape 会退回上一页。侧边栏目录树
+// 行获得焦点时同样让位（Delete 归树，删除目录而不是选中的相似图）。
+const canHandlePageKeys = computed(() => notUsingInput.value && !showPostDetail.value && !isAnyDialogOpen.value && !focusedTreeFolder.value)
 
 function openOverlay() {
   const p = post.value

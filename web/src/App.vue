@@ -1,13 +1,15 @@
 <script setup lang="ts">
 import type { TreeListCollapseData, TreeListItemData, TreeListLeafData } from './roku/TreeList.vue'
 import type { DirectorySummary } from '@/api'
+import { useQueryClient } from '@tanstack/vue-query'
 import { Pane, Splitpanes } from 'splitpanes'
 import { computed, ref, watch } from 'vue'
 import { RouterLink, useRoute, useRouter } from 'vue-router'
+import { useAPIError } from '@/composables/useAPIError'
 import FolderStatsLine from './components/FolderStatsLine.vue'
 import { useGlobalUndoRedo, useWatchRoute } from './composables'
 import TreeList from './roku/TreeList.vue'
-import { menuData, showMenu, useCurrentFolder, useFoldersQuery, useSyncFilterWithUrl } from './shared'
+import { deleteFolder, focusedTreeFolder, isAnyDialogOpen, menuData, showMenu, useCurrentFolder, useFoldersQuery, useSyncFilterWithUrl } from './shared'
 import 'splitpanes/dist/splitpanes.css'
 
 useWatchRoute()
@@ -187,6 +189,78 @@ function openFolder() {
   closeMenu()
 }
 
+// ── 删除目录（树行获得焦点时按 Delete，或右键菜单） ──────────────────────
+const queryClient = useQueryClient()
+const { handle: handleAPIError } = useAPIError()
+const pendingDeleteFolder = ref<{ path: string, title: string, postCount: number } | null>(null)
+const isDeletingFolder = ref(false)
+
+function findFolderNode(items: TreeListItemData[], path: string): TreeListItemData | null {
+  for (const item of items) {
+    if ('value' in item && item.value === path) {
+      return item
+    }
+    if ('children' in item && item.children) {
+      const hit = findFolderNode(item.children, path)
+      if (hit) {
+        return hit
+      }
+    }
+  }
+  return null
+}
+
+function requestDeleteFolder(path: string | null | undefined) {
+  if (!path || path === '@') {
+    return // 根目录不可删
+  }
+  const node = findFolderNode(folderTree.value, path)
+  pendingDeleteFolder.value = {
+    path,
+    title: node?.title ?? path,
+    postCount: (node as TreeListLeafData | null)?.meta?.postCount ?? 0,
+  }
+}
+
+function onMenuDeleteFolder() {
+  const path = contextTarget.value?.value
+  closeMenu()
+  requestDeleteFolder(path)
+}
+
+// 点击树行会聚焦它的 RouterLink（data-tree-value）；此时 Delete 针对该目录，
+// 画廊的"删除选中图片"热键经 canHandleGridKeys 让位（见 shared/state.ts）。
+onKeyStroke('Delete', (e) => {
+  if (!focusedTreeFolder.value || isAnyDialogOpen.value) {
+    return
+  }
+  e.preventDefault()
+  requestDeleteFolder(focusedTreeFolder.value)
+})
+
+async function confirmDeleteFolder() {
+  const target = pendingDeleteFolder.value
+  if (!target || isDeletingFolder.value) {
+    return
+  }
+  isDeletingFolder.value = true
+  try {
+    await deleteFolder(queryClient, target.path)
+    // 正在浏览被删目录（或其子目录）时退回根，保留筛选 query。
+    const current = currentFolder.value
+    if (current === target.path || current.startsWith(`${target.path}/`)) {
+      router.push({ path: '/', query: route.query })
+    }
+    pendingDeleteFolder.value = null
+  }
+  catch (error) {
+    handleAPIError(error, `删除目录 ${target.title} 失败`)
+  }
+  finally {
+    isDeletingFolder.value = false
+  }
+}
+
 function clearFilter() {
   folderFilter.value = ''
 }
@@ -254,6 +328,7 @@ function splitHighlight(text: string, filter: string): HighlightPart[] {
         <ListItem
           title="删除目录"
           icon="i-tabler-folder-x"
+          @click="onMenuDeleteFolder"
         />
       </div>
     </FloatWindow>
@@ -529,6 +604,28 @@ function splitHighlight(text: string, filter: string): HighlightPart[] {
       </Pane>
     </Splitpanes>
     <BottomBar />
+    <POverlay
+      v-if="pendingDeleteFolder"
+      class="flex items-center justify-center"
+      @click.self="pendingDeleteFolder = null"
+    >
+      <Dialog
+        title="删除目录？"
+        :confirm-label="isDeletingFolder ? '删除中…' : '删除目录'"
+        cancel-label="取消"
+        variant="danger"
+        @confirm="confirmDeleteFolder"
+        @cancel="pendingDeleteFolder = null"
+      >
+        <p>
+          将永久删除目录
+          <span class="text-fg font-medium">{{ pendingDeleteFolder.title }}</span>
+          及其中的
+          <span class="text-fg font-medium tabular-nums">{{ pendingDeleteFolder.postCount }}</span>
+          张图片（含磁盘文件）。此操作不可撤销。
+        </p>
+      </Dialog>
+    </POverlay>
     <!-- Global toast outlet — useToast()/useAPIError() push here. -->
     <ToastSystem />
   </div>

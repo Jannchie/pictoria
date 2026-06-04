@@ -2109,6 +2109,39 @@ export type V2ListTagGroupResponses = {
 
 export type V2ListTagGroupResponse = V2ListTagGroupResponses[keyof V2ListTagGroupResponses];
 
+export type V2DeleteFolderData = {
+    body?: never;
+    path: {
+        folder_path: string;
+    };
+    query?: never;
+    url: '/v2/folders/{folder_path}';
+};
+
+export type V2DeleteFolderErrors = {
+    /**
+     * Validation Exception
+     */
+    400: {
+        status_code: number;
+        detail: string;
+        extra?: null | {
+            [key: string]: unknown;
+        } | Array<unknown>;
+    };
+};
+
+export type V2DeleteFolderError = V2DeleteFolderErrors[keyof V2DeleteFolderErrors];
+
+export type V2DeleteFolderResponses = {
+    /**
+     * Request fulfilled, document follows
+     */
+    200: Result;
+};
+
+export type V2DeleteFolderResponse = V2DeleteFolderResponses[keyof V2DeleteFolderResponses];
+
 export type V2GetFoldersData = {
     body?: never;
     path?: never;

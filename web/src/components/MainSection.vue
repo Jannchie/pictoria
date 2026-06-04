@@ -8,7 +8,7 @@ import { onBeforeRouteLeave, useRoute, useRouter } from 'vue-router'
 import { Waterfall } from 'vue-wf'
 import { v2SearchPostsByText } from '@/api'
 import Dialog from '@/components/Dialog.vue'
-import { commitRotate, commitScore, currentPostList, deletePosts, galleryScrollPositions, isAnyDialogOpen, postFilter, queryKeys, selectedPostIdSet, showPostDetail, textSearchQuery, useInfinityPostsQuery, waterfallRowCount } from '@/shared'
+import { commitRotate, commitScore, currentPostList, deletePosts, focusedTreeFolder, galleryScrollPositions, isAnyDialogOpen, postFilter, queryKeys, selectedPostIdSet, showPostDetail, textSearchQuery, useInfinityPostsQuery, waterfallRowCount } from '@/shared'
 import { POverlay } from '@/ui'
 import { isImageExtension } from '@/utils'
 
@@ -117,9 +117,10 @@ watchEffect(() => {
   currentPostList.value = posts.value
 })
 
-// Grid hotkeys stand down while a confirm dialog is open — Enter would
-// otherwise open the post detail instead of confirming the delete.
-const canHandleGridKeys = computed(() => notUsingInput.value && !showPostDetail.value && !isAnyDialogOpen.value)
+// Grid hotkeys stand down while a confirm dialog is open (Enter would
+// otherwise open the post detail instead of confirming the delete) and while
+// a folder-tree row has focus (Delete targets that folder, not the selection).
+const canHandleGridKeys = computed(() => notUsingInput.value && !showPostDetail.value && !isAnyDialogOpen.value && !focusedTreeFolder.value)
 
 function scrollSelectedIntoView(postId: number) {
   // Defer to next tick so the DOM has the selection update committed.

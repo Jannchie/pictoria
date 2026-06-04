@@ -4,6 +4,7 @@ import {
   v2AddTagToPost,
   v2BulkUpdatePostRating,
   v2BulkUpdatePostScore,
+  v2DeleteFolder,
   v2DeletePosts,
   v2MakePostCanonical,
   v2RemoveTagFromPost,
@@ -220,6 +221,21 @@ export async function deletePosts(qc: QueryClient, ids: number[]): Promise<void>
   qc.invalidateQueries({ queryKey: queryKeys.countRoot('extension') })
   qc.invalidateQueries({ queryKey: queryKeys.countRoot('tags') })
   qc.invalidateQueries({ queryKey: queryKeys.postsStatsRoot })
+}
+
+/** Delete a library folder (its posts, files and the directory tree). Not undoable. */
+export async function deleteFolder(qc: QueryClient, folder: string): Promise<void> {
+  await v2DeleteFolder({ path: { folder_path: folder } })
+  // A whole subtree of posts disappeared — refresh the tree, every post list
+  // and all the facet/stat counts (we don't know which ids were inside).
+  qc.invalidateQueries({ queryKey: queryKeys.folders })
+  qc.invalidateQueries({ queryKey: queryKeys.postsRoot })
+  qc.invalidateQueries({ queryKey: queryKeys.countRoot('score') })
+  qc.invalidateQueries({ queryKey: queryKeys.countRoot('rating') })
+  qc.invalidateQueries({ queryKey: queryKeys.countRoot('extension') })
+  qc.invalidateQueries({ queryKey: queryKeys.countRoot('tags') })
+  qc.invalidateQueries({ queryKey: queryKeys.postsStatsRoot })
+  qc.invalidateQueries({ queryKey: queryKeys.postCount })
 }
 
 // Near-duplicate grouping edits shift which posts are canonical/visible, so they
