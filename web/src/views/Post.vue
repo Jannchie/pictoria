@@ -5,7 +5,7 @@ import { v2TouchPost } from '@/api'
 import ArthashPlaceholder from '@/components/ArthashPlaceholder.vue'
 import Dialog from '@/components/Dialog.vue'
 import PostDetail from '@/components/PostDetail.vue'
-import { bottomBarInfo, currentPostList, deletePosts, enableArthash, enableFancyPlaceholder, selectedPostIdSet, showPostDetail, similarPostList } from '@/shared'
+import { bottomBarInfo, currentPostList, deletePosts, enableArthash, enableFancyPlaceholder, isAnyDialogOpen, selectedPostIdSet, showPostDetail, similarPostList } from '@/shared'
 import { POverlay } from '@/ui'
 import { getPostImageURL } from '@/utils'
 import { colorNumToHex } from '@/utils/color'
@@ -129,6 +129,10 @@ const notUsingInput = computed(() =>
   activeElement.value?.tagName !== 'INPUT'
   && activeElement.value?.tagName !== 'TEXTAREA')
 
+// 确认弹窗打开时，页面级快捷键全部让位：Enter/Escape 归 Dialog（确认/
+// 取消），否则 Enter 会顺手打开大图、Escape 会退回上一页。
+const canHandlePageKeys = computed(() => notUsingInput.value && !showPostDetail.value && !isAnyDialogOpen.value)
+
 function openOverlay() {
   const p = post.value
   if (!p) {
@@ -157,7 +161,7 @@ function navigatePost(delta: -1 | 1) {
 }
 
 onKeyStroke('Escape', (e) => {
-  if (!notUsingInput.value || showPostDetail.value) {
+  if (!canHandlePageKeys.value) {
     return
   }
   e.preventDefault()
@@ -165,7 +169,7 @@ onKeyStroke('Escape', (e) => {
 })
 
 onKeyStroke(['ArrowLeft', 'ArrowRight'], (e) => {
-  if (!notUsingInput.value || showPostDetail.value) {
+  if (!canHandlePageKeys.value) {
     return
   }
   e.preventDefault()
@@ -173,7 +177,7 @@ onKeyStroke(['ArrowLeft', 'ArrowRight'], (e) => {
 })
 
 onKeyStroke([' ', 'Enter'], (e) => {
-  if (!notUsingInput.value || showPostDetail.value) {
+  if (!canHandlePageKeys.value) {
     return
   }
   e.preventDefault()
@@ -190,7 +194,7 @@ const pendingDeleteIds = computed(() =>
 )
 
 onKeyStroke('Delete', (e) => {
-  if (!notUsingInput.value || showPostDetail.value || pendingDeleteIds.value.length === 0) {
+  if (!canHandlePageKeys.value || pendingDeleteIds.value.length === 0) {
     return
   }
   e.preventDefault()

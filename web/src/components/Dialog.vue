@@ -1,4 +1,6 @@
 <script setup lang="ts">
+import { openDialogCount } from '@/shared'
+
 withDefaults(defineProps<{
   title?: string
   confirmLabel?: string
@@ -12,6 +14,34 @@ const emit = defineEmits<{
   confirm: []
   cancel: []
 }>()
+
+// Modal keyboard affordance: Enter = confirm, Escape = cancel. The confirm
+// button is focused on mount so Enter/Space activate it natively; the window
+// handlers below cover focus drifting back to <body> (e.g. after clicking
+// the dialog text). When a button inside the dialog IS focused, Enter
+// already clicks it — skip the fallback so a focused Cancel isn't overridden
+// and confirm can't double-fire.
+const confirmButton = ref<{ $el?: HTMLElement } | null>(null)
+onMounted(() => confirmButton.value?.$el?.focus())
+
+// While any Dialog is mounted, page-level hotkey guards (canHandle*Keys)
+// stand down via this shared count — the handlers below can't swallow other
+// window-level onKeyStroke listeners, so the gating happens at their guards.
+onMounted(() => openDialogCount.value++)
+onUnmounted(() => openDialogCount.value--)
+
+onKeyStroke('Enter', (e) => {
+  if (e.target instanceof HTMLElement && e.target.tagName === 'BUTTON') {
+    return
+  }
+  e.preventDefault()
+  emit('confirm')
+})
+
+onKeyStroke('Escape', (e) => {
+  e.preventDefault()
+  emit('cancel')
+})
 </script>
 
 <template>
@@ -40,6 +70,7 @@ const emit = defineEmits<{
       </PButton>
       <PButton
         v-if="confirmLabel"
+        ref="confirmButton"
         :variant="variant"
         @click="emit('confirm')"
       >

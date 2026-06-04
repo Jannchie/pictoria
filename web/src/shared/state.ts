@@ -173,6 +173,15 @@ export function openTagSelectorWindow() {
 
 export const showPostDetail = ref<PostSimplePublic | null>(null)
 
+// Count of mounted <Dialog> modals — Dialog.vue increments/decrements on
+// mount/unmount. Pages gate their global onKeyStroke hotkeys on this
+// (see canHandle*Keys): Dialog's own Enter/Escape handlers can't swallow
+// other window-level listeners, so the standing-down has to happen at each
+// listener's guard, and a shared count beats every caller hand-tracking its
+// own "is my dialog open" flag.
+export const openDialogCount = ref(0)
+export const isAnyDialogOpen = computed(() => openDialogCount.value > 0)
+
 // Ordered list of posts currently visible/in-context. Producers (MainSection,
 // Post page) write to this so keyboard navigation can move prev/next.
 export const currentPostList = ref<PostSimplePublic[]>([])

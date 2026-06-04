@@ -8,7 +8,7 @@ import { onBeforeRouteLeave, useRoute, useRouter } from 'vue-router'
 import { Waterfall } from 'vue-wf'
 import { v2SearchPostsByText } from '@/api'
 import Dialog from '@/components/Dialog.vue'
-import { commitRotate, commitScore, currentPostList, deletePosts, galleryScrollPositions, postFilter, queryKeys, selectedPostIdSet, showPostDetail, textSearchQuery, useInfinityPostsQuery, waterfallRowCount } from '@/shared'
+import { commitRotate, commitScore, currentPostList, deletePosts, galleryScrollPositions, isAnyDialogOpen, postFilter, queryKeys, selectedPostIdSet, showPostDetail, textSearchQuery, useInfinityPostsQuery, waterfallRowCount } from '@/shared'
 import { POverlay } from '@/ui'
 import { isImageExtension } from '@/utils'
 
@@ -117,7 +117,9 @@ watchEffect(() => {
   currentPostList.value = posts.value
 })
 
-const canHandleGridKeys = computed(() => notUsingInput.value && !showPostDetail.value)
+// Grid hotkeys stand down while a confirm dialog is open — Enter would
+// otherwise open the post detail instead of confirming the delete.
+const canHandleGridKeys = computed(() => notUsingInput.value && !showPostDetail.value && !isAnyDialogOpen.value)
 
 function scrollSelectedIntoView(postId: number) {
   // Defer to next tick so the DOM has the selection update committed.
@@ -388,15 +390,18 @@ const menuData = computed<PMenuItem[]>(() => {
 })
 
 const showDeleteConfirm = ref(false)
-const pendingDeleteCount = ref(0)
+// Snapshot the ids when the dialog opens (instead of re-reading the live
+// selection on confirm) so the count shown is exactly what gets deleted, even
+// if the selection changes while the dialog is up (e.g. Ctrl+A still works).
+const pendingDeleteIds = ref<number[]>([])
 const isDeleting = ref(false)
 
 function requestDelete() {
-  const count = [...selectedPostIdSet.value].filter(id => id !== undefined).length
-  if (count === 0) {
+  const ids = [...selectedPostIdSet.value].filter((id): id is number => typeof id === 'number')
+  if (ids.length === 0) {
     return
   }
-  pendingDeleteCount.value = count
+  pendingDeleteIds.value = ids
   showDeleteConfirm.value = true
 }
 
@@ -404,7 +409,7 @@ async function confirmDelete() {
   if (isDeleting.value) {
     return
   }
-  const ids = [...selectedPostIdSet.value].filter(id => id !== undefined) as number[]
+  const ids = pendingDeleteIds.value
   if (ids.length === 0) {
     showDeleteConfirm.value = false
     return
@@ -601,7 +606,7 @@ onMounted(() => {
     >
       <Dialog
         title="Delete selected posts?"
-        :confirm-label="isDeleting ? 'Deleting…' : `Delete ${pendingDeleteCount}`"
+        :confirm-label="isDeleting ? 'Deleting…' : `Delete ${pendingDeleteIds.length}`"
         cancel-label="Cancel"
         variant="danger"
         @confirm="confirmDelete"
@@ -609,8 +614,8 @@ onMounted(() => {
       >
         <p>
           This will permanently delete
-          <span class="text-fg font-medium tabular-nums">{{ pendingDeleteCount }}</span>
-          post<span v-if="pendingDeleteCount !== 1">s</span>. This cannot be undone.
+          <span class="text-fg font-medium tabular-nums">{{ pendingDeleteIds.length }}</span>
+          post<span v-if="pendingDeleteIds.length !== 1">s</span>. This cannot be undone.
         </p>
       </Dialog>
     </POverlay>
