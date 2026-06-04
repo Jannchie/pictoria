@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import type { TreeListCollapseData, TreeListItemData, TreeListLeafData } from './roku/TreeList.vue'
+import type { TreeListCollapseData, TreeListItemData, TreeListLeafData } from './components/TreeList.vue'
 import type { DirectorySummary } from '@/api'
 import { useQueryClient } from '@tanstack/vue-query'
 import { Pane, Splitpanes } from 'splitpanes'
@@ -7,8 +7,8 @@ import { computed, ref, watch } from 'vue'
 import { RouterLink, useRoute, useRouter } from 'vue-router'
 import { useAPIError } from '@/composables/useAPIError'
 import FolderStatsLine from './components/FolderStatsLine.vue'
+import TreeList from './components/TreeList.vue'
 import { useGlobalUndoRedo, useWatchRoute } from './composables'
-import TreeList from './roku/TreeList.vue'
 import { deleteFolder, focusedTreeFolder, isAnyDialogOpen, menuData, showMenu, useCurrentFolder, useFoldersQuery, useSyncFilterWithUrl } from './shared'
 import 'splitpanes/dist/splitpanes.css'
 
