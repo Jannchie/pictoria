@@ -1,9 +1,8 @@
-import json
 import logging
 import threading
 import typing
 from pathlib import Path
-from typing import Literal, Optional
+from typing import Optional
 
 from PIL import ImageFile
 from rich import get_console
@@ -31,8 +30,6 @@ for _noisy in ("httpx", "huggingface_hub", "urllib3", "filelock"):
 target_dir = Path()
 pictoria_dir = Path()
 thumbnails_dir = Path()
-should_watch = True
-stop_event = threading.Event()
 
 # Set by the Litestar lifespan when the process is shutting down. Long-running
 # loops (the backfill workers in particular) poll this between batches and bail
@@ -65,23 +62,6 @@ def get_logger():
     return logger
 
 
-class I18N:
-    def __init__(self) -> None:
-        self.data = {}
-
-    def t(self, lang: Literal["zh-Hans", "en"], key: str, default: str | None = None) -> str:
-        if lang not in self.data:
-            try:
-                with Path(f"data/tag.{lang}.json").open(encoding="utf-8") as file:
-                    self.data[lang] = json.load(file)
-            except FileNotFoundError:
-                self.data[lang] = {}
-        if default == "":
-            default = key
-        return self.data[lang].get(key, default) or key
-
-
-i18n = I18N()
 logger = get_logger()
 
 

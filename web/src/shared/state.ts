@@ -179,7 +179,6 @@ export const waterfallRowCount = useStorage('pictoria.waterfallRowCount', 4)
 export const selectedPostIdSet = ref<Set<number | undefined>>(new Set())
 export const selectingPostIdSet = ref<Set<number | undefined>>(new Set())
 export const unselectedPostIdSet = ref<Set<number | undefined>>(new Set())
-export const currentPath = ref<string | symbol>('')
 export const hideNSFW = useStorage('pictoria.hideNSFW', false)
 // When off, image placeholders fall back to a plain opacity fade-in instead
 // of the per-shape arthash dissolve. Useful on low-end GPUs or when the

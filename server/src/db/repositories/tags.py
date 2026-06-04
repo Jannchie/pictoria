@@ -155,26 +155,6 @@ class TagRepo:
 
         return await asyncio.to_thread(_impl)
 
-    async def set_tags_bulk(self, post_id: int, tag_names: list[str], *, is_auto: bool) -> None:
-        """Insert tag rows + post_has_tag rows, ignoring duplicates."""
-        if not tag_names:
-            return
-
-        is_auto_int = 1 if is_auto else 0
-
-        def _impl() -> None:
-            self.cur.executemany(
-                "INSERT INTO tags(name) VALUES(?) ON CONFLICT DO NOTHING",
-                [(name,) for name in tag_names],
-            )
-            self.cur.executemany(
-                "INSERT INTO post_has_tag(post_id, tag_name, is_auto) VALUES(?, ?, ?) "
-                "ON CONFLICT DO NOTHING",
-                [(post_id, name, is_auto_int) for name in tag_names],
-            )
-
-        await asyncio.to_thread(_impl)
-
     def fetch_tags_by_ids(self, ids: list[int]) -> dict[int, list[dict]]:
         """Batch-fetch tags per post, ordered by canonical group then name.
 
@@ -245,17 +225,6 @@ class TagGroupRepo:
                 "SELECT id, name, parent_id, color, created_at, updated_at "
                 "FROM tag_groups WHERE id = ?",
                 [group_id],
-            )
-            return fetch_one_as(self.cur, TagGroup)
-
-        return await asyncio.to_thread(_impl)
-
-    async def get_by_name(self, name: str) -> TagGroup | None:
-        def _impl() -> TagGroup | None:
-            self.cur.execute(
-                "SELECT id, name, parent_id, color, created_at, updated_at "
-                "FROM tag_groups WHERE name = ?",
-                [name],
             )
             return fetch_one_as(self.cur, TagGroup)
 

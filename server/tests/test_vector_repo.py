@@ -58,20 +58,7 @@ class TestUpsertAndGet:
         assert await vec_repo.get(999) is None
 
 
-class TestSimilar:
-    async def test_similar_orders_by_distance(self, vec_repo: VectorRepo) -> None:
-        # Two posts share axis 0 (close), one is orthogonal (far).
-        await vec_repo.upsert(1, _unit_vec(0))
-        await vec_repo.upsert(2, _unit_vec(0))
-        await vec_repo.upsert(3, _unit_vec(100))
-
-        sims = await vec_repo.similar(_unit_vec(0), limit=3, skip_self=False)
-        ids = [s.post_id for s in sims]
-        # The two identical vectors come first (ties broken arbitrarily by
-        # vec0 — we only assert they're not the orthogonal one).
-        assert set(ids[:2]) == {1, 2}
-        assert ids[2] == 3
-
+class TestSimilarToPost:
     async def test_similar_to_post_skips_source(self, vec_repo: VectorRepo) -> None:
         # similar_to_post should never return the source id back.
         await vec_repo.upsert(1, _unit_vec(0))

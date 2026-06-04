@@ -22,10 +22,6 @@ class TagUpdate(Struct):
     group_id: int | None = None
 
 
-class TagDelete(Struct):
-    name: Annotated[str, Meta(min_length=1, max_length=MAX_TAG_LENGTH)]
-
-
 class TagBatchDelete(Struct):
     name_list: Annotated[list[Annotated[str, Meta(max_length=MAX_TAG_LENGTH)]], Meta(min_length=1)]
 

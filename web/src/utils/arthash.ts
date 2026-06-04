@@ -2,7 +2,7 @@ import { codec, init, toSvg } from 'arthash'
 
 // Must match the server-side codec in server/src/utils.py
 // (Codec.rect(n=32) → ~180-byte axis-aligned rectangle mosaic, 33 elements).
-export const arthashCodec = codec.rect({ n: 32 })
+const arthashCodec = codec.rect({ n: 32 })
 
 let initPromise: Promise<void> | null = null
 

@@ -74,7 +74,7 @@ export function captureOldValues<P extends { id: number }, T>(
 
 // ---- 应用层：写 SDK + 复用乐观 patch + invalidate（apply / revert 共用）----
 
-export async function writeScore(qc: QueryClient, ids: number[], score: number): Promise<void> {
+async function writeScore(qc: QueryClient, ids: number[], score: number): Promise<void> {
   if (ids.length === 0) {
     return
   }
@@ -101,7 +101,7 @@ export async function writeScore(qc: QueryClient, ids: number[], score: number):
   })
 }
 
-export async function writeRating(qc: QueryClient, ids: number[], rating: number): Promise<void> {
+async function writeRating(qc: QueryClient, ids: number[], rating: number): Promise<void> {
   if (ids.length === 0) {
     return
   }
@@ -125,17 +125,17 @@ export async function writeRating(qc: QueryClient, ids: number[], rating: number
   })
 }
 
-export async function writeCaption(qc: QueryClient, id: number, caption: string): Promise<void> {
+async function writeCaption(qc: QueryClient, id: number, caption: string): Promise<void> {
   await v2UpdatePostCaption({ path: { post_id: id }, query: { caption } })
   qc.invalidateQueries({ queryKey: queryKeys.post(id) })
 }
 
-export async function writeSource(qc: QueryClient, id: number, source: string): Promise<void> {
+async function writeSource(qc: QueryClient, id: number, source: string): Promise<void> {
   await v2UpdatePostSource({ path: { post_id: id }, query: { source } })
   qc.invalidateQueries({ queryKey: queryKeys.post(id) })
 }
 
-export async function writeTag(qc: QueryClient, id: number, tagName: string, add: boolean): Promise<void> {
+async function writeTag(qc: QueryClient, id: number, tagName: string, add: boolean): Promise<void> {
   await (add ? v2AddTagToPost({ path: { post_id: id, tag_name: tagName } }) : v2RemoveTagFromPost({ path: { post_id: id, tag_name: tagName } }))
   qc.invalidateQueries({ queryKey: queryKeys.post(id) })
   qc.invalidateQueries({ queryKey: queryKeys.tags })
@@ -144,7 +144,7 @@ export async function writeTag(qc: QueryClient, id: number, tagName: string, add
   qc.invalidateQueries({ queryKey: queryKeys.countRoot('tags') })
 }
 
-export async function writeRotate(qc: QueryClient, id: number, clockwise: boolean): Promise<void> {
+async function writeRotate(qc: QueryClient, id: number, clockwise: boolean): Promise<void> {
   await v2RotatePostImage({ path: { post_id: id }, query: { clockwise } })
   qc.invalidateQueries({ queryKey: queryKeys.post(id) })
   qc.invalidateQueries({ queryKey: queryKeys.postsRoot })

@@ -110,47 +110,6 @@ class VectorRepo:
 
         await asyncio.to_thread(_impl)
 
-    async def delete(self, post_id: int) -> None:
-        def _impl() -> None:
-            self.cur.execute(
-                f"DELETE FROM {self.table} WHERE post_id = ?",  # noqa: S608
-                [post_id],
-            )
-
-        await asyncio.to_thread(_impl)
-
-    async def similar(
-        self,
-        embedding: np.ndarray | list[float],
-        *,
-        limit: int = 100,
-        skip_self: bool = True,
-    ) -> list[SimilarImageResult]:
-        """Top-N similar posts ordered by cosine distance ascending."""
-        emb = embedding if isinstance(embedding, list) else embedding.tolist()
-        if len(emb) != self.dim:
-            msg = f"{self.table}: expected dim {self.dim}, got {len(emb)}"
-            raise ValueError(msg)
-        blob = sqlite_vec.serialize_float32(emb)
-        fetch_limit = limit + (1 if skip_self else 0)
-
-        def _impl() -> list[SimilarImageResult]:
-            self.cur.execute(
-                f"""
-                SELECT post_id, distance
-                FROM {self.table}
-                WHERE embedding MATCH ? AND k = ?
-                ORDER BY distance
-                """,  # noqa: S608
-                [blob, fetch_limit],
-            )
-            rows = fetch_all_dicts(self.cur)
-            if skip_self and rows:
-                rows = rows[1:]
-            return [SimilarImageResult(**r) for r in rows[:limit]]
-
-        return await asyncio.to_thread(_impl)
-
     async def similar_to_post(
         self,
         post_id: int,

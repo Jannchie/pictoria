@@ -45,19 +45,6 @@ class ScoreRepo:
         await asyncio.to_thread(_impl)
 
     # ─── Aesthetic scores (generic per-scorer table) ─────────────────
-    async def get_aesthetic_scores(self, post_id: int) -> list[dict]:
-        """Return ``[{"scorer": str, "score": float}, ...]`` for a post."""
-
-        def _impl() -> list[dict]:
-            self.cur.execute(
-                "SELECT scorer, score FROM post_aesthetic_scores "
-                "WHERE post_id = ? ORDER BY scorer",
-                [post_id],
-            )
-            return [{"scorer": r[0], "score": float(r[1])} for r in self.cur.fetchall()]
-
-        return await asyncio.to_thread(_impl)
-
     async def get_aesthetic_score(self, post_id: int, scorer: str) -> float | None:
         def _impl() -> float | None:
             self.cur.execute(

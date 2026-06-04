@@ -6,9 +6,7 @@ import time
 from datetime import datetime
 from logging import getLogger
 from pathlib import Path
-from threading import Thread
-from types import TracebackType
-from typing import Literal, Self
+from typing import Literal
 
 import httpx
 from pydantic import BaseModel, HttpUrl
@@ -329,13 +327,6 @@ class DanbooruClient:
         logger.warning("All %d attempts to download post %s failed", retries, post_id)
         return "failed"
 
-    def download_by_id(self, post_id: int, target_dir: str) -> None:
-        post = self.get_post(post_id)
-        if not post:
-            logger.warning("Post %s not found", post_id)
-            return
-        Thread(target=self.download_image, args=(post, target_dir)).start()
-
     def download_posts(
         self,
         posts: list[DanbooruPost],
@@ -360,40 +351,3 @@ class DanbooruClient:
                     stats["failed"] += 1
         logger.info("Download completed: %s", stats)
         return stats
-
-
-class Downloader:
-    def __init__(self, n_workers: int = 4) -> None:
-        self.n_workers: int = n_workers
-        self.executor: concurrent.futures.ThreadPoolExecutor | None = None
-
-    def __enter__(self) -> Self:
-        self.executor = concurrent.futures.ThreadPoolExecutor(max_workers=self.n_workers)
-        return self
-
-    def __exit__(
-        self,
-        exc_type: type[BaseException] | None,
-        exc_val: BaseException | None,
-        exc_tb: TracebackType | None,
-    ) -> None:
-        if self.executor is not None:
-            self.executor.shutdown(wait=True)
-
-    def download(self, url: str, target_path: os.PathLike) -> concurrent.futures.Future:
-        true_target_path: Path = Path(target_path)
-        true_target_path.parent.mkdir(parents=True, exist_ok=True)
-        if not self.executor:
-            msg = "Downloader must be used as a context manager"
-            raise RuntimeError(msg)
-        return self.executor.submit(self._download_single, url, true_target_path)
-
-    def _download_single(self, url: str, target_path: Path) -> None:
-        try:
-            response = httpx.get(url, headers={"User-Agent": "curl/8.5.0"})
-            response.raise_for_status()
-            with target_path.open("wb") as file:
-                file.write(response.content)
-            logger.debug("Downloaded {url}")
-        except Exception:
-            logger.exception("Failed to download {url}")

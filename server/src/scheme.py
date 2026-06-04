@@ -31,14 +31,6 @@ class TagWithCountPublic(TagPublic):
     count: int
 
 
-class TagGroupTagPublic(DTOBaseModel):
-    name: str
-
-
-class TagGroupWithTagsPublic(DTOBaseModel):
-    tags: list["TagPublic"]
-
-
 class TagWithGroupPublic(DTOBaseModel):
     group: TagGroupPublic | None
     name: str

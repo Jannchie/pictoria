@@ -315,28 +315,6 @@ class TestTagAssociation:
         assert await tag_repo.remove_tag(1, "artist_a") is True
         assert await tag_repo.remove_tag(1, "artist_a") is False
 
-    async def test_set_tags_bulk_creates_new(self, tag_repo: TagRepo, query: PostQueryService) -> None:
-        # Empty input is a no-op (avoid driver-specific executemany([]) quirks).
-        await tag_repo.set_tags_bulk(2, [], is_auto=True)
-
-        await tag_repo.set_tags_bulk(2, ["bulk_a", "bulk_b", "bulk_c"], is_auto=True)
-        d = await query.get_detail(2)
-        assert d is not None
-        names_with_flag = {(t["tag_info"]["name"], t["is_auto"]) for t in d["tags"]}
-        assert ("bulk_a", True) in names_with_flag
-        assert ("bulk_b", True) in names_with_flag
-        assert ("bulk_c", True) in names_with_flag
-
-    async def test_set_tags_bulk_idempotent_on_conflict(self, tag_repo: TagRepo, query: PostQueryService) -> None:
-        # Re-applying the same bulk set should not raise and should not flip
-        # the is_auto flag on rows that already exist as manual tags.
-        await tag_repo.set_tags_bulk(1, ["artist_a", "tag_general"], is_auto=True)
-        d = await query.get_detail(1)
-        assert d is not None
-        flags = {t["tag_info"]["name"]: t["is_auto"] for t in d["tags"]}
-        # artist_a was already auto=1; tag_general was already auto=0; both stay.
-        assert flags == {"artist_a": True, "tag_general": False}
-
 
 # ─── scores ──────────────────────────────────────────────────────────────────
 class TestScores:
@@ -353,9 +331,6 @@ class TestScores:
     async def test_get_aesthetic_score(self, score_repo: ScoreRepo) -> None:
         assert await score_repo.get_aesthetic_score(4, "silva") == 0.4
         assert await score_repo.get_aesthetic_score(2, "silva") is None
-
-    async def test_get_aesthetic_scores_list(self, score_repo: ScoreRepo) -> None:
-        assert await score_repo.get_aesthetic_scores(5) == [{"scorer": "silva", "score": 0.9}]
 
     async def test_upsert_aesthetic_score(self, score_repo: ScoreRepo) -> None:
         await score_repo.upsert_aesthetic_score(2, "silva", 5.0)

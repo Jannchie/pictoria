@@ -7,28 +7,11 @@ import PIL.Image
 from diffusers.utils.loading_utils import load_image
 from openai import OpenAI
 from rich import get_console
-from wdtagger import Tagger
 
 console = get_console()
 
 
-class BaseAnnotator:
-    def annotate_image(self, image_path: Path) -> str:
-        msg = f"Annotating the image at: {image_path}"
-        raise NotImplementedError(msg)
-
-
-class WDTaggerAnnotator(BaseAnnotator):
-    def __init__(self) -> None:
-        self.tagger = Tagger()
-
-    def annotate_image(self, image_path: Path) -> str:
-        image = load_image(image_path.as_posix())
-        tagger_resp = self.tagger.tag(image)
-        return tagger_resp.all_tags_string
-
-
-class OpenAIImageAnnotator(BaseAnnotator):
+class OpenAIImageAnnotator:
     MODEL = "gpt-4.1-nano"
 
     def __init__(self, api_key: str) -> None:

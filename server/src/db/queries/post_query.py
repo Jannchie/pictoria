@@ -173,22 +173,7 @@ class PostQueryService:
 
         return await asyncio.to_thread(_impl)
 
-    async def get_simple_by_id(self, post_id: int) -> dict | None:
-        def _impl() -> dict | None:
-            self.cur.execute(
-                f"SELECT {SIMPLE_POST_COLUMNS} FROM posts WHERE id = ?",  # noqa: S608
-                [post_id],
-            )
-            post = fetch_one_dict(self.cur)
-            if post is None:
-                return None
-            _decode_dominant_colors_in([post])
-            colors = self._colors.fetch_by_ids([post_id]).get(post_id, [])
-            return {**post, "colors": colors}
-
-        return await asyncio.to_thread(_impl)
-
-    # 笏笏笏 Read many 笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏
+    #笏笏笏 Read many 笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏
     async def list_paginated(self, start: int, limit: int) -> tuple[list[dict], int | None]:
         """Return ``(items_as_detail_dicts, next_cursor)``.
 

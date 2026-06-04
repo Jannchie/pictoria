@@ -37,10 +37,6 @@ def rgb2int(rgb: tuple[int, int, int]) -> int:
     return (rgb[0] << 16) + (rgb[1] << 8) + rgb[2]
 
 
-def int2rgb(i: int) -> tuple[int, int, int]:
-    return (i >> 16, (i >> 8) & 0xFF, i & 0xFF)
-
-
 def show_palette(palette: tuple[tuple[int, int, int]]) -> None:
     # Convert the list of tuples into a numpy array
     np_palette = np.array(palette, dtype=np.uint8)
@@ -53,10 +49,6 @@ def show_palette(palette: tuple[tuple[int, int, int]]) -> None:
     ax.imshow(np_palette)
     ax.axis("off")  # Turn off the axis
     plt.show()
-
-
-def get_palette_ints(image: ImageSource, *, colors: int = 5) -> tuple[int, ...]:
-    return tuple(rgb2int(rgb) for rgb in get_palette(image, colors=colors))
 
 
 if __name__ == "__main__":

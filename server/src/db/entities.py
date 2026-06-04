@@ -90,23 +90,3 @@ POST_COLUMNS = (
     "sha256, size, source, caption, dominant_color, arthash, "
     "canonical_post_id, created_at, updated_at"
 )
-
-
-# ---------- post_has_tag --------------------------------------------
-class PostHasTag(_Entity):
-    post_id: int
-    tag_name: str
-    is_auto: bool = False
-
-
-# ---------- post_has_color ------------------------------------------
-class PostHasColor(_Entity):
-    post_id: int
-    order: int
-    color: int
-
-
-# ---------- post_waifu_scores ---------------------------------------
-class PostWaifuScore(_Entity):
-    post_id: int
-    score: float = 0.0

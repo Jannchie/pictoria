@@ -429,33 +429,3 @@ class PostRepo:
             return post
 
         return await asyncio.to_thread(_impl)
-
-    async def upsert_from_danbooru(  # noqa: PLR0913
-        self,
-        *,
-        file_path: str,
-        file_name: str,
-        extension: str,
-        source: str,
-        rating: int,
-        published_at: Any,
-    ) -> int | None:
-        """INSERT or UPDATE-source-and-published-at; return the post id."""
-
-        def _impl() -> int | None:
-            self.cur.execute(
-                """
-                INSERT INTO posts(file_path, file_name, extension, source, rating, published_at)
-                VALUES (?, ?, ?, ?, ?, ?)
-                ON CONFLICT (file_path, file_name, extension)
-                DO UPDATE SET source = excluded.source,
-                              published_at = excluded.published_at,
-                              updated_at = CURRENT_TIMESTAMP
-                RETURNING id
-                """,
-                [file_path, file_name, extension, source, rating, published_at],
-            )
-            row = self.cur.fetchone()
-            return int(row[0]) if row else None
-
-        return await asyncio.to_thread(_impl)

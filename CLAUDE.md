@@ -67,9 +67,6 @@ cd server
 
 # Inspect a DB file:
 uv run python scripts/inspect_db.py
-
-# Clean junk tags (legacy maintenance):
-uv run python scripts/tags/clean_tags.py
 ```
 
 ## Architecture
@@ -99,12 +96,11 @@ uv run python scripts/tags/clean_tags.py
 
 - **src/App.vue**: Root component with 3-panel splitpanes layout
 - **src/views/**: Page components (Home, Post, Settings, etc.)
-- **src/components/**: Reusable feature/UI components
+- **src/components/**: Reusable feature/UI components (incl. the virtualised `TreeList` powering the sidebar folder tree)
 - **src/ui/**: In-house design-system primitives (`PButton`, `PInput`, `PMenu`, `PSwitch`, …) styled with `--p-*` CSS variables + scoped styles; auto-registered alongside `src/components` (these replaced the former `@roku-ui` dependency)
 - **src/api/**: Auto-generated API client from OpenAPI schema
 - **src/composables/**: Vue composables for shared logic
 - **src/shared/**: Global state and utilities
-- **src/roku/**: Larger in-house components (`TreeList`, `Collapse`, `Image`, `AutoHeightTransition`)
 
 ### Key Patterns
 

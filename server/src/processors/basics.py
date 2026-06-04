@@ -248,9 +248,9 @@ def _extract_colors(
     """Return (palette_ints, dominant_color_lab, error) from a decoded image.
 
     ColorThief's ``get_color`` is literally ``get_palette(...)[0]``, so the
-    previous "call get_palette_ints then call get_dominant_color" sequence
-    was doing the median-cut clustering twice. Compute the palette once,
-    derive both outputs from it.
+    previous separate palette + dominant-color calls were doing the
+    median-cut clustering twice. Compute the palette once, derive both
+    outputs from it.
 
     The third tuple element is the colorthief error message when extraction
     failed (e.g. ``vbox1 not defined`` on degenerate single-colour images),
