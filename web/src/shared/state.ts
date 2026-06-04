@@ -56,26 +56,81 @@ const ARRAY_FILTERS: { key: keyof PostFilter & string, numeric?: boolean, encode
   { key: 'silva_score_levels' },
 ]
 
-// Sync postFilter with URL query parameters
+// Sync postFilter with URL query parameters. Must be mounted on a component
+// that survives route changes (App.vue) — the URL→filter watcher below has to
+// observe every navigation, and the filter→URL one re-projects after each
+// path change.
 export function useSyncFilterWithUrl() {
   const route = useRoute()
   const router = useRouter()
 
+  // URL → filter. Registered FIRST: both watchers can fire in the same flush
+  // (a navigation changes path and query together), and within one flush
+  // callbacks run in registration order — the URL must be read into the
+  // filter state before the projection below writes filter state back out,
+  // or a fresh page load's query would be overwritten from the still-empty
+  // filters. Keys absent from the URL leave the filter untouched (state is
+  // the source of truth across navigations).
+  watch(() => route.query, (newQuery) => {
+    for (const { key, numeric, encode } of ARRAY_FILTERS) {
+      if (newQuery[key] !== undefined) {
+        const parts = (newQuery[key] as string).split(',')
+        const decoded = encode ? parts.map(p => decodeURIComponent(p)) : parts
+        ;(postFilter.value[key] as any) = numeric ? decoded.map(Number) : decoded
+      }
+    }
+
+    if (newQuery.waifu_score_range !== undefined) {
+      const range = (newQuery.waifu_score_range as string).split(',').map(Number) as [number, number]
+      postFilter.value.waifu_score_range = range
+    }
+
+    if (newQuery.sort !== undefined) {
+      postSort.value = newQuery.sort as typeof postSort.value
+    }
+
+    if (newQuery.order !== undefined) {
+      postSortOrder.value = newQuery.order as typeof postSortOrder.value
+    }
+
+    if (newQuery.sort_color !== undefined) {
+      postSortColor.value = newQuery.sort_color as string
+    }
+  }, { immediate: true })
+
+  // Filter → URL.
   // Primitive-comparable signatures avoid deep traversal on every reactive flush.
   watch(
-    () => [
-      // Encode the same way the URL write does, so a value containing ',' can't
-      // make two distinct selections collapse to one signature (and skip a sync).
-      ...ARRAY_FILTERS.map(({ key, encode }) => {
-        const arr = postFilter.value[key] as unknown[]
-        return encode ? arr.map(v => encodeURIComponent(String(v))).join(',') : arr.join(',')
-      }),
-      postFilter.value.waifu_score_range?.join(',') ?? '',
-      postSort.value,
-      postSortOrder.value,
-      postSortColor.value ?? '',
-    ],
     () => {
+      // Only gallery routes carry filters in their URL (meta.gallery, declared
+      // on the route table in main.ts). Elsewhere collapse the signature so
+      // the encode work below is skipped while e.g. /post/:id is open.
+      if (!route.meta.gallery) {
+        return false as const
+      }
+      return [
+        // Re-project after navigation too: filter state is the source of truth,
+        // so a link that dropped the query (or routed through a query-less page
+        // like /post/:id) gets the filters written back onto the new URL —
+        // they kept applying in memory either way; this keeps the URL honest
+        // so reload/share doesn't silently lose them.
+        route.path,
+        // Encode the same way the URL write does, so a value containing ',' can't
+        // make two distinct selections collapse to one signature (and skip a sync).
+        ...ARRAY_FILTERS.map(({ key, encode }) => {
+          const arr = postFilter.value[key] as unknown[]
+          return encode ? arr.map(v => encodeURIComponent(String(v))).join(',') : arr.join(',')
+        }),
+        postFilter.value.waifu_score_range?.join(',') ?? '',
+        postSort.value,
+        postSortOrder.value,
+        postSortColor.value ?? '',
+      ]
+    },
+    (signature) => {
+      if (signature === false) {
+        return
+      }
       const f = postFilter.value
       const query = { ...route.query }
 
@@ -118,34 +173,6 @@ export function useSyncFilterWithUrl() {
       router.replace({ query })
     },
   )
-
-  // Watch for URL changes and update postFilter
-  watch(() => route.query, (newQuery) => {
-    for (const { key, numeric, encode } of ARRAY_FILTERS) {
-      if (newQuery[key] !== undefined) {
-        const parts = (newQuery[key] as string).split(',')
-        const decoded = encode ? parts.map(p => decodeURIComponent(p)) : parts
-        ;(postFilter.value[key] as any) = numeric ? decoded.map(Number) : decoded
-      }
-    }
-
-    if (newQuery.waifu_score_range !== undefined) {
-      const range = (newQuery.waifu_score_range as string).split(',').map(Number) as [number, number]
-      postFilter.value.waifu_score_range = range
-    }
-
-    if (newQuery.sort !== undefined) {
-      postSort.value = newQuery.sort as typeof postSort.value
-    }
-
-    if (newQuery.order !== undefined) {
-      postSortOrder.value = newQuery.order as typeof postSortOrder.value
-    }
-
-    if (newQuery.sort_color !== undefined) {
-      postSortColor.value = newQuery.sort_color as string
-    }
-  }, { immediate: true })
 }
 
 export const waterfallRowCount = useStorage('pictoria.waterfallRowCount', 4)

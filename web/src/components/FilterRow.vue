@@ -1,7 +1,5 @@
 <script setup lang="ts">
-import { textSearchQuery, useSyncFilterWithUrl } from '@/shared'
-
-useSyncFilterWithUrl()
+import { textSearchQuery } from '@/shared'
 
 function clearTextSearch() {
   textSearchQuery.value = ''

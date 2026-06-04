@@ -58,12 +58,24 @@ const resolvedScheme = storedScheme === 'auto'
   : storedScheme
 document.documentElement.dataset.scheme = resolvedScheme
 
+// Cross-cutting route attributes read back via `route.meta` — declared here,
+// on the route table, so the classification has a single source of truth.
+declare module 'vue-router' {
+  interface RouteMeta {
+    /**
+     * Renders the filtered waterfall: filter/sort state is projected into the
+     * URL query on these routes (see useSyncFilterWithUrl in shared/state.ts).
+     */
+    gallery?: boolean
+  }
+}
+
 const routes: RouteRecordRaw[] = [
-  { path: '/', component: () => import('./views/Home.vue') },
-  { path: '/all', component: () => import('./views/Home.vue'), name: 'all' },
-  { path: '/dir/:folder*', component: () => import('./views/Home.vue'), name: 'dir' },
-  { path: '/random', component: () => import('./views/Home.vue') },
-  { path: '/recently', component: () => import('./views/Home.vue'), name: 'recently' },
+  { path: '/', component: () => import('./views/Home.vue'), meta: { gallery: true } },
+  { path: '/all', component: () => import('./views/Home.vue'), name: 'all', meta: { gallery: true } },
+  { path: '/dir/:folder*', component: () => import('./views/Home.vue'), name: 'dir', meta: { gallery: true } },
+  { path: '/random', component: () => import('./views/Home.vue'), meta: { gallery: true } },
+  { path: '/recently', component: () => import('./views/Home.vue'), name: 'recently', meta: { gallery: true } },
   { path: '/tags', component: () => import('./views/Tags.vue'), name: 'tags' },
   { path: '/test', component: () => import('./views/Test.vue'), name: 'test' },
   { path: '/post/:postId', component: () => import('./views/Post.vue'), name: 'post' },

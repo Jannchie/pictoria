@@ -7,11 +7,15 @@ import { RouterLink, useRoute, useRouter } from 'vue-router'
 import FolderStatsLine from './components/FolderStatsLine.vue'
 import { useGlobalUndoRedo, useWatchRoute } from './composables'
 import TreeList from './roku/TreeList.vue'
-import { menuData, showMenu, useCurrentFolder, useFoldersQuery } from './shared'
+import { menuData, showMenu, useCurrentFolder, useFoldersQuery, useSyncFilterWithUrl } from './shared'
 import 'splitpanes/dist/splitpanes.css'
 
 useWatchRoute()
 useGlobalUndoRedo()
+// Lives here (not in FilterRow) so the filter↔URL watchers survive route
+// changes — re-projecting the filters onto the URL after a navigation only
+// works if the watcher is still alive when the path changes.
+useSyncFilterWithUrl()
 
 const currentFolder = useCurrentFolder()
 const router = useRouter()
