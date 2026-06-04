@@ -191,12 +191,14 @@ const sectionTitleClass
   <ScrollArea
     class="text-xs h-full overflow-x-hidden overflow-y-auto"
   >
-    <div class="flex flex-col">
+    <!-- px-3: the pane has no padding of its own (the scrollbar hugs its
+         edge), so the scrolled content owns the 12px gutter. -->
+    <div class="px-3 flex flex-col">
       <!-- Hero: thumbnail + dominant/palette colour band -->
-      <div class="pb-4 flex flex-col gap-3">
+      <div class="pb-4 pt-3 flex flex-col gap-3">
         <div
           v-if="isImage(post.extension)"
-          class="pt-1 flex justify-center"
+          class="flex justify-center"
         >
           <img
             :src="getPostThumbnailURL(post)"
@@ -227,7 +229,7 @@ const sectionTitleClass
       <!-- Near-duplicate group: members hidden behind this canonical post -->
       <section
         v-if="post.canonicalPostId != null || groupMembers.length > 0"
-        class="py-4 border-t border-border-default"
+        class="py-4"
       >
         <div
           :class="sectionTitleClass"
@@ -309,7 +311,7 @@ const sectionTitleClass
       </section>
 
       <!-- Ratings: every quality signal grouped together -->
-      <section class="py-4 border-t border-border-default">
+      <section class="py-4">
         <div
           :class="sectionTitleClass"
           class="mb-2"
@@ -375,7 +377,7 @@ const sectionTitleClass
       </section>
 
       <!-- File info: pure metadata, numbers tabular-aligned -->
-      <section class="py-4 border-t border-border-default">
+      <section class="py-4">
         <div
           :class="sectionTitleClass"
           class="mb-2"
@@ -384,7 +386,7 @@ const sectionTitleClass
           <span>{{ $t('post.fileInfo') }}</span>
         </div>
         <div
-          class="gap-x-3 gap-y-1.5 grid grid-cols-[auto_1fr] children:break-words odd:children:text-fg-subtle"
+          class="gap-x-3 gap-y-2 grid grid-cols-[auto_1fr] children:break-words odd:children:text-fg-subtle"
         >
           <template v-if="post.size > 0">
             <div>{{ $t('post.size') }}</div>
@@ -420,7 +422,7 @@ const sectionTitleClass
       </section>
 
       <!-- Folder breadcrumb -->
-      <section class="py-4 border-t border-border-default">
+      <section class="py-4">
         <div
           :class="sectionTitleClass"
           class="mb-2"
@@ -452,17 +454,20 @@ const sectionTitleClass
       </section>
 
       <!-- Tags -->
-      <section class="py-4 border-t border-border-default">
+      <section class="py-4">
         <div class="mb-2 flex items-center justify-between">
           <div :class="sectionTitleClass">
             <i class="i-tabler-tag" />
             <span>{{ $t('post.tags') }}</span>
           </div>
+          <!-- xs + negative margin: the affordance stays clickable without
+               making this section heading taller than the others. -->
           <PButton
             v-if="post.tags && post.tags.length > 0"
-            size="sm"
+            size="xs"
             icon
             variant="subtle"
+            class="-my-1.5"
             @click="onCopyTags"
           >
             <i class="i-tabler-copy" />
@@ -472,6 +477,7 @@ const sectionTitleClass
           v-if="manualTags.length > 0"
           class="flex flex-wrap gap-2"
         >
+          <!-- PostTag renders the localised display name itself (no slot). -->
           <PostTag
             v-for="tag of manualTags"
             :key="tag.tagInfo.name"
@@ -480,9 +486,7 @@ const sectionTitleClass
             :data="tag"
             :color="tag.tagInfo.group?.color"
             @pointerup="openTagSelectorWindow()"
-          >
-            {{ tag.tagInfo.name }}
-          </PostTag>
+          />
           <PTag
             variant="soft"
             tone="primary"
@@ -516,7 +520,7 @@ const sectionTitleClass
       <!-- Auto tags -->
       <section
         v-if="autoTags.length > 0"
-        class="py-4 border-t border-border-default"
+        class="py-4"
       >
         <div
           :class="sectionTitleClass"
@@ -534,14 +538,12 @@ const sectionTitleClass
             :data="tag"
             :color="tag.tagInfo.group?.color"
             @pointerup="openTagSelectorWindow()"
-          >
-            {{ tag.tagInfo.name }}
-          </PostTag>
+          />
         </div>
       </section>
 
       <!-- Caption -->
-      <section class="py-4 border-t border-border-default">
+      <section class="py-4">
         <div
           :class="sectionTitleClass"
           class="mb-2"
@@ -552,13 +554,13 @@ const sectionTitleClass
         <PInput
           :model-value="post.caption ?? ''"
           size="sm"
-          class="w-full"
+          block
           @update:model-value="updateCaption"
         />
       </section>
 
       <!-- Source -->
-      <section class="py-4 border-t border-border-default">
+      <section class="py-4">
         <div
           :class="sectionTitleClass"
           class="mb-2"
@@ -569,13 +571,13 @@ const sectionTitleClass
         <PInput
           :model-value="post.source ?? ''"
           size="sm"
-          class="w-full"
+          block
           @update:model-value="updateSource"
         />
       </section>
 
       <!-- Commands -->
-      <section class="py-4 border-t border-border-default">
+      <section class="py-4">
         <div
           :class="sectionTitleClass"
           class="mb-2"

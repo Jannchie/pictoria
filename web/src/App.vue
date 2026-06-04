@@ -306,7 +306,7 @@ function splitHighlight(text: string, filter: string): HighlightPart[] {
         :aria-label="contextTarget?.title"
         class="text-sm border border-border-default rounded-lg bg-surface min-w-44 shadow-lg overflow-hidden"
       >
-        <div class="text-xs text-fg-subtle tracking-wide font-semibold px-3 py-2 border-b border-border-subtle uppercase">
+        <div class="text-xs text-fg-subtle tracking-wide font-semibold px-2.5 py-2 border-b border-border-subtle uppercase">
           <span class="max-w-60 block truncate">{{ contextTarget?.title ?? $t('sidebar.actions') }}</span>
         </div>
         <ListItem
@@ -370,7 +370,7 @@ function splitHighlight(text: string, filter: string): HighlightPart[] {
               autocomplete="off"
               spellcheck="false"
               :placeholder="$t('sidebar.filterFoldersPlaceholder')"
-              class="text-sm text-fg pl-8 pr-7 outline-none border border-border-subtle rounded-md bg-surface h-8 w-full transition-colors focus:border-primary/50 hover:border-border-default focus:bg-bg"
+              class="text-sm text-fg pl-8 pr-7 outline-none border border-border-subtle rounded-md bg-surface h-7 w-full transition-colors focus:border-primary/50 hover:border-border-default focus:bg-bg"
               @keydown.escape="clearFilter"
             >
             <button
@@ -445,7 +445,7 @@ function splitHighlight(text: string, filter: string): HighlightPart[] {
                   tabindex="0"
                   :data-tree-value="data.value"
                   :title="data.value"
-                  class="group/row text-sm pr-1 rounded-md flex h-full w-full cursor-pointer transition-colors items-center relative focus:outline-none focus-visible:ring-1 focus-visible:ring-primary/50 focus-visible:ring-inset"
+                  class="group/row text-sm pr-4 rounded-md flex h-full w-full cursor-pointer transition-colors items-center relative focus:outline-none focus-visible:ring-1 focus-visible:ring-primary/50 focus-visible:ring-inset"
                   :class="[
                     isSelected ? 'text-fg bg-primary/10' : 'text-fg-muted hover:bg-surface-1 hover:text-fg',
                   ]"
@@ -521,7 +521,7 @@ function splitHighlight(text: string, filter: string): HighlightPart[] {
                 tabindex="0"
                 :data-tree-value="data.value"
                 :title="data.value"
-                class="group/row text-sm pr-1 rounded-md flex h-full w-full cursor-pointer transition-colors items-center relative focus:outline-none focus-visible:ring-1 focus-visible:ring-primary/50 focus-visible:ring-inset"
+                class="group/row text-sm pr-4 rounded-md flex h-full w-full cursor-pointer transition-colors items-center relative focus:outline-none focus-visible:ring-1 focus-visible:ring-primary/50 focus-visible:ring-inset"
                 :class="[
                   isSelected ? 'text-fg bg-primary/10' : 'text-fg-muted hover:bg-surface-1 hover:text-fg',
                 ]"
@@ -584,6 +584,7 @@ function splitHighlight(text: string, filter: string): HighlightPart[] {
             class="rounded block focus:outline-none focus-visible:ring-1 focus-visible:ring-primary/50"
           >
             <ListItem
+              class="px-4!"
               icon="i-tabler-settings"
               :active="$route.path === '/settings'"
               :title="$t('common.settings')"
@@ -600,7 +601,7 @@ function splitHighlight(text: string, filter: string): HighlightPart[] {
         :min-size="12"
         :size="12"
         :max-size="36"
-        class="p-1 border-l border-border-default min-w-64"
+        class="border-l border-border-default min-w-64"
       >
         <aside :aria-label="$t('rightPanel.aria')" class="h-full">
           <RightPanel />

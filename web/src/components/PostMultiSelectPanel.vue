@@ -288,232 +288,237 @@ const sectionTitleClass
 
 <template>
   <ScrollArea
-    class="text-xs flex flex-col h-full overflow-x-hidden overflow-y-auto"
+    class="text-xs h-full overflow-x-hidden overflow-y-auto"
   >
-    <div class="pb-3 pt-1 flex flex-col gap-1">
-      <div class="flex items-center justify-between">
-        <div class="text-lg text-fg font-semibold tabular-nums">
-          {{ formatNumber(count) }} <span class="text-sm text-fg-muted font-normal">{{ $t('multiSelect.selected') }}</span>
-        </div>
-        <div class="flex gap-1">
-          <PButton
-            icon
-            size="sm"
-            variant="ghost"
-            :title="$t('multiSelect.selectAll')"
-            @click="selectAllInList"
-          >
-            <i class="i-tabler-square-check" />
-          </PButton>
-          <PButton
-            icon
-            size="sm"
-            variant="ghost"
-            :title="$t('multiSelect.clearSelection')"
-            @click="clearSelection"
-          >
-            <i class="i-tabler-x" />
-          </PButton>
-        </div>
-      </div>
-      <div class="text-fg-subtle flex flex-wrap gap-x-2 gap-y-0.5 items-center">
-        <span v-if="totalSize > 0" class="font-mono tabular-nums">
-          {{ filesize(totalSize) }}
-        </span>
-        <span v-if="totalSize > 0 && extensionDist.length > 0" class="op50">·</span>
-        <span v-if="extensionDist.length > 0" class="font-mono">
-          {{ extensionDist.map(([e]) => e).join(', ') }}
-        </span>
-        <span
-          v-if="missingCount > 0"
-          class="text-[10px] text-fg-subtle ml-auto"
-          :title="$t('multiSelect.outsideNote', { missing: missingCount, known: knownCount }, missingCount)"
-        >
-          {{ $t('multiSelect.inView', { known: formatNumber(knownCount), total: formatNumber(count) }) }}
-        </span>
-      </div>
-    </div>
-
-    <div
-      v-if="displayedThumbs.length > 0"
-      class="flex shrink-0 h-50 w-full select-none items-center justify-center relative"
-    >
-      <button
-        v-for="d of displayedThumbs"
-        :key="d.id"
-        type="button"
-        class="rounded bg-white cursor-pointer ring-1 ring-black/10 shadow-md left-1/2 top-1/2 absolute overflow-hidden hover:ring-2 hover:ring-primary hover:shadow-xl"
-        :style="{
-          ...thumbStyle(d.post, d.idx),
-          opacity: d.opacity,
-          transition: `opacity ${d.duration}ms cubic-bezier(0.22, 1, 0.36, 1)`,
-        }"
-        :title="`${d.post.fileName}.${d.post.extension}`"
-        @click="focusOne(d.id)"
-      >
-        <img
-          :src="getPostThumbnailURL(d.post)"
-          class="h-full w-full block object-cover"
-          draggable="false"
-        >
-      </button>
-      <div
-        v-if="overflowCount > 0"
-        class="text-sm text-fg tracking-tight font-mono font-semibold px-2.5 py-1 rounded-full bg-surface-2/90 pointer-events-none ring-1 ring-border-default shadow-lg left-1/2 top-1/2 absolute backdrop-blur tabular-nums -translate-x-1/2 -translate-y-1/2"
-        style="z-index: 20"
-      >
-        +{{ overflowCount }}
-      </div>
-    </div>
-
-    <section class="py-4 border-t border-border-default">
-      <div
-        :class="sectionTitleClass"
-        class="mb-2"
-      >
-        <i class="i-tabler-edit" />
-        <span>{{ $t('multiSelect.batch') }}</span>
-      </div>
-      <div class="gap-x-3 gap-y-2 grid grid-cols-[auto_1fr_auto] items-center">
-        <div>{{ $t('post.ratingLabel') }}</div>
-        <Rating
-          :model-value="commonRating ?? 0"
-          highlight-selected-only
-          :count="4"
-          :colors="['green', 'yellow', 'orange', 'red']"
-          :icons="['i-tabler-seeding', 'i-tabler-mood-heart', 'i-tabler-eye-off', 'i-tabler-eyeglass-off']"
-          @select="applyRating"
-        />
-        <span
-          v-if="commonRating === null && knownCount > 0"
-          class="text-[10px] text-fg-subtle tracking-wide uppercase"
-        >{{ $t('common.mixed') }}</span>
-        <span v-else />
-
-        <div>{{ $t('post.scoreLabel') }}</div>
-        <Rating
-          :model-value="commonScore ?? 0"
-          :count="5"
-          @select="applyScore"
-        />
-        <span
-          v-if="commonScore === null && knownCount > 0"
-          class="text-[10px] text-fg-subtle tracking-wide uppercase"
-        >{{ $t('common.mixed') }}</span>
-        <span v-else />
-      </div>
-      <div class="mt-3">
-        <PButton
-          size="sm"
-          variant="subtle"
-          block
-          @click="copyPaths"
-        >
-          <i class="i-tabler-copy" />
-          {{ $t('multiSelect.copyPaths') }}
-        </PButton>
-      </div>
-    </section>
-
-    <section
-      v-if="knownCount > 0"
-      class="py-4 border-t border-border-default"
-    >
-      <div
-        :class="sectionTitleClass"
-        class="mb-2"
-      >
-        <i class="i-tabler-chart-bar" />
-        <span>{{ $t('multiSelect.distribution') }}</span>
-      </div>
-      <div class="flex flex-col gap-2.5">
-        <div class="flex flex-col gap-1">
-          <div class="text-fg-subtle flex items-center justify-between">
-            <span>{{ $t('post.ratingLabel') }}</span>
-            <span class="text-[10px] text-fg-subtle font-mono">— · G · S · Q · E</span>
+    <!-- px-3: the pane has no padding of its own, the scrolled content owns
+         the 12px gutter. min-h-full keeps mt-auto pinning the delete button
+         to the bottom when the content is shorter than the pane. -->
+    <div class="px-3 flex flex-col min-h-full">
+      <div class="pb-3 pt-3 flex flex-col gap-1">
+        <div class="flex items-center justify-between">
+          <div class="text-lg text-fg font-semibold tabular-nums">
+            {{ formatNumber(count) }} <span class="text-sm text-fg-muted font-normal">{{ $t('multiSelect.selected') }}</span>
           </div>
-          <div class="rounded bg-surface-1 flex h-2 overflow-hidden">
-            <div
-              v-for="(n, i) of ratingDist"
-              :key="i"
-              :style="{ width: `${pct(n)}%`, backgroundColor: RATING_COLORS[i] }"
-              :title="`${RATING_LABELS[i]}: ${n}`"
-            />
+          <div class="flex gap-1">
+            <PButton
+              icon
+              size="sm"
+              variant="ghost"
+              :title="$t('multiSelect.selectAll')"
+              @click="selectAllInList"
+            >
+              <i class="i-tabler-square-check" />
+            </PButton>
+            <PButton
+              icon
+              size="sm"
+              variant="ghost"
+              :title="$t('multiSelect.clearSelection')"
+              @click="clearSelection"
+            >
+              <i class="i-tabler-x" />
+            </PButton>
           </div>
         </div>
-        <div class="flex flex-col gap-1">
-          <div class="text-fg-subtle flex items-center justify-between">
-            <span>{{ $t('post.scoreLabel') }}</span>
-            <span class="text-[10px] text-fg-subtle font-mono">— · 1 · 2 · 3 · 4 · 5</span>
-          </div>
-          <div class="rounded bg-surface-1 flex h-2 overflow-hidden">
-            <div
-              v-for="(n, i) of scoreDist"
-              :key="i"
-              :style="{ width: `${pct(n)}%`, backgroundColor: SCORE_COLORS[i] }"
-              :title="`${SCORE_LABELS[i]}: ${n}`"
-            />
-          </div>
-        </div>
-      </div>
-    </section>
-
-    <section
-      v-if="knownCount > 0"
-      class="py-4 border-t border-border-default"
-    >
-      <div
-        :class="sectionTitleClass"
-        class="mb-2"
-      >
-        <i class="i-tabler-files" />
-        <span>{{ $t('multiSelect.files') }}</span>
-      </div>
-      <div
-        class="gap-x-3 gap-y-1.5 grid grid-cols-[auto_1fr] children:break-words odd:children:text-fg-subtle"
-      >
-        <div>{{ $t('multiSelect.format') }}</div>
-        <div class="flex flex-wrap gap-1">
+        <div class="text-fg-subtle flex flex-wrap gap-x-2 gap-y-0.5 items-center">
+          <span v-if="totalSize > 0" class="font-mono tabular-nums">
+            {{ filesize(totalSize) }}
+          </span>
+          <span v-if="totalSize > 0 && extensionDist.length > 0" class="op50">·</span>
+          <span v-if="extensionDist.length > 0" class="font-mono">
+            {{ extensionDist.map(([e]) => e).join(', ') }}
+          </span>
           <span
-            v-for="[ext, n] of extensionDist"
-            :key="ext"
-            class="text-[10px] font-mono px-1.5 py-0.5 rounded bg-surface-2 uppercase tabular-nums"
+            v-if="missingCount > 0"
+            class="text-[10px] text-fg-subtle ml-auto"
+            :title="$t('multiSelect.outsideNote', { missing: missingCount, known: knownCount }, missingCount)"
           >
-            {{ ext }} <span class="text-fg-subtle normal-case">×{{ n }}</span>
+            {{ $t('multiSelect.inView', { known: formatNumber(knownCount), total: formatNumber(count) }) }}
           </span>
         </div>
-        <div>{{ $t('multiSelect.width') }}</div>
-        <div v-if="widthRange" class="font-mono tabular-nums">
-          {{ formatNumber(widthRange.min) }} – {{ formatNumber(widthRange.max) }} px
-        </div>
-        <div v-else>
-          —
-        </div>
-        <div>{{ $t('multiSelect.height') }}</div>
-        <div v-if="heightRange" class="font-mono tabular-nums">
-          {{ formatNumber(heightRange.min) }} – {{ formatNumber(heightRange.max) }} px
-        </div>
-        <div v-else>
-          —
-        </div>
-        <div>{{ $t('multiSelect.folder') }}</div>
-        <div class="text-fg break-all" :title="commonFolder">
-          {{ commonFolder || '—' }}
+      </div>
+
+      <div
+        v-if="displayedThumbs.length > 0"
+        class="flex shrink-0 h-50 w-full select-none items-center justify-center relative"
+      >
+        <button
+          v-for="d of displayedThumbs"
+          :key="d.id"
+          type="button"
+          class="rounded bg-white cursor-pointer ring-1 ring-black/10 shadow-md left-1/2 top-1/2 absolute overflow-hidden hover:ring-2 hover:ring-primary hover:shadow-xl"
+          :style="{
+            ...thumbStyle(d.post, d.idx),
+            opacity: d.opacity,
+            transition: `opacity ${d.duration}ms cubic-bezier(0.22, 1, 0.36, 1)`,
+          }"
+          :title="`${d.post.fileName}.${d.post.extension}`"
+          @click="focusOne(d.id)"
+        >
+          <img
+            :src="getPostThumbnailURL(d.post)"
+            class="h-full w-full block object-cover"
+            draggable="false"
+          >
+        </button>
+        <div
+          v-if="overflowCount > 0"
+          class="text-sm text-fg tracking-tight font-mono font-semibold px-2.5 py-1 rounded-full bg-surface-2/90 pointer-events-none ring-1 ring-border-default shadow-lg left-1/2 top-1/2 absolute backdrop-blur tabular-nums -translate-x-1/2 -translate-y-1/2"
+          style="z-index: 20"
+        >
+          +{{ overflowCount }}
         </div>
       </div>
-    </section>
 
-    <div class="mt-auto pt-4 border-t border-border-default">
-      <PButton
-        size="sm"
-        block
-        :variant="confirmingDelete ? 'danger' : 'subtle'"
-        @click="deleteSelected"
-        @blur="confirmingDelete = false"
+      <section class="py-4">
+        <div
+          :class="sectionTitleClass"
+          class="mb-2"
+        >
+          <i class="i-tabler-edit" />
+          <span>{{ $t('multiSelect.batch') }}</span>
+        </div>
+        <div class="gap-x-3 gap-y-2 grid grid-cols-[auto_1fr_auto] items-center">
+          <div>{{ $t('post.ratingLabel') }}</div>
+          <Rating
+            :model-value="commonRating ?? 0"
+            highlight-selected-only
+            :count="4"
+            :colors="['green', 'yellow', 'orange', 'red']"
+            :icons="['i-tabler-seeding', 'i-tabler-mood-heart', 'i-tabler-eye-off', 'i-tabler-eyeglass-off']"
+            @select="applyRating"
+          />
+          <span
+            v-if="commonRating === null && knownCount > 0"
+            class="text-[10px] text-fg-subtle tracking-wide uppercase"
+          >{{ $t('common.mixed') }}</span>
+          <span v-else />
+
+          <div>{{ $t('post.scoreLabel') }}</div>
+          <Rating
+            :model-value="commonScore ?? 0"
+            :count="5"
+            @select="applyScore"
+          />
+          <span
+            v-if="commonScore === null && knownCount > 0"
+            class="text-[10px] text-fg-subtle tracking-wide uppercase"
+          >{{ $t('common.mixed') }}</span>
+          <span v-else />
+        </div>
+        <div class="mt-3">
+          <PButton
+            size="sm"
+            variant="subtle"
+            block
+            @click="copyPaths"
+          >
+            <i class="i-tabler-copy" />
+            {{ $t('multiSelect.copyPaths') }}
+          </PButton>
+        </div>
+      </section>
+
+      <section
+        v-if="knownCount > 0"
+        class="py-4"
       >
-        <i class="i-tabler-trash" />
-        {{ confirmingDelete ? $t('multiSelect.deleteConfirm', { n: formatNumber(count) }) : $t('multiSelect.deleteSelected') }}
-      </PButton>
+        <div
+          :class="sectionTitleClass"
+          class="mb-2"
+        >
+          <i class="i-tabler-chart-bar" />
+          <span>{{ $t('multiSelect.distribution') }}</span>
+        </div>
+        <div class="flex flex-col gap-2.5">
+          <div class="flex flex-col gap-1">
+            <div class="text-fg-subtle flex items-center justify-between">
+              <span>{{ $t('post.ratingLabel') }}</span>
+              <span class="text-[10px] text-fg-subtle font-mono">— · G · S · Q · E</span>
+            </div>
+            <div class="rounded bg-surface-1 flex h-2 overflow-hidden">
+              <div
+                v-for="(n, i) of ratingDist"
+                :key="i"
+                :style="{ width: `${pct(n)}%`, backgroundColor: RATING_COLORS[i] }"
+                :title="`${RATING_LABELS[i]}: ${n}`"
+              />
+            </div>
+          </div>
+          <div class="flex flex-col gap-1">
+            <div class="text-fg-subtle flex items-center justify-between">
+              <span>{{ $t('post.scoreLabel') }}</span>
+              <span class="text-[10px] text-fg-subtle font-mono">— · 1 · 2 · 3 · 4 · 5</span>
+            </div>
+            <div class="rounded bg-surface-1 flex h-2 overflow-hidden">
+              <div
+                v-for="(n, i) of scoreDist"
+                :key="i"
+                :style="{ width: `${pct(n)}%`, backgroundColor: SCORE_COLORS[i] }"
+                :title="`${SCORE_LABELS[i]}: ${n}`"
+              />
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section
+        v-if="knownCount > 0"
+        class="py-4"
+      >
+        <div
+          :class="sectionTitleClass"
+          class="mb-2"
+        >
+          <i class="i-tabler-files" />
+          <span>{{ $t('multiSelect.files') }}</span>
+        </div>
+        <div
+          class="gap-x-3 gap-y-2 grid grid-cols-[auto_1fr] children:break-words odd:children:text-fg-subtle"
+        >
+          <div>{{ $t('multiSelect.format') }}</div>
+          <div class="flex flex-wrap gap-1">
+            <span
+              v-for="[ext, n] of extensionDist"
+              :key="ext"
+              class="text-[10px] font-mono px-1.5 py-0.5 rounded bg-surface-2 uppercase tabular-nums"
+            >
+              {{ ext }} <span class="text-fg-subtle normal-case">×{{ n }}</span>
+            </span>
+          </div>
+          <div>{{ $t('multiSelect.width') }}</div>
+          <div v-if="widthRange" class="font-mono tabular-nums">
+            {{ formatNumber(widthRange.min) }} – {{ formatNumber(widthRange.max) }} px
+          </div>
+          <div v-else>
+            —
+          </div>
+          <div>{{ $t('multiSelect.height') }}</div>
+          <div v-if="heightRange" class="font-mono tabular-nums">
+            {{ formatNumber(heightRange.min) }} – {{ formatNumber(heightRange.max) }} px
+          </div>
+          <div v-else>
+            —
+          </div>
+          <div>{{ $t('multiSelect.folder') }}</div>
+          <div class="text-fg break-all" :title="commonFolder">
+            {{ commonFolder || '—' }}
+          </div>
+        </div>
+      </section>
+
+      <div class="mt-auto pb-3 pt-4">
+        <PButton
+          size="sm"
+          block
+          :variant="confirmingDelete ? 'danger' : 'subtle'"
+          @click="deleteSelected"
+          @blur="confirmingDelete = false"
+        >
+          <i class="i-tabler-trash" />
+          {{ confirmingDelete ? $t('multiSelect.deleteConfirm', { n: formatNumber(count) }) : $t('multiSelect.deleteSelected') }}
+        </PButton>
+      </div>
     </div>
   </ScrollArea>
 </template>

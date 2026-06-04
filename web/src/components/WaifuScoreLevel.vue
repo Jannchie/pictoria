@@ -43,7 +43,7 @@ const levelStyle = computed(() => {
 
 <template>
   <span
-    class="text-xs font-mono px-2 py-1 rounded inline-flex gap-1.5 items-baseline"
+    class="text-xs font-mono px-1.5 py-0.5 rounded inline-flex gap-1 items-baseline"
     :style="levelStyle"
   >
     <span class="font-bold">{{ currentLevel.level }}</span>

@@ -16,7 +16,11 @@ const { data: allCount } = useQuery({
 
 <template>
   <div class="text-sm flex flex-col gap-1 select-none">
+    <!-- px-4!: indent icon/text to the tree rows' 24px left edge (and the
+         count to their badges' right edge) while the hover pill stays
+         full-width like the tree's. -->
     <ListItem
+      class="px-4!"
       icon="i-tabler-photo"
       :title="$t('nav.all')"
       :extra-info="allCount"
@@ -24,18 +28,21 @@ const { data: allCount } = useQuery({
       @click="$router.push({ path: '/all', query: $route.query })"
     />
     <ListItem
+      class="px-4!"
       icon="i-tabler-bookmarks"
       :title="$t('nav.tagManager')"
       :active="$route.path === '/tags'"
       @click="$router.push('/tags')"
     />
     <ListItem
+      class="px-4!"
       icon="i-tabler-clock"
       :title="$t('nav.recently')"
       :active="$route.path === '/recently'"
       @click="$router.push({ path: '/recently', query: $route.query })"
     />
     <ListItem
+      class="px-4!"
       icon="i-tabler-arrows-cross"
       :active="$route.path === '/random'"
       :title="$t('nav.random')"
