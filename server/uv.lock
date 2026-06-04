@@ -766,11 +766,11 @@ wheels = [
 
 [[package]]
 name = "diffusion-prompt-embedder"
-version = "0.2.0"
+version = "0.2.1"
 source = { registry = "https://pypi.org/simple" }
-sdist = { url = "https://files.pythonhosted.org/packages/74/b5/ddcf561c46b6e7f172c4cf9677d098e1e26466f6c56c66658c4335d2e974/diffusion_prompt_embedder-0.2.0.tar.gz", hash = "sha256:5f55ec3905b71bfd74762970f587067ca9b7ad6eddf2032e8a8d34d47f2c4bf8", size = 59994, upload-time = "2025-05-07T11:16:34.363Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/07/e4/440cb906a165d3b3b88db96648d706f41ef51823303ef71bbd519896ffee/diffusion_prompt_embedder-0.2.1.tar.gz", hash = "sha256:fced60334ecd25403fb2ff6005aaf9858835466e21cba8ca7f3e8531afbc1269", size = 65012, upload-time = "2026-06-04T15:40:49.782Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/7d/2f/a3b142999bcb0b883b866dc9f61721c69b051ea93affa9650b6a4c9a5c45/diffusion_prompt_embedder-0.2.0-py3-none-any.whl", hash = "sha256:e81ba071432aa41149d36bd8aeff50960e9e99b3f567fc5c3d5569a5a4b7c866", size = 11217, upload-time = "2025-05-07T11:16:32.783Z" },
+    { url = "https://files.pythonhosted.org/packages/91/4b/ab8d41ead03591420e088bef3c35cd08e19a83eecc218033f1277158b2a1/diffusion_prompt_embedder-0.2.1-py3-none-any.whl", hash = "sha256:e149e378eadd5b12cac4cf9015929e02bb4b96577b2703a6d38fb59d56b07ee9", size = 13371, upload-time = "2026-06-04T15:40:48.774Z" },
 ]
 
 [[package]]
@@ -3035,11 +3035,11 @@ wheels = [
 
 [[package]]
 name = "python-multipart"
-version = "0.0.31"
+version = "0.0.32"
 source = { registry = "https://pypi.org/simple" }
-sdist = { url = "https://files.pythonhosted.org/packages/64/7e/9b35ad8f3d9ca680f7c87a88f19612fdd8da9796c4d3b46e560ac79dcc4a/python_multipart-0.0.31.tar.gz", hash = "sha256:fc631183bb13e56db3158a4909908dfb2e23565286744e798241e63750e5d680", size = 46689, upload-time = "2026-06-04T08:27:49.014Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/5b/42/55c32bb9b12693c092ad250a0e82edb5b31ddeda6eb772de5f308b3804ad/python_multipart-0.0.32.tar.gz", hash = "sha256:be54b7f3fa167bb83e4fcd936b887b708f4e57fe75911c02aebf53efaf8d938e", size = 46881, upload-time = "2026-06-04T16:18:58.647Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/5e/1e/7f7f299527a5a8ad90acd5f2f78dfa6c8495c6301a3205106ea68a84de96/python_multipart-0.0.31-py3-none-any.whl", hash = "sha256:8408153d68a9773291fc1da39a8b85a50044bddbabd2dd72e9229776b7b15e28", size = 29996, upload-time = "2026-06-04T08:27:47.804Z" },
+    { url = "https://files.pythonhosted.org/packages/e1/04/e8135ebd1ad02c56ec633277529b2602ff99ff634be76cdba5744cf554fd/python_multipart-0.0.32-py3-none-any.whl", hash = "sha256:ff6d3f776f16878c894e52e107296ffc890e913c611b1a4ec6c44e2821fe2e23", size = 30042, upload-time = "2026-06-04T16:18:57.319Z" },
 ]
 
 [[package]]
