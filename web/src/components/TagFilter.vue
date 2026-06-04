@@ -123,13 +123,11 @@ const btnText = computed(() => (selected.value.length === 0 ? t('filter.tags') :
       </PButton>
       <template #content>
         <div class="p-1 border border-border-default rounded bg-surface min-w-64 shadow-lg">
-          <!-- PInput uses inheritAttrs:false and forwards class to its inner
-               <input>, so a class on it can't stretch the inline-flex root.
-               Wrap it (mb-2 gap) and stretch the root via :deep below. -->
-          <div class="tag-search mb-2">
+          <div class="mb-2">
             <PInput
               v-model="search"
               size="sm"
+              block
               :placeholder="$t('filter.searchTagsPlaceholder')"
               :aria-label="$t('filter.searchTags')"
             >
@@ -173,13 +171,3 @@ const btnText = computed(() => (selected.value.length === 0 ? t('filter.tags') :
     </Popover>
   </div>
 </template>
-
-<style scoped>
-/* PInput's root <label> is inline-flex and never receives a passed class
-   (inheritAttrs:false forwards it to the inner <input>), so stretch it here to
-   fill the dropdown row. */
-.tag-search :deep(.p-input) {
-  display: flex;
-  width: 100%;
-}
-</style>

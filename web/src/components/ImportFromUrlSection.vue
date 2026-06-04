@@ -70,7 +70,7 @@ function onImport() {
         <div class="mt-3 flex gap-2 items-center">
           <PInput
             v-model="url"
-            class="flex-grow"
+            block
             size="sm"
             type="url"
             inputmode="url"

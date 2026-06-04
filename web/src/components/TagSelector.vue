@@ -234,7 +234,7 @@ const searchingInitCurrentTags = computed(() => {
         v-model="search"
         size="sm"
         :placeholder="$t('tagSelector.searchPlaceholder')"
-        class="flex-grow"
+        block
       />
       <PButton
         icon

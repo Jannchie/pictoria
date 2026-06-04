@@ -17,6 +17,12 @@ withDefaults(defineProps<{
   spellcheck?: boolean
   ariaLabel?: string
   ariaLabelledby?: string
+  /**
+   * Stretch to fill the row. Needed as a prop because inheritAttrs:false
+   * forwards any passed class to the inner <input>, so `class="w-full"`
+   * can never reach the inline-flex root.
+   */
+  block?: boolean
 }>(), {
   size: 'md',
   type: 'text',
@@ -34,7 +40,7 @@ const hasRight = !!slots.rightSection
     class="p-input"
     :class="[
       `p-input--${size}`,
-      { 'p-input--focused': focused, 'p-input--disabled': disabled },
+      { 'p-input--focused': focused, 'p-input--disabled': disabled, 'p-input--block': block },
     ]"
   >
     <span v-if="hasLeft" class="p-input__slot p-input__slot--left" aria-hidden="true">
@@ -94,6 +100,15 @@ const hasRight = !!slots.rightSection
 .p-input--sm { height: 28px; font-size: var(--p-text-xs); }
 .p-input--md { height: 36px; font-size: var(--p-text-base); }
 .p-input--lg { height: 44px; font-size: var(--p-text-md); }
+
+/* Fills a block container outright; in a flex row it grows/shrinks with
+   the remaining space (siblings keep their shrink-0). */
+.p-input--block {
+  display: flex;
+  width: 100%;
+  flex: 1 1 auto;
+  min-width: 0;
+}
 
 .p-input__field {
   flex: 1 1 auto;

@@ -59,7 +59,7 @@ const tagGroupByFirstChar = computed(() => {
         v-model="search"
         :placeholder="$t('tagsView.searchPlaceholder')"
         :aria-label="$t('tagsView.searchAria')"
-        class="w-full"
+        block
       >
         <template #leftSection>
           <i class="i-tabler-search text-fg-muted" aria-hidden="true" />
