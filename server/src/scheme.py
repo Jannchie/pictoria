@@ -1,8 +1,11 @@
 from dataclasses import dataclass
 from datetime import datetime
+from typing import Literal
 
 from pydantic import BaseModel, ConfigDict
 from pydantic.alias_generators import to_camel
+
+from services.gallery_dl_import import GalleryDLStats
 
 
 class DTOBaseModel(BaseModel):
@@ -101,3 +104,24 @@ class PostDetailPublic(PostPublic):
 @dataclass
 class Result:
     msg: str
+
+
+class UrlImportStatus(DTOBaseModel):
+    """Lifecycle of the single background gallery-dl URL import task.
+
+    One in-memory instance lives on ``app.state``; each new import replaces
+    it with a fresh instance that the background task mutates as it
+    progresses, so a status poll always reflects the current/last run.
+    Process-local by design — restart clears it.
+    """
+
+    state: Literal["idle", "running", "done", "failed"] = "idle"
+    url: str | None = None
+    # Populated when state == "done". Composes the service's dataclass so the
+    # stat shape is single-sourced — a new stat field shows up here (and in
+    # the OpenAPI schema) without a parallel field list to keep in lockstep.
+    stats: GalleryDLStats | None = None
+    error: str | None = None
+    started_at: str | None = None
+    finished_at: str | None = None
+    sync_triggered: bool = False

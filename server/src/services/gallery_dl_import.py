@@ -1,4 +1,4 @@
-"""Fetch a creator/tag page's metadata via gallery-dl, download images, persist.
+﻿"""Fetch a creator/tag page's metadata via gallery-dl, download images, persist.
 
 gallery-dl is used purely as a multi-site metadata extractor: `gallery-dl -j`
 dumps every entry's metadata to stdout (nothing written to disk). We filter to
@@ -24,7 +24,8 @@ from services.danbooru_import import (
     _insert_tags_tx,
     _run_with_retry,
 )
-from utils import from_rating_to_int, logger, resolve_source
+from shared import logger
+from utils import from_rating_to_int, resolve_source
 
 if TYPE_CHECKING:
     from collections.abc import Sequence
@@ -82,7 +83,7 @@ _BOORU_TAG_FIELDS: dict[str, str] = {
 
 # Booru single-letter rating -> Pictoria rating int. Danbooru uses g/s/q/e
 # (general/sensitive/questionable/explicit); moebooru uses s/q/e where "s"=safe,
-# mapped to sensitive here (a harmless over-tag — rating isn't load-bearing).
+# mapped to sensitive here (a harmless over-tag 窶・rating isn't load-bearing).
 # Full-word ratings fall through to from_rating_to_int.
 _BOORU_RATING: dict[str, int] = {"g": 1, "s": 2, "q": 3, "e": 4}
 
@@ -113,9 +114,17 @@ def parse_entry(download_url: str, meta: dict, *, fallback_url: str) -> GalleryD
     ext = str(meta.get("extension", "")).lower().lstrip(".")
     if ext not in SUPPORTED_IMAGE_EXTS:
         return None
-    file_name = str(meta.get("id") or meta.get("filename") or "").strip()
+    post_id = str(meta.get("id") or "").strip()
+    file_name = post_id or str(meta.get("filename") or "").strip()
     if not file_name:
         return None
+    # Kemono-style multi-file posts: every attachment shares the post `id` and
+    # only `num` (1-based) differs 窶・suffix it or the (file_path, file_name,
+    # extension) upsert collapses the whole post into one row. Boorus have no
+    # `num`, so their names stay as the bare id.
+    num = meta.get("num")
+    if post_id and num is not None:
+        file_name = f"{post_id}_{num}"
 
     tags_by_category: dict[str, list[str]] = {}
     for meta_field, group in _BOORU_TAG_FIELDS.items():
@@ -172,15 +181,16 @@ def download_items(
     *,
     headers: dict[str, str] | None = None,
     n_worker: int = 16,
-) -> dict[str, int]:
+) -> list[GalleryDLItem]:
     """Download each item's direct URL into save_dir/<file_name>.<extension>.
 
     headers lets Kemono pass cookies/UA (from gallery-dl.conf); defaults to a
-    curl UA (enough for Booru CDNs). Returns {"downloaded": N, "failed": M}.
+    curl UA (enough for Booru CDNs). Returns the successfully downloaded items
+    窶・callers must persist only these, so a failed download never produces a
+    DB row without a file on disk (it stays "new" and is retried next run).
     """
     save_dir.mkdir(parents=True, exist_ok=True)
     hdrs = {**_DL_HEADERS, **(headers or {})}
-    stats = {"downloaded": 0, "failed": 0}
 
     def _one(item: GalleryDLItem) -> None:
         target = save_dir / f"{item.file_name}.{item.extension}"
@@ -188,16 +198,16 @@ def download_items(
         resp.raise_for_status()
         target.write_bytes(resp.content)
 
+    ok: list[GalleryDLItem] = []
     with concurrent.futures.ThreadPoolExecutor(max_workers=n_worker) as ex:
-        futures = [ex.submit(_one, it) for it in items]
+        futures = {ex.submit(_one, it): it for it in items}
         for fut in concurrent.futures.as_completed(futures):
             try:
                 fut.result()
-                stats["downloaded"] += 1
+                ok.append(futures[fut])
             except Exception as exc:
                 logger.warning(f"gallery-dl download failed: {exc}")
-                stats["failed"] += 1
-    return stats
+    return ok
 
 
 def _persist_gallery_items(
@@ -303,10 +313,10 @@ def import_from_url(
         return stats
 
     save_dir = shared.target_dir / file_path
-    dl_stats = download_items(new_items, save_dir, headers=None)
-    stats.downloaded = dl_stats.get("downloaded", 0)
-    stats.failed = dl_stats.get("failed", 0)
-    _persist_gallery_items(db, file_path, new_items, type_to_group_id)
+    ok_items = download_items(new_items, save_dir, headers=None)
+    stats.downloaded = len(ok_items)
+    stats.failed = len(new_items) - len(ok_items)
+    _persist_gallery_items(db, file_path, ok_items, type_to_group_id)
     return stats
 
 

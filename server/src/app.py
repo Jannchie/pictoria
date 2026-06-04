@@ -23,6 +23,7 @@ from rich import get_console
 import shared
 from danbooru import DanbooruClient
 from db import DB, run_migrations
+from scheme import UrlImportStatus
 from server.commands import CommandController, ensure_canonical_tag_groups_sync
 from server.dependencies import REQUEST_DEPENDENCIES
 from server.exceptions import DomainError, domain_error_handler
@@ -59,6 +60,9 @@ async def my_lifespan(app: Litestar):
     # ids — they would all eventually converge via UPSERT/COALESCE, but the
     # GPU workers would burn cycles re-encoding the same images.
     app.state.backfill_lock = asyncio.Lock()
+    # Status of the single background /v2/cmd/import-from-url task; replaced
+    # with a fresh instance on each new import.
+    app.state.url_import_status = UrlImportStatus()
 
     try:
         run_migrations(db.cursor(), MIGRATIONS_DIR)

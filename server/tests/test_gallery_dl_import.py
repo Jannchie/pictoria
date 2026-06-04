@@ -130,6 +130,24 @@ def test_parse_entry_kemono_no_tags_fallback_source() -> None:
     assert item.file_name == "p001"
 
 
+def test_parse_entry_kemono_multi_attachment_unique_file_names() -> None:
+    # Real kemono shape: every attachment of one post shares `id`; only `num`
+    # (1-based) and hash/filename differ. Without disambiguation the upsert on
+    # (file_path, file_name, extension) silently collapses a multi-image post
+    # into one row (observed live: 139 fetched -> 33 rows).
+    base = {"category": "kemono", "extension": "jpeg", "username": "AVADIO",
+            "user": "177539829", "id": "138330444", "type": "attachment"}
+    first = gdl.parse_entry("https://n2.kemono.cr/data/a3.jpg", {**base, "num": 1, "filename": "IMG_9828"},
+                            fallback_url="https://kemono.cr/patreon/user/177539829")
+    second = gdl.parse_entry("https://n2.kemono.cr/data/48.jpg", {**base, "num": 2, "filename": "IMG_9836"},
+                             fallback_url="https://kemono.cr/patreon/user/177539829")
+    assert first is not None
+    assert second is not None
+    assert first.file_name == "138330444_1"
+    assert second.file_name == "138330444_2"
+    assert first.file_name != second.file_name
+
+
 def _item(**kw):
     base = {
         "download_url": "u", "file_name": "f", "extension": "jpg", "source": "s",
@@ -164,20 +182,21 @@ def test_download_items_writes_files(tmp_path, monkeypatch) -> None:
     monkeypatch.setattr(gdl.httpx, "get", lambda *a, **k: _FakeResp())
     items = [_item(download_url="https://f/1.jpg", file_name="1", extension="jpg"),
              _item(download_url="https://f/2.png", file_name="2", extension="png")]
-    stats = gdl.download_items(items, tmp_path)
+    ok = gdl.download_items(items, tmp_path)
     assert (tmp_path / "1.jpg").read_bytes() == b"\x89PNG\r\n"
     assert (tmp_path / "2.png").exists()
-    assert stats == {"downloaded": 2, "failed": 0}
+    # as_completed yields in finish order, so compare as a set.
+    assert sorted(it.file_name for it in ok) == ["1", "2"]
 
 
-def test_download_items_counts_failures(tmp_path, monkeypatch) -> None:
+def test_download_items_excludes_failures(tmp_path, monkeypatch) -> None:
     def boom(*a, **k):
         raise RuntimeError("network")
 
     monkeypatch.setattr(gdl.httpx, "get", boom)
-    stats = gdl.download_items(
+    ok = gdl.download_items(
         [_item(download_url="https://f/1.jpg", file_name="1", extension="jpg")], tmp_path)
-    assert stats == {"downloaded": 0, "failed": 1}
+    assert ok == []
 
 
 def test_persist_gallery_items_writes_posts_and_tags(db) -> None:
@@ -214,6 +233,44 @@ def test_import_from_url_dry_run_does_not_write(db, monkeypatch, tmp_path) -> No
     assert cur.fetchone()[0] == 0
 
 
+def test_import_from_url_persists_only_downloaded_items(db, monkeypatch, tmp_path) -> None:
+    # Live incident (kemono mirrors unreachable): every download failed but all
+    # 139 items were persisted anyway -> phantom posts with no file on disk,
+    # relying on a later sync-metadata to clean them up. Failed downloads must
+    # not be persisted at all; they stay "new" and get retried next run.
+    monkeypatch.setattr(shared, "target_dir", tmp_path)
+    monkeypatch.setattr(gdl, "run_gallery_dl_json", lambda url, **k: [
+        ("https://f/ok.jpg", {"category": "gelbooru", "id": "ok", "filename": "ok",
+                              "extension": "jpg", "search_tags": "hews", "rating": "general"}),
+        ("https://f/bad.jpg", {"category": "gelbooru", "id": "bad", "filename": "bad",
+                               "extension": "jpg", "search_tags": "hews", "rating": "general"}),
+    ])
+
+    class _FakeResp:
+        content = b"\x89PNG"
+
+        def raise_for_status(self) -> None:
+            """No-op: the fake response is always OK."""
+
+    def fake_get(url, **k):
+        if "bad" in url:
+            msg = "connect timeout"
+            raise RuntimeError(msg)
+        return _FakeResp()
+
+    monkeypatch.setattr(gdl.httpx, "get", fake_get)
+    stats = gdl.import_from_url("https://gelbooru.com/x", db=db,
+                                type_to_group_id={"artist": 1, "general": 2}, apply=True)
+    assert stats.new == 2
+    assert stats.downloaded == 1
+    assert stats.failed == 1
+    cur = db.cursor()
+    cur.execute("SELECT file_name FROM posts WHERE file_path = 'gelbooru/hews' ORDER BY file_name")
+    assert [r[0] for r in cur.fetchall()] == ["ok"]      # "bad" must NOT be persisted
+    assert (tmp_path / "gelbooru" / "hews" / "ok.jpg").exists()
+    assert not (tmp_path / "gelbooru" / "hews" / "bad.jpg").exists()
+
+
 def test_import_from_url_apply_downloads_and_persists(db, monkeypatch, tmp_path) -> None:
     monkeypatch.setattr(shared, "target_dir", tmp_path)
     monkeypatch.setattr(gdl, "run_gallery_dl_json", lambda url, **k: [
@@ -222,7 +279,7 @@ def test_import_from_url_apply_downloads_and_persists(db, monkeypatch, tmp_path)
                                "source": "https://pixiv.net/i/1"}),
     ])
     monkeypatch.setattr(gdl, "download_items",
-                        lambda items, save_dir, **k: {"downloaded": len(items), "failed": 0})
+                        lambda items, save_dir, **k: list(items))
     stats = gdl.import_from_url("https://gelbooru.com/x", db=db,
                                 type_to_group_id={"artist": 1, "general": 2}, apply=True)
     assert stats.new == 1

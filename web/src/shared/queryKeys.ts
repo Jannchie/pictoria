@@ -41,4 +41,6 @@ export const queryKeys = {
   tagGroups: (postId: MaybeRef<number | undefined>) => ['tagGroups', postId] as const,
   folders: ['folders'] as const,
   postCount: ['post-count'] as const,
+  /** Background gallery-dl URL import task status (Settings page polls this). */
+  urlImportStatus: ['urlImportStatus'] as const,
 }

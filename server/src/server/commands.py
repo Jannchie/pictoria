@@ -3,6 +3,7 @@ import contextlib
 import sqlite3
 import tempfile
 from dataclasses import dataclass
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import TYPE_CHECKING, ClassVar
 
@@ -18,10 +19,11 @@ from db.repositories.posts import PostRepo
 from db.repositories.scores import ScoreRepo
 from db.repositories.tags import TagGroupRepo
 from db.repositories.vectors import VectorRepo
-from scheme import PostDetailPublic, Result
+from scheme import PostDetailPublic, Result, UrlImportStatus
 from server.exceptions import MissingConfigError, NotAnImageError, PostNotFoundError
 from server.utils import is_image
 from services.danbooru_import import DanbooruDownloadStats, import_danbooru_posts
+from services.gallery_dl_import import import_from_url as run_url_import
 from utils import (
     TAG_GROUP_COLORS,
     attach_wdtagger_results,
@@ -31,6 +33,8 @@ from utils import (
 )
 
 if TYPE_CHECKING:
+    from collections.abc import Coroutine
+
     from db import DB
 
 # Canonical Danbooru tag categories, ordered by priority. When a tag appears
@@ -41,6 +45,47 @@ CANONICAL_TAG_GROUPS: tuple[str, ...] = ("artist", "character", "copyright", "ge
 class SnapshotResult:
     path: str
     dir: str
+
+
+def _spawn_tracked(state: State, coro: "Coroutine[None, None, None]") -> None:
+    """Run ``coro`` as a fire-and-forget task tracked in ``state.background_tasks``.
+
+    Tracked tasks are drained by the lifespan's graceful shutdown; the done
+    callback keeps the set from growing unboundedly.
+    """
+    task = asyncio.create_task(coro)
+    state.background_tasks.add(task)
+    task.add_done_callback(state.background_tasks.discard)
+
+
+def _spawn_sync_metadata(state: State) -> bool:
+    """Fire-and-forget the disk-scan + backfill pipeline; False if already running.
+
+    The ``backfill_lock`` check-then-spawn is race-free on the single event
+    loop, so a second caller (endpoint or post-import trigger) becomes a no-op
+    instead of kicking off duplicate GPU work.
+    """
+    lock: asyncio.Lock = state.backfill_lock
+    if lock.locked():
+        return False
+
+    async def _run() -> None:
+        from processors import sync_metadata  # noqa: PLC0415  # lazy: defer ML stack load
+
+        async with lock:
+            try:
+                await sync_metadata(state.db)
+            except Exception:
+                logger.exception("Manual metadata sync failed")
+
+    _spawn_tracked(state, _run())
+    return True
+
+
+def _find_gallery_dl_conf() -> str | None:
+    """Optional gallery-dl.conf (kemono cookies / UA) at <target_dir>/.pictoria/."""
+    conf = shared.target_dir / ".pictoria" / "gallery-dl.conf"
+    return str(conf) if conf.is_file() else None
 
 
 class CommandController(Controller):
@@ -231,6 +276,66 @@ class CommandController(Controller):
             tags=tags,
         )
 
+    @litestar.post(
+        "/import-from-url",
+        description="Fetch a creator/tag URL via gallery-dl in the background and persist new images",
+    )
+    async def import_from_url_endpoint(self, state: State, url: str) -> Result:
+        """Start a background gallery-dl import of every new image behind ``url``.
+
+        Fire-and-forget like ``sync-metadata``: the fetch (gallery-dl pagination)
+        plus download can run for many minutes, so the request returns
+        immediately and the frontend polls ``GET /import-from-url/status``.
+        Only one import runs at a time; a fresh ``running`` status object is
+        published to ``app.state`` *synchronously* so the busy-check is
+        race-free on the event loop.
+        """
+        if state.url_import_status.state == "running":
+            return Result(msg="Import already running")
+
+        status = UrlImportStatus(
+            state="running",
+            url=url,
+            started_at=datetime.now(tz=UTC).isoformat(timespec="seconds"),
+        )
+        state.url_import_status = status
+
+        async def _run() -> None:
+            db: DB = state.db
+            conn = db.new_connection()
+            try:
+                stats = await asyncio.to_thread(
+                    run_url_import,
+                    url,
+                    db=conn,
+                    type_to_group_id=state.canonical_tag_groups,
+                    apply=True,
+                    config_path=_find_gallery_dl_conf(),
+                )
+            except Exception as exc:
+                logger.exception(f"URL import failed for {url}")
+                status.state = "failed"
+                status.error = str(exc)
+            else:
+                status.state = "done"
+                status.stats = stats
+                # New images need embedding / scores / auto-tags (kemono posts
+                # carry no tags at all) — kick the existing backfill pipeline.
+                status.sync_triggered = _spawn_sync_metadata(state)
+            finally:
+                status.finished_at = datetime.now(tz=UTC).isoformat(timespec="seconds")
+                db.discard_connection(conn)
+
+        _spawn_tracked(state, _run())
+        return Result(msg="Import started")
+
+    @litestar.get(
+        "/import-from-url/status",
+        description="Status of the current/last background URL import",
+    )
+    async def import_from_url_status(self, state: State) -> UrlImportStatus:
+        return state.url_import_status
+
     @litestar.post("/sync-metadata", description="Rescan target_dir and run every backfill worker")
     async def sync_metadata_endpoint(self, state: State) -> Result:
         """Trigger the same disk-scan + all-workers pipeline that runs at startup.
@@ -241,22 +346,8 @@ class CommandController(Controller):
         endpoint (or hitting it while the startup backfill is mid-flight)
         won't kick off duplicate GPU work.
         """
-        lock: asyncio.Lock = state.backfill_lock
-        if lock.locked():
+        if not _spawn_sync_metadata(state):
             return Result(msg="Sync already running")
-
-        async def _run() -> None:
-            from processors import sync_metadata  # noqa: PLC0415  # lazy: defer ML stack load
-
-            async with lock:
-                try:
-                    await sync_metadata(state.db)
-                except Exception:
-                    logger.exception("Manual metadata sync failed")
-
-        task = asyncio.create_task(_run())
-        state.background_tasks.add(task)
-        task.add_done_callback(state.background_tasks.discard)
         return Result(msg="Sync started")
 
     @litestar.post(
@@ -290,9 +381,7 @@ class CommandController(Controller):
                 with contextlib.suppress(Exception):
                     conn.close()
 
-        task = asyncio.create_task(_run())
-        state.background_tasks.add(task)
-        task.add_done_callback(state.background_tasks.discard)
+        _spawn_tracked(state, _run())
         return Result(msg=f"Near-duplicate grouping started (threshold={thr}).")
 
     @litestar.post("/db/snapshot", description="Create a point-in-time SQLite snapshot for offline tooling")

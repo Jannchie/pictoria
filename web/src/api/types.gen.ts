@@ -65,6 +65,17 @@ export type ExtensionCountItem = {
 };
 
 /**
+ * GalleryDLStats
+ */
+export type GalleryDlStats = {
+    fetched?: number;
+    images?: number;
+    new?: number;
+    downloaded?: number;
+    failed?: number;
+};
+
+/**
  * UploadFormData
  */
 export type PostControllerUploadFormData = {
@@ -499,6 +510,19 @@ export type TextSearchRequest = {
      * Natural-language search prompt.
      */
     query?: string;
+};
+
+/**
+ * UrlImportStatus
+ */
+export type UrlImportStatus = {
+    state?: 'idle' | 'running' | 'done' | 'failed';
+    url?: string | null;
+    stats?: GalleryDlStats | null;
+    error?: string | null;
+    startedAt?: string | null;
+    finishedAt?: string | null;
+    syncTriggered?: boolean;
 };
 
 /**
@@ -1711,6 +1735,55 @@ export type V2GroupDuplicatesResponses = {
 };
 
 export type V2GroupDuplicatesResponse = V2GroupDuplicatesResponses[keyof V2GroupDuplicatesResponses];
+
+export type V2ImportFromUrlEndpointData = {
+    body?: never;
+    path?: never;
+    query: {
+        url: string;
+    };
+    url: '/v2/cmd/import-from-url';
+};
+
+export type V2ImportFromUrlEndpointErrors = {
+    /**
+     * Validation Exception
+     */
+    400: {
+        status_code: number;
+        detail: string;
+        extra?: null | {
+            [key: string]: unknown;
+        } | Array<unknown>;
+    };
+};
+
+export type V2ImportFromUrlEndpointError = V2ImportFromUrlEndpointErrors[keyof V2ImportFromUrlEndpointErrors];
+
+export type V2ImportFromUrlEndpointResponses = {
+    /**
+     * Document created, URL follows
+     */
+    201: Result;
+};
+
+export type V2ImportFromUrlEndpointResponse = V2ImportFromUrlEndpointResponses[keyof V2ImportFromUrlEndpointResponses];
+
+export type V2ImportFromUrlStatusData = {
+    body?: never;
+    path?: never;
+    query?: never;
+    url: '/v2/cmd/import-from-url/status';
+};
+
+export type V2ImportFromUrlStatusResponses = {
+    /**
+     * Request fulfilled, document follows
+     */
+    200: UrlImportStatus;
+};
+
+export type V2ImportFromUrlStatusResponse = V2ImportFromUrlStatusResponses[keyof V2ImportFromUrlStatusResponses];
 
 export type V2SyncMetadataEndpointData = {
     body?: never;
