@@ -142,10 +142,11 @@ class PostQueryService:
         return await asyncio.to_thread(_impl)
 
     # 笏笏笏 Read single 笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏
-    async def get_detail(self, post_id: int) -> dict | None:
+    async def get_detail(self, post_id: int, lang: str = "zh-Hans") -> dict | None:
         """Detail read model: post columns + joined tags / colors / scores.
 
-        Returns ``None`` if the post doesn't exist.
+        Returns ``None`` if the post doesn't exist. ``lang`` picks the tag
+        ``translated_name`` table (``en`` yields ``None`` → raw names).
         """
 
         def _impl() -> dict | None:
@@ -158,7 +159,7 @@ class PostQueryService:
                 return None
             _decode_dominant_colors_in([post])
             ids = [post_id]
-            tags = self._tags.fetch_tags_by_ids(ids).get(post_id, [])
+            tags = self._tags.fetch_tags_by_ids(ids, lang).get(post_id, [])
             colors = self._colors.fetch_by_ids(ids).get(post_id, [])
             waifu_score = self._scores.fetch_waifu_by_ids(ids).get(post_id)
             aesthetic_scores = self._scores.fetch_aesthetic_by_ids(ids).get(post_id, [])
@@ -174,7 +175,7 @@ class PostQueryService:
         return await asyncio.to_thread(_impl)
 
     #笏笏笏 Read many 笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏
-    async def list_paginated(self, start: int, limit: int) -> tuple[list[dict], int | None]:
+    async def list_paginated(self, start: int, limit: int, lang: str = "zh-Hans") -> tuple[list[dict], int | None]:
         """Return ``(items_as_detail_dicts, next_cursor)``.
 
         Batches the joined lookups (tags, colors, waifu, aesthetic scores) into
@@ -195,7 +196,7 @@ class PostQueryService:
                 posts = posts[:-1]
 
             ids = [p["id"] for p in posts]
-            tags_by_post = self._tags.fetch_tags_by_ids(ids)
+            tags_by_post = self._tags.fetch_tags_by_ids(ids, lang)
             colors_by_post = self._colors.fetch_by_ids(ids)
             waifu_by_post = self._scores.fetch_waifu_by_ids(ids)
             aesthetic_by_post = self._scores.fetch_aesthetic_by_ids(ids)

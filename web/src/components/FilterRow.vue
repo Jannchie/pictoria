@@ -21,8 +21,8 @@ function clearTextSearch() {
         v-model="textSearchQuery"
         size="sm"
         class="min-w-60"
-        placeholder="Describe what you want to see…"
-        aria-label="Semantic search"
+        :placeholder="$t('filter.semanticPlaceholder')"
+        :aria-label="$t('filter.semanticSearch')"
       >
         <template #leftSection>
           <i class="i-tabler-search text-fg-muted" aria-hidden="true" />
@@ -33,7 +33,7 @@ function clearTextSearch() {
         >
           <button
             type="button"
-            aria-label="Clear search"
+            :aria-label="$t('filter.clearSearch')"
             class="text-fg-muted rounded hover:text-fg focus:outline-none focus-visible:ring-2 focus-visible:ring-primary/60"
             @click="clearTextSearch"
           >

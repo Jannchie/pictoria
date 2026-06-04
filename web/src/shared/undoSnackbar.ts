@@ -1,6 +1,10 @@
 import { ref } from 'vue'
+import { i18n } from '@/locale'
 import { redo, undo } from './history'
 import { selectedPostIdSet } from './state'
+
+// Non-component module: go through the global composer.
+const t = i18n.global.t
 
 export interface UndoSnackbar {
   message: string
@@ -44,12 +48,12 @@ export async function performUndo(): Promise<void> {
     return
   }
   if (r.status === 'failed') {
-    show(`无法撤销：${r.command.label}（帖子可能已被删除）`, null, 'error')
+    show(t('history.cannotUndo', { label: r.command.label }), null, 'error')
     return
   }
   highlight(r.command.postIds)
-  const note = r.command.note ? `（${r.command.note}）` : ''
-  show(`已撤销：${r.command.label}${note}`, 'redo')
+  const note = r.command.note ? t('history.noteSuffix', { note: r.command.note }) : ''
+  show(t('history.undone', { label: r.command.label, note }), 'redo')
 }
 
 export async function performRedo(): Promise<void> {
@@ -58,9 +62,9 @@ export async function performRedo(): Promise<void> {
     return
   }
   if (r.status === 'failed') {
-    show(`无法重做：${r.command.label}（帖子可能已被删除）`, null, 'error')
+    show(t('history.cannotRedo', { label: r.command.label }), null, 'error')
     return
   }
   highlight(r.command.postIds)
-  show(`已重做：${r.command.label}`, 'undo')
+  show(t('history.redone', { label: r.command.label }), 'undo')
 }

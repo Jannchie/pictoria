@@ -1,6 +1,7 @@
 import { QueryClient } from '@tanstack/vue-query'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import * as api from '@/api'
+import { localeSetting } from '@/locale'
 import { canUndo, clearHistory, redo, undo } from '@/shared/history'
 import { captureOldValues, commitRating, commitScore, commitTag, deletePosts, groupIdsByValue, removePostsFromCacheEntry } from '@/shared/mutations'
 import { queryKeys } from '@/shared/queryKeys'
@@ -46,6 +47,9 @@ const qc = { invalidateQueries: vi.fn(), setQueriesData: vi.fn() } as any
 
 describe('commit factories', () => {
   beforeEach(() => {
+    // Pin the locale: the note copy is asserted literally below, and 'auto'
+    // would resolve differently depending on the host machine's language.
+    localeSetting.value = 'en'
     clearHistory()
     vi.clearAllMocks()
   })
@@ -81,7 +85,7 @@ describe('commit factories', () => {
     const r = await undo()
     expect(r.status).toBe('done')
     if (r.status === 'done') {
-      expect(r.command.note).toContain('未加载')
+      expect(r.command.note).toContain('not loaded')
     }
   })
 

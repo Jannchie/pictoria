@@ -3,6 +3,7 @@ import { VueQueryPlugin } from '@tanstack/vue-query'
 import { createApp } from 'vue'
 import { createRouter, createWebHistory } from 'vue-router'
 import App from '@/App.vue'
+import { i18n } from '@/locale'
 import { baseURL } from '@/shared'
 import { highlightDirective } from '@/utils'
 import { prewarmArthash } from '@/utils/arthash'
@@ -88,6 +89,7 @@ const router = createRouter({
 })
 const app = createApp(App)
 app.directive('highlight', highlightDirective)
+app.use(i18n)
 app.use(VueQueryPlugin)
 // app.use(VueQueryPlugin, { queryClientConfig: { defaultOptions: { queries: { staleTime: 1000 * 60 * 5 } } } })
 app.use(router)

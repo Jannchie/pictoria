@@ -1,7 +1,9 @@
 <script setup lang="ts">
 import { useQuery, useQueryClient } from '@tanstack/vue-query'
 import { computed, ref } from 'vue'
+import { useI18n } from 'vue-i18n'
 import { v2ListTagGroup, v2ListTags } from '@/api'
+import { resolvedLocale } from '@/locale'
 import { commitTag } from '@/shared'
 import { queryKeys } from '@/shared/queryKeys'
 import { naturalizeTagName } from '@/utils'
@@ -10,6 +12,8 @@ import { usePostQuery } from '../composables/usePostQuery'
 const props = defineProps<{
   postId?: number
 }>()
+
+const { t } = useI18n()
 
 const postId = computed(() => props.postId)
 const search = ref('')
@@ -27,9 +31,11 @@ const tagGroups = computed(() => {
 })
 
 const tagsQuery = useQuery({
-  queryKey: queryKeys.tags,
+  // Shares the Tags page cache; locale in the key so a language switch
+  // refetches the server-side translated names.
+  queryKey: [...queryKeys.tags, resolvedLocale],
   queryFn: async () => {
-    const resp = await v2ListTags({})
+    const resp = await v2ListTags({ query: { lang: resolvedLocale.value } })
     return resp.data ?? []
   },
   staleTime: Infinity,
@@ -100,7 +106,7 @@ async function onPointerUp(tagName: string) {
 }
 const pinned = inject('pinned', ref(false))
 const addTagText = computed(() => {
-  return `Add New Tag "${search.value}"`
+  return t('tagSelector.addNew', { name: search.value })
 })
 
 const { tab } = useMagicKeys({
@@ -214,7 +220,7 @@ const searchingInitCurrentTags = computed(() => {
     <div class="text-fg-muted flex flex-grow flex-col h-full w-full items-center justify-center">
       <i class="i-tabler-tag text-2xl p-4" />
       <span class="text-xs mt-2">
-        No Post Selected
+        {{ $t('tagSelector.noPostSelected') }}
       </span>
     </div>
   </div>
@@ -227,7 +233,7 @@ const searchingInitCurrentTags = computed(() => {
         ref="searchRef"
         v-model="search"
         size="sm"
-        placeholder="Search"
+        :placeholder="$t('tagSelector.searchPlaceholder')"
         class="flex-grow"
       />
       <PButton
@@ -275,7 +281,7 @@ const searchingInitCurrentTags = computed(() => {
           class="border-b border-border-default"
         >
           <div class="text-xs text-fg-subtle tracking-wider font-medium px-3 py-1.5 uppercase">
-            Already Selected · {{ searchingInitCurrentTags.length }}
+            {{ $t('tagSelector.alreadySelected') }} · {{ searchingInitCurrentTags.length }}
           </div>
           <template
             v-for="tag, i in initCurrentTags"
@@ -300,7 +306,7 @@ const searchingInitCurrentTags = computed(() => {
         </div>
         <div>
           <div class="text-xs text-fg-subtle tracking-wider font-medium px-3 py-1.5 uppercase">
-            All · {{ currentGroupTags.filter(tag => isSearchMatch(tag.name)).length }}
+            {{ $t('tagSelector.all') }} · {{ currentGroupTags.filter(tag => isSearchMatch(tag.name)).length }}
           </div>
           <template
             v-for="tag, i in displayCurrentGroupTags"
@@ -326,22 +332,22 @@ const searchingInitCurrentTags = computed(() => {
           v-if="displayCurrentGroupTags.length === 100"
           class="text-xs p-1 text-center op50"
         >
-          Only Show Top 100
+          {{ $t('tagSelector.onlyTop') }}
         </div>
       </ScrollArea>
     </div>
     <div class="text-xs text-fg-muted px-3 py-2 border-t border-border-default flex flex-wrap gap-x-3 gap-y-1 items-center">
       <span class="flex gap-1 items-center">
         <kbd>↑</kbd><kbd>↓</kbd>
-        <span>navigate</span>
+        <span>{{ $t('tagSelector.navigate') }}</span>
       </span>
       <span class="flex gap-1 items-center">
         <kbd>↵</kbd>
-        <span>select</span>
+        <span>{{ $t('tagSelector.select') }}</span>
       </span>
       <span class="flex gap-1 items-center">
         <kbd>Tab</kbd>
-        <span>switch group</span>
+        <span>{{ $t('tagSelector.switchGroup') }}</span>
       </span>
     </div>
   </div>

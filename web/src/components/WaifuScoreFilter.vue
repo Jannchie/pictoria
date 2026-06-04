@@ -1,22 +1,25 @@
 <script setup lang="ts">
 import { computed } from 'vue'
+import { useI18n } from 'vue-i18n'
 import { v2GetWaifuBucketCount } from '@/api'
 import { useFacetFilter } from '@/composables/useFacetFilter'
 
+const { t } = useI18n()
+
 interface BucketDef {
   level: string // 'S' | 'A' | 'B' | 'C' | 'D' | 'UNSCORED'
-  label: string
+  labelKey: string
   range: string // e.g. '8 – 10'
 }
 
 // Order matches the popover row order (top → bottom).
 const BUCKETS: BucketDef[] = [
-  { level: 'A', label: 'Best', range: '8 – 10' },
-  { level: 'B', label: 'Good', range: '6 – 8' },
-  { level: 'C', label: 'Normal', range: '4 – 6' },
-  { level: 'D', label: 'Bad', range: '2 – 4' },
-  { level: 'E', label: 'Worst', range: '0 – 2' },
-  { level: 'UNSCORED', label: 'Unscored', range: '' },
+  { level: 'A', labelKey: 'filter.bucketBest', range: '8 – 10' },
+  { level: 'B', labelKey: 'filter.bucketGood', range: '6 – 8' },
+  { level: 'C', labelKey: 'filter.bucketNormal', range: '4 – 6' },
+  { level: 'D', labelKey: 'filter.bucketBad', range: '2 – 4' },
+  { level: 'E', labelKey: 'filter.bucketWorst', range: '0 – 2' },
+  { level: 'UNSCORED', labelKey: 'common.unscored', range: '' },
 ]
 
 // A/B green, C amber, D orange, E red — a green→warm→danger ramp. The dot
@@ -58,7 +61,7 @@ function pct(count: number) {
 
 const btnText = computed(() => {
   const item = waifuLevels.value
-  return item.length === 0 ? 'Waifu Score' : `Waifu: ${item.join(', ')}`
+  return item.length === 0 ? t('filter.waifuScore') : `Waifu: ${item.join(', ')}`
 })
 </script>
 
@@ -94,13 +97,13 @@ const btnText = computed(() => {
                 class="font-bold"
                 :class="{ 'text-fg-subtle italic font-normal': bucket.level === 'UNSCORED' }"
               >
-                {{ bucket.level === 'UNSCORED' ? 'Unscored' : bucket.level }}
+                {{ bucket.level === 'UNSCORED' ? $t('common.unscored') : bucket.level }}
               </span>
               <span
                 v-if="bucket.range"
                 class="text-fg-muted whitespace-nowrap"
               >
-                {{ bucket.label }} ({{ bucket.range }})
+                {{ $t(bucket.labelKey) }} ({{ bucket.range }})
               </span>
             </div>
             <div

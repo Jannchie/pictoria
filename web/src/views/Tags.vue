@@ -2,12 +2,16 @@
 import type { TagWithCountPublic } from '@/api'
 import { useQuery } from '@tanstack/vue-query'
 import { v2ListTags } from '@/api'
+import { resolvedLocale } from '@/locale'
 import { queryKeys } from '@/shared/queryKeys'
 
 const tagQuery = useQuery({
-  queryKey: queryKeys.tags,
+  // Locale appended: translated tag names come from the server, so a
+  // language switch refetches. invalidateQueries(queryKeys.tags) still
+  // matches by prefix.
+  queryKey: [...queryKeys.tags, resolvedLocale],
   queryFn: async () => {
-    const resp = await v2ListTags({})
+    const resp = await v2ListTags({ query: { lang: resolvedLocale.value } })
     if (resp.error) {
       throw resp.error
     }
@@ -53,8 +57,8 @@ const tagGroupByFirstChar = computed(() => {
     <div class="px-4 py-3 border-b border-border-default bg-bg/85 top-0 sticky z-10 backdrop-blur">
       <PInput
         v-model="search"
-        placeholder="Search tags…"
-        aria-label="Search tags"
+        :placeholder="$t('tagsView.searchPlaceholder')"
+        :aria-label="$t('tagsView.searchAria')"
         class="w-full"
       >
         <template #leftSection>
@@ -69,7 +73,7 @@ const tagGroupByFirstChar = computed(() => {
     >
       <i class="i-tabler-loader text-2xl animate-spin" aria-hidden="true" />
       <div class="text-sm">
-        Loading tags…
+        {{ $t('tagsView.loading') }}
       </div>
     </div>
     <div
@@ -79,7 +83,7 @@ const tagGroupByFirstChar = computed(() => {
     >
       <i class="i-tabler-alert-circle text-2xl" aria-hidden="true" />
       <div class="text-sm">
-        Failed to load tags. Try refreshing the page.
+        {{ $t('tagsView.loadFailed') }}
       </div>
     </div>
     <div
@@ -88,7 +92,7 @@ const tagGroupByFirstChar = computed(() => {
     >
       <i class="i-tabler-mood-empty text-2xl" aria-hidden="true" />
       <div class="text-sm">
-        No tags match “{{ search }}”.
+        {{ $t('tagsView.noMatch', { search }) }}
       </div>
     </div>
     <div v-else class="flex-1 overflow-hidden">

@@ -2,6 +2,7 @@
 import type { PropType, VNode } from 'vue'
 import { useVirtualList } from '@vueuse/core'
 import { computed, defineComponent, nextTick, watch, watchEffect } from 'vue'
+import { formatNumber } from '@/locale'
 
 type Rounded = 'none' | 'sm' | 'md' | 'lg' | 'full'
 
@@ -414,7 +415,7 @@ export default defineComponent({
             selected ? 'bg-primary/15 text-primary' : 'text-fg-subtle group-hover/row:text-fg-muted',
           ]}
         >
-          {Intl.NumberFormat('en-US').format(n)}
+          {formatNumber(n)}
         </span>
       )
     }

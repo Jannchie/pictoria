@@ -101,6 +101,7 @@ uv run python scripts/inspect_db.py
 - **src/api/**: Auto-generated API client from OpenAPI schema
 - **src/composables/**: Vue composables for shared logic
 - **src/shared/**: Global state and utilities
+- **src/locale/**: i18n — vue-i18n instance + locale state (`localeSetting`/`resolvedLocale`, persisted as `pictoria.locale`, `auto` follows the browser) and locale-aware `formatNumber`/`formatDateTime`; message catalogues in `messages/en.ts` (schema source) and `messages/zh-Hans.ts` (typed as `MessageSchema` so key drift fails vue-tsc)
 
 ### Key Patterns
 
@@ -141,7 +142,8 @@ Notes when writing SQL for SQLite:
 2. Use existing composables from `src/composables/`
 3. Maintain three-panel layout structure
 4. Use UnoCSS (`presetWind4` + `presetIcons`) for styling; UI primitives live in `src/ui` and read design tokens from `--p-*` CSS variables (no external component library)
-5. Run linting before commit: `pnpm lint`
+5. No hardcoded user-visible strings — every label/placeholder/aria/toast goes through vue-i18n: `$t('…')` in templates, `useI18n()` in `<script setup>`, `i18n.global.t` in non-component modules; static option arrays store message *keys* (`labelKey`) resolved at render. Add new keys to **both** `src/locale/messages/en.ts` and `zh-Hans.ts` — `src/test/locale.test.ts` fails on key-tree drift, on zh-only interpolation params, and on any literal key used in source that's missing from the catalogue. Numbers/dates use `formatNumber`/`formatDateTime` from `@/locale` (never `Intl.NumberFormat('en-US')` or bare `toLocaleString()`). Tag display names are translated server-side: pass `lang: resolvedLocale.value` to those endpoints and include `resolvedLocale` in the TanStack queryKey so a language switch refetches
+6. Run linting before commit: `pnpm lint`
 
 ### API Client Generation
 

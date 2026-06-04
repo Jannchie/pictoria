@@ -20,10 +20,10 @@ const { data: postData } = usePostQuery(focusedPostId)
   >
     <i class="i-tabler-photo-search text-3xl op50" aria-hidden="true" />
     <div class="text-sm text-fg-muted">
-      Select a post to see details
+      {{ $t('rightPanel.empty') }}
     </div>
     <div class="text-balance">
-      Click any thumbnail in the gallery, or use the arrow keys to move through the grid.
+      {{ $t('rightPanel.emptyHint') }}
     </div>
   </div>
 </template>

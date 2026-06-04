@@ -146,7 +146,7 @@ useEventListener(globalThis, 'dragleave', (event: DragEvent) => {
     class="text-lg bg-primary/25 flex h-100vh w-100vw pointer-events-none items-center justify-center fixed z-10"
   >
     <div class="text-black">
-      Drop files here to save them.
+      {{ $t('dropOverlay.hint') }}
     </div>
   </div>
 </template>

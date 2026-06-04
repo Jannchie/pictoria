@@ -15,10 +15,15 @@ import {
   v2UpdatePostScore,
   v2UpdatePostSource,
 } from '@/api'
+import { i18n } from '@/locale'
 import { pushCommand } from './history'
 import { patchPostsInListCache } from './queries'
 import { queryKeys } from './queryKeys'
 import { notifyDid } from './undoSnackbar'
+
+// Non-component module: go through the global composer. History labels are
+// rendered at action time, so entries keep the language they were created in.
+const t = i18n.global.t
 
 // Push a command onto the undo stack AND surface the bottom snackbar. Every
 // commit* factory records through here so a single user action always produces
@@ -270,7 +275,7 @@ export async function makePostCanonical(qc: QueryClient, id: number): Promise<vo
 // ---- 命令工厂：捕获旧值 → 执行 → 入栈 ----
 
 function buildNote(missingIds: number[]): string | undefined {
-  return missingIds.length > 0 ? `${missingIds.length} 张未加载，无法撤销` : undefined
+  return missingIds.length > 0 ? t('history.notLoaded', { n: missingIds.length }) : undefined
 }
 
 function revertGrouped<T>(
@@ -294,7 +299,7 @@ export async function commitScore(
   const { captured, missingIds } = captureOldValues(posts, ids, p => p.score)
   await writeScore(qc, ids, newScore)
   record({
-    label: ids.length === 1 ? `评分 → ${newScore}` : `给 ${ids.length} 张图评分 ${newScore}`,
+    label: ids.length === 1 ? t('history.setScore', { score: newScore }) : t('history.setScoreMany', { n: ids.length, score: newScore }),
     postIds: ids,
     apply: () => writeScore(qc, ids, newScore),
     revert: revertGrouped(qc, captured, writeScore),
@@ -312,7 +317,7 @@ export async function commitRating(
   const { captured, missingIds } = captureOldValues(posts, ids, p => p.rating)
   await writeRating(qc, ids, newRating)
   record({
-    label: ids.length === 1 ? `评级 → ${newRating}` : `给 ${ids.length} 张图评级 ${newRating}`,
+    label: ids.length === 1 ? t('history.setRating', { rating: newRating }) : t('history.setRatingMany', { n: ids.length, rating: newRating }),
     postIds: ids,
     apply: () => writeRating(qc, ids, newRating),
     revert: revertGrouped(qc, captured, writeRating),
@@ -329,7 +334,7 @@ export async function commitCaption(
 ): Promise<void> {
   await writeCaption(qc, id, newCaption)
   record({
-    label: '编辑描述',
+    label: t('history.editCaption'),
     postIds: [id],
     apply: () => writeCaption(qc, id, newCaption),
     revert: () => writeCaption(qc, id, oldCaption),
@@ -344,7 +349,7 @@ export async function commitSource(
 ): Promise<void> {
   await writeSource(qc, id, newSource)
   record({
-    label: '编辑来源',
+    label: t('history.editSource'),
     postIds: [id],
     apply: () => writeSource(qc, id, newSource),
     revert: () => writeSource(qc, id, oldSource),
@@ -359,7 +364,7 @@ export async function commitTag(
 ): Promise<void> {
   await writeTag(qc, id, tagName, add)
   record({
-    label: add ? `添加标签 ${tagName}` : `移除标签 ${tagName}`,
+    label: add ? t('history.addTag', { tag: tagName }) : t('history.removeTag', { tag: tagName }),
     postIds: [id],
     apply: () => writeTag(qc, id, tagName, add),
     revert: () => writeTag(qc, id, tagName, !add),
@@ -379,8 +384,8 @@ export async function commitRotate(
   await run(clockwise)
   record({
     label: ids.length === 1
-      ? (clockwise ? '顺时针旋转' : '逆时针旋转')
-      : `旋转 ${ids.length} 张图`,
+      ? (clockwise ? t('history.rotateCw') : t('history.rotateCcw'))
+      : t('history.rotateMany', { n: ids.length }),
     postIds: ids,
     apply: () => run(clockwise),
     revert: () => run(!clockwise),

@@ -18,27 +18,27 @@ const { data: allCount } = useQuery({
   <div class="text-sm flex flex-col gap-1 select-none">
     <ListItem
       icon="i-tabler-photo"
-      title="All"
+      :title="$t('nav.all')"
       :extra-info="allCount"
       :active="$route.path === '/all'"
       @click="$router.push({ path: '/all', query: $route.query })"
     />
     <ListItem
       icon="i-tabler-bookmarks"
-      title="Tag Manager"
+      :title="$t('nav.tagManager')"
       :active="$route.path === '/tags'"
       @click="$router.push('/tags')"
     />
     <ListItem
       icon="i-tabler-clock"
-      title="Recently"
+      :title="$t('nav.recently')"
       :active="$route.path === '/recently'"
       @click="$router.push({ path: '/recently', query: $route.query })"
     />
     <ListItem
       icon="i-tabler-arrows-cross"
       :active="$route.path === '/random'"
-      title="Random"
+      :title="$t('nav.random')"
       @click="$router.push({ path: '/random', query: $route.query })"
     />
   </div>

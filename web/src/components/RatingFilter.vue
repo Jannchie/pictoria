@@ -1,7 +1,10 @@
 <script setup lang="ts">
 import { computed } from 'vue'
+import { useI18n } from 'vue-i18n'
 import { v2GetRatingCount } from '@/api'
 import { useFacetFilter } from '@/composables/useFacetFilter'
+
+const { t } = useI18n()
 
 const { selected: ratingFilterData, has: hasRating, toggle, countQuery } = useFacetFilter<number, { rating: number, count: number }>({
   field: 'rating',
@@ -31,27 +34,27 @@ function pct(count: number) {
 
 const btnText = computed(() => {
   const item = ratingFilterData.value
-  return item.length === 0 ? 'Rating' : item.map(s => getRatingName(s)).join(', ')
+  return item.length === 0 ? t('filter.rating') : item.map(s => getRatingName(s)).join(', ')
 })
 function getRatingName(rating: number) {
   switch (rating) {
     case 0: {
-      return 'Unrated'
+      return t('rating.unrated')
     }
     case 1: {
-      return 'General'
+      return t('rating.general')
     }
     case 2: {
-      return 'Sensitive'
+      return t('rating.sensitive')
     }
     case 3: {
-      return 'Questionable'
+      return t('rating.questionable')
     }
     case 4: {
-      return 'Explicit'
+      return t('rating.explicit')
     }
     default: {
-      return 'Unknown'
+      return t('rating.unknown')
     }
   }
 }

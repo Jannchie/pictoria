@@ -156,11 +156,12 @@ class TagRepo:
 
         return await asyncio.to_thread(_impl)
 
-    def fetch_tags_by_ids(self, ids: list[int]) -> dict[int, list[dict]]:
+    def fetch_tags_by_ids(self, ids: list[int], lang: str = "zh-Hans") -> dict[int, list[dict]]:
         """Batch-fetch tags per post, ordered by canonical group then name.
 
         Synchronous: called from inside the query layer's ``asyncio.to_thread``
         block. Returns the ``PostHasTagPublic``-shaped dicts the read models use.
+        ``lang`` picks the ``translated_name`` table (``en`` yields ``None``).
         """
         if not ids:
             return {}
@@ -199,7 +200,7 @@ class TagRepo:
                     "is_auto": bool(r["is_auto"]),
                     "tag_info": {
                         "name": r["name"],
-                        "translated_name": translate_tag(r["name"]),
+                        "translated_name": translate_tag(r["name"], lang),
                         "created_at": r["created_at"],
                         "updated_at": r["updated_at"],
                         "group": (

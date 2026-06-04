@@ -344,7 +344,7 @@ onUnmounted(() => {
     ref="dialogRef"
     role="dialog"
     aria-modal="true"
-    :aria-label="`Image viewer: ${post.fileName}.${post.extension}`"
+    :aria-label="$t('post.viewerAria', { name: `${post.fileName}.${post.extension}` })"
     tabindex="-1"
     class="bg-bg flex flex-col inset-0 absolute z-10000 focus:outline-none"
     style="overscroll-behavior: contain;"
@@ -360,7 +360,7 @@ onUnmounted(() => {
             icon
             size="sm"
             variant="ghost"
-            aria-label="Close viewer"
+            :aria-label="$t('post.closeViewer')"
             @click="showPostDetail = null"
           >
             <i class="i-tabler-arrow-left" aria-hidden="true" />
@@ -372,7 +372,7 @@ onUnmounted(() => {
               class="text-xs px-2 py-1 text-center"
             >
               <kbd>Esc</kbd>
-              <span class="text-fg-muted ml-1">to close</span>
+              <span class="text-fg-muted ml-1">{{ $t('post.escToClose') }}</span>
             </PSurface>
           </template>
         </Popover>
@@ -391,7 +391,7 @@ onUnmounted(() => {
           :max="8.00"
           :step="0.01"
           :min-width="8"
-          aria-label="Zoom"
+          :aria-label="$t('post.zoom')"
           :aria-valuetext="`${scaleStr}%`"
           @update:model-value="scaleWithSlider"
         />
@@ -402,7 +402,7 @@ onUnmounted(() => {
           <PButton
             icon
             size="sm"
-            aria-label="Fit to viewport"
+            :aria-label="$t('post.fitToViewport')"
             @click="toInit"
           >
             <i class="i-tabler-focus-centered" aria-hidden="true" />
@@ -413,14 +413,14 @@ onUnmounted(() => {
               bordered
               class="text-xs px-2 py-1 text-center"
             >
-              initial scale
+              {{ $t('post.initialScale') }}
             </PSurface>
           </template>
         </Popover>
         <PButton
           icon
           size="sm"
-          aria-label="Actual size (100%)"
+          :aria-label="$t('post.actualSize')"
           @click="to1x"
         >
           <i class="i-tabler-multiplier-1x" aria-hidden="true" />
@@ -428,7 +428,7 @@ onUnmounted(() => {
         <PButton
           icon
           size="sm"
-          aria-label="Flip horizontal"
+          :aria-label="$t('post.flipHorizontal')"
           :aria-pressed="flipHorizontal"
           @click="toggleFlipHorizontal"
         >

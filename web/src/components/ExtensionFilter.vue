@@ -1,7 +1,10 @@
 <script setup lang="ts">
 import { computed } from 'vue'
+import { useI18n } from 'vue-i18n'
 import { v2GetExtensionCount } from '@/api'
 import { useFacetFilter } from '@/composables/useFacetFilter'
+
+const { t } = useI18n()
 
 const { selected: ratingFilterData, has: hasExt, toggle, countQuery } = useFacetFilter<string, { extension: string, count: number }>({
   field: 'extension',
@@ -43,7 +46,7 @@ const extensions = computed(() => {
 
 const btnText = computed(() => {
   const item = ratingFilterData.value
-  return item.length === 0 ? 'Extension' : item.map(s => getExtensionName(s)).join(', ')
+  return item.length === 0 ? t('filter.extension') : item.map(s => getExtensionName(s)).join(', ')
 })
 function getExtensionName(extension: string) {
   return extension
@@ -77,7 +80,7 @@ function getExtensionName(extension: string) {
             />
             <div class="flex flex-grow gap-1 items-center">
               <template v-if="ext === ''">
-                <span class="text-fg-subtle italic">No extension</span>
+                <span class="text-fg-subtle italic">{{ $t('filter.noExtension') }}</span>
               </template>
               <template v-else>
                 <span class="font-mono">.{{ getExtensionName(ext) }}</span>

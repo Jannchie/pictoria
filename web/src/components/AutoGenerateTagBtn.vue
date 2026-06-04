@@ -42,7 +42,7 @@ async function onAutoTag() {
       class="i-tabler-photo-pentagon"
     />
     <div class="w-full text-nowrap text-ellipsis overflow-hidden">
-      Auto Generate Tag
+      {{ $t('post.autoGenerateTag') }}
     </div>
   </PButton>
 </template>

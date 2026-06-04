@@ -36,7 +36,7 @@ function emptyPointerDown(e: PointerEvent) {
     <div class="text-sm text-fg-muted op-50 flex flex-col gap-2 h-64 items-center justify-center">
       <i class="i-tabler-loader text-2xl animate-spin" />
       <span>
-        Loading similar posts...
+        {{ $t('post.loadingSimilar') }}
       </span>
     </div>
   </template>

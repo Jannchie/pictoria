@@ -43,6 +43,7 @@ class TagCountRequest(PostFilter):
     # substring-filters tag names; ``limit`` caps rows (by descending count).
     query: Annotated[str, Meta(description="Substring filter on tag names.")] = ""
     limit: Annotated[int, Meta(description="Max tags returned, by descending count.")] = 50
+    lang: Annotated[str, Meta(description="Locale for translated tag names (e.g. zh-Hans; en yields null).")] = "zh-Hans"
 
 
 @dataclass
@@ -183,18 +184,18 @@ class PostController(Controller):
         return [PostSimplePublic.model_validate(r) for r in rows]
 
     @litestar.get("/", status_code=200, description="Get all posts.")
-    async def list_posts(self, post_query: PostQueryService, start: int = 0, limit: int = 100) -> CursorResponse:
+    async def list_posts(self, post_query: PostQueryService, start: int = 0, limit: int = 100, lang: str = "zh-Hans") -> CursorResponse:
         if start < 0 or limit <= 0:
             raise InvalidArgumentError("Start must be >= 0 and limit must be > 0.")  # noqa: EM101, TRY003
-        items, next_cursor = await post_query.list_paginated(start, limit)
+        items, next_cursor = await post_query.list_paginated(start, limit, lang)
         return CursorResponse(
             items=[PostDetailPublic.model_validate(i) for i in items],
             next_cursor=next_cursor,
         )
 
     @litestar.get("/{post_id:int}", status_code=200)
-    async def get_post(self, post_query: PostQueryService, post_id: int) -> PostDetailPublic:
-        detail = await post_query.get_detail(post_id)
+    async def get_post(self, post_query: PostQueryService, post_id: int, lang: str = "zh-Hans") -> PostDetailPublic:
+        detail = await post_query.get_detail(post_id, lang)
         if not detail:
             raise PostNotFoundError(post_id)
         return PostDetailPublic.model_validate(detail)
@@ -272,7 +273,7 @@ class PostController(Controller):
     async def get_tag_count(self, post_query: PostQueryService, data: TagCountRequest) -> list[TagCountItem]:
         rows = await post_query.count_by_tag(data, query=data.query, limit=data.limit)
         return [
-            TagCountItem(tag_name=r["tag_name"], count=r["count"], translated_name=translate_tag(r["tag_name"]))
+            TagCountItem(tag_name=r["tag_name"], count=r["count"], translated_name=translate_tag(r["tag_name"], data.lang))
             for r in rows
         ]
 

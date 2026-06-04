@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { useQueryClient } from '@tanstack/vue-query'
+import { useI18n } from 'vue-i18n'
 import { useRoute, useRouter } from 'vue-router'
 import { v2TouchPost } from '@/api'
 import ArthashPlaceholder from '@/components/ArthashPlaceholder.vue'
@@ -10,6 +11,7 @@ import { POverlay } from '@/ui'
 import { getPostImageURL } from '@/utils'
 import { colorNumToHex } from '@/utils/color'
 
+const { t } = useI18n()
 const route = useRoute()
 const router = useRouter()
 const postId = computed(() => Number.parseInt(route.params.postId as string))
@@ -120,7 +122,9 @@ onMounted(() => {
 
 watchEffect(() => {
   if (postQuery.data.value) {
-    bottomBarInfo.value = `Post ID: ${postQuery.data.value.id}, File Name: ${postQuery.data.value.fileName}`
+    // t() inside watchEffect: a locale switch re-runs this and refreshes
+    // the bottom-bar text in the new language.
+    bottomBarInfo.value = t('post.bottomInfo', { id: postQuery.data.value.id, name: postQuery.data.value.fileName })
   }
 })
 
@@ -246,7 +250,7 @@ async function confirmDelete() {
           icon
           size="sm"
           variant="ghost"
-          aria-label="Back"
+          :aria-label="$t('common.back')"
           @click="$router.back()"
         >
           <i class="i-tabler-arrow-left" aria-hidden="true" />
@@ -310,18 +314,18 @@ async function confirmDelete() {
     @click.self="showDeleteConfirm = false"
   >
     <Dialog
-      title="Delete selected posts?"
-      :confirm-label="isDeleting ? 'Deleting…' : `Delete ${pendingDeleteIds.length}`"
-      cancel-label="Cancel"
+      :title="$t('post.deleteDialogTitle')"
+      :confirm-label="isDeleting ? $t('post.deleteDialogDeleting') : $t('post.deleteDialogConfirm', { n: pendingDeleteIds.length })"
+      :cancel-label="$t('common.cancel')"
       variant="danger"
       @confirm="confirmDelete"
       @cancel="showDeleteConfirm = false"
     >
-      <p>
-        This will permanently delete
-        <span class="text-fg font-medium tabular-nums">{{ pendingDeleteIds.length }}</span>
-        post<span v-if="pendingDeleteIds.length !== 1">s</span>. This cannot be undone.
-      </p>
+      <i18n-t keypath="post.deleteDialogBody" tag="p" scope="global" :plural="pendingDeleteIds.length">
+        <template #n>
+          <span class="text-fg font-medium tabular-nums">{{ pendingDeleteIds.length }}</span>
+        </template>
+      </i18n-t>
     </Dialog>
   </POverlay>
 </template>

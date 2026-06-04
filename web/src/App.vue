@@ -4,13 +4,17 @@ import type { DirectorySummary } from '@/api'
 import { useQueryClient } from '@tanstack/vue-query'
 import { Pane, Splitpanes } from 'splitpanes'
 import { computed, ref, watch } from 'vue'
+import { useI18n } from 'vue-i18n'
 import { RouterLink, useRoute, useRouter } from 'vue-router'
 import { useAPIError } from '@/composables/useAPIError'
+import { formatNumber } from '@/locale'
 import FolderStatsLine from './components/FolderStatsLine.vue'
 import TreeList from './components/TreeList.vue'
 import { useGlobalUndoRedo, useWatchRoute } from './composables'
 import { deleteFolder, focusedTreeFolder, isAnyDialogOpen, menuData, showMenu, useCurrentFolder, useFoldersQuery, useSyncFilterWithUrl } from './shared'
 import 'splitpanes/dist/splitpanes.css'
+
+const { t } = useI18n()
 
 useWatchRoute()
 useGlobalUndoRedo()
@@ -31,18 +35,20 @@ type FolderSortKey = 'name' | 'count' | 'silva' | 'score' | 'rating'
 const folderSortKey = useLocalStorage<FolderSortKey>('pictoria.folderSort.key', 'name')
 const folderSortOrder = useLocalStorage<'asc' | 'desc'>('pictoria.folderSort.order', 'asc')
 const folderSortShow = ref(false)
-const sortOptions: { key: FolderSortKey, label: string, icon: string }[] = [
-  { key: 'name', label: '名称', icon: 'i-tabler-abc' },
-  { key: 'count', label: '文件数', icon: 'i-tabler-files' },
-  { key: 'silva', label: 'SILVA', icon: 'i-tabler-rosette' },
-  { key: 'score', label: 'Score', icon: 'i-tabler-star' },
-  { key: 'rating', label: 'Rating', icon: 'i-tabler-thumb-up' },
+// Labels stored as message keys (not resolved strings) so a locale switch
+// re-renders them without rebuilding the arrays.
+const sortOptions: { key: FolderSortKey, labelKey: string, icon: string }[] = [
+  { key: 'name', labelKey: 'sidebar.sortName', icon: 'i-tabler-abc' },
+  { key: 'count', labelKey: 'sidebar.sortCount', icon: 'i-tabler-files' },
+  { key: 'silva', labelKey: 'sidebar.sortSilva', icon: 'i-tabler-rosette' },
+  { key: 'score', labelKey: 'sidebar.sortScore', icon: 'i-tabler-star' },
+  { key: 'rating', labelKey: 'sidebar.sortRating', icon: 'i-tabler-thumb-up' },
 ]
-const orderOptions: { id: 'asc' | 'desc', label: string, icon: string }[] = [
-  { id: 'asc', label: '升序', icon: 'i-tabler-arrow-up' },
-  { id: 'desc', label: '降序', icon: 'i-tabler-arrow-down' },
+const orderOptions: { id: 'asc' | 'desc', labelKey: string, icon: string }[] = [
+  { id: 'asc', labelKey: 'sidebar.ascending', icon: 'i-tabler-arrow-up' },
+  { id: 'desc', labelKey: 'sidebar.descending', icon: 'i-tabler-arrow-down' },
 ]
-const sortKeyLabel = computed(() => sortOptions.find(o => o.key === folderSortKey.value)?.label ?? '名称')
+const sortKeyLabel = computed(() => t(sortOptions.find(o => o.key === folderSortKey.value)?.labelKey ?? 'sidebar.sortName'))
 
 // Recursively sort a directory's children by the chosen key/order. Missing
 // score averages sort as -1 so unscored folders sink to the bottom in desc.
@@ -119,7 +125,7 @@ const folderTree = computed<TreeListItemData[]>(() => {
   }
   return [
     {
-      title: 'Root',
+      title: t('sidebar.root'),
       value: '@',
       count: root.file_count,
       meta: statsOf(root),
@@ -160,8 +166,6 @@ watch(currentFolder, (path) => {
     openPaths.value = next
   }
 }, { immediate: true })
-
-const numberFormater = new Intl.NumberFormat('en-US')
 
 const contextTarget = ref<TreeListLeafData | TreeListCollapseData | null>(null)
 function onItemContext({ data }: { data: TreeListLeafData | TreeListCollapseData, event: MouseEvent }) {
@@ -254,7 +258,7 @@ async function confirmDeleteFolder() {
     pendingDeleteFolder.value = null
   }
   catch (error) {
-    handleAPIError(error, `删除目录 ${target.title} 失败`)
+    handleAPIError(error, t('sidebar.deleteFolderFailed', { title: target.title }))
   }
   finally {
     isDeletingFolder.value = false
@@ -289,7 +293,7 @@ function splitHighlight(text: string, filter: string): HighlightPart[] {
     href="#main-content"
     class="text-fg px-3 py-2 rounded bg-primary sr-only focus:left-2 focus:top-2 focus:absolute focus:z-9999 focus:not-sr-only"
   >
-    Skip to main content
+    {{ $t('common.skipToMain') }}
   </a>
   <DropOverlay />
   <UndoSnackbar />
@@ -303,30 +307,30 @@ function splitHighlight(text: string, filter: string): HighlightPart[] {
         class="text-sm border border-border-default rounded-lg bg-surface min-w-44 shadow-lg overflow-hidden"
       >
         <div class="text-xs text-fg-subtle tracking-wide font-semibold px-3 py-2 border-b border-border-subtle uppercase">
-          <span class="max-w-60 block truncate">{{ contextTarget?.title ?? '操作' }}</span>
+          <span class="max-w-60 block truncate">{{ contextTarget?.title ?? $t('sidebar.actions') }}</span>
         </div>
         <ListItem
-          title="打开此目录"
+          :title="$t('sidebar.openFolder')"
           icon="i-tabler-folder-open"
           @click="openFolder"
         />
         <ListItem
-          title="复制路径"
+          :title="$t('sidebar.copyPath')"
           icon="i-tabler-copy"
           @click="copyPath"
         />
         <ListItem
-          title="在系统中显示"
+          :title="$t('sidebar.revealInSystem')"
           icon="i-tabler-external-link"
           @click="revealInExplorer"
         />
         <div class="my-1 border-t border-border-subtle" />
         <ListItem
-          title="新建子目录"
+          :title="$t('sidebar.newSubfolder')"
           icon="i-tabler-folder-plus"
         />
         <ListItem
-          title="删除目录"
+          :title="$t('sidebar.deleteFolder')"
           icon="i-tabler-folder-x"
           @click="onMenuDeleteFolder"
         />
@@ -357,7 +361,7 @@ function splitHighlight(text: string, filter: string): HighlightPart[] {
         <div class="px-2 pb-2 flex gap-1.5 items-center">
           <div class="flex-grow relative">
             <i class="i-tabler-search text-fg-subtle h-3.5 w-3.5 left-2.5 top-1/2 absolute -translate-y-1/2" aria-hidden="true" />
-            <label for="folder-filter-input" class="sr-only">Filter folders</label>
+            <label for="folder-filter-input" class="sr-only">{{ $t('sidebar.filterFolders') }}</label>
             <input
               id="folder-filter-input"
               v-model="folderFilter"
@@ -365,14 +369,14 @@ function splitHighlight(text: string, filter: string): HighlightPart[] {
               name="folder-filter"
               autocomplete="off"
               spellcheck="false"
-              placeholder="过滤目录…"
+              :placeholder="$t('sidebar.filterFoldersPlaceholder')"
               class="text-sm text-fg pl-8 pr-7 outline-none border border-border-subtle rounded-md bg-surface h-8 w-full transition-colors focus:border-primary/50 hover:border-border-default focus:bg-bg"
               @keydown.escape="clearFilter"
             >
             <button
               v-if="folderFilter"
               type="button"
-              aria-label="Clear filter"
+              :aria-label="$t('sidebar.clearFilter')"
               class="text-fg-subtle rounded flex h-5 w-5 transition-colors items-center right-1.5 top-1/2 justify-center absolute hover:text-fg hover:bg-surface-1 -translate-y-1/2"
               @click="clearFilter"
             >
@@ -380,7 +384,7 @@ function splitHighlight(text: string, filter: string): HighlightPart[] {
             </button>
           </div>
           <Popover v-model="folderSortShow" position="bottom-end">
-            <PButton size="sm" icon variant="secondary" aria-label="Sort folders" :title="`排序：${sortKeyLabel}`">
+            <PButton size="sm" icon variant="secondary" :aria-label="$t('sidebar.sortFolders')" :title="$t('sidebar.sortTitle', { label: sortKeyLabel })">
               <i class="i-tabler-arrows-sort h-3.5 w-3.5" aria-hidden="true" />
             </PButton>
             <template #content>
@@ -396,7 +400,7 @@ function splitHighlight(text: string, filter: string): HighlightPart[] {
                       @click="folderSortOrder = order.id"
                     >
                       <i :class="order.icon" aria-hidden="true" />
-                      <span class="flex-grow">{{ order.label }}</span>
+                      <span class="flex-grow">{{ $t(order.labelKey) }}</span>
                     </PButton>
                   </div>
                   <PButton
@@ -408,7 +412,7 @@ function splitHighlight(text: string, filter: string): HighlightPart[] {
                     @click="folderSortKey = opt.key; folderSortShow = false"
                   >
                     <i :class="opt.icon" aria-hidden="true" />
-                    <span class="flex-grow">{{ opt.label }}</span>
+                    <span class="flex-grow">{{ $t(opt.labelKey) }}</span>
                   </PButton>
                 </div>
               </div>
@@ -424,7 +428,7 @@ function splitHighlight(text: string, filter: string): HighlightPart[] {
             :highlight-chain="highlightChain"
             :item-height="treeItemHeight"
             :loading="foldersQuery.isPending.value && folderTree.length === 0"
-            empty-text="没有匹配的目录"
+            :empty-text="$t('sidebar.noFolderMatch')"
             @update:open-paths="(v) => (openPaths = v)"
             @item-context="onItemContext"
           >
@@ -489,14 +493,14 @@ function splitHighlight(text: string, filter: string): HighlightPart[] {
                       isSelected ? 'bg-primary/15 text-primary' : 'text-fg-subtle group-hover/row:text-fg-muted',
                     ]"
                   >
-                    {{ numberFormater.format(data.count ?? 0) }}
+                    {{ formatNumber(data.count ?? 0) }}
                   </span>
                 </RouterLink>
                 <button
                   type="button"
                   class="text-fg-subtle rounded flex shrink-0 h-5 w-5 transition items-center top-1/2 justify-center absolute hover:text-fg focus-visible:outline-none hover:bg-surface-2 focus-visible:ring-1 focus-visible:ring-primary/50 -translate-y-1/2"
                   :style="{ left: `${16 + level * 14 - 3}px` }"
-                  :aria-label="isOpen ? '收起' : '展开'"
+                  :aria-label="isOpen ? $t('sidebar.collapse') : $t('sidebar.expand')"
                   :aria-expanded="isOpen"
                   @click.stop.prevent="toggle"
                 >
@@ -568,7 +572,7 @@ function splitHighlight(text: string, filter: string): HighlightPart[] {
                     isSelected ? 'bg-primary/15 text-primary' : 'text-fg-subtle group-hover/row:text-fg-muted',
                   ]"
                 >
-                  {{ numberFormater.format(data.count) }}
+                  {{ formatNumber(data.count) }}
                 </span>
               </RouterLink>
             </template>
@@ -582,7 +586,7 @@ function splitHighlight(text: string, filter: string): HighlightPart[] {
             <ListItem
               icon="i-tabler-settings"
               :active="$route.path === '/settings'"
-              title="Settings"
+              :title="$t('common.settings')"
             />
           </RouterLink>
         </div>
@@ -598,7 +602,7 @@ function splitHighlight(text: string, filter: string): HighlightPart[] {
         :max-size="36"
         class="p-1 border-l border-border-default min-w-64"
       >
-        <aside aria-label="Details" class="h-full">
+        <aside :aria-label="$t('rightPanel.aria')" class="h-full">
           <RightPanel />
         </aside>
       </Pane>
@@ -610,20 +614,21 @@ function splitHighlight(text: string, filter: string): HighlightPart[] {
       @click.self="pendingDeleteFolder = null"
     >
       <Dialog
-        title="删除目录？"
-        :confirm-label="isDeletingFolder ? '删除中…' : '删除目录'"
-        cancel-label="取消"
+        :title="$t('sidebar.deleteDialogTitle')"
+        :confirm-label="isDeletingFolder ? $t('sidebar.deleteDialogDeleting') : $t('sidebar.deleteDialogConfirm')"
+        :cancel-label="$t('common.cancel')"
         variant="danger"
         @confirm="confirmDeleteFolder"
         @cancel="pendingDeleteFolder = null"
       >
-        <p>
-          将永久删除目录
-          <span class="text-fg font-medium">{{ pendingDeleteFolder.title }}</span>
-          及其中的
-          <span class="text-fg font-medium tabular-nums">{{ pendingDeleteFolder.postCount }}</span>
-          张图片（含磁盘文件）。此操作不可撤销。
-        </p>
+        <i18n-t keypath="sidebar.deleteDialogBody" tag="p" scope="global" :plural="pendingDeleteFolder.postCount">
+          <template #title>
+            <span class="text-fg font-medium">{{ pendingDeleteFolder.title }}</span>
+          </template>
+          <template #count>
+            <span class="text-fg font-medium tabular-nums">{{ formatNumber(pendingDeleteFolder.postCount) }}</span>
+          </template>
+        </i18n-t>
       </Dialog>
     </POverlay>
     <!-- Global toast outlet — useToast()/useAPIError() push here. -->

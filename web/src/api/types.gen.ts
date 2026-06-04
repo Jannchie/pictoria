@@ -406,6 +406,10 @@ export type TagCountRequest = {
      * Max tags returned, by descending count.
      */
     limit?: number;
+    /**
+     * Locale for translated tag names (e.g. zh-Hans; en yields null).
+     */
+    lang?: string;
 };
 
 /**
@@ -753,7 +757,9 @@ export type V2GetPostData = {
     path: {
         post_id: number;
     };
-    query?: never;
+    query?: {
+        lang?: string;
+    };
     url: '/v2/posts/{post_id}';
 };
 
@@ -1072,6 +1078,7 @@ export type V2ListPostsData = {
     query?: {
         start?: number;
         limit?: number;
+        lang?: string;
     };
     url: '/v2/posts';
 };
@@ -1972,6 +1979,7 @@ export type V2ListTagsData = {
     query?: {
         prev?: string | null;
         limit?: number | null;
+        lang?: string;
     };
     url: '/v2/tags';
 };
@@ -2069,7 +2077,9 @@ export type V2UpdateTagData = {
     path: {
         name: string;
     };
-    query?: never;
+    query?: {
+        lang?: string;
+    };
     url: '/v2/tags/{name}';
 };
 

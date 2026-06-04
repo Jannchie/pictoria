@@ -2,10 +2,12 @@
 import type { PostDetailPublic, PostHasTagPublic } from '@/api'
 import { useQueryClient } from '@tanstack/vue-query'
 import { filesize } from 'filesize'
+import { useI18n } from 'vue-i18n'
 import { useRoute, useRouter } from 'vue-router'
 import { v2GetSilvaScorerOne, v2GetWaifuScorerOne } from '@/api'
 import { useAPIError } from '@/composables/useAPIError'
 import { usePostGroupQuery } from '@/composables/usePostGroupQuery'
+import { formatDateTime } from '@/locale'
 import { commitCaption, commitRating, commitScore, commitSource, hideNSFW, makePostCanonical, openTagSelectorWindow, queryKeys, showPostDetail, ungroupPost } from '@/shared'
 import { getPostThumbnailURL } from '@/utils'
 import { colorNumToHex, labToRgbaString } from '@/utils/color'
@@ -14,12 +16,9 @@ const props = defineProps<{
   post: PostDetailPublic
 }>()
 
+const { t } = useI18n()
 const queryClient = useQueryClient()
 const { handle: handleAPIError } = useAPIError()
-
-function formatTimestr(t: number | string) {
-  return new Date(t).toLocaleString()
-}
 async function onSelectScore(post_id: number, score: number = 0) {
   await commitScore(queryClient, [props.post], [post_id], score)
 }
@@ -147,7 +146,7 @@ async function calculateWaifuScore() {
     queryClient.invalidateQueries({ queryKey: queryKeys.post(post.value.id) })
   }
   catch (error) {
-    handleAPIError(error, 'Failed to calculate waifu score')
+    handleAPIError(error, t('error.waifuComputeFailed'))
   }
   finally {
     isCalculatingWaifuScore.value = false
@@ -175,7 +174,7 @@ async function calculateSilvaScore() {
     queryClient.invalidateQueries({ queryKey: queryKeys.post(post.value.id) })
   }
   catch (error) {
-    handleAPIError(error, 'Failed to calculate SILVA score')
+    handleAPIError(error, t('error.silvaComputeFailed'))
   }
   finally {
     isCalculatingSilvaScore.value = false
@@ -235,7 +234,7 @@ const sectionTitleClass
           class="mb-2"
         >
           <i class="i-tabler-stack-2" />
-          <span>Same Group</span>
+          <span>{{ $t('post.sameGroup') }}</span>
         </div>
 
         <!-- This post is itself a hidden member of another group. -->
@@ -244,7 +243,7 @@ const sectionTitleClass
           class="flex flex-col gap-2"
         >
           <div class="text-fg-muted">
-            此图是某组的附属，默认不在列表/搜索中显示。
+            {{ $t('post.groupChildNotice') }}
           </div>
           <div class="flex gap-2">
             <PButton
@@ -253,14 +252,14 @@ const sectionTitleClass
               @pointerup="router.push(`/post/${post.canonicalPostId}`)"
             >
               <i class="i-tabler-arrow-up-right" />
-              查看代表图
+              {{ $t('post.viewRepresentative') }}
             </PButton>
             <PButton
               size="sm"
               variant="subtle"
               @pointerup="onUngroupSelf"
             >
-              移出组
+              {{ $t('post.removeFromGroup') }}
             </PButton>
           </div>
         </div>
@@ -271,7 +270,7 @@ const sectionTitleClass
           class="flex flex-col gap-2"
         >
           <div class="text-fg-subtle">
-            另有 {{ groupMembers.length }} 张近似图
+            {{ $t('post.moreSimilar', { n: groupMembers.length }, groupMembers.length) }}
           </div>
           <div
             v-for="m in groupMembers"
@@ -291,7 +290,7 @@ const sectionTitleClass
               size="sm"
               icon
               variant="subtle"
-              title="设为代表"
+              :title="$t('post.setRepresentative')"
               @pointerup="onMakeCanonical(m.id)"
             >
               <i class="i-tabler-crown" />
@@ -300,7 +299,7 @@ const sectionTitleClass
               size="sm"
               icon
               variant="subtle"
-              title="移出组"
+              :title="$t('post.removeFromGroup')"
               @pointerup="onUngroupMember(m.id)"
             >
               <i class="i-tabler-unlink" />
@@ -316,12 +315,12 @@ const sectionTitleClass
           class="mb-2"
         >
           <i class="i-tabler-star" />
-          <span>Ratings</span>
+          <span>{{ $t('post.ratings') }}</span>
         </div>
         <div
           class="gap-x-3 gap-y-2 grid grid-cols-[auto_1fr] items-center children:break-words odd:children:text-fg-subtle"
         >
-          <div>Rating</div>
+          <div>{{ $t('post.ratingLabel') }}</div>
           <div>
             <Rating
               :model-value="post.rating"
@@ -332,7 +331,7 @@ const sectionTitleClass
               @select="(d) => commitRating(queryClient, [post], [post.id], d)"
             />
           </div>
-          <div>Score</div>
+          <div>{{ $t('post.scoreLabel') }}</div>
           <div>
             <Rating
               :model-value="post.score"
@@ -340,7 +339,7 @@ const sectionTitleClass
               @select="(d) => onSelectScore(post.id, d)"
             />
           </div>
-          <div>Waifu</div>
+          <div>{{ $t('post.waifuLabel') }}</div>
           <div>
             <template v-if="post.waifuScore">
               <WaifuScoreLevel :score="post.waifuScore.score" />
@@ -352,11 +351,11 @@ const sectionTitleClass
                 :loading="isCalculatingWaifuScore"
                 @click="calculateWaifuScore"
               >
-                {{ isCalculatingWaifuScore ? 'Computing...' : 'Compute' }}
+                {{ isCalculatingWaifuScore ? $t('common.computing') : $t('common.compute') }}
               </PButton>
             </template>
           </div>
-          <div>SILVA</div>
+          <div>{{ $t('post.silvaLabel') }}</div>
           <div>
             <template v-if="silvaScore !== undefined">
               <WaifuScoreLevel :score="silvaScore * 10" />
@@ -368,7 +367,7 @@ const sectionTitleClass
                 :loading="isCalculatingSilvaScore"
                 @click="calculateSilvaScore"
               >
-                {{ isCalculatingSilvaScore ? 'Computing...' : 'Compute' }}
+                {{ isCalculatingSilvaScore ? $t('common.computing') : $t('common.compute') }}
               </PButton>
             </template>
           </div>
@@ -382,39 +381,39 @@ const sectionTitleClass
           class="mb-2"
         >
           <i class="i-tabler-file-info" />
-          <span>File Info</span>
+          <span>{{ $t('post.fileInfo') }}</span>
         </div>
         <div
           class="gap-x-3 gap-y-1.5 grid grid-cols-[auto_1fr] children:break-words odd:children:text-fg-subtle"
         >
           <template v-if="post.size > 0">
-            <div>Size</div>
+            <div>{{ $t('post.size') }}</div>
             <div class="tabular-nums">
               {{ filesize(post.size) }}
             </div>
           </template>
-          <div>Path</div>
+          <div>{{ $t('post.path') }}</div>
           <div>{{ post.filePath }}</div>
-          <div>Name</div>
+          <div>{{ $t('post.name') }}</div>
           <div>{{ post.fileName }}</div>
-          <div>Dimension</div>
+          <div>{{ $t('post.dimension') }}</div>
           <div class="tabular-nums">
             {{ post.width }} × {{ post.height }}
           </div>
-          <div>Format</div>
+          <div>{{ $t('post.format') }}</div>
           <div class="uppercase">
             {{ post.extension }}
           </div>
           <template v-if="post.createdAt">
-            <div>Created At</div>
+            <div>{{ $t('post.createdAt') }}</div>
             <div class="tabular-nums">
-              {{ formatTimestr(post.createdAt) }}
+              {{ formatDateTime(post.createdAt) }}
             </div>
           </template>
           <template v-if="post.publishedAt">
-            <div>Published At</div>
+            <div>{{ $t('post.publishedAt') }}</div>
             <div class="tabular-nums">
-              {{ formatTimestr(post.publishedAt) }}
+              {{ formatDateTime(post.publishedAt) }}
             </div>
           </template>
         </div>
@@ -427,7 +426,7 @@ const sectionTitleClass
           class="mb-2"
         >
           <i class="i-tabler-folder" />
-          <span>Folder</span>
+          <span>{{ $t('post.folder') }}</span>
         </div>
         <div class="flex flex-wrap gap-2">
           <div
@@ -437,7 +436,7 @@ const sectionTitleClass
             <div class="op50 flex flex-col items-center">
               <i class="i-tabler-folder-off" />
               <div>
-                No folder
+                {{ $t('post.noFolder') }}
               </div>
             </div>
           </div>
@@ -457,7 +456,7 @@ const sectionTitleClass
         <div class="mb-2 flex items-center justify-between">
           <div :class="sectionTitleClass">
             <i class="i-tabler-tag" />
-            <span>Tags</span>
+            <span>{{ $t('post.tags') }}</span>
           </div>
           <PButton
             v-if="post.tags && post.tags.length > 0"
@@ -500,7 +499,7 @@ const sectionTitleClass
           <div class="op50 flex flex-col gap-1 items-center">
             <i class="i-tabler-bookmark-off" />
             <div class="text-xs">
-              No Tag
+              {{ $t('post.noTag') }}
             </div>
           </div>
           <PButton
@@ -509,7 +508,7 @@ const sectionTitleClass
             @pointerup="openTagSelectorWindow()"
           >
             <i class="i-tabler-bookmark-plus" />
-            Add Tag
+            {{ $t('post.addTag') }}
           </PButton>
         </div>
       </section>
@@ -524,7 +523,7 @@ const sectionTitleClass
           class="mb-2"
         >
           <i class="i-tabler-sparkles" />
-          <span>Auto Tags</span>
+          <span>{{ $t('post.autoTags') }}</span>
         </div>
         <div class="flex flex-wrap gap-2">
           <PostTag
@@ -548,7 +547,7 @@ const sectionTitleClass
           class="mb-2"
         >
           <i class="i-tabler-blockquote" />
-          <span>Caption</span>
+          <span>{{ $t('post.caption') }}</span>
         </div>
         <PInput
           :model-value="post.caption ?? ''"
@@ -565,7 +564,7 @@ const sectionTitleClass
           class="mb-2"
         >
           <i class="i-tabler-link" />
-          <span>Source</span>
+          <span>{{ $t('post.source') }}</span>
         </div>
         <PInput
           :model-value="post.source ?? ''"
@@ -582,7 +581,7 @@ const sectionTitleClass
           class="mb-2"
         >
           <i class="i-tabler-wand" />
-          <span>Command</span>
+          <span>{{ $t('post.command') }}</span>
         </div>
         <div class="flex flex-col gap-2">
           <AutoGenerateTagBtn :post-id="post.id" />

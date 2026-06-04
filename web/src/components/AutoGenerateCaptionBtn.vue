@@ -42,7 +42,7 @@ async function onAutoTag() {
       class="i-tabler-message-2-bolt"
     />
     <div class="w-full text-nowrap text-ellipsis overflow-hidden">
-      Auto Generate Caption
+      {{ $t('post.autoGenerateCaption') }}
     </div>
   </PButton>
 </template>

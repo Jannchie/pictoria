@@ -1,3 +1,4 @@
+import { i18n } from '@/locale'
 import { useToast } from '@/shared/toast'
 
 /**
@@ -25,8 +26,10 @@ function isAPIErrorBody(value: unknown): value is APIErrorBody {
  * strings, or our backend's `{detail, error}` JSON.
  */
 export function describeAPIError(err: unknown): string {
+  // Resolved at error time so the message follows the current locale.
+  const t = i18n.global.t
   if (err == null) {
-    return 'Unknown error'
+    return t('error.unknown')
   }
   if (typeof err === 'string') {
     return err
@@ -35,19 +38,19 @@ export function describeAPIError(err: unknown): string {
     return err.message || err.name
   }
   if (isAPIErrorBody(err)) {
-    return err.detail ?? err.error ?? 'Request failed'
+    return err.detail ?? err.error ?? t('error.requestFailed')
   }
   if (typeof err === 'object' && err !== null) {
     const maybeBody = (err as { body?: unknown }).body
     if (isAPIErrorBody(maybeBody)) {
-      return maybeBody.detail ?? maybeBody.error ?? 'Request failed'
+      return maybeBody.detail ?? maybeBody.error ?? t('error.requestFailed')
     }
     const maybeMessage = (err as { message?: unknown }).message
     if (typeof maybeMessage === 'string') {
       return maybeMessage
     }
   }
-  return 'Request failed'
+  return t('error.requestFailed')
 }
 
 export function useAPIError() {

@@ -33,5 +33,11 @@ def _table(lang: str) -> dict[str, str]:
 
 
 def translate_tag(name: str, lang: str = "zh-Hans") -> str | None:
-    """Localised display name for a DB tag name, or ``None`` when unknown."""
+    """Localised display name for a DB tag name, or ``None`` when unknown.
+
+    ``en`` short-circuits: the raw tag name *is* the English display name, so
+    there is no table to consult (and no missing-table warning to emit).
+    """
+    if lang == "en":
+        return None
     return _table(lang).get(name)

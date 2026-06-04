@@ -3,8 +3,10 @@ import type { PostSimplePublic } from '@/api'
 import { useQueryClient } from '@tanstack/vue-query'
 import { filesize } from 'filesize'
 import { computed, onUnmounted, ref, watch } from 'vue'
+import { useI18n } from 'vue-i18n'
 import { useRoute } from 'vue-router'
 import { useSelectedPostStats } from '@/composables/useSelectedPostStats'
+import { formatNumber } from '@/locale'
 import {
   commitRating,
   commitScore,
@@ -16,8 +18,8 @@ import {
 } from '@/shared'
 import { getPostThumbnailURL } from '@/utils'
 
+const { t } = useI18n()
 const queryClient = useQueryClient()
-const numberFormat = new Intl.NumberFormat('en-US')
 const route = useRoute()
 
 // The ordered list currently in view: the similar-posts grid on a post detail
@@ -52,7 +54,7 @@ const {
   commonScore,
 } = useSelectedPostStats(selectedPosts)
 
-const RATING_LABELS = ['Unrated', 'G', 'S', 'Q', 'E']
+const RATING_LABELS = computed(() => [t('rating.unrated'), 'G', 'S', 'Q', 'E'])
 const RATING_COLORS = [
   'var(--p-fg-subtle)',
   '#22c55e',
@@ -60,7 +62,7 @@ const RATING_COLORS = [
   '#f97316',
   '#ef4444',
 ]
-const SCORE_LABELS = ['Unscored', '1', '2', '3', '4', '5']
+const SCORE_LABELS = computed(() => [t('common.unscored'), '1', '2', '3', '4', '5'])
 // Quality ramp: low score = red, high score = green (0 = unscored, muted).
 // Mirrors RATING_COLORS' hard-coded hex so both distribution bars read alike.
 const SCORE_COLORS = [
@@ -291,14 +293,14 @@ const sectionTitleClass
     <div class="pb-3 pt-1 flex flex-col gap-1">
       <div class="flex items-center justify-between">
         <div class="text-lg text-fg font-semibold tabular-nums">
-          {{ numberFormat.format(count) }} <span class="text-sm text-fg-muted font-normal">selected</span>
+          {{ formatNumber(count) }} <span class="text-sm text-fg-muted font-normal">{{ $t('multiSelect.selected') }}</span>
         </div>
         <div class="flex gap-1">
           <PButton
             icon
             size="sm"
             variant="ghost"
-            title="Select all in current list"
+            :title="$t('multiSelect.selectAll')"
             @click="selectAllInList"
           >
             <i class="i-tabler-square-check" />
@@ -307,7 +309,7 @@ const sectionTitleClass
             icon
             size="sm"
             variant="ghost"
-            title="Clear selection"
+            :title="$t('multiSelect.clearSelection')"
             @click="clearSelection"
           >
             <i class="i-tabler-x" />
@@ -325,9 +327,9 @@ const sectionTitleClass
         <span
           v-if="missingCount > 0"
           class="text-[10px] text-fg-subtle ml-auto"
-          :title="`${missingCount} selected post(s) are outside the currently loaded list; stats only cover ${knownCount}.`"
+          :title="$t('multiSelect.outsideNote', { missing: missingCount, known: knownCount }, missingCount)"
         >
-          ({{ numberFormat.format(knownCount) }}/{{ numberFormat.format(count) }} in view)
+          {{ $t('multiSelect.inView', { known: formatNumber(knownCount), total: formatNumber(count) }) }}
         </span>
       </div>
     </div>
@@ -370,10 +372,10 @@ const sectionTitleClass
         class="mb-2"
       >
         <i class="i-tabler-edit" />
-        <span>Batch</span>
+        <span>{{ $t('multiSelect.batch') }}</span>
       </div>
       <div class="gap-x-3 gap-y-2 grid grid-cols-[auto_1fr_auto] items-center">
-        <div>Rating</div>
+        <div>{{ $t('post.ratingLabel') }}</div>
         <Rating
           :model-value="commonRating ?? 0"
           highlight-selected-only
@@ -385,10 +387,10 @@ const sectionTitleClass
         <span
           v-if="commonRating === null && knownCount > 0"
           class="text-[10px] text-fg-subtle tracking-wide uppercase"
-        >Mixed</span>
+        >{{ $t('common.mixed') }}</span>
         <span v-else />
 
-        <div>Score</div>
+        <div>{{ $t('post.scoreLabel') }}</div>
         <Rating
           :model-value="commonScore ?? 0"
           :count="5"
@@ -397,7 +399,7 @@ const sectionTitleClass
         <span
           v-if="commonScore === null && knownCount > 0"
           class="text-[10px] text-fg-subtle tracking-wide uppercase"
-        >Mixed</span>
+        >{{ $t('common.mixed') }}</span>
         <span v-else />
       </div>
       <div class="mt-3">
@@ -408,7 +410,7 @@ const sectionTitleClass
           @click="copyPaths"
         >
           <i class="i-tabler-copy" />
-          Copy paths
+          {{ $t('multiSelect.copyPaths') }}
         </PButton>
       </div>
     </section>
@@ -422,12 +424,12 @@ const sectionTitleClass
         class="mb-2"
       >
         <i class="i-tabler-chart-bar" />
-        <span>Distribution</span>
+        <span>{{ $t('multiSelect.distribution') }}</span>
       </div>
       <div class="flex flex-col gap-2.5">
         <div class="flex flex-col gap-1">
           <div class="text-fg-subtle flex items-center justify-between">
-            <span>Rating</span>
+            <span>{{ $t('post.ratingLabel') }}</span>
             <span class="text-[10px] text-fg-subtle font-mono">— · G · S · Q · E</span>
           </div>
           <div class="rounded bg-surface-1 flex h-2 overflow-hidden">
@@ -441,7 +443,7 @@ const sectionTitleClass
         </div>
         <div class="flex flex-col gap-1">
           <div class="text-fg-subtle flex items-center justify-between">
-            <span>Score</span>
+            <span>{{ $t('post.scoreLabel') }}</span>
             <span class="text-[10px] text-fg-subtle font-mono">— · 1 · 2 · 3 · 4 · 5</span>
           </div>
           <div class="rounded bg-surface-1 flex h-2 overflow-hidden">
@@ -465,12 +467,12 @@ const sectionTitleClass
         class="mb-2"
       >
         <i class="i-tabler-files" />
-        <span>Files</span>
+        <span>{{ $t('multiSelect.files') }}</span>
       </div>
       <div
         class="gap-x-3 gap-y-1.5 grid grid-cols-[auto_1fr] children:break-words odd:children:text-fg-subtle"
       >
-        <div>Format</div>
+        <div>{{ $t('multiSelect.format') }}</div>
         <div class="flex flex-wrap gap-1">
           <span
             v-for="[ext, n] of extensionDist"
@@ -480,21 +482,21 @@ const sectionTitleClass
             {{ ext }} <span class="text-fg-subtle normal-case">×{{ n }}</span>
           </span>
         </div>
-        <div>Width</div>
+        <div>{{ $t('multiSelect.width') }}</div>
         <div v-if="widthRange" class="font-mono tabular-nums">
-          {{ numberFormat.format(widthRange.min) }} – {{ numberFormat.format(widthRange.max) }} px
+          {{ formatNumber(widthRange.min) }} – {{ formatNumber(widthRange.max) }} px
         </div>
         <div v-else>
           —
         </div>
-        <div>Height</div>
+        <div>{{ $t('multiSelect.height') }}</div>
         <div v-if="heightRange" class="font-mono tabular-nums">
-          {{ numberFormat.format(heightRange.min) }} – {{ numberFormat.format(heightRange.max) }} px
+          {{ formatNumber(heightRange.min) }} – {{ formatNumber(heightRange.max) }} px
         </div>
         <div v-else>
           —
         </div>
-        <div>Folder</div>
+        <div>{{ $t('multiSelect.folder') }}</div>
         <div class="text-fg break-all" :title="commonFolder">
           {{ commonFolder || '—' }}
         </div>
@@ -510,7 +512,7 @@ const sectionTitleClass
         @blur="confirmingDelete = false"
       >
         <i class="i-tabler-trash" />
-        {{ confirmingDelete ? `Click again to delete ${numberFormat.format(count)}` : 'Delete selected' }}
+        {{ confirmingDelete ? $t('multiSelect.deleteConfirm', { n: formatNumber(count) }) : $t('multiSelect.deleteSelected') }}
       </PButton>
     </div>
   </ScrollArea>

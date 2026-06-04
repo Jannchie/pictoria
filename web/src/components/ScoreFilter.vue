@@ -1,7 +1,10 @@
 <script setup lang="ts">
 import { computed } from 'vue'
+import { useI18n } from 'vue-i18n'
 import { v2GetScoreCount } from '@/api'
 import { useFacetFilter } from '@/composables/useFacetFilter'
+
+const { t } = useI18n()
 
 const { selected: scoreFilterData, has: hasScore, toggle, countQuery } = useFacetFilter<number, { score: number, count: number }>({
   field: 'score',
@@ -30,7 +33,7 @@ function pct(count: number) {
 
 const btnText = computed(() => {
   const item = scoreFilterData.value
-  return item.length === 0 ? 'Score' : item.map(s => s === 0 ? 'Not Scored Yet' : `${s} Star`).join(', ')
+  return item.length === 0 ? t('filter.score') : item.map(s => s === 0 ? t('filter.notScoredYet') : t('filter.star', { n: s }, s)).join(', ')
 })
 </script>
 
@@ -61,7 +64,7 @@ const btnText = computed(() => {
             />
             <div class="flex flex-grow gap-1 items-center">
               <template v-if="score === 0">
-                <span class="text-fg-subtle italic">Unscored</span>
+                <span class="text-fg-subtle italic">{{ $t('common.unscored') }}</span>
               </template>
               <template v-else>
                 <i

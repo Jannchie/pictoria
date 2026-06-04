@@ -1,6 +1,9 @@
 <script setup lang="ts">
 import { useColorMode } from '@vueuse/core'
 import { computed } from 'vue'
+import { useI18n } from 'vue-i18n'
+
+const { t } = useI18n()
 
 const mode = useColorMode({
   attribute: 'data-scheme',
@@ -9,15 +12,15 @@ const mode = useColorMode({
   initialValue: 'dark',
 })
 
-const options = [
-  { value: 'dark', icon: 'i-tabler-moon', label: 'Dark' },
-  { value: 'light', icon: 'i-tabler-sun', label: 'Light' },
-  { value: 'auto', icon: 'i-tabler-device-desktop', label: 'System' },
-] as const
+const options = computed(() => [
+  { value: 'dark', icon: 'i-tabler-moon', label: t('settings.schemeDark') },
+  { value: 'light', icon: 'i-tabler-sun', label: t('settings.schemeLight') },
+  { value: 'auto', icon: 'i-tabler-device-desktop', label: t('settings.schemeSystem') },
+] as const)
 
 const current = computed(() => mode.value)
 
-function pick(value: typeof options[number]['value']) {
+function pick(value: 'dark' | 'light' | 'auto') {
   document.documentElement.classList.add('is-theme-switching')
   mode.value = value
   // Drop the suppressor after the next paint to re-enable transitions.

@@ -7,13 +7,13 @@ import { enableArthash, enableFancyPlaceholder, hideNSFW } from '@/shared'
     <div class="mb-8 flex gap-3 items-center">
       <i class="i-tabler-settings text-xl text-fg-muted" aria-hidden="true" />
       <h1 class="text-2xl text-fg tracking-tight font-semibold">
-        Settings
+        {{ $t('settings.title') }}
       </h1>
     </div>
 
     <section aria-labelledby="settings-group-library">
       <h2 id="settings-group-library" class="text-xs text-fg-subtle tracking-wider font-medium mb-2 px-1 uppercase">
-        Library
+        {{ $t('settings.library') }}
       </h2>
       <div class="border border-border-default rounded-lg bg-surface-1 divide-border-default divide-y">
         <ImportFromUrlSection />
@@ -22,13 +22,22 @@ import { enableArthash, enableFancyPlaceholder, hideNSFW } from '@/shared'
 
     <section aria-labelledby="settings-group-appearance" class="mt-8">
       <h2 id="settings-group-appearance" class="text-xs text-fg-subtle tracking-wider font-medium mb-2 px-1 uppercase">
-        Appearance
+        {{ $t('settings.appearance') }}
       </h2>
       <div class="border border-border-default rounded-lg bg-surface-1 divide-border-default divide-y">
         <SettingRow
+          label-id="setting-language"
+          icon="i-tabler-language"
+          :title="$t('settings.language')"
+          :description="$t('settings.languageDesc')"
+        >
+          <PLocaleSwitch />
+        </SettingRow>
+
+        <SettingRow
           label-id="setting-color-scheme"
           icon="i-tabler-palette"
-          title="Color Scheme"
+          :title="$t('settings.colorScheme')"
         >
           <PSchemeSwitch />
         </SettingRow>
@@ -36,8 +45,8 @@ import { enableArthash, enableFancyPlaceholder, hideNSFW } from '@/shared'
         <SettingRow
           label-id="setting-hide-nsfw"
           icon="i-tabler-eyeglass-filled"
-          title="Hide NSFW"
-          description="Blur images rated Questionable or Explicit."
+          :title="$t('settings.hideNsfw')"
+          :description="$t('settings.hideNsfwDesc')"
         >
           <PSwitch
             v-model="hideNSFW"
@@ -49,8 +58,8 @@ import { enableArthash, enableFancyPlaceholder, hideNSFW } from '@/shared'
         <SettingRow
           label-id="setting-arthash"
           icon="i-tabler-photo-shield"
-          title="Arthash Placeholder"
-          description="Show a mosaic placeholder while images load."
+          :title="$t('settings.arthash')"
+          :description="$t('settings.arthashDesc')"
         >
           <PSwitch
             v-model="enableArthash"
@@ -64,8 +73,8 @@ import { enableArthash, enableFancyPlaceholder, hideNSFW } from '@/shared'
           child
           label-id="setting-fancy-placeholder"
           icon="i-tabler-sparkles"
-          title="Fancy Placeholder"
-          description="Dissolve the mosaic shape-by-shape instead of a plain fade."
+          :title="$t('settings.fancyPlaceholder')"
+          :description="$t('settings.fancyPlaceholderDesc')"
         >
           <PSwitch
             v-model="enableFancyPlaceholder"

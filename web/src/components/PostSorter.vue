@@ -1,34 +1,41 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue'
+import { useI18n } from 'vue-i18n'
 import { postSort, postSortColor, postSortOrder } from '@/shared'
 
+const { t } = useI18n()
+
+// Labels stored as message keys so a locale switch re-renders them.
 const sortOptions: {
   id: 'created_at' | 'published_at' | 'updated_at' | 'score' | 'rating' | 'file_name' | 'waifu_score' | 'silva_score'
-  label: string
+  labelKey: string
   icon: string
 }[] = [
-  { id: 'created_at', label: 'Created', icon: 'i-tabler-calendar-event' },
-  { id: 'published_at', label: 'Published', icon: 'i-tabler-calendar-event' },
-  { id: 'updated_at', label: 'Updated', icon: 'i-tabler-clock-edit' },
-  { id: 'score', label: 'Score', icon: 'i-tabler-star' },
-  { id: 'rating', label: 'Rating', icon: 'i-tabler-thumb-up' },
-  { id: 'file_name', label: 'File name', icon: 'i-tabler-file' },
-  { id: 'waifu_score', label: 'Waifu score', icon: 'i-tabler-heart' },
-  { id: 'silva_score', label: 'SILVA score', icon: 'i-tabler-rosette' },
+  { id: 'created_at', labelKey: 'sort.created', icon: 'i-tabler-calendar-event' },
+  { id: 'published_at', labelKey: 'sort.published', icon: 'i-tabler-calendar-event' },
+  { id: 'updated_at', labelKey: 'sort.updated', icon: 'i-tabler-clock-edit' },
+  { id: 'score', labelKey: 'sort.score', icon: 'i-tabler-star' },
+  { id: 'rating', labelKey: 'sort.rating', icon: 'i-tabler-thumb-up' },
+  { id: 'file_name', labelKey: 'sort.fileName', icon: 'i-tabler-file' },
+  { id: 'waifu_score', labelKey: 'sort.waifuScore', icon: 'i-tabler-heart' },
+  { id: 'silva_score', labelKey: 'sort.silvaScore', icon: 'i-tabler-rosette' },
 ]
 
 const orderOptions: {
   id: 'asc' | 'desc'
-  label: string
+  labelKey: string
   icon: string
 }[] = [
-  { id: 'asc', label: 'Asc', icon: 'i-tabler-arrow-up' },
-  { id: 'desc', label: 'Desc', icon: 'i-tabler-arrow-down' },
+  { id: 'asc', labelKey: 'sort.asc', icon: 'i-tabler-arrow-up' },
+  { id: 'desc', labelKey: 'sort.desc', icon: 'i-tabler-arrow-down' },
 ]
 
-function underlineToSpace(s: string) {
-  return s.replaceAll('_', ' ')
-}
+// Localised label of the active sort; the default 'id' sort has no option
+// entry and shows its raw name, matching the previous behaviour.
+const currentSortLabel = computed(() => {
+  const opt = sortOptions.find(o => o.id === postSort.value)
+  return opt ? t(opt.labelKey) : postSort.value
+})
 
 const show = ref(false)
 
@@ -55,16 +62,16 @@ function resetSort() {
         size="sm"
         class="sort-main-btn"
         :class="{ joined: isNonDefaultSort }"
-        aria-label="Sort posts"
+        :aria-label="$t('sort.sortPosts')"
       >
         <i class="i-tabler-arrows-sort" aria-hidden="true" />
         <span
           v-if="!postSortColor"
           class="flex-grow"
         >
-          Sort by
+          {{ $t('sort.sortBy') }}
           <span class="font-bold">
-            {{ underlineToSpace(postSort) }}
+            {{ currentSortLabel }}
           </span>
         </span>
         <span
@@ -82,7 +89,7 @@ function resetSort() {
             <div class="mt-1 p-2 border border-border-default rounded flex gap-2 items-center">
               <div class="flex-grow">
                 <label for="post-sort-color" class="text-xs text-fg-subtle mb-1 block">
-                  Sort Color
+                  {{ $t('sort.sortColor') }}
                 </label>
                 <div class="flex gap-2 items-center">
                   <div
@@ -93,12 +100,12 @@ function resetSort() {
                       id="post-sort-color"
                       v-model="postSortColor"
                       type="color"
-                      aria-label="Sort color"
+                      :aria-label="$t('sort.sortColor')"
                       class="opacity-0 h-full w-full cursor-pointer"
                     >
                   </div>
                   <div class="text-xs font-mono">
-                    {{ postSortColor?.toUpperCase() || 'None' }}
+                    {{ postSortColor?.toUpperCase() || $t('sort.colorNone') }}
                   </div>
                 </div>
               </div>
@@ -106,7 +113,7 @@ function resetSort() {
                 v-if="postSortColor"
                 icon
                 variant="ghost"
-                aria-label="Clear sort color"
+                :aria-label="$t('sort.clearSortColor')"
                 @click="postSortColor = undefined"
               >
                 <i class="i-tabler-x" aria-hidden="true" />
@@ -124,7 +131,7 @@ function resetSort() {
               >
                 <i :class="order.icon" aria-hidden="true" />
                 <span class="flex-grow">
-                  {{ order.label }}
+                  {{ $t(order.labelKey) }}
                 </span>
               </PButton>
             </div>
@@ -139,7 +146,7 @@ function resetSort() {
             >
               <i :class="option.icon" aria-hidden="true" />
               <span class="flex-grow">
-                {{ option.label }}
+                {{ $t(option.labelKey) }}
               </span>
             </PButton>
           </div>
@@ -151,8 +158,8 @@ function resetSort() {
       size="sm"
       icon
       class="sort-reset-btn"
-      aria-label="Reset sort"
-      title="取消排序"
+      :aria-label="$t('sort.resetSort')"
+      :title="$t('sort.resetSort')"
       @click="resetSort"
     >
       <i class="i-tabler-x" aria-hidden="true" />

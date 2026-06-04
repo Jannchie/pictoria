@@ -224,7 +224,7 @@ function focusStar(index: number) {
   <div
     ref="rootRef"
     role="radiogroup"
-    :aria-label="ariaLabel ?? 'Rating'"
+    :aria-label="ariaLabel ?? $t('rating.aria')"
     class="flex"
   >
     <div
@@ -232,7 +232,7 @@ function focusStar(index: number) {
       :key="i"
       role="radio"
       :aria-checked="model === i + 1"
-      :aria-label="`${i + 1} of ${count}`"
+      :aria-label="$t('rating.option', { n: i + 1, count })"
       :tabindex="(model > 0 ? model - 1 === i : i === 0) ? 0 : -1"
       class="pr-1 rounded cursor-pointer focus:outline-none focus-visible:ring-2 focus-visible:ring-primary/60"
       @mouseover="hoverIndex = i + 1"

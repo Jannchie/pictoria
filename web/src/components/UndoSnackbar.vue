@@ -1,7 +1,10 @@
 <script setup lang="ts">
 import { useTimeoutFn } from '@vueuse/core'
 import { computed, watch } from 'vue'
+import { useI18n } from 'vue-i18n'
 import { dismissUndoSnackbar, performRedo, performUndo, undoSnackbar } from '@/shared/undoSnackbar'
+
+const { t } = useI18n()
 
 const AUTO_DISMISS_MS = 5000
 
@@ -15,7 +18,7 @@ watch(() => undoSnackbar.value?.id, (id) => {
 }, { immediate: true })
 
 const data = computed(() => undoSnackbar.value)
-const actionLabel = computed(() => (data.value?.action === 'redo' ? '重做' : '撤销'))
+const actionLabel = computed(() => (data.value?.action === 'redo' ? t('common.redo') : t('common.undo')))
 const actionIcon = computed(() => (data.value?.action === 'redo' ? 'i-tabler-arrow-forward-up' : 'i-tabler-arrow-back-up'))
 
 function onAction() {

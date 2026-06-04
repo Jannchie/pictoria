@@ -29,8 +29,8 @@ useEventListener('wheel', (event) => {
             :min-width="0"
             :tick-num="0"
             reverse
-            aria-label="Gallery columns"
-            :aria-valuetext="`${waterfallRowCount} columns`"
+            :aria-label="$t('gallery.columnsAria')"
+            :aria-valuetext="$t('gallery.columnsValue', { n: waterfallRowCount })"
           />
         </div>
       </div>

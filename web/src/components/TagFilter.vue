@@ -3,9 +3,13 @@ import type { TagCountRequest } from '@/api'
 import { useQuery } from '@tanstack/vue-query'
 import { useDebounce } from '@vueuse/core'
 import { computed, ref } from 'vue'
+import { useI18n } from 'vue-i18n'
 import { v2GetPostsCount, v2GetTagCount } from '@/api'
+import { resolvedLocale } from '@/locale'
 import { postFilter, queryKeys } from '@/shared'
 import { naturalizeTagName } from '@/utils'
+
+const { t } = useI18n()
 
 // Max tags fetched per query (top-N by count). The search box narrows the set
 // server-side, so rare tags outside this window stay reachable by typing.
@@ -44,11 +48,12 @@ const debouncedSearch = useDebounce(search, 250)
 const opened = ref(false)
 
 const countQuery = useQuery({
-  // Key on both the without-self filter and the debounced query so typing
-  // refetches and each search string caches independently.
-  queryKey: queryKeys.count('tags', computed(() => ({ filter: filterWithoutSelf.value, q: debouncedSearch.value }))),
+  // Key on the without-self filter, the debounced query, and the locale so
+  // typing refetches, each search string caches independently, and a
+  // language switch refreshes the server-side translated names.
+  queryKey: queryKeys.count('tags', computed(() => ({ filter: filterWithoutSelf.value, q: debouncedSearch.value, lang: resolvedLocale.value }))),
   queryFn: async () => {
-    const body: TagCountRequest = { ...filterWithoutSelf.value, query: debouncedSearch.value, limit: TAG_LIMIT }
+    const body: TagCountRequest = { ...filterWithoutSelf.value, query: debouncedSearch.value, limit: TAG_LIMIT, lang: resolvedLocale.value }
     const resp = await v2GetTagCount({ body })
     return resp.data
   },
@@ -99,7 +104,7 @@ const tagRows = computed(() => {
 })
 
 const isLoading = computed(() => countQuery.isLoading.value)
-const btnText = computed(() => (selected.value.length === 0 ? 'Tags' : selected.value.map(naturalizeTagName).join(', ')))
+const btnText = computed(() => (selected.value.length === 0 ? t('filter.tags') : selected.value.map(naturalizeTagName).join(', ')))
 </script>
 
 <template>
@@ -125,8 +130,8 @@ const btnText = computed(() => (selected.value.length === 0 ? 'Tags' : selected.
             <PInput
               v-model="search"
               size="sm"
-              placeholder="Search tags…"
-              aria-label="Search tags"
+              :placeholder="$t('filter.searchTagsPlaceholder')"
+              :aria-label="$t('filter.searchTags')"
             >
               <template #leftSection>
                 <i class="i-tabler-search text-fg-muted" aria-hidden="true" />
@@ -160,7 +165,7 @@ const btnText = computed(() => (selected.value.length === 0 ? 'Tags' : selected.
               v-if="tagRows.length === 0"
               class="text-xs text-fg-subtle px-2 py-3 text-center"
             >
-              {{ isLoading ? 'Loading…' : 'No tags found' }}
+              {{ isLoading ? $t('common.loading') : $t('filter.noTagsFound') }}
             </div>
           </div>
         </div>
