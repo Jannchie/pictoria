@@ -1,4 +1,4 @@
-﻿"""Fetch a creator/tag page's metadata via gallery-dl, download images, persist.
+"""Fetch a creator/tag page's metadata via gallery-dl, download images, persist.
 
 gallery-dl is used purely as a multi-site metadata extractor: `gallery-dl -j`
 dumps every entry's metadata to stdout (nothing written to disk). We filter to
@@ -83,7 +83,7 @@ _BOORU_TAG_FIELDS: dict[str, str] = {
 
 # Booru single-letter rating -> Pictoria rating int. Danbooru uses g/s/q/e
 # (general/sensitive/questionable/explicit); moebooru uses s/q/e where "s"=safe,
-# mapped to sensitive here (a harmless over-tag 窶・rating isn't load-bearing).
+# mapped to sensitive here (a harmless over-tag — rating isn't load-bearing).
 # Full-word ratings fall through to from_rating_to_int.
 _BOORU_RATING: dict[str, int] = {"g": 1, "s": 2, "q": 3, "e": 4}
 
@@ -119,7 +119,7 @@ def parse_entry(download_url: str, meta: dict, *, fallback_url: str) -> GalleryD
     if not file_name:
         return None
     # Kemono-style multi-file posts: every attachment shares the post `id` and
-    # only `num` (1-based) differs 窶・suffix it or the (file_path, file_name,
+    # only `num` (1-based) differs — suffix it or the (file_path, file_name,
     # extension) upsert collapses the whole post into one row. Boorus have no
     # `num`, so their names stay as the bare id.
     num = meta.get("num")
@@ -186,7 +186,7 @@ def download_items(
 
     headers lets Kemono pass cookies/UA (from gallery-dl.conf); defaults to a
     curl UA (enough for Booru CDNs). Returns the successfully downloaded items
-    窶・callers must persist only these, so a failed download never produces a
+    — callers must persist only these, so a failed download never produces a
     DB row without a file on disk (it stays "new" and is retried next run).
     """
     save_dir.mkdir(parents=True, exist_ok=True)
