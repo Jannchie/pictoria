@@ -139,6 +139,20 @@ class TestDetection:
         second = await rebuild_groups(post_repo, vec_repo, threshold=0.1)
         assert first == second == 1
 
+    async def test_rebuild_replaces_stale_groups(
+        self, post_repo: PostRepo, vec_repo: VectorRepo,
+    ) -> None:
+        # A rebuild is the authoritative assignment: a pre-existing group whose
+        # posts are NOT within threshold must be dissolved by the atomic swap,
+        # not survive alongside the freshly computed groups.
+        await self._embed(vec_repo)
+        await post_repo.set_canonical([3], 1)  # stale: post 3 is orthogonal to post 1
+        await rebuild_groups(post_repo, vec_repo, threshold=0.1)
+        post3 = await post_repo.get(3)
+        assert post3 is not None and post3.canonical_post_id is None  # promoted back
+        post2 = await post_repo.get(2)
+        assert post2 is not None and post2.canonical_post_id == 1  # real dupe grouped
+
     async def test_assign_group_for_new_post(
         self, post_repo: PostRepo, vec_repo: VectorRepo,
     ) -> None:

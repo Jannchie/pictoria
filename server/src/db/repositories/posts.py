@@ -217,13 +217,32 @@ class PostRepo:
 
         await asyncio.to_thread(_impl)
 
-    async def reset_all_canonical(self) -> None:
-        """Clear every grouping pointer — used before a full group rebuild."""
+    async def replace_all_groups(self, assignments: list[tuple[int, int]]) -> None:
+        """Atomically replace every grouping pointer with ``assignments``.
+
+        ``assignments`` is the complete new grouping as ``(member_id,
+        canonical_id)`` pairs; posts not listed become (stay) canonical. Clear +
+        reapply runs in ONE transaction so a reader never observes the
+        half-rebuilt state — the previous reset-then-set-per-group pattern left
+        a minutes-long window (GPU pass + 20k+ autocommit UPDATEs) where every
+        member was visible in listings. The UPDATEs still fire the
+        canonical-grouping triggers that keep ``tags.post_count`` canonical-only.
+        """
 
         def _impl() -> None:
-            self.cur.execute(
-                "UPDATE posts SET canonical_post_id = NULL WHERE canonical_post_id IS NOT NULL",
-            )
+            self.cur.execute("BEGIN")
+            try:
+                self.cur.execute(
+                    "UPDATE posts SET canonical_post_id = NULL WHERE canonical_post_id IS NOT NULL",
+                )
+                self.cur.executemany(
+                    "UPDATE posts SET canonical_post_id = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?",
+                    [(canonical_id, member_id) for member_id, canonical_id in assignments],
+                )
+                self.cur.execute("COMMIT")
+            except Exception:
+                self.cur.execute("ROLLBACK")
+                raise
 
         await asyncio.to_thread(_impl)
 

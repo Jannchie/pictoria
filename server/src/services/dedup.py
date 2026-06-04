@@ -26,7 +26,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-from utils import logger
+from shared import logger
 
 if TYPE_CHECKING:
     import numpy as np
@@ -96,16 +96,19 @@ async def rebuild_groups(
     within-threshold neighbours (higher id, still unclaimed) join its group.
     Claimed posts never become seeds, so no chains form and the earliest post
     always wins the canonical slot.
+
+    The full assignment is computed first and applied in one atomic swap
+    (``replace_all_groups``) at the end — clearing groups up front would leave
+    every member visible in listings for the whole GPU pass.
     """
-    await posts.reset_all_canonical()
     ids, matrix = await vectors.load_all()
     if len(ids) < 2:  # noqa: PLR2004
+        await posts.replace_all_groups([])
         return 0
 
     adjacency = await _to_thread_find_pairs(matrix, threshold, chunk_size)
 
     claimed: dict[int, int] = {}  # member_idx -> canonical_idx
-    members_by_canonical: dict[int, list[int]] = {}
     for idx in range(len(ids)):
         if idx in claimed:
             continue
@@ -113,15 +116,13 @@ async def rebuild_groups(
             if j in claimed:
                 continue
             claimed[j] = idx
-            members_by_canonical.setdefault(idx, []).append(j)
 
-    for canonical_idx, member_idxs in members_by_canonical.items():
-        await posts.set_canonical([ids[m] for m in member_idxs], ids[canonical_idx])
+    await posts.replace_all_groups([(ids[m], ids[c]) for m, c in claimed.items()])
 
     logger.info(
         "Near-duplicate rebuild: %d members grouped under %d canonicals (threshold=%.3f)",
         len(claimed),
-        len(members_by_canonical),
+        len(set(claimed.values())),
         threshold,
     )
     return len(claimed)
