@@ -48,5 +48,12 @@ const { data: allCount } = useQuery({
       :title="$t('nav.random')"
       @click="$router.push({ path: '/random', query: $route.query })"
     />
+    <ListItem
+      class="px-4!"
+      icon="i-tabler-checklist"
+      :title="$t('nav.annotate')"
+      :active="$route.path === '/annotate'"
+      @click="$router.push('/annotate')"
+    />
   </div>
 </template>

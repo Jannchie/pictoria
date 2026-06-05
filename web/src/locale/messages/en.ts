@@ -25,6 +25,7 @@ const en = {
     tagManager: 'Tag Manager',
     recently: 'Recently',
     random: 'Random',
+    annotate: 'Annotate',
   },
   sidebar: {
     root: 'Root',

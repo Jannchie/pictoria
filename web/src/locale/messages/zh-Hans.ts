@@ -22,6 +22,7 @@ const zhHans: MessageSchema = {
     tagManager: '标签管理',
     recently: '最近浏览',
     random: '随机',
+    annotate: '标注',
   },
   sidebar: {
     root: '根目录',
