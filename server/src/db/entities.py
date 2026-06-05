@@ -90,3 +90,36 @@ POST_COLUMNS = (
     "sha256, size, source, caption, dominant_color, arthash, "
     "canonical_post_id, created_at, updated_at"
 )
+
+
+# ---------- annotation events (append-only) --------------------------
+class AbsoluteAnnotation(_Entity):
+    id: int
+    created_at: datetime
+    post_id: int
+    dimension: str
+    scale: int
+    value: int
+    rubric_version: str
+    session_id: str
+    elapsed_ms: int | None = None
+
+
+class PairwiseAnnotation(_Entity):
+    id: int
+    created_at: datetime
+    post_a: int
+    post_b: int
+    dimension: str
+    winner: str  # 'a' | 'b' | 'tie' | 'skip'
+    rubric_version: str
+    session_id: str
+    elapsed_ms: int | None = None
+
+
+class ContentFlagEvent(_Entity):
+    id: int
+    created_at: datetime
+    post_id: int
+    flag: str  # 'love' | 'hate' | 'none'
+    session_id: str
