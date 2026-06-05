@@ -38,15 +38,17 @@ interface DimensionMeta {
   icon: string
 }
 const DIMENSIONS: DimensionMeta[] = [
+  { key: 'overall', label: '总分', hint: '哪张更好 / 总体喜欢吗', icon: 'i-tabler-star' },
   { key: 'color', label: '颜色', hint: '配色运用得好吗', icon: 'i-tabler-palette' },
   { key: 'finish', label: '完成度', hint: '精修 / 装饰精致吗', icon: 'i-tabler-brush' },
   { key: 'composition', label: '构图', hint: '姿势·角度·布景有想法吗', icon: 'i-tabler-layout-collage' },
-  { key: 'overall', label: '总分', hint: '总体喜欢吗', icon: 'i-tabler-star' },
 ]
 
+// 默认 = 双图对比选总分：比较判断绕开绝对分的天花板/通胀/漂移，
+// 也符合"整体优先"的自然判断方式；维度仅供实验。
 const form = ref({
-  kind: 'absolute' as 'absolute' | 'pairwise',
-  dimensions: ['color'] as string[],
+  kind: 'pairwise' as 'absolute' | 'pairwise',
+  dimensions: ['overall'] as string[],
   scale: 2,
   strategy: 'stratified' as 'random' | 'stratified',
 })
@@ -157,7 +159,7 @@ async function generateQueue() {
           标注
         </h1>
         <p class="text-sm text-fg-muted leading-relaxed mt-1.5">
-          打开即标——系统按策略抓取未标注的图，标完一张自动出下一张。
+          打开即标——默认双图对比选总分：比较判断比绝对打分更稳，标完一组自动出下一组。
         </p>
       </header>
 
