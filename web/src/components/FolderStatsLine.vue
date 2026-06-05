@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed } from 'vue'
 import { useI18n } from 'vue-i18n'
+import { waifuLevelRgb } from '@/shared'
 
 // Per-directory aggregate stats, shown as the second line of a folder tree row.
 // SILVA is stored raw 0~1; ×10 here to match how the score is shown elsewhere.
@@ -14,24 +15,12 @@ const props = defineProps<{
 
 const { t } = useI18n()
 
-// Colour each score by its own high→low value (green→amber→red), matching the
-// detail panel's WaifuScoreLevel ramp. Each metric is normalised by its own max
-// (SILVA 0-1, Score 0-5, Rating 0-4). `scored` is a coverage ratio, not a
-// score, so it stays neutral grey.
+// Colour each score by its own high→low value (green→amber→red) via the shared
+// WAIFU_LEVEL_RGB ramp (ratio ×10 = waifu scale). Each metric is normalised by
+// its own max (SILVA 0-1, Score 0-5, Rating 0-4). `scored` is a coverage
+// ratio, not a score, so it stays neutral grey.
 function gradeColor(ratio: number): string {
-  if (ratio >= 0.8) {
-    return 'var(--p-success-rgb)'
-  }
-  if (ratio >= 0.6) {
-    return '90 190 90'
-  }
-  if (ratio >= 0.4) {
-    return 'var(--p-warning-rgb)'
-  }
-  if (ratio >= 0.2) {
-    return '235 125 45'
-  }
-  return 'var(--p-danger-rgb)'
+  return waifuLevelRgb(ratio * 10)
 }
 
 const metrics = computed<{ key: string, label: string, value: string, color: string | null }[]>(() =>

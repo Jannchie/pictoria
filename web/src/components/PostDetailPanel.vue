@@ -8,7 +8,7 @@ import { v2GetSilvaScorerOne, v2GetWaifuScorerOne } from '@/api'
 import { useAPIError } from '@/composables/useAPIError'
 import { usePostGroupQuery } from '@/composables/usePostGroupQuery'
 import { formatDateTime } from '@/locale'
-import { commitCaption, commitRating, commitScore, commitSource, hideNSFW, makePostCanonical, openTagSelectorWindow, queryKeys, showPostDetail, ungroupPost } from '@/shared'
+import { commitCaption, commitRating, commitScore, commitSource, hideNSFW, makePostCanonical, openTagSelectorWindow, queryKeys, RATING_LEVEL_COLORS, RATING_LEVEL_ICONS, showPostDetail, ungroupPost } from '@/shared'
 import { getPostThumbnailURL } from '@/utils'
 import { colorNumToHex, labToRgbaString } from '@/utils/color'
 
@@ -328,8 +328,8 @@ const sectionTitleClass
               :model-value="post.rating"
               highlight-selected-only
               :count="4"
-              :colors="['green', 'yellow', 'orange', 'red']"
-              :icons="['i-tabler-seeding', 'i-tabler-mood-heart', 'i-tabler-eye-off', 'i-tabler-eyeglass-off']"
+              :colors="RATING_LEVEL_COLORS"
+              :icons="RATING_LEVEL_ICONS"
               @select="(d) => commitRating(queryClient, [post], [post.id], d)"
             />
           </div>

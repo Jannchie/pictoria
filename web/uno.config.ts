@@ -7,6 +7,16 @@ import { defineConfig, presetIcons, presetWind4 } from 'unocss'
 const color = (name: string) => `rgb(var(--p-${name}-rgb))`
 
 export default defineConfig({
+  content: {
+    pipeline: {
+      include: [
+        // UnoCSS default pipeline (plain .ts is excluded by default).
+        /\.(vue|svelte|[jt]sx|mdx?|astro|elm|php|phtml|html)($|\?)/,
+        // Carries the shared per-rating-level icon class names.
+        'src/shared/ratings.ts',
+      ],
+    },
+  },
   presets: [
     presetWind4(),
     presetIcons({

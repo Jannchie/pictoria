@@ -1,31 +1,25 @@
 <script setup lang="ts">
+import { waifuLevel } from '@/shared'
+
 interface Props {
   score: number
 }
 
 const props = defineProps<Props>()
 
-interface ScoreLevel {
-  level: string
-  labelKey: string
-  rgb: string // raw "r g b" for use inside rgb(...) / rgb(... / a)
-  min: number
-  max: number
+// Colour ramp shared via WAIFU_LEVEL_RGB (also the filter dots and the
+// gallery sort badge); only the bucket label keys are local to this chip.
+const LABEL_KEYS: Record<string, string> = {
+  A: 'filter.bucketBest',
+  B: 'filter.bucketGood',
+  C: 'filter.bucketNormal',
+  D: 'filter.bucketBad',
+  E: 'filter.bucketWorst',
 }
 
-// A/B both green, C amber, D orange, E red — a green→warm→danger ramp.
-// Same RGB triples used by the dots in WaifuScoreFilter.vue so the chip and
-// the filter row read consistently.
-const scoreLevels: ScoreLevel[] = [
-  { level: 'A', labelKey: 'filter.bucketBest', rgb: 'var(--p-success-rgb)', min: 8, max: 10.001 },
-  { level: 'B', labelKey: 'filter.bucketGood', rgb: '90 190 90', min: 6, max: 8 },
-  { level: 'C', labelKey: 'filter.bucketNormal', rgb: 'var(--p-warning-rgb)', min: 4, max: 6 },
-  { level: 'D', labelKey: 'filter.bucketBad', rgb: '235 125 45', min: 2, max: 4 },
-  { level: 'E', labelKey: 'filter.bucketWorst', rgb: 'var(--p-danger-rgb)', min: 0, max: 2 },
-]
-
 const currentLevel = computed(() => {
-  return scoreLevels.find(level => props.score >= level.min && props.score < level.max) || scoreLevels[4]
+  const bucket = waifuLevel(props.score)
+  return { ...bucket, labelKey: LABEL_KEYS[bucket.level] }
 })
 
 const levelStyle = computed(() => {

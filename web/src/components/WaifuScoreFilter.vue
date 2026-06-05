@@ -3,6 +3,7 @@ import { computed } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { v2GetWaifuBucketCount } from '@/api'
 import { useFacetFilter } from '@/composables/useFacetFilter'
+import { WAIFU_LEVEL_RGB } from '@/shared'
 
 const { t } = useI18n()
 
@@ -22,14 +23,9 @@ const BUCKETS: BucketDef[] = [
   { level: 'UNSCORED', labelKey: 'common.unscored', range: '' },
 ]
 
-// A/B green, C amber, D orange, E red — a green→warm→danger ramp. The dot
-// below uses the same triples as WaifuScoreLevel.vue's chip via CSS vars.
+// Shared A–E ramp (WAIFU_LEVEL_RGB) plus a muted dot for the unscored bucket.
 const LEVEL_DOT_RGB: Record<string, string> = {
-  A: 'var(--p-success-rgb)', // green
-  B: '90 190 90', // green (close to A)
-  C: 'var(--p-warning-rgb)', // amber
-  D: '235 125 45', // orange
-  E: 'var(--p-danger-rgb)', // red
+  ...Object.fromEntries(WAIFU_LEVEL_RGB.map(b => [b.level, b.rgb])),
   UNSCORED: 'var(--p-fg-muted-rgb)',
 }
 

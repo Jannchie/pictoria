@@ -12,6 +12,9 @@ import {
   commitScore,
   currentPostList,
   deletePosts,
+  RATING_LEVEL_COLORS,
+  RATING_LEVEL_ICONS,
+  SCORE_LEVEL_COLORS,
   selectedPostIdSet,
   showPostDetail,
   similarPostList,
@@ -55,24 +58,10 @@ const {
 } = useSelectedPostStats(selectedPosts)
 
 const RATING_LABELS = computed(() => [t('rating.unrated'), 'G', 'S', 'Q', 'E'])
-const RATING_COLORS = [
-  'var(--p-fg-subtle)',
-  '#22c55e',
-  '#eab308',
-  '#f97316',
-  '#ef4444',
-]
+const RATING_COLORS = ['var(--p-fg-subtle)', ...RATING_LEVEL_COLORS]
 const SCORE_LABELS = computed(() => [t('common.unscored'), '1', '2', '3', '4', '5'])
 // Quality ramp: low score = red, high score = green (0 = unscored, muted).
-// Mirrors RATING_COLORS' hard-coded hex so both distribution bars read alike.
-const SCORE_COLORS = [
-  'var(--p-fg-subtle)',
-  '#ef4444',
-  '#f97316',
-  '#eab308',
-  '#84cc16',
-  '#22c55e',
-]
+const SCORE_COLORS = ['var(--p-fg-subtle)', ...SCORE_LEVEL_COLORS]
 
 const THUMB_LIMIT = 12
 const thumbs = computed(() => selectedPosts.value.slice(0, THUMB_LIMIT))
@@ -384,8 +373,8 @@ const sectionTitleClass
             :model-value="commonRating ?? 0"
             highlight-selected-only
             :count="4"
-            :colors="['green', 'yellow', 'orange', 'red']"
-            :icons="['i-tabler-seeding', 'i-tabler-mood-heart', 'i-tabler-eye-off', 'i-tabler-eyeglass-off']"
+            :colors="RATING_LEVEL_COLORS"
+            :icons="RATING_LEVEL_ICONS"
             @select="applyRating"
           />
           <span
