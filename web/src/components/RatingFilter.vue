@@ -3,6 +3,7 @@ import { computed } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { v2GetRatingCount } from '@/api'
 import { useFacetFilter } from '@/composables/useFacetFilter'
+import { RATING_LEVEL_COLORS, RATING_LEVEL_ICONS, RATING_UNRATED_ICON } from '@/shared/ratings'
 
 const { t } = useI18n()
 
@@ -32,10 +33,23 @@ function pct(count: number) {
   return total.value > 0 ? ((count / total.value) * 100).toFixed(1) : '0.0'
 }
 
+// Same order as the popover rows: real levels first, unrated last.
+const DISPLAY_ORDER = [1, 2, 3, 4, 0]
+const sortedSelection = computed(() =>
+  [...ratingFilterData.value].sort((a, b) => DISPLAY_ORDER.indexOf(a) - DISPLAY_ORDER.indexOf(b)),
+)
+
 const btnText = computed(() => {
-  const item = ratingFilterData.value
+  const item = sortedSelection.value
   return item.length === 0 ? t('filter.rating') : item.map(s => getRatingName(s)).join(', ')
 })
+
+function ratingIcon(rating: number) {
+  return rating === 0 ? RATING_UNRATED_ICON : RATING_LEVEL_ICONS[rating - 1]
+}
+function ratingIconStyle(rating: number) {
+  return rating === 0 ? undefined : { color: RATING_LEVEL_COLORS[rating - 1] }
+}
 function getRatingName(rating: number) {
   switch (rating) {
     case 0: {
@@ -66,7 +80,15 @@ function getRatingName(rating: number) {
       <PButton
         size="sm"
       >
-        <i class="i-tabler-star" />
+        <template v-if="sortedSelection.length > 0">
+          <i
+            v-for="r in sortedSelection"
+            :key="r"
+            :class="ratingIcon(r)"
+            :style="ratingIconStyle(r)"
+          />
+        </template>
+        <i v-else class="i-tabler-star" />
         <span>
           {{ btnText }}
         </span>
