@@ -18,6 +18,7 @@ from msgspec import Struct
 from db.repositories.annotation_queues import AnnotationQueueRepo  # noqa: TC001  # DI needs runtime types
 from db.repositories.annotations import AnnotationRepo  # noqa: TC001  # DI needs runtime types
 from scheme import DTOBaseModel
+from server.annotation_queues import QueueItemPostPublic, post_from_row
 
 VALID_DIMENSIONS = {"color", "finish", "composition", "overall"}
 VALID_FLAGS = {"love", "hate", "none"}
@@ -91,6 +92,11 @@ class PostAnnotationsPublic(DTOBaseModel):
     absolute: list[AbsoluteAnnotationPublic]
     pairwise: list[PairwiseAnnotationPublic]
     content_flag: str | None = None
+
+
+class SampledPairPublic(DTOBaseModel):
+    post_a: QueueItemPostPublic
+    post_b: QueueItemPostPublic
 
 
 def _validate_absolute(e: AbsoluteEventIn) -> None:
@@ -177,6 +183,40 @@ class AnnotationController(Controller):
             raise ValidationException(msg)
         await annotations.insert_content_flag(post_id=data.post_id, flag=data.flag, session_id=data.session_id)
         return InsertedPublic(inserted=1)
+
+    @litestar.get(
+        "/sample-absolute",
+        status_code=200,
+        description="Queue-less streaming: sample candidate posts for absolute annotation. Posts already annotated in any requested dimension are excluded.",
+    )
+    async def sample_absolute(
+        self,
+        annotation_queues: AnnotationQueueRepo,
+        dimensions: list[str],
+        strategy: str = "random",
+        limit: int = 10,
+    ) -> list[QueueItemPostPublic]:
+        if not dimensions or any(d not in VALID_DIMENSIONS for d in dimensions):
+            msg = f"invalid dimensions: {dimensions!r}"
+            raise ValidationException(msg)
+        if strategy not in {"random", "stratified"}:
+            msg = f"invalid strategy: {strategy!r}"
+            raise ValidationException(msg)
+        items = await annotation_queues.sample_absolute_items(count=limit, strategy=strategy, dimensions=dimensions)
+        return [post_from_row(r) for r in items]
+
+    @litestar.get(
+        "/sample-pairwise",
+        status_code=200,
+        description="Queue-less streaming: sample disjoint random pairs for pairwise annotation.",
+    )
+    async def sample_pairwise(
+        self,
+        annotation_queues: AnnotationQueueRepo,
+        limit: int = 10,
+    ) -> list[SampledPairPublic]:
+        items = await annotation_queues.sample_pairwise_items(count=limit)
+        return [SampledPairPublic(post_a=post_from_row(r, "a_"), post_b=post_from_row(r, "b_")) for r in items]
 
     @litestar.get("/post/{post_id:int}", status_code=200, description="Full annotation history for a post.")
     async def post_history(self, annotations: AnnotationRepo, post_id: int) -> PostAnnotationsPublic:

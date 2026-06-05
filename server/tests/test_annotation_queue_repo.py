@@ -114,3 +114,18 @@ async def test_sample_pairs_random(db: DB, queues: AnnotationQueueRepo) -> None:
     assert len(flat) == len(set(flat))  # 一图最多出现一次
     for a, b in pairs:
         assert a != b
+
+
+async def test_sample_absolute_items_carry_image_fields(db: DB, queues: AnnotationQueueRepo) -> None:
+    _seed_embeddings(db, [1, 2])
+    items = await queues.sample_absolute_items(count=10, strategy="random", dimensions=["color"])
+    assert len(items) == 2
+    assert {"post_id", "file_path", "file_name", "extension", "sha256", "width", "height"} <= set(items[0])
+
+
+async def test_sample_pairwise_items_carry_image_fields(db: DB, queues: AnnotationQueueRepo) -> None:
+    _seed_embeddings(db, [1, 2, 3, 4])
+    items = await queues.sample_pairwise_items(count=2)
+    assert len(items) == 2
+    assert "a_post_id" in items[0]
+    assert "b_file_name" in items[0]

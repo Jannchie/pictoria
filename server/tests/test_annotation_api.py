@@ -126,6 +126,42 @@ def test_create_and_consume_absolute_queue(api_client: TestClient) -> None:
     assert len(resp.json()) == 1
 
 
+def test_stream_sample_absolute(api_client: TestClient, db: DB) -> None:
+    cur = db.cursor()
+    for pid in (1, 2, 3):
+        cur.execute(
+            "INSERT INTO post_vectors_siglip2 (post_id, embedding) VALUES (?, ?)",
+            [pid, sqlite_vec.serialize_float32([0.01 * pid] * 1152)],
+        )
+    resp = api_client.get("/v2/annotations/sample-absolute?dimensions=color&dimensions=finish&strategy=random&limit=10")
+    assert resp.status_code == 200
+    items = resp.json()
+    assert len(items) == 3
+    assert {"id", "filePath", "fileName", "extension", "sha256"} <= set(items[0])
+
+    # 标注 color 后该图不再被采样到
+    api_client.post(
+        "/v2/annotations/absolute",
+        json={"events": [{"post_id": items[0]["id"], "dimension": "color", "scale": 2, "value": 2, "rubric_version": "color-v1", "session_id": "s1"}]},
+    )
+    resp = api_client.get("/v2/annotations/sample-absolute?dimensions=color&strategy=random&limit=10")
+    assert items[0]["id"] not in [r["id"] for r in resp.json()]
+
+
+def test_stream_sample_pairwise(api_client: TestClient, db: DB) -> None:
+    cur = db.cursor()
+    for pid in (1, 2, 3, 4):
+        cur.execute(
+            "INSERT INTO post_vectors_siglip2 (post_id, embedding) VALUES (?, ?)",
+            [pid, sqlite_vec.serialize_float32([0.01 * pid] * 1152)],
+        )
+    resp = api_client.get("/v2/annotations/sample-pairwise?limit=2")
+    assert resp.status_code == 200
+    items = resp.json()
+    assert len(items) == 2
+    assert items[0]["postA"]["id"] != items[0]["postB"]["id"]
+
+
 def test_generate_absolute_queue(api_client: TestClient, db: DB) -> None:
     # seed embeddings so posts 1-3 qualify as candidates
     cur = db.cursor()

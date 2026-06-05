@@ -85,7 +85,7 @@ class PairwiseQueueItemPublic(DTOBaseModel):
     post_b: QueueItemPostPublic
 
 
-def _post_from_prefix(row: dict[str, Any], prefix: str = "") -> QueueItemPostPublic:
+def post_from_row(row: dict[str, Any], prefix: str = "") -> QueueItemPostPublic:
     return QueueItemPostPublic(
         id=row[f"{prefix}post_id"],
         file_path=row[f"{prefix}file_path"],
@@ -166,12 +166,12 @@ class AnnotationQueueController(Controller):
     @litestar.get("/{queue_id:int}/next-absolute", status_code=200, description="Next undone items of an absolute queue, with image info.")
     async def next_absolute(self, annotation_queues: AnnotationQueueRepo, queue_id: int, limit: int = 20) -> list[AbsoluteQueueItemPublic]:
         items = await annotation_queues.next_absolute_items(queue_id, limit=limit)
-        return [AbsoluteQueueItemPublic(position=r["position"], post=_post_from_prefix(r)) for r in items]
+        return [AbsoluteQueueItemPublic(position=r["position"], post=post_from_row(r)) for r in items]
 
     @litestar.get("/{queue_id:int}/next-pairwise", status_code=200, description="Next undone items of a pairwise queue, with image info for both posts.")
     async def next_pairwise(self, annotation_queues: AnnotationQueueRepo, queue_id: int, limit: int = 20) -> list[PairwiseQueueItemPublic]:
         items = await annotation_queues.next_pairwise_items(queue_id, limit=limit)
         return [
-            PairwiseQueueItemPublic(position=r["position"], post_a=_post_from_prefix(r, "a_"), post_b=_post_from_prefix(r, "b_"))
+            PairwiseQueueItemPublic(position=r["position"], post_a=post_from_row(r, "a_"), post_b=post_from_row(r, "b_"))
             for r in items
         ]

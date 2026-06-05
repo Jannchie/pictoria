@@ -186,6 +186,41 @@ class AnnotationQueueRepo:
 
         return await asyncio.to_thread(_impl)
 
+    async def sample_absolute_items(self, *, count: int, strategy: str, dimensions: list[str]) -> list[dict[str, Any]]:
+        """Sample candidates with image fields — queue-less streaming annotation."""
+        ids = await self.sample_post_ids(count=count, strategy=strategy, dimensions=dimensions)
+        if not ids:
+            return []
+
+        def _impl() -> list[dict[str, Any]]:
+            ph = ",".join("?" * len(ids))
+            self.cur.execute(
+                f"SELECT {_aliased_post_cols('p', '')} FROM posts p WHERE p.id IN ({ph})",  # noqa: S608
+                ids,
+            )
+            return fetch_all_dicts(self.cur)
+
+        return await asyncio.to_thread(_impl)
+
+    async def sample_pairwise_items(self, *, count: int, strategy: str = "random") -> list[dict[str, Any]]:
+        """Sample disjoint pairs with image fields for both sides — queue-less streaming."""
+        pairs = await self.sample_pairs(count=count, strategy=strategy)
+        if not pairs:
+            return []
+
+        def _impl() -> list[dict[str, Any]]:
+            out: list[dict[str, Any]] = []
+            for a, b in pairs:
+                self.cur.execute(
+                    f"SELECT {_aliased_post_cols('pa', 'a_')}, {_aliased_post_cols('pb', 'b_')} "  # noqa: S608
+                    "FROM posts pa, posts pb WHERE pa.id = ? AND pb.id = ?",
+                    [a, b],
+                )
+                out += fetch_all_dicts(self.cur)
+            return out
+
+        return await asyncio.to_thread(_impl)
+
     async def mark_done(self, queue_id: int, *, kind: str, position: int) -> bool:
         table = _ITEM_TABLES[kind]
 
