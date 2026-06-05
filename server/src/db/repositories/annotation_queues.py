@@ -116,6 +116,76 @@ class AnnotationQueueRepo:
 
         return await asyncio.to_thread(_impl)
 
+    # ─── Sampling (queue auto-generation) ────────────────────────────
+    #
+    # Strategies run entirely on data pictoria already owns (old manual
+    # score, embeddings, annotation events) — no external sampler needed.
+    # Candidates must have an embedding (training joins it later), must not
+    # be hidden near-duplicates, must not already be annotated in any of the
+    # requested dimensions, and must not sit in an undone queue item.
+
+    _CANDIDATE_WHERE = (
+        "p.canonical_post_id IS NULL "
+        "AND EXISTS (SELECT 1 FROM post_vectors_siglip2 v WHERE v.post_id = p.id) "
+        "AND NOT EXISTS (SELECT 1 FROM absolute_queue_items i WHERE i.post_id = p.id AND i.done = 0) "
+        "AND NOT EXISTS (SELECT 1 FROM absolute_annotations a WHERE a.post_id = p.id AND a.dimension IN ({dims}))"
+    )
+
+    async def sample_post_ids(self, *, count: int, strategy: str, dimensions: list[str]) -> list[int]:
+        """Sample candidate post ids for a new absolute queue."""
+
+        def _impl() -> list[int]:
+            dims_ph = ",".join("?" * len(dimensions))
+            where = self._CANDIDATE_WHERE.format(dims=dims_ph)
+            if strategy == "stratified":
+                # Even split across old manual score levels 1..5, random within
+                # each level; top up with random candidates if levels run dry.
+                per_level = max(1, count // 5)
+                picked: list[int] = []
+                for level in range(1, 6):
+                    self.cur.execute(
+                        f"SELECT p.id FROM posts p WHERE p.score = ? AND {where} ORDER BY RANDOM() LIMIT ?",  # noqa: S608
+                        [level, *dimensions, per_level],
+                    )
+                    picked += [row[0] for row in self.cur.fetchall()]
+                    if len(picked) >= count:
+                        return picked[:count]
+                fill = count - len(picked)
+                if fill > 0:
+                    not_in = ",".join("?" * len(picked)) or "NULL"
+                    self.cur.execute(
+                        f"SELECT p.id FROM posts p WHERE p.id NOT IN ({not_in}) AND {where} ORDER BY RANDOM() LIMIT ?",  # noqa: S608
+                        [*picked, *dimensions, fill],
+                    )
+                    picked += [row[0] for row in self.cur.fetchall()]
+                return picked
+            # default: random
+            self.cur.execute(
+                f"SELECT p.id FROM posts p WHERE {where} ORDER BY RANDOM() LIMIT ?",  # noqa: S608
+                [*dimensions, count],
+            )
+            return [row[0] for row in self.cur.fetchall()]
+
+        return await asyncio.to_thread(_impl)
+
+    async def sample_pairs(self, *, count: int, strategy: str = "random") -> list[tuple[int, int]]:
+        """Sample disjoint random pairs for a new pairwise queue."""
+        del strategy  # only 'random' for now; signature is forward-compatible
+
+        def _impl() -> list[tuple[int, int]]:
+            self.cur.execute(
+                "SELECT p.id FROM posts p "
+                "WHERE p.canonical_post_id IS NULL "
+                "AND EXISTS (SELECT 1 FROM post_vectors_siglip2 v WHERE v.post_id = p.id) "
+                "AND NOT EXISTS (SELECT 1 FROM pairwise_queue_items i WHERE (i.post_a = p.id OR i.post_b = p.id) AND i.done = 0) "
+                "ORDER BY RANDOM() LIMIT ?",
+                [count * 2],
+            )
+            ids = [row[0] for row in self.cur.fetchall()]
+            return [(ids[i], ids[i + 1]) for i in range(0, len(ids) - 1, 2)]
+
+        return await asyncio.to_thread(_impl)
+
     async def mark_done(self, queue_id: int, *, kind: str, position: int) -> bool:
         table = _ITEM_TABLES[kind]
 

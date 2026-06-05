@@ -6,6 +6,7 @@ from contextlib import asynccontextmanager
 from typing import TYPE_CHECKING
 
 import pytest
+import sqlite_vec
 from litestar import Litestar, Router
 from litestar.plugins.pydantic import PydanticPlugin
 from litestar.testing import TestClient
@@ -123,6 +124,53 @@ def test_create_and_consume_absolute_queue(api_client: TestClient) -> None:
     )
     resp = api_client.get(f"/v2/annotation-queues/{qid}/next-absolute?limit=10")
     assert len(resp.json()) == 1
+
+
+def test_generate_absolute_queue(api_client: TestClient, db: DB) -> None:
+    # seed embeddings so posts 1-3 qualify as candidates
+    cur = db.cursor()
+    for pid in (1, 2, 3):
+        cur.execute(
+            "INSERT INTO post_vectors_siglip2 (post_id, embedding) VALUES (?, ?)",
+            [pid, sqlite_vec.serialize_float32([0.01 * pid] * 1152)],
+        )
+
+    resp = api_client.post(
+        "/v2/annotation-queues/generate-absolute",
+        json={"dimensions": ["color", "finish"], "scale": 2, "count": 2, "strategy": "random"},
+    )
+    assert resp.status_code == 201
+    body = resp.json()
+    assert body["total"] == 2
+    assert body["kind"] == "absolute"
+
+    resp = api_client.get(f"/v2/annotation-queues/{body['id']}/next-absolute?limit=10")
+    assert len(resp.json()) == 2
+
+
+def test_generate_pairwise_queue(api_client: TestClient, db: DB) -> None:
+    cur = db.cursor()
+    for pid in (1, 2, 3, 4):
+        cur.execute(
+            "INSERT INTO post_vectors_siglip2 (post_id, embedding) VALUES (?, ?)",
+            [pid, sqlite_vec.serialize_float32([0.01 * pid] * 1152)],
+        )
+
+    resp = api_client.post(
+        "/v2/annotation-queues/generate-pairwise",
+        json={"dimension": "color", "count": 2},
+    )
+    assert resp.status_code == 201
+    assert resp.json()["total"] == 2
+
+
+def test_generate_with_no_candidates_rejected(api_client: TestClient) -> None:
+    # seed DB 没有任何 embedding -> 无候选
+    resp = api_client.post(
+        "/v2/annotation-queues/generate-absolute",
+        json={"dimensions": ["color"], "scale": 2, "count": 5, "strategy": "random"},
+    )
+    assert resp.status_code == 400
 
 
 def test_create_and_consume_pairwise_queue(api_client: TestClient) -> None:

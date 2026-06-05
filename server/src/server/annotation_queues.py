@@ -11,10 +11,15 @@ from typing import Any, ClassVar
 
 import litestar
 from litestar import Controller
+from litestar.exceptions import ValidationException
 from msgspec import Struct
 
 from db.repositories.annotation_queues import AnnotationQueueRepo  # noqa: TC001  # DI needs runtime types
 from scheme import DTOBaseModel
+
+VALID_DIMENSIONS = {"color", "finish", "composition", "overall"}
+VALID_SCALES = {2, 3, 5}
+VALID_STRATEGIES = {"random", "stratified"}
 
 
 class AbsoluteQueueCreate(Struct):
@@ -28,6 +33,21 @@ class PairwiseQueueCreate(Struct):
     name: str
     dimensions: list[str]
     pairs: list[tuple[int, int]]
+
+
+class GenerateAbsoluteIn(Struct):
+    dimensions: list[str]
+    scale: int
+    count: int
+    strategy: str = "random"
+    name: str | None = None
+
+
+class GeneratePairwiseIn(Struct):
+    dimension: str
+    count: int
+    strategy: str = "random"
+    name: str | None = None
 
 
 class QueueCreatedPublic(DTOBaseModel):
@@ -94,6 +114,46 @@ class AnnotationQueueController(Controller):
             name=data.name, dimensions=data.dimensions, pairs=[tuple(p) for p in data.pairs],
         )
         return QueueCreatedPublic(id=qid)
+
+    @litestar.post(
+        "/generate-absolute",
+        status_code=201,
+        description="Auto-generate an absolute queue by sampling the library (random / stratified by old score).",
+    )
+    async def generate_absolute(self, annotation_queues: AnnotationQueueRepo, data: GenerateAbsoluteIn) -> QueueSummaryPublic:
+        if not data.dimensions or any(d not in VALID_DIMENSIONS for d in data.dimensions):
+            msg = f"invalid dimensions: {data.dimensions!r}"
+            raise ValidationException(msg)
+        if data.scale not in VALID_SCALES:
+            msg = f"invalid scale: {data.scale}"
+            raise ValidationException(msg)
+        if data.strategy not in VALID_STRATEGIES:
+            msg = f"invalid strategy: {data.strategy!r}"
+            raise ValidationException(msg)
+        post_ids = await annotation_queues.sample_post_ids(count=data.count, strategy=data.strategy, dimensions=data.dimensions)
+        if not post_ids:
+            msg = "no eligible candidates (need posts with embeddings, not yet annotated or queued)"
+            raise ValidationException(msg)
+        name = data.name or f"{data.strategy}-{'+'.join(data.dimensions)}-{len(post_ids)}"
+        qid = await annotation_queues.create_absolute_queue(name=name, dimensions=data.dimensions, scale=data.scale, post_ids=post_ids)
+        return QueueSummaryPublic(id=qid, name=name, kind="absolute", dimensions=data.dimensions, scale=data.scale, total=len(post_ids), done=0)
+
+    @litestar.post(
+        "/generate-pairwise",
+        status_code=201,
+        description="Auto-generate a pairwise queue from random disjoint pairs.",
+    )
+    async def generate_pairwise(self, annotation_queues: AnnotationQueueRepo, data: GeneratePairwiseIn) -> QueueSummaryPublic:
+        if data.dimension not in VALID_DIMENSIONS:
+            msg = f"invalid dimension: {data.dimension!r}"
+            raise ValidationException(msg)
+        pairs = await annotation_queues.sample_pairs(count=data.count, strategy=data.strategy)
+        if not pairs:
+            msg = "no eligible candidates (need posts with embeddings, not already queued)"
+            raise ValidationException(msg)
+        name = data.name or f"pairs-{data.dimension}-{len(pairs)}"
+        qid = await annotation_queues.create_pairwise_queue(name=name, dimensions=[data.dimension], pairs=pairs)
+        return QueueSummaryPublic(id=qid, name=name, kind="pairwise", dimensions=[data.dimension], scale=None, total=len(pairs), done=0)
 
     @litestar.get("/", status_code=200, description="List queues with progress, newest first.")
     async def list_queues(self, annotation_queues: AnnotationQueueRepo) -> list[QueueSummaryPublic]:
