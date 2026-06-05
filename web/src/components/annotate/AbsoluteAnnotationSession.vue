@@ -221,6 +221,14 @@ const SCALE_LABELS: Record<number, string[]> = {
 }
 const labels = computed(() => SCALE_LABELS[scale.value] ?? SCALE_LABELS[2])
 const title = computed(() => props.queue?.name ?? `流式标注 · ${dimensions.value.join(' / ')}`)
+
+// 维度显示成引导问题而非冷标签，把注意力锚到该维度的特征上（抗 halo）。
+const DIMENSION_PROMPTS: Record<string, string> = {
+  color: '配色运用得好吗？（不是丰富度；忽略题材）',
+  finish: '精修/装饰精致吗？（草稿感 vs 想放大看）',
+  composition: '演出有想法吗？（姿势动态 / 角度 / 布景）',
+  overall: '总体喜欢吗？',
+}
 </script>
 
 <template>
@@ -244,8 +252,9 @@ const title = computed(() => props.queue?.name ?? `流式标注 · ${dimensions.
       </div>
       <div class="p-3 border-l border-border-default flex shrink-0 flex-col gap-3 w-56">
         <div v-for="(dim, row) in dimensions" :key="dim">
-          <div class="text-xs text-fg-muted mb-1">
-            {{ dim }}
+          <div class="text-xs mb-1" :class="choices[dim] != null ? 'text-fg-muted' : 'text-fg'">
+            <span class="font-medium">{{ dim }}</span>
+            <span class="text-fg-muted ml-1">{{ DIMENSION_PROMPTS[dim] }}</span>
           </div>
           <div class="flex flex-wrap gap-1">
             <span
