@@ -51,7 +51,9 @@ def find_files_in_directory(  # noqa: C901, PLR0915
     caches the type from the directory listing).
 
     Skips any top-level entry whose name starts with ``.`` (e.g. the
-    ``.pictoria`` working dir).
+    ``.pictoria`` working dir), and ``*.part`` files anywhere — those are
+    in-flight downloader temp files (see ``DanbooruClient.download_image``)
+    that must not be registered as posts.
 
     When ``cache`` is provided, each directory's direct file list is keyed by
     absolute path → ``(mtime_ns, files_in_dir)``. A directory whose mtime
@@ -114,6 +116,8 @@ def find_files_in_directory(  # noqa: C901, PLR0915
                             sub_rel = entry.name if rel_dir == "." else f"{rel_dir}/{entry.name}"
                             subdirs.append((entry.path, sub_rel))
                         elif entry.is_file(follow_symlinks=False):
+                            if entry.name.endswith(".part"):
+                                continue  # in-flight downloader temp file
                             stem, ext = _split_name(entry.name)
                             direct_files.append((rel_dir, stem, ext))
                     except OSError as exc:

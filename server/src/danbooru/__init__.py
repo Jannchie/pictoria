@@ -275,57 +275,97 @@ class DanbooruClient:
         if file_path.exists():
             logger.debug("File %s already exists, skipping", file_path)
             return "skipped"
+        # Stream into a .part temp file and publish with an atomic rename only
+        # after the byte count matches the API-reported original size. A dropped
+        # connection or killed process can therefore never leave a half-written
+        # file at the final path — which the exists() check above would treat
+        # as done forever (the source of permanently-truncated library images).
+        part_path = file_path.with_name(file_path.name + ".part")
         for attempt in range(retries):
             self._throttle.wait()
-            try:
-                logger.debug("Downloading post %s, attempt %d/%d", post.id, attempt + 1, retries)
-                with self.client.stream("GET", url) as response:
-                    status = response.status_code
-                    # 403/429 = CDN rate-limit. Park the whole pool, retry.
-                    if status in (403, 429):
-                        response.read()
-                        delay = self._throttle.report_blocked()
-                        logger.warning(
-                            "Post %s rate-limited (HTTP %d); cooling down %.1fs (attempt %d/%d)",
-                            post_id,
-                            status,
-                            delay,
-                            attempt + 1,
-                            retries,
-                        )
-                        continue
-                    # Other 4xx (404/410/...) = permanent, don't waste retries.
-                    if httpx.codes.BAD_REQUEST <= status < httpx.codes.INTERNAL_SERVER_ERROR:
-                        logger.warning("Post %s HTTP %d; not retryable", post_id, status)
-                        return "failed"
-                    response.raise_for_status()
-                    with file_path.open("wb") as f:
-                        for chunk in response.iter_bytes():
-                            f.write(chunk)
-            except httpx.HTTPStatusError as exc:
-                logger.warning(
-                    "Post %s server error %d on attempt %d/%d",
-                    post_id,
-                    exc.response.status_code,
-                    attempt + 1,
-                    retries,
-                )
+            outcome = self._download_attempt(post, url, part_path, attempt, retries)
+            if outcome == "retry":
                 continue
-            except httpx.RequestError as exc:
-                logger.warning(
-                    "Post %s network error on attempt %d/%d: %s",
-                    post_id,
-                    attempt + 1,
-                    retries,
-                    exc,
-                )
-                continue
-            else:
-                self._throttle.report_ok()
-                logger.info("Successfully downloaded post %s", post_id)
-                return "downloaded"
+            if outcome == "failed":
+                return "failed"
+            part_path.replace(file_path)  # atomic publish of a verified file
+            self._throttle.report_ok()
+            logger.info("Successfully downloaded post %s", post_id)
+            return "downloaded"
+        part_path.unlink(missing_ok=True)  # don't leave a stale temp file behind
         logger.warning("All %d attempts to download post %s failed", retries, post_id)
         return "failed"
+
+    def _download_attempt(
+        self,
+        post: DanbooruPost,
+        url: str,
+        part_path: Path,
+        attempt: int,
+        retries: int,
+    ) -> Literal["ok", "retry", "failed"]:
+        """One streaming GET into ``part_path``, verified against ``post.file_size``."""
+        post_id = post.id
+        try:
+            logger.debug("Downloading post %s, attempt %d/%d", post_id, attempt + 1, retries)
+            with self.client.stream("GET", url) as response:
+                status = response.status_code
+                # 403/429 = CDN rate-limit. Park the whole pool, retry.
+                if status in (403, 429):
+                    response.read()
+                    delay = self._throttle.report_blocked()
+                    logger.warning(
+                        "Post %s rate-limited (HTTP %d); cooling down %.1fs (attempt %d/%d)",
+                        post_id,
+                        status,
+                        delay,
+                        attempt + 1,
+                        retries,
+                    )
+                    return "retry"
+                # Other 4xx (404/410/...) = permanent, don't waste retries.
+                if httpx.codes.BAD_REQUEST <= status < httpx.codes.INTERNAL_SERVER_ERROR:
+                    logger.warning("Post %s HTTP %d; not retryable", post_id, status)
+                    return "failed"
+                response.raise_for_status()
+                written = 0
+                with part_path.open("wb") as f:
+                    for chunk in response.iter_bytes():
+                        f.write(chunk)
+                        written += len(chunk)
+        except httpx.HTTPStatusError as exc:
+            logger.warning(
+                "Post %s server error %d on attempt %d/%d",
+                post_id,
+                exc.response.status_code,
+                attempt + 1,
+                retries,
+            )
+            return "retry"
+        except httpx.RequestError as exc:
+            logger.warning(
+                "Post %s network error on attempt %d/%d: %s",
+                post_id,
+                attempt + 1,
+                retries,
+                exc,
+            )
+            return "retry"
+        # End-to-end truncation check: file_url serves the original file, whose
+        # exact byte size the API reports in `file_size`. A short body that
+        # slipped past the transport layer (e.g. a connection torn down at a
+        # chunk boundary) is caught here.
+        if post.file_size and written != post.file_size:
+            logger.warning(
+                "Post %s truncated: got %d of %d bytes (attempt %d/%d); retrying",
+                post_id,
+                written,
+                post.file_size,
+                attempt + 1,
+                retries,
+            )
+            return "retry"
+        return "ok"
 
     def download_posts(
         self,
