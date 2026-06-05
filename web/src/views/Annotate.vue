@@ -10,7 +10,10 @@ const activeQueue = ref<QueueSummaryPublic | null>(null)
 
 const { data: queues, refetch } = useQuery({
   queryKey: ['annotation-queues'],
-  queryFn: async () => (await v2ListQueues()).data ?? [],
+  queryFn: async () => {
+    const resp = await v2ListQueues()
+    return resp.data ?? []
+  },
 })
 
 function exitSession() {
@@ -20,7 +23,7 @@ function exitSession() {
 </script>
 
 <template>
-  <div class="h-full bg-bg text-fg">
+  <div class="text-fg bg-bg h-full">
     <AbsoluteAnnotationSession
       v-if="activeQueue && activeQueue.kind === 'absolute'"
       :queue="activeQueue"
@@ -31,24 +34,32 @@ function exitSession() {
       :queue="activeQueue"
       @exit="exitSession"
     />
-    <div v-else class="mx-auto max-w-2xl p-6">
-      <h1 class="text-lg font-medium mb-4">标注队列</h1>
-      <div v-if="!queues?.length" class="text-fg-muted text-sm">
+    <div v-else class="mx-auto p-6 max-w-2xl">
+      <h1 class="text-lg font-medium mb-4">
+        标注队列
+      </h1>
+      <div v-if="!queues?.length" class="text-sm text-fg-muted">
         暂无队列。用 silva 侧脚本生成并 POST /v2/annotation-queues/absolute 导入。
       </div>
       <button
         v-for="q in queues"
         :key="q.id"
-        class="w-full p-border rounded-md p-3 mb-2 flex gap-2 items-center justify-between text-left hover:bg-surface"
+        class="mb-2 p-3 text-left p-border rounded-md flex gap-2 w-full items-center justify-between hover:bg-surface"
         @click="activeQueue = q"
       >
         <div>
-          <div class="text-sm font-medium">{{ q.name }}</div>
+          <div class="text-sm font-medium">
+            {{ q.name }}
+          </div>
           <div class="text-xs text-fg-muted">
-            {{ q.kind }} · {{ q.dimensions.join(' / ') }}<template v-if="q.scale"> · {{ q.scale }} 级</template>
+            {{ q.kind }} · {{ q.dimensions.join(' / ') }}<template v-if="q.scale">
+              · {{ q.scale }} 级
+            </template>
           </div>
         </div>
-        <div class="text-xs text-fg-muted">{{ q.done }} / {{ q.total }}</div>
+        <div class="text-xs text-fg-muted">
+          {{ q.done }} / {{ q.total }}
+        </div>
       </button>
     </div>
   </div>

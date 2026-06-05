@@ -11,7 +11,7 @@ export interface KeyChoice { dimension: string, value: number }
 export function keyToChoice(key: string, dimensions: string[], scale: number): KeyChoice | null {
   for (let row = 0; row < dimensions.length && row < KEY_ROWS.length; row++) {
     const idx = KEY_ROWS[row].indexOf(key)
-    if (idx >= 0 && idx < scale) {
+    if (idx !== -1 && idx < scale) {
       return { dimension: dimensions[row], value: idx + 1 }
     }
   }
