@@ -376,6 +376,9 @@ const sectionTitleClass
         </div>
       </section>
 
+      <!-- Annotation history: SILVA multi-dimension events (hidden when empty) -->
+      <AnnotationHistory :post-id="post.id" />
+
       <!-- File info: pure metadata, numbers tabular-aligned -->
       <section class="py-4">
         <div

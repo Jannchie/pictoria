@@ -151,6 +151,7 @@ const en = {
     setRepresentative: 'Set as representative',
     groupBadgeTitle: '{n} more similar image in this group | {n} more similar images in this group',
     ratings: 'Ratings',
+    annotationHistory: 'Annotations',
     ratingLabel: 'Rating',
     scoreLabel: 'Score',
     waifuLabel: 'Waifu',

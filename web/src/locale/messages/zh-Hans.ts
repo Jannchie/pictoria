@@ -148,6 +148,7 @@ const zhHans: MessageSchema = {
     setRepresentative: '设为代表',
     groupBadgeTitle: '同组另有 {n} 张近似图',
     ratings: '评价',
+    annotationHistory: '标注历史',
     ratingLabel: '分级',
     scoreLabel: '评分',
     waifuLabel: 'Waifu',
