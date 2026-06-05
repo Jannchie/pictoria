@@ -113,6 +113,8 @@ const zhHans: MessageSchema = {
     colorNone: '无',
     clearSortColor: '清除排序颜色',
     resetSort: '取消排序',
+    relevance: '相关度',
+    searchOverride: '文本搜索结果按相关度排序，清除搜索后才能使用排序选项。',
   },
   rating: {
     aria: '分级',

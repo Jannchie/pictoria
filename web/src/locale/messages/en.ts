@@ -116,6 +116,8 @@ const en = {
     colorNone: 'None',
     clearSortColor: 'Clear sort color',
     resetSort: 'Reset sort',
+    relevance: 'Relevance',
+    searchOverride: 'Text search orders results by relevance; sorting is disabled until the search is cleared.',
   },
   rating: {
     aria: 'Rating',

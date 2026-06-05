@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
-import { postSort, postSortColor, postSortOrder } from '@/shared'
+import { postSort, postSortColor, postSortOrder, textSearchQuery } from '@/shared'
 
 const { t } = useI18n()
 
@@ -39,6 +39,10 @@ const currentSortLabel = computed(() => {
 
 const show = ref(false)
 
+// 文本搜索结果由后端按相关度排序，排序选项全部失效 —— 按钮降级为
+// “按 相关度” 的禁用态，避免界面暗示排序仍然生效。
+const sortOverriddenBySearch = computed(() => textSearchQuery.value.trim().length > 0)
+
 // 默认排序 = 按 id / 降序 / 无颜色，等价于“无特定排序”。非默认时才提供取消入口。
 const isNonDefaultSort = computed(() =>
   postSort.value !== 'id' || postSortOrder.value !== 'desc' || !!postSortColor.value,
@@ -54,7 +58,23 @@ function resetSort() {
 
 <template>
   <div class="sort-group flex relative">
+    <PButton
+      v-if="sortOverriddenBySearch"
+      size="sm"
+      disabled
+      :title="$t('sort.searchOverride')"
+      :aria-label="$t('sort.searchOverride')"
+    >
+      <i class="i-tabler-arrows-sort" aria-hidden="true" />
+      <span class="flex-grow">
+        {{ $t('sort.sortBy') }}
+        <span class="font-bold">
+          {{ $t('sort.relevance') }}
+        </span>
+      </span>
+    </PButton>
     <Popover
+      v-else
       v-model="show"
       position="bottom-end"
     >
@@ -154,7 +174,7 @@ function resetSort() {
       </template>
     </Popover>
     <PButton
-      v-if="isNonDefaultSort"
+      v-if="isNonDefaultSort && !sortOverriddenBySearch"
       size="sm"
       icon
       class="sort-reset-btn"
