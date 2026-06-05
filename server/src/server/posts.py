@@ -134,6 +134,10 @@ class PostSimplePublic(DTOBaseModel):
     # `sigmoid(logit_scale.exp() * cos(t,i) + logit_bias)` — independent
     # per-pair probability that this image matches the text query.
     match_prob: float | None = None
+    # Populated by /posts/search when order_by names a value-bearing column:
+    # this row's value of the active sort column (date columns surface as their
+    # TEXT form), so the grid can badge each item with what it sorted by.
+    sort_value: float | str | None = None
 
 
 class PostController(Controller):

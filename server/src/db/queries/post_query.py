@@ -321,6 +321,7 @@ class PostQueryService:
                             extra_joins.append(
                                 "LEFT JOIN post_waifu_scores pws ON pws.post_id = p.id",
                             )
+                        select_cols += ", pws.score AS _sort_col"
                         order_sql = f"ORDER BY pws.score {direction} NULLS LAST{tiebreak}"
                     elif f.order_by == "silva_score":
                         # build_where may already have joined pas_silva for a
@@ -330,8 +331,11 @@ class PostQueryService:
                                 "LEFT JOIN post_aesthetic_scores pas_silva "
                                 "ON pas_silva.post_id = p.id AND pas_silva.scorer = 'silva'",
                             )
+                        select_cols += ", pas_silva.score AS _sort_col"
                         order_sql = f"ORDER BY pas_silva.score {direction} NULLS LAST{tiebreak}"
                     else:
+                        if f.order_by != "id":
+                            select_cols += f", p.{f.order_by} AS _sort_col"
                         order_sql = f"ORDER BY p.{f.order_by} {direction}{tiebreak}"
 
                 all_joins = joins + extra_joins
@@ -346,7 +350,9 @@ class PostQueryService:
             rows = fetch_all_dicts(self.cur)
             for r in rows:
                 r.pop("_dist", None)
-                r.pop("_sort_col", None)
+                # Surface the active sort column's value so the grid can badge
+                # each item with what it sorted by (None when sorting by id/lab).
+                r["sort_value"] = r.pop("_sort_col", None)
             _decode_dominant_colors_in(rows)
             ids = [r["id"] for r in rows]
             colors_by_post = self._colors.fetch_by_ids(ids)

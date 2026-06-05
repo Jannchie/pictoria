@@ -19,6 +19,7 @@ import { i18n } from '@/locale'
 import { pushCommand } from './history'
 import { patchPostsInListCache } from './queries'
 import { queryKeys } from './queryKeys'
+import { postSort } from './state'
 import { notifyDid } from './undoSnackbar'
 
 // Non-component module: go through the global composer. History labels are
@@ -84,7 +85,9 @@ async function writeScore(qc: QueryClient, ids: number[], score: number): Promis
     return
   }
   await (ids.length === 1 ? v2UpdatePostScore({ path: { post_id: ids[0] }, body: { score } }) : v2BulkUpdatePostScore({ query: { ids, score } }))
-  patchPostsInListCache(qc, ids, { score })
+  // When the gallery is sorted by this very field, the per-item sort badge
+  // echoes sortValue — patch it too so the badge doesn't show the stale value.
+  patchPostsInListCache(qc, ids, postSort.value === 'score' ? { score, sortValue: score } : { score })
   const idSet = new Set(ids)
   qc.invalidateQueries({
     predicate: (q) => {
@@ -111,7 +114,7 @@ async function writeRating(qc: QueryClient, ids: number[], rating: number): Prom
     return
   }
   await (ids.length === 1 ? v2UpdatePostRating({ path: { post_id: ids[0] }, query: { rating } }) : v2BulkUpdatePostRating({ query: { ids, rating } }))
-  patchPostsInListCache(qc, ids, { rating })
+  patchPostsInListCache(qc, ids, postSort.value === 'rating' ? { rating, sortValue: rating } : { rating })
   const idSet = new Set(ids)
   qc.invalidateQueries({
     predicate: (q) => {

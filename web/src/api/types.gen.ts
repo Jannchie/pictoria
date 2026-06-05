@@ -271,6 +271,7 @@ export type PostSimplePublic = {
     canonicalPostId?: number | null;
     groupMemberCount?: number;
     matchProb?: number | null;
+    sortValue?: number | string | null;
 };
 
 /**

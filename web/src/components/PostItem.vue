@@ -1,9 +1,10 @@
 <script setup lang="ts">
 import type { PostSimplePublic } from '@/api'
 import { computed, ref } from 'vue'
-import { useRouter } from 'vue-router'
+import { useRoute, useRouter } from 'vue-router'
 import ArthashPlaceholder from '@/components/ArthashPlaceholder.vue'
-import { enableArthash, enableFancyPlaceholder, hideNSFW, selectedPostIdSet, selectingPostIdSet, unselectedPostIdSet } from '@/shared'
+import { formatDate } from '@/locale'
+import { enableArthash, enableFancyPlaceholder, hideNSFW, postSort, RATING_LEVEL_COLORS, RATING_LEVEL_ICONS, SCORE_LEVEL_COLORS, selectedPostIdSet, selectingPostIdSet, unselectedPostIdSet, waifuLevelRgb } from '@/shared'
 import { getPostThumbnailURL, isImageExtension } from '@/utils'
 import { colorNumToHex, labToRgbaString } from '@/utils/color'
 
@@ -168,6 +169,71 @@ function onContextmenu(e: MouseEvent) {
   selectedPostIdSet.value = e.shiftKey || e.ctrlKey ? new Set([...selectedPostIdSet.value, post.value.id]) : new Set([post.value.id])
 }
 
+// Top-right value badge: when the gallery is sorted by a value-bearing
+// column, the backend echoes each row's sort-column value as `sortValue`;
+// show it the same way text search shows its similarity percentage. The
+// /recently page forces order_by=last_accessed_at regardless of postSort
+// (mirrors useInfinityPostsQuery), so derive the effective column the same way.
+const route = useRoute()
+const effectiveSort = computed(() => route.path === '/recently' ? 'last_accessed_at' : postSort.value)
+interface SortBadge {
+  text?: string
+  icon?: string
+  color?: string
+}
+function formatSortValue(v: number | string): SortBadge | undefined {
+  switch (effectiveSort.value) {
+    case 'score': {
+      const n = Number(v)
+      return { text: String(v), color: SCORE_LEVEL_COLORS[n - 1] }
+    }
+    // Rating levels show as their sidebar-selector icon, in the same colour.
+    case 'rating': {
+      const n = Number(v)
+      return n >= 1 && n <= RATING_LEVEL_ICONS.length
+        ? { icon: RATING_LEVEL_ICONS[n - 1], color: RATING_LEVEL_COLORS[n - 1] }
+        : { text: '—' }
+    }
+    case 'waifu_score': {
+      const n = Number(v)
+      return { text: n.toFixed(2), color: `rgb(${waifuLevelRgb(n)})` }
+    }
+    // SILVA is stored 0–1; surface it on the same 0–10 scale (and bucket
+    // colour ramp) as the detail panel's WaifuScoreLevel chip.
+    case 'silva_score': {
+      const n = Number(v) * 10
+      return { text: n.toFixed(2), color: `rgb(${waifuLevelRgb(n)})` }
+    }
+    case 'created_at':
+    case 'published_at':
+    case 'updated_at':
+    case 'last_accessed_at': {
+      return { text: formatDate(v) }
+    }
+    // file_name is already the caption under the thumbnail; id is the
+    // "no particular sort" default — no badge for either.
+    default: {
+      return undefined
+    }
+  }
+}
+const sortBadge = computed(() => {
+  const v = post.value.sortValue
+  return v == null ? undefined : formatSortValue(v)
+})
+// Tint the badge's dark backing with the level colour too (text colour alone
+// is easy to miss); colour-less badges (dates) keep the plain black chip.
+const sortBadgeStyle = computed(() => {
+  const color = sortBadge.value?.color
+  if (!color) {
+    return
+  }
+  return {
+    color,
+    backgroundColor: `color-mix(in srgb, ${color} 30%, rgb(0 0 0 / 0.78))`,
+  }
+})
+
 const router = useRouter()
 function onKeyDown(e: KeyboardEvent) {
   if (e.key === 'Enter') {
@@ -233,6 +299,21 @@ function onKeyDown(e: KeyboardEvent) {
           class="text-10px text-white tracking-wide font-bold font-mono px-1.5 py-0.5 rounded bg-black/60 pointer-events-none right-1.5 top-1.5 absolute tabular-nums"
         >
           {{ (post.matchProb * 100).toFixed(1) }}%
+        </div>
+        <div
+          v-else-if="sortBadge"
+          class="text-10px text-white tracking-wide font-bold font-mono px-1.5 py-0.5 rounded flex pointer-events-none items-center right-1.5 top-1.5 absolute tabular-nums"
+          :class="sortBadgeStyle ? undefined : 'bg-black/60'"
+          :style="sortBadgeStyle"
+        >
+          <i
+            v-if="sortBadge.icon"
+            :class="sortBadge.icon"
+            aria-hidden="true"
+          />
+          <template v-else>
+            {{ sortBadge.text }}
+          </template>
         </div>
         <div
           v-if="(post.groupMemberCount ?? 0) > 0"

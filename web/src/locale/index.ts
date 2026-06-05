@@ -68,3 +68,7 @@ export function formatNumber(n: number): string {
 export function formatDateTime(input: string | number | Date): string {
   return new Date(input).toLocaleString(resolvedLocale.value)
 }
+
+export function formatDate(input: string | number | Date): string {
+  return new Date(input).toLocaleDateString(resolvedLocale.value)
+}
