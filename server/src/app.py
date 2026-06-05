@@ -25,6 +25,8 @@ from bootstrap import initialize, parse_arguments
 from danbooru import DanbooruClient
 from db import DB, run_migrations
 from scheme import UrlImportStatus
+from server.annotation_queues import AnnotationQueueController
+from server.annotations import AnnotationController
 from server.commands import CommandController, ensure_canonical_tag_groups_sync
 from server.dependencies import REQUEST_DEPENDENCIES
 from server.exceptions import DomainError, domain_error_handler
@@ -233,7 +235,16 @@ def _spawn_backfill_poller(app: Litestar, db: DB) -> None:
 
 v2 = Router(
     path="/v2",
-    route_handlers=[PostController, CommandController, ImageController, TagsController, FoldersController, StatisticsController],
+    route_handlers=[
+        PostController,
+        CommandController,
+        ImageController,
+        TagsController,
+        FoldersController,
+        StatisticsController,
+        AnnotationController,
+        AnnotationQueueController,
+    ],
 )
 
 SEPARATORS_CLEANUP_PATTERN = re.compile(r"[!#$%&'*+\-.^_`|~:]+")

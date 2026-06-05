@@ -86,3 +86,55 @@ def test_post_annotation_history(api_client: TestClient) -> None:
     assert len(body["absolute"]) == 1
     assert body["absolute"][0]["dimension"] == "color"
     assert body["contentFlag"] == "hate"
+
+
+def test_create_and_consume_absolute_queue(api_client: TestClient) -> None:
+    resp = api_client.post(
+        "/v2/annotation-queues/absolute",
+        json={"name": "coldstart-1", "dimensions": ["color", "finish"], "scale": 2, "post_ids": [1, 2]},
+    )
+    assert resp.status_code == 201
+    qid = resp.json()["id"]
+
+    resp = api_client.get("/v2/annotation-queues")
+    assert resp.status_code == 200
+    queues = resp.json()
+    assert queues[0]["name"] == "coldstart-1"
+    assert queues[0]["total"] == 2
+    assert queues[0]["done"] == 0
+
+    resp = api_client.get(f"/v2/annotation-queues/{qid}/next-absolute?limit=10")
+    assert resp.status_code == 200
+    items = resp.json()
+    assert len(items) == 2
+    assert items[0]["post"]["id"] == 1
+
+    # 提交事件并标记 done 后，next 不再返回该 item
+    api_client.post(
+        "/v2/annotations/absolute",
+        json={
+            "events": [
+                {"post_id": 1, "dimension": "color", "scale": 2, "value": 2, "rubric_version": "color-v1", "session_id": "s1"},
+                {"post_id": 1, "dimension": "finish", "scale": 2, "value": 1, "rubric_version": "finish-v1", "session_id": "s1"},
+            ],
+            "queue_id": qid,
+            "queue_position": 0,
+        },
+    )
+    resp = api_client.get(f"/v2/annotation-queues/{qid}/next-absolute?limit=10")
+    assert len(resp.json()) == 1
+
+
+def test_create_and_consume_pairwise_queue(api_client: TestClient) -> None:
+    resp = api_client.post(
+        "/v2/annotation-queues/pairwise",
+        json={"name": "pairs-1", "dimensions": ["color"], "pairs": [[1, 2], [2, 3]]},
+    )
+    assert resp.status_code == 201
+    qid = resp.json()["id"]
+
+    resp = api_client.get(f"/v2/annotation-queues/{qid}/next-pairwise?limit=10")
+    items = resp.json()
+    assert len(items) == 2
+    assert items[0]["postA"]["id"] == 1
+    assert items[0]["postB"]["id"] == 2
