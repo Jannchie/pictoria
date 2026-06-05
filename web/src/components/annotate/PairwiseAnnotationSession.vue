@@ -30,6 +30,25 @@ const current = computed(() => buffer.value[0] ?? null)
 const seenKeys = new Set<string>()
 let shownAt = performance.now()
 
+function imgURL(p: QueueItemPostPublic) {
+  return getPostImageURL({ filePath: p.filePath, fileName: p.fileName, extension: p.extension, sha256: p.sha256 })
+}
+
+// 预热接下来几对的原图：判断当前对的几秒钟里，下一对已进浏览器缓存。
+const PRELOAD_AHEAD = 2
+const preloaded = new Set<string>()
+function preloadAhead() {
+  for (const item of buffer.value.slice(1, 1 + PRELOAD_AHEAD)) {
+    for (const url of [imgURL(item.postA), imgURL(item.postB)]) {
+      if (!preloaded.has(url)) {
+        preloaded.add(url)
+        const img = new Image()
+        img.src = url
+      }
+    }
+  }
+}
+
 async function refill() {
   if (exhausted.value || buffer.value.length >= 5) {
     return
@@ -58,6 +77,7 @@ async function refill() {
     if (fresh.length === 0) {
       exhausted.value = true
     }
+    preloadAhead()
   }
   catch (error) {
     handleAPIError(error, '加载图片失败')
@@ -87,6 +107,7 @@ async function judge(winner: 'a' | 'b' | 'tie' | 'skip') {
     buffer.value.shift()
     doneCount.value += 1
     shownAt = performance.now()
+    preloadAhead()
     await refill()
   }
   catch (error) {
@@ -118,10 +139,6 @@ watch(() => [props.queue?.id, props.dimension] as const, () => {
   shownAt = performance.now()
   refill()
 }, { immediate: true })
-
-function imgURL(p: QueueItemPostPublic) {
-  return getPostImageURL({ filePath: p.filePath, fileName: p.fileName, extension: p.extension, sha256: p.sha256 })
-}
 
 const title = computed(() => props.queue?.name ?? '流式对比')
 </script>

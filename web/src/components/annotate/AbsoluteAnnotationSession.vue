@@ -43,6 +43,25 @@ const flagState = ref<'none' | 'love' | 'hate'>('none')
 let shownAt = performance.now()
 const elapsed = ref<Record<string, number>>({})
 
+// 预热 buffer 中接下来几张的原图：标注当前图的几秒钟里，下一张已进
+// 浏览器缓存，切图即显示（同 useAdjacentImagePreload 的思路）。
+const PRELOAD_AHEAD = 3
+const preloaded = new Set<string>()
+function preloadAhead() {
+  for (const item of buffer.value.slice(1, 1 + PRELOAD_AHEAD)) {
+    const url = postURL(item.post)
+    if (!preloaded.has(url)) {
+      preloaded.add(url)
+      const img = new Image()
+      img.src = url
+    }
+  }
+}
+
+function postURL(p: QueueItemPostPublic) {
+  return getPostImageURL({ filePath: p.filePath, fileName: p.fileName, extension: p.extension, sha256: p.sha256 })
+}
+
 async function refill() {
   if (exhausted.value || buffer.value.length >= 5) {
     return
@@ -67,6 +86,7 @@ async function refill() {
     if (fresh.length === 0) {
       exhausted.value = true
     }
+    preloadAhead()
   }
   catch (error) {
     handleAPIError(error, '加载图片失败')
@@ -84,6 +104,7 @@ async function advance() {
   buffer.value.shift()
   doneCount.value += 1
   resetForNext()
+  preloadAhead()
   await refill()
 }
 
@@ -174,6 +195,7 @@ onKeyStroke(' ', async (e) => {
   else {
     buffer.value.shift()
     resetForNext()
+    preloadAhead()
     await refill()
   }
 })
@@ -214,7 +236,7 @@ const title = computed(() => props.queue?.name ?? `流式标注 · ${dimensions.
       <div class="bg-bg flex flex-1 min-w-0 items-center justify-center">
         <img
           :key="current.post.id"
-          :src="getPostImageURL({ filePath: current.post.filePath, fileName: current.post.fileName, extension: current.post.extension, sha256: current.post.sha256 })"
+          :src="postURL(current.post)"
           :alt="current.post.fileName"
           class="max-h-full max-w-full object-contain"
           decoding="async"
