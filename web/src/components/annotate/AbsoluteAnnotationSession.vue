@@ -1,26 +1,42 @@
 <script setup lang="ts">
-import type { AbsoluteQueueItemPublic, QueueSummaryPublic } from '@/api'
+import type { QueueItemPostPublic, QueueSummaryPublic } from '@/api'
 import { onKeyStroke } from '@vueuse/core'
 import { computed, ref, watch } from 'vue'
-import { v2NextAbsolute, v2SubmitAbsolute, v2SubmitContentFlag } from '@/api'
+import { v2NextAbsolute, v2SampleAbsolute, v2SubmitAbsolute, v2SubmitContentFlag } from '@/api'
 import { activeKeys, KEY_ROWS, keyToChoice } from '@/composables/useAnnotationKeymap'
 import { useAPIError } from '@/composables/useAPIError'
 import { getPostImageURL } from '@/utils'
 
-const props = defineProps<{ queue: QueueSummaryPublic }>()
+export interface StreamConfig {
+  dimensions: string[]
+  scale: number
+  strategy: 'random' | 'stratified'
+}
+
+interface BufferItem {
+  post: QueueItemPostPublic
+  position?: number // queue 模式才有
+}
+
+// queue 与 config 二选一：有 queue 走固定批次，否则走无队列流式采样。
+const props = defineProps<{ queue?: QueueSummaryPublic, config?: StreamConfig }>()
 const emit = defineEmits<{ exit: [] }>()
 
 const { handle: handleAPIError } = useAPIError()
 
 const sessionId = crypto.randomUUID()
-const scale = computed(() => props.queue.scale ?? 2)
-const rubricVersions = computed(() => Object.fromEntries(props.queue.dimensions.map(d => [d, `${d}-v1`])))
+const dimensions = computed(() => props.queue?.dimensions ?? props.config?.dimensions ?? [])
+const scale = computed(() => props.queue?.scale ?? props.config?.scale ?? 2)
+const rubricVersions = computed(() => Object.fromEntries(dimensions.value.map(d => [d, `${d}-v1`])))
 
-const buffer = ref<AbsoluteQueueItemPublic[]>([])
-const doneCount = ref(props.queue.done)
+const buffer = ref<BufferItem[]>([])
+const doneCount = ref(props.queue?.done ?? 0)
+const totalLabel = computed(() => (props.queue ? `${doneCount.value} / ${props.queue.total}` : `本次已标 ${doneCount.value}`))
 const exhausted = ref(false)
 const submitting = ref(false)
 const current = computed(() => buffer.value[0] ?? null)
+// stream 模式：本会话内跳过/已出过的图不再入 buffer
+const seenIds = new Set<number>()
 
 const choices = ref<Record<string, number>>({})
 const flagState = ref<'none' | 'love' | 'hate'>('none')
@@ -32,16 +48,28 @@ async function refill() {
     return
   }
   try {
-    const resp = await v2NextAbsolute({ path: { queue_id: props.queue.id }, query: { limit: 20 } })
-    const items = resp.data ?? []
-    const known = new Set(buffer.value.map(i => i.position))
-    buffer.value.push(...items.filter(i => !known.has(i.position)))
-    if (items.length === 0) {
+    let fresh: BufferItem[]
+    if (props.queue) {
+      const resp = await v2NextAbsolute({ path: { queue_id: props.queue.id }, query: { limit: 20 } })
+      const known = new Set(buffer.value.map(i => i.position))
+      fresh = (resp.data ?? []).filter(i => !known.has(i.position)).map(i => ({ post: i.post, position: i.position }))
+    }
+    else {
+      const resp = await v2SampleAbsolute({
+        query: { dimensions: dimensions.value, strategy: props.config?.strategy ?? 'random', limit: 20 },
+      })
+      fresh = (resp.data ?? []).filter(p => !seenIds.has(p.id)).map(p => ({ post: p }))
+      for (const i of fresh) {
+        seenIds.add(i.post.id)
+      }
+    }
+    buffer.value.push(...fresh)
+    if (fresh.length === 0) {
       exhausted.value = true
     }
   }
   catch (error) {
-    handleAPIError(error, '加载队列失败')
+    handleAPIError(error, '加载图片失败')
   }
 }
 
@@ -68,7 +96,7 @@ async function submitAndAdvance() {
   try {
     await v2SubmitAbsolute({
       body: {
-        events: props.queue.dimensions.map(d => ({
+        events: dimensions.value.map(d => ({
           post_id: item.post.id,
           dimension: d,
           scale: scale.value,
@@ -77,8 +105,8 @@ async function submitAndAdvance() {
           session_id: sessionId,
           elapsed_ms: elapsed.value[d] ?? null,
         })),
-        queue_id: props.queue.id,
-        queue_position: item.position,
+        queue_id: props.queue?.id ?? null,
+        queue_position: item.position ?? null,
       },
     })
     await advance()
@@ -92,18 +120,18 @@ async function submitAndAdvance() {
 }
 
 // 维度×档位按键：行 = 维度，列 = 档位
-onKeyStroke(activeKeys(props.queue.dimensions, scale.value), (e) => {
+onKeyStroke(activeKeys(dimensions.value, scale.value), (e) => {
   if (!current.value || submitting.value) {
     return
   }
   e.preventDefault()
-  const choice = keyToChoice(e.key, props.queue.dimensions, scale.value)
+  const choice = keyToChoice(e.key, dimensions.value, scale.value)
   if (!choice) {
     return
   }
   choices.value = { ...choices.value, [choice.dimension]: choice.value }
   elapsed.value = { ...elapsed.value, [choice.dimension]: Math.round(performance.now() - shownAt) }
-  if (props.queue.dimensions.every(d => choices.value[d] != null)) {
+  if (dimensions.value.every(d => choices.value[d] != null)) {
     submitAndAdvance()
   }
 })
@@ -124,22 +152,29 @@ onKeyStroke('0', async (e) => {
   }
 })
 
-// Space = 跳过整张图（仅标 done，不发事件）
+// Space = 跳过整张图（queue：标 done 不发事件；stream：本会话内不再出现）
 onKeyStroke(' ', async (e) => {
   if (!current.value || submitting.value) {
     return
   }
   e.preventDefault()
-  submitting.value = true
-  try {
-    await v2SubmitAbsolute({ body: { events: [], queue_id: props.queue.id, queue_position: current.value.position } })
-    await advance()
+  if (props.queue) {
+    submitting.value = true
+    try {
+      await v2SubmitAbsolute({ body: { events: [], queue_id: props.queue.id, queue_position: current.value.position ?? null } })
+      await advance()
+    }
+    catch (error) {
+      handleAPIError(error, '跳过失败')
+    }
+    finally {
+      submitting.value = false
+    }
   }
-  catch (error) {
-    handleAPIError(error, '跳过失败')
-  }
-  finally {
-    submitting.value = false
+  else {
+    buffer.value.shift()
+    resetForNext()
+    await refill()
   }
 })
 
@@ -148,10 +183,11 @@ onKeyStroke('Escape', (e) => {
   emit('exit')
 })
 
-watch(() => props.queue.id, () => {
+watch(() => [props.queue?.id, props.config] as const, () => {
   buffer.value = []
+  seenIds.clear()
   exhausted.value = false
-  doneCount.value = props.queue.done
+  doneCount.value = props.queue?.done ?? 0
   resetForNext()
   refill()
 }, { immediate: true })
@@ -162,14 +198,15 @@ const SCALE_LABELS: Record<number, string[]> = {
   5: ['1', '2', '3', '4', '5'],
 }
 const labels = computed(() => SCALE_LABELS[scale.value] ?? SCALE_LABELS[2])
+const title = computed(() => props.queue?.name ?? `流式标注 · ${dimensions.value.join(' / ')}`)
 </script>
 
 <template>
   <div class="flex flex-col h-full">
     <div class="text-sm px-3 py-2 p-divider flex items-center justify-between">
-      <span>{{ queue.name }}</span>
+      <span>{{ title }}</span>
       <span class="text-fg-muted">
-        {{ doneCount }} / {{ queue.total }} · Esc 退出 · Space 跳过 · 0 题材flag<template v-if="flagState !== 'none'">（{{ flagState }}）</template>
+        {{ totalLabel }} · Esc 退出 · Space 跳过 · 0 题材flag<template v-if="flagState !== 'none'">（{{ flagState }}）</template>
       </span>
     </div>
 
@@ -184,7 +221,7 @@ const labels = computed(() => SCALE_LABELS[scale.value] ?? SCALE_LABELS[2])
         >
       </div>
       <div class="p-3 border-l border-border-default flex shrink-0 flex-col gap-3 w-56">
-        <div v-for="(dim, row) in queue.dimensions" :key="dim">
+        <div v-for="(dim, row) in dimensions" :key="dim">
           <div class="text-xs text-fg-muted mb-1">
             {{ dim }}
           </div>
@@ -203,7 +240,7 @@ const labels = computed(() => SCALE_LABELS[scale.value] ?? SCALE_LABELS[2])
     </div>
 
     <div v-else class="text-sm text-fg-muted flex flex-1 items-center justify-center">
-      {{ exhausted ? '队列已全部完成 🎉（Esc 返回）' : '加载中…' }}
+      {{ exhausted ? '没有更多待标图片了 🎉（Esc 返回）' : '加载中…' }}
     </div>
   </div>
 </template>

@@ -487,6 +487,14 @@ export type Result = {
 };
 
 /**
+ * SampledPairPublic
+ */
+export type SampledPairPublic = {
+    postA: QueueItemPostPublic;
+    postB: QueueItemPostPublic;
+};
+
+/**
  * ScoreCountItem
  */
 export type ScoreCountItem = {
@@ -2406,6 +2414,74 @@ export type V2PostHistoryResponses = {
 };
 
 export type V2PostHistoryResponse = V2PostHistoryResponses[keyof V2PostHistoryResponses];
+
+export type V2SampleAbsoluteData = {
+    body?: never;
+    path?: never;
+    query: {
+        dimensions: Array<string>;
+        strategy?: string;
+        limit?: number;
+    };
+    url: '/v2/annotations/sample-absolute';
+};
+
+export type V2SampleAbsoluteErrors = {
+    /**
+     * Validation Exception
+     */
+    400: {
+        status_code: number;
+        detail: string;
+        extra?: null | {
+            [key: string]: unknown;
+        } | Array<unknown>;
+    };
+};
+
+export type V2SampleAbsoluteError = V2SampleAbsoluteErrors[keyof V2SampleAbsoluteErrors];
+
+export type V2SampleAbsoluteResponses = {
+    /**
+     * Request fulfilled, document follows
+     */
+    200: Array<QueueItemPostPublic>;
+};
+
+export type V2SampleAbsoluteResponse = V2SampleAbsoluteResponses[keyof V2SampleAbsoluteResponses];
+
+export type V2SamplePairwiseData = {
+    body?: never;
+    path?: never;
+    query?: {
+        limit?: number;
+    };
+    url: '/v2/annotations/sample-pairwise';
+};
+
+export type V2SamplePairwiseErrors = {
+    /**
+     * Validation Exception
+     */
+    400: {
+        status_code: number;
+        detail: string;
+        extra?: null | {
+            [key: string]: unknown;
+        } | Array<unknown>;
+    };
+};
+
+export type V2SamplePairwiseError = V2SamplePairwiseErrors[keyof V2SamplePairwiseErrors];
+
+export type V2SamplePairwiseResponses = {
+    /**
+     * Request fulfilled, document follows
+     */
+    200: Array<SampledPairPublic>;
+};
+
+export type V2SamplePairwiseResponse = V2SamplePairwiseResponses[keyof V2SamplePairwiseResponses];
 
 export type V2SubmitAbsoluteData = {
     body: AbsoluteBatchIn;

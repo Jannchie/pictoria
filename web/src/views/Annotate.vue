@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import type { QueueSummaryPublic } from '@/api'
+import type { StreamConfig } from '@/components/annotate/AbsoluteAnnotationSession.vue'
 import { useQuery } from '@tanstack/vue-query'
 import { computed, ref, watch } from 'vue'
 import { v2GenerateAbsolute, v2GeneratePairwise, v2ListQueues } from '@/api'
@@ -9,7 +10,12 @@ import { useAPIError } from '@/composables/useAPIError'
 
 const { handle: handleAPIError } = useAPIError()
 
-const activeQueue = ref<QueueSummaryPublic | null>(null)
+type Session
+  = | { mode: 'queue', queue: QueueSummaryPublic }
+    | { mode: 'stream-absolute', config: StreamConfig }
+    | { mode: 'stream-pairwise', dimension: string }
+
+const session = ref<Session | null>(null)
 
 const { data: queues, refetch } = useQuery({
   queryKey: ['annotation-queues'],
@@ -20,24 +26,19 @@ const { data: queues, refetch } = useQuery({
 })
 
 function exitSession() {
-  activeQueue.value = null
+  session.value = null
   refetch()
 }
 
-// ── 新建队列表单 ──────────────────────────────────────────────
+// ── 标注配置（流式为默认路径，队列仅用于固定批次实验）────────────
 const ALL_DIMENSIONS = ['color', 'finish', 'composition', 'overall']
 const form = ref({
   kind: 'absolute' as 'absolute' | 'pairwise',
   dimensions: ['color', 'finish', 'composition'] as string[],
   scale: 2,
-  count: 100,
   strategy: 'stratified' as 'random' | 'stratified',
 })
-const generating = ref(false)
-const canGenerate = computed(() =>
-  form.value.count > 0
-  && (form.value.kind === 'pairwise' || form.value.dimensions.length > 0),
-)
+const canStart = computed(() => form.value.kind === 'pairwise' || form.value.dimensions.length > 0)
 
 function toggleDimension(d: string) {
   const dims = form.value.dimensions
@@ -51,8 +52,29 @@ watch(() => form.value.kind, (kind) => {
   }
 })
 
+function startStream() {
+  if (!canStart.value) {
+    return
+  }
+  session.value = form.value.kind === 'absolute'
+    ? {
+        mode: 'stream-absolute',
+        config: {
+          dimensions: ALL_DIMENSIONS.filter(d => form.value.dimensions.includes(d)),
+          scale: form.value.scale,
+          strategy: form.value.strategy,
+        },
+      }
+    : { mode: 'stream-pairwise', dimension: form.value.dimensions[0] ?? 'color' }
+}
+
+// ── 队列（固定批次：形态对比实验 / intra-rater 复测用）──────────
+const showQueues = ref(false)
+const generating = ref(false)
+const queueCount = ref(200)
+
 async function generateQueue() {
-  if (!canGenerate.value || generating.value) {
+  if (!canStart.value || generating.value) {
     return
   }
   generating.value = true
@@ -62,12 +84,12 @@ async function generateQueue() {
           body: {
             dimensions: ALL_DIMENSIONS.filter(d => form.value.dimensions.includes(d)),
             scale: form.value.scale,
-            count: form.value.count,
+            count: queueCount.value,
             strategy: form.value.strategy,
           },
         })
       : v2GeneratePairwise({
-          body: { dimension: form.value.dimensions[0] ?? 'color', count: form.value.count },
+          body: { dimension: form.value.dimensions[0] ?? 'color', count: queueCount.value },
         }))
     await refetch()
   }
@@ -83,25 +105,33 @@ async function generateQueue() {
 <template>
   <div class="text-fg bg-bg h-full">
     <AbsoluteAnnotationSession
-      v-if="activeQueue && activeQueue.kind === 'absolute'"
-      :queue="activeQueue"
+      v-if="session?.mode === 'queue' && session.queue.kind === 'absolute'"
+      :queue="session.queue"
       @exit="exitSession"
     />
     <PairwiseAnnotationSession
-      v-else-if="activeQueue && activeQueue.kind === 'pairwise'"
-      :queue="activeQueue"
+      v-else-if="session?.mode === 'queue' && session.queue.kind === 'pairwise'"
+      :queue="session.queue"
       @exit="exitSession"
     />
+    <AbsoluteAnnotationSession
+      v-else-if="session?.mode === 'stream-absolute'"
+      :config="session.config"
+      @exit="exitSession"
+    />
+    <PairwiseAnnotationSession
+      v-else-if="session?.mode === 'stream-pairwise'"
+      :dimension="session.dimension"
+      @exit="exitSession"
+    />
+
     <div v-else class="mx-auto p-6 max-w-2xl">
       <h1 class="text-lg font-medium mb-4">
-        标注队列
+        标注
       </h1>
 
-      <!-- 新建队列 -->
+      <!-- 标注配置 -->
       <div class="mb-6 p-3 p-border rounded-md flex flex-col gap-3">
-        <div class="text-sm font-medium">
-          新建队列
-        </div>
         <div class="text-xs flex gap-3 items-center">
           <span class="text-fg-subtle w-12">类型</span>
           <label class="flex gap-1 items-center"><input v-model="form.kind" type="radio" value="absolute">单图多维</label>
@@ -125,52 +155,60 @@ async function generateQueue() {
           <label class="flex gap-1 items-center"><input v-model.number="form.scale" type="radio" :value="3">三元</label>
           <label class="flex gap-1 items-center"><input v-model.number="form.scale" type="radio" :value="5">五级</label>
         </div>
-        <div class="text-xs flex gap-3 items-center">
-          <span class="text-fg-subtle w-12">数量</span>
+        <div v-if="form.kind === 'absolute'" class="text-xs flex gap-3 items-center">
+          <span class="text-fg-subtle w-12">采样</span>
+          <label class="flex gap-1 items-center"><input v-model="form.strategy" type="radio" value="stratified">按旧分分层</label>
+          <label class="flex gap-1 items-center"><input v-model="form.strategy" type="radio" value="random">随机</label>
+        </div>
+        <div>
+          <PButton size="sm" :disabled="!canStart" @click="startStream">
+            开始标注
+          </PButton>
+        </div>
+      </div>
+
+      <!-- 队列：固定批次工具（形态对比实验 / 复测） -->
+      <button class="text-xs text-fg-muted mb-2 hover:text-fg" @click="showQueues = !showQueues">
+        {{ showQueues ? '▾' : '▸' }} 固定批次队列（形态实验 / 复测用）
+      </button>
+      <div v-if="showQueues">
+        <div class="text-xs mb-3 flex gap-3 items-center">
+          <span class="text-fg-subtle">数量</span>
           <input
-            v-model.number="form.count"
+            v-model.number="queueCount"
             type="number"
             min="1"
             max="5000"
             class="px-2 py-1 p-border rounded bg-bg w-24"
           >
-          <template v-if="form.kind === 'absolute'">
-            <span class="text-fg-subtle">策略</span>
-            <label class="flex gap-1 items-center"><input v-model="form.strategy" type="radio" value="stratified">按旧分分层</label>
-            <label class="flex gap-1 items-center"><input v-model="form.strategy" type="radio" value="random">随机</label>
-          </template>
-        </div>
-        <div>
-          <PButton size="sm" :loading="generating" :disabled="!canGenerate" @click="generateQueue">
-            {{ generating ? '生成中…' : '生成队列' }}
+          <PButton size="sm" variant="subtle" :loading="generating" :disabled="!canStart" @click="generateQueue">
+            {{ generating ? '生成中…' : '按上面配置生成队列' }}
           </PButton>
         </div>
-      </div>
-
-      <!-- 队列列表 -->
-      <div v-if="!queues?.length" class="text-sm text-fg-muted">
-        暂无队列，用上面的表单生成一个。
-      </div>
-      <button
-        v-for="q in queues"
-        :key="q.id"
-        class="mb-2 p-3 text-left p-border rounded-md flex gap-2 w-full items-center justify-between hover:bg-surface"
-        @click="activeQueue = q"
-      >
-        <div>
-          <div class="text-sm font-medium">
-            {{ q.name }}
+        <div v-if="!queues?.length" class="text-xs text-fg-muted">
+          暂无队列。
+        </div>
+        <button
+          v-for="q in queues"
+          :key="q.id"
+          class="mb-2 p-3 text-left p-border rounded-md flex gap-2 w-full items-center justify-between hover:bg-surface"
+          @click="session = { mode: 'queue', queue: q }"
+        >
+          <div>
+            <div class="text-sm font-medium">
+              {{ q.name }}
+            </div>
+            <div class="text-xs text-fg-muted">
+              {{ q.kind }} · {{ q.dimensions.join(' / ') }}<template v-if="q.scale">
+                · {{ q.scale }} 级
+              </template>
+            </div>
           </div>
           <div class="text-xs text-fg-muted">
-            {{ q.kind }} · {{ q.dimensions.join(' / ') }}<template v-if="q.scale">
-              · {{ q.scale }} 级
-            </template>
+            {{ q.done }} / {{ q.total }}
           </div>
-        </div>
-        <div class="text-xs text-fg-muted">
-          {{ q.done }} / {{ q.total }}
-        </div>
-      </button>
+        </button>
+      </div>
     </div>
   </div>
 </template>
