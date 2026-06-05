@@ -12,6 +12,8 @@ export {}
 /* prettier-ignore */
 declare module 'vue' {
   export interface GlobalComponents {
+    AbsoluteAnnotationSession: typeof import('./components/annotate/AbsoluteAnnotationSession.vue')['default']
+    AnnotationHistory: typeof import('./components/AnnotationHistory.vue')['default']
     ArthashPlaceholder: typeof import('./components/ArthashPlaceholder.vue')['default']
     AutoGenerateCaptionBtn: typeof import('./components/AutoGenerateCaptionBtn.vue')['default']
     AutoGenerateTagBtn: typeof import('./components/AutoGenerateTagBtn.vue')['default']
@@ -27,6 +29,7 @@ declare module 'vue' {
     ImportFromUrlSection: typeof import('./components/ImportFromUrlSection.vue')['default']
     ListItem: typeof import('./components/ListItem.vue')['default']
     MainSection: typeof import('./components/MainSection.vue')['default']
+    PairwiseAnnotationSession: typeof import('./components/annotate/PairwiseAnnotationSession.vue')['default']
     PAspectRatio: typeof import('./ui/PAspectRatio.vue')['default']
     PButton: typeof import('./ui/PButton.vue')['default']
     PColorSwatch: typeof import('./ui/PColorSwatch.vue')['default']
@@ -74,6 +77,8 @@ declare module 'vue' {
 
 // For TSX support
 declare global {
+  const AbsoluteAnnotationSession: typeof import('./components/annotate/AbsoluteAnnotationSession.vue')['default']
+  const AnnotationHistory: typeof import('./components/AnnotationHistory.vue')['default']
   const ArthashPlaceholder: typeof import('./components/ArthashPlaceholder.vue')['default']
   const AutoGenerateCaptionBtn: typeof import('./components/AutoGenerateCaptionBtn.vue')['default']
   const AutoGenerateTagBtn: typeof import('./components/AutoGenerateTagBtn.vue')['default']
@@ -89,6 +94,7 @@ declare global {
   const ImportFromUrlSection: typeof import('./components/ImportFromUrlSection.vue')['default']
   const ListItem: typeof import('./components/ListItem.vue')['default']
   const MainSection: typeof import('./components/MainSection.vue')['default']
+  const PairwiseAnnotationSession: typeof import('./components/annotate/PairwiseAnnotationSession.vue')['default']
   const PAspectRatio: typeof import('./ui/PAspectRatio.vue')['default']
   const PButton: typeof import('./ui/PButton.vue')['default']
   const PColorSwatch: typeof import('./ui/PColorSwatch.vue')['default']

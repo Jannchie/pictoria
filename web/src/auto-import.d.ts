@@ -7,7 +7,9 @@
 export {}
 declare global {
   const EffectScope: typeof import('vue').EffectScope
+  const KEY_ROWS: typeof import('./composables/useAnnotationKeymap').KEY_ROWS
   const SUPPORTED_LOCALES: typeof import('./locale/index').SUPPORTED_LOCALES
+  const activeKeys: typeof import('./composables/useAnnotationKeymap').activeKeys
   const asyncComputed: typeof import('@vueuse/core').asyncComputed
   const autoResetRef: typeof import('@vueuse/core').autoResetRef
   const computed: typeof import('vue').computed
@@ -54,6 +56,7 @@ declare global {
   const isReadonly: typeof import('vue').isReadonly
   const isRef: typeof import('vue').isRef
   const isShallow: typeof import('vue').isShallow
+  const keyToChoice: typeof import('./composables/useAnnotationKeymap').keyToChoice
   const localeSetting: typeof import('./locale/index').localeSetting
   const makeDestructurable: typeof import('@vueuse/core').makeDestructurable
   const manualResetRef: typeof import('@vueuse/core').manualResetRef
@@ -324,6 +327,9 @@ declare global {
   // @ts-ignore
   export type { Component, Slot, Slots, ComponentPublicInstance, ComputedRef, DirectiveBinding, ExtractDefaultPropTypes, ExtractPropTypes, ExtractPublicPropTypes, InjectionKey, PropType, Ref, ShallowRef, MaybeRef, MaybeRefOrGetter, VNode, WritableComputedRef } from 'vue'
   import('vue')
+  // @ts-ignore
+  export type { KeyChoice } from './composables/useAnnotationKeymap'
+  import('./composables/useAnnotationKeymap')
   // @ts-ignore
   export type { UseElementOffsetOptions, UseElementBoundingReturn } from './composables/useElementOffset'
   import('./composables/useElementOffset')
