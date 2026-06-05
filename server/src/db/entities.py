@@ -15,11 +15,12 @@ Storage notes:
 
 from __future__ import annotations
 
+import json
 from datetime import datetime  # noqa: TC003  # Pydantic needs runtime types
 from pathlib import Path  # noqa: TC003  # Pydantic needs runtime types
 from typing import Annotated
 
-from pydantic import BaseModel, BeforeValidator, ConfigDict
+from pydantic import BaseModel, BeforeValidator, ConfigDict, field_validator
 
 import shared
 from db.helpers import decode_dominant_color
@@ -123,3 +124,20 @@ class ContentFlagEvent(_Entity):
     post_id: int
     flag: str  # 'love' | 'hate' | 'none'
     session_id: str
+
+
+# ---------- annotation_queues ----------------------------------------
+class AnnotationQueue(_Entity):
+    id: int
+    name: str
+    kind: str  # 'absolute' | 'pairwise'
+    dimensions: list[str]  # stored as a JSON string column
+    scale: int | None = None
+    created_at: datetime
+
+    @field_validator("dimensions", mode="before")
+    @classmethod
+    def _decode_dimensions(cls, v: object) -> object:
+        if isinstance(v, str):
+            return json.loads(v)
+        return v
