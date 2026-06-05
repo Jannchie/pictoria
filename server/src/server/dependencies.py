@@ -15,6 +15,8 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, TypeVar
 
 from db.queries.post_query import PostQueryService
+from db.repositories.annotation_queues import AnnotationQueueRepo
+from db.repositories.annotations import AnnotationRepo
 from db.repositories.posts import PostRepo
 from db.repositories.scores import ScoreRepo
 from db.repositories.tags import TagGroupRepo, TagRepo
@@ -60,6 +62,8 @@ provide_tag_group_repo = _cursor_scoped(TagGroupRepo)
 provide_vector_repo = _cursor_scoped(lambda cur: VectorRepo(cur, table=SIGLIP2_TABLE, dim=SIGLIP2_DIM))
 provide_post_query = _cursor_scoped(PostQueryService)
 provide_score_repo = _cursor_scoped(ScoreRepo)
+provide_annotation_repo = _cursor_scoped(AnnotationRepo)
+provide_annotation_queue_repo = _cursor_scoped(AnnotationQueueRepo)
 # The upload workflow needs three repos sharing one request-scoped cursor.
 provide_upload_intake = _cursor_scoped(
     lambda cur: UploadIntake(PostRepo(cur), VectorRepo(cur, table=SIGLIP2_TABLE, dim=SIGLIP2_DIM), TagGroupRepo(cur)),
@@ -75,4 +79,6 @@ REQUEST_DEPENDENCIES = {
     "vectors": provide_vector_repo,
     "scores": provide_score_repo,
     "upload_intake": provide_upload_intake,
+    "annotations": provide_annotation_repo,
+    "annotation_queues": provide_annotation_queue_repo,
 }
