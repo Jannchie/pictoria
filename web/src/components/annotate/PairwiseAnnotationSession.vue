@@ -141,26 +141,151 @@ watch(() => [props.queue?.id, props.dimension] as const, () => {
 }, { immediate: true })
 
 const title = computed(() => props.queue?.name ?? '流式对比')
+
+const DIMENSION_QUESTIONS: Record<string, string> = {
+  color: '哪边的配色运用更好？',
+  finish: '哪边的完成度更高？',
+  composition: '哪边的构图演出更有想法？',
+  overall: '总体更喜欢哪边？',
+}
+const question = computed(() => DIMENSION_QUESTIONS[dimension.value] ?? `哪边的 ${dimension.value} 更好？`)
 </script>
 
 <template>
   <div class="flex flex-col h-full">
-    <div class="text-sm px-3 py-2 p-divider flex items-center justify-between">
-      <span>{{ title }} · <b>{{ dimension }}</b> 哪边更好？</span>
-      <span class="text-fg-muted">{{ totalLabel }} · ← 左 · → 右 · ↓ 平 · Space 跳过 · Esc 退出</span>
+    <!-- 顶栏 -->
+    <div class="text-sm px-4 py-2.5 p-divider flex shrink-0 items-center justify-between">
+      <div class="flex gap-3 min-w-0 items-center">
+        <button class="pairwise-exit" title="退出（Esc）" @click="emit('exit')">
+          <i class="i-tabler-arrow-left" />
+        </button>
+        <span class="text-fg font-medium truncate">{{ title }}</span>
+      </div>
+      <div class="text-xs text-fg-muted flex shrink-0 gap-4 items-center">
+        <span class="text-fg font-medium tabular-nums">{{ totalLabel }}</span>
+        <span class="pairwise-hotkeys"><kbd>↓</kbd> 平手 <kbd>Space</kbd> 跳过 <kbd>Esc</kbd> 退出</span>
+      </div>
+    </div>
+
+    <!-- 维度问题横幅 -->
+    <div class="text-sm text-fg font-medium px-4 py-2 text-center p-divider shrink-0">
+      {{ question }}
     </div>
 
     <div v-if="current" class="flex flex-1 gap-1 min-h-0">
-      <div class="bg-bg flex flex-1 min-w-0 items-center justify-center">
+      <button class="pairwise-side group" title="选左边（←）" @click="judge('a')">
         <img :key="current.postA.id" :src="imgURL(current.postA)" :alt="current.postA.fileName" class="max-h-full max-w-full object-contain" decoding="async">
-      </div>
-      <div class="bg-bg flex flex-1 min-w-0 items-center justify-center">
+        <span class="pairwise-side__pick"><kbd>←</kbd> 选这边</span>
+      </button>
+      <button class="pairwise-side group" title="选右边（→）" @click="judge('b')">
         <img :key="current.postB.id" :src="imgURL(current.postB)" :alt="current.postB.fileName" class="max-h-full max-w-full object-contain" decoding="async">
-      </div>
+        <span class="pairwise-side__pick"><kbd>→</kbd> 选这边</span>
+      </button>
     </div>
 
-    <div v-else class="text-sm text-fg-muted flex flex-1 items-center justify-center">
-      {{ exhausted ? '没有更多待判图片了 🎉（Esc 返回）' : '加载中…' }}
+    <!-- 空态 / 完成态 -->
+    <div v-else class="flex flex-1 items-center justify-center">
+      <div v-if="exhausted" class="text-center">
+        <div class="text-3xl mb-3">
+          🎉
+        </div>
+        <div class="text-sm text-fg font-medium">
+          没有更多待判图片了
+        </div>
+        <div class="text-xs text-fg-muted mt-1">
+          本次共判断 {{ doneCount }} 对
+        </div>
+      </div>
+      <div v-else class="text-sm text-fg-muted flex gap-2 items-center">
+        <span class="pairwise-spinner" />加载中…
+      </div>
     </div>
   </div>
 </template>
+
+<style scoped>
+.pairwise-exit {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  border: none;
+  border-radius: var(--p-radius-sm);
+  background: transparent;
+  color: var(--p-fg-muted);
+  cursor: pointer;
+  transition: background-color var(--p-duration-fast) var(--p-ease), color var(--p-duration-fast) var(--p-ease);
+}
+.pairwise-exit:hover {
+  background: rgb(var(--p-brand-500-rgb) / 0.12);
+  color: var(--p-fg);
+}
+
+.pairwise-hotkeys kbd,
+.pairwise-side__pick kbd {
+  display: inline-block;
+  padding: 1px 5px;
+  margin: 0 1px;
+  font-family: var(--p-font-mono);
+  font-size: 10px;
+  border: 1px solid var(--p-border-default);
+  border-bottom-width: 2px;
+  border-radius: var(--p-radius-xs);
+  color: inherit;
+}
+
+.pairwise-side {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex: 1;
+  min-width: 0;
+  padding: 0;
+  border: none;
+  background: var(--p-bg);
+  cursor: pointer;
+}
+.pairwise-side::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  border: 2px solid transparent;
+  transition: border-color var(--p-duration-fast) var(--p-ease);
+}
+.pairwise-side:hover::after {
+  border-color: rgb(var(--p-brand-500-rgb) / 0.6);
+}
+.pairwise-side__pick {
+  position: absolute;
+  bottom: 14px;
+  left: 50%;
+  transform: translateX(-50%);
+  padding: 5px 12px;
+  font-size: var(--p-text-xs);
+  border-radius: var(--p-radius-full);
+  background: rgb(0 0 0 / 0.55);
+  color: white;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity var(--p-duration-fast) var(--p-ease);
+  white-space: nowrap;
+}
+.pairwise-side:hover .pairwise-side__pick {
+  opacity: 1;
+}
+
+.pairwise-spinner {
+  width: 14px;
+  height: 14px;
+  border: 2px solid var(--p-border-default);
+  border-top-color: var(--p-primary);
+  border-radius: 50%;
+  animation: pairwise-spin 0.7s linear infinite;
+}
+@keyframes pairwise-spin {
+  to { transform: rotate(360deg); }
+}
+</style>

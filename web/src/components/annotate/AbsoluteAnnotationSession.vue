@@ -140,20 +140,24 @@ async function submitAndAdvance() {
   }
 }
 
-// 维度×档位按键：行 = 维度，列 = 档位
-onKeyStroke(activeKeys(dimensions.value, scale.value), (e) => {
+// 选择一个档位（键盘与鼠标共用）：记录耗时，选满全部维度即提交翻页
+function selectChoice(dimension: string, value: number) {
   if (!current.value || submitting.value) {
     return
   }
-  e.preventDefault()
-  const choice = keyToChoice(e.key, dimensions.value, scale.value)
-  if (!choice) {
-    return
-  }
-  choices.value = { ...choices.value, [choice.dimension]: choice.value }
-  elapsed.value = { ...elapsed.value, [choice.dimension]: Math.round(performance.now() - shownAt) }
+  choices.value = { ...choices.value, [dimension]: value }
+  elapsed.value = { ...elapsed.value, [dimension]: Math.round(performance.now() - shownAt) }
   if (dimensions.value.every(d => choices.value[d] != null)) {
     submitAndAdvance()
+  }
+}
+
+// 维度×档位按键：行 = 维度，列 = 档位
+onKeyStroke(activeKeys(dimensions.value, scale.value), (e) => {
+  e.preventDefault()
+  const choice = keyToChoice(e.key, dimensions.value, scale.value)
+  if (choice) {
+    selectChoice(choice.dimension, choice.value)
   }
 })
 
@@ -223,24 +227,35 @@ const labels = computed(() => SCALE_LABELS[scale.value] ?? SCALE_LABELS[2])
 const title = computed(() => props.queue?.name ?? `流式标注 · ${dimensions.value.join(' / ')}`)
 
 // 维度显示成引导问题而非冷标签，把注意力锚到该维度的特征上（抗 halo）。
-const DIMENSION_PROMPTS: Record<string, string> = {
-  color: '配色运用得好吗？（不是丰富度；忽略题材）',
-  finish: '精修/装饰精致吗？（草稿感 vs 想放大看）',
-  composition: '演出有想法吗？（姿势动态 / 角度 / 布景）',
-  overall: '总体喜欢吗？',
+const DIMENSION_META: Record<string, { label: string, prompt: string, icon: string }> = {
+  color: { label: '颜色', prompt: '配色运用得好吗？不是丰富度，忽略题材。', icon: 'i-tabler-palette' },
+  finish: { label: '完成度', prompt: '精修、装饰精致吗？草稿感还是想放大看？', icon: 'i-tabler-brush' },
+  composition: { label: '构图', prompt: '演出有想法吗？姿势动态、角度、布景。', icon: 'i-tabler-layout-collage' },
+  overall: { label: '总分', prompt: '总体喜欢吗？', icon: 'i-tabler-star' },
 }
 </script>
 
 <template>
   <div class="flex flex-col h-full">
-    <div class="text-sm px-3 py-2 p-divider flex items-center justify-between">
-      <span>{{ title }}</span>
-      <span class="text-fg-muted">
-        {{ totalLabel }} · Esc 退出 · Space 跳过 · 0 题材flag<template v-if="flagState !== 'none'">（{{ flagState }}）</template>
-      </span>
+    <!-- 顶栏 -->
+    <div class="text-sm px-4 py-2.5 p-divider flex shrink-0 items-center justify-between">
+      <div class="flex gap-3 min-w-0 items-center">
+        <button class="annotate-exit" title="退出（Esc）" @click="emit('exit')">
+          <i class="i-tabler-arrow-left" />
+        </button>
+        <span class="text-fg font-medium truncate">{{ title }}</span>
+        <span v-if="flagState !== 'none'" class="text-xs shrink-0">
+          {{ flagState === 'love' ? '❤️ 喜欢的题材' : '💢 讨厌的题材' }}
+        </span>
+      </div>
+      <div class="text-xs text-fg-muted flex shrink-0 gap-4 items-center">
+        <span class="text-fg font-medium tabular-nums">{{ totalLabel }}</span>
+        <span class="annotate-hotkeys"><kbd>Space</kbd> 跳过 <kbd>0</kbd> 题材 <kbd>Esc</kbd> 退出</span>
+      </div>
     </div>
 
     <div v-if="current" class="flex flex-1 min-h-0">
+      <!-- 图片区 -->
       <div class="bg-bg flex flex-1 min-w-0 items-center justify-center">
         <img
           :key="current.post.id"
@@ -250,28 +265,153 @@ const DIMENSION_PROMPTS: Record<string, string> = {
           decoding="async"
         >
       </div>
-      <div class="p-3 border-l border-border-default flex shrink-0 flex-col gap-3 w-56">
-        <div v-for="(dim, row) in dimensions" :key="dim">
-          <div class="text-xs mb-1" :class="choices[dim] != null ? 'text-fg-muted' : 'text-fg'">
-            <span class="font-medium">{{ dim }}</span>
-            <span class="text-fg-muted ml-1">{{ DIMENSION_PROMPTS[dim] }}</span>
+
+      <!-- 判断面板 -->
+      <div class="px-4 py-5 border-l border-border-subtle flex shrink-0 flex-col gap-4 w-72 overflow-y-auto">
+        <div
+          v-for="(dim, row) in dimensions"
+          :key="dim"
+          class="annotate-judge-card"
+          :class="{ 'annotate-judge-card--done': choices[dim] != null }"
+        >
+          <div class="flex gap-2 items-center">
+            <i :class="DIMENSION_META[dim]?.icon" class="annotate-judge-card__icon" />
+            <span class="text-sm text-fg font-medium">{{ DIMENSION_META[dim]?.label ?? dim }}</span>
           </div>
-          <div class="flex flex-wrap gap-1">
-            <span
+          <p class="text-xs text-fg-muted leading-relaxed mt-1">
+            {{ DIMENSION_META[dim]?.prompt }}
+          </p>
+          <div class="mt-3 flex gap-1.5">
+            <button
               v-for="(label, i) in labels"
               :key="i"
-              class="text-xs px-2 py-1 p-border rounded"
-              :class="choices[dim] === i + 1 ? 'bg-primary text-white border-primary' : 'text-fg-muted'"
+              class="annotate-choice"
+              :class="{ 'annotate-choice--active': choices[dim] === i + 1 }"
+              @click="selectChoice(dim, i + 1)"
             >
-              <kbd class="mr-1 opacity-60">{{ KEY_ROWS[row][i] }}</kbd>{{ label }}
-            </span>
+              <kbd>{{ KEY_ROWS[row][i] }}</kbd>
+              <span>{{ label }}</span>
+            </button>
           </div>
         </div>
       </div>
     </div>
 
-    <div v-else class="text-sm text-fg-muted flex flex-1 items-center justify-center">
-      {{ exhausted ? '没有更多待标图片了 🎉（Esc 返回）' : '加载中…' }}
+    <!-- 空态 / 完成态 -->
+    <div v-else class="flex flex-1 items-center justify-center">
+      <div v-if="exhausted" class="text-center">
+        <div class="text-3xl mb-3">
+          🎉
+        </div>
+        <div class="text-sm text-fg font-medium">
+          没有更多待标图片了
+        </div>
+        <div class="text-xs text-fg-muted mt-1">
+          本次共标注 {{ doneCount }} 张 · 按 <kbd class="annotate-kbd-inline">Esc</kbd> 返回
+        </div>
+      </div>
+      <div v-else class="text-sm text-fg-muted flex gap-2 items-center">
+        <span class="annotate-spinner" />加载中…
+      </div>
     </div>
   </div>
 </template>
+
+<style scoped>
+.annotate-exit {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  border: none;
+  border-radius: var(--p-radius-sm);
+  background: transparent;
+  color: var(--p-fg-muted);
+  cursor: pointer;
+  transition: background-color var(--p-duration-fast) var(--p-ease), color var(--p-duration-fast) var(--p-ease);
+}
+.annotate-exit:hover {
+  background: rgb(var(--p-brand-500-rgb) / 0.12);
+  color: var(--p-fg);
+}
+
+.annotate-hotkeys kbd,
+.annotate-kbd-inline {
+  display: inline-block;
+  padding: 1px 5px;
+  margin: 0 1px;
+  font-family: var(--p-font-mono);
+  font-size: 10px;
+  border: 1px solid var(--p-border-default);
+  border-bottom-width: 2px;
+  border-radius: var(--p-radius-xs);
+  color: var(--p-fg-muted);
+}
+
+/* 判断卡片 */
+.annotate-judge-card {
+  padding: 13px 14px;
+  border: 1px solid var(--p-border-default);
+  border-radius: var(--p-radius-lg);
+  transition: border-color var(--p-duration-fast) var(--p-ease), opacity var(--p-duration-fast) var(--p-ease);
+}
+.annotate-judge-card--done {
+  opacity: 0.62;
+}
+.annotate-judge-card:not(.annotate-judge-card--done) {
+  border-color: rgb(var(--p-brand-500-rgb) / 0.45);
+}
+.annotate-judge-card__icon {
+  color: var(--p-primary);
+  font-size: 15px;
+}
+
+/* 档位按钮 */
+.annotate-choice {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 7px 11px;
+  font-size: var(--p-text-sm);
+  border: 1px solid var(--p-border-default);
+  border-radius: var(--p-radius-md);
+  background: transparent;
+  color: var(--p-fg-muted);
+  cursor: pointer;
+  transition:
+    border-color var(--p-duration-fast) var(--p-ease),
+    background-color var(--p-duration-fast) var(--p-ease),
+    color var(--p-duration-fast) var(--p-ease),
+    transform var(--p-duration-fast) var(--p-ease);
+}
+.annotate-choice:hover {
+  border-color: rgb(var(--p-brand-500-rgb) / 0.55);
+  color: var(--p-fg);
+}
+.annotate-choice:active {
+  transform: scale(0.96);
+}
+.annotate-choice--active {
+  background: var(--p-primary);
+  border-color: var(--p-primary);
+  color: white;
+}
+.annotate-choice kbd {
+  font-family: var(--p-font-mono);
+  font-size: 10px;
+  opacity: 0.65;
+}
+
+.annotate-spinner {
+  width: 14px;
+  height: 14px;
+  border: 2px solid var(--p-border-default);
+  border-top-color: var(--p-primary);
+  border-radius: 50%;
+  animation: annotate-spin 0.7s linear infinite;
+}
+@keyframes annotate-spin {
+  to { transform: rotate(360deg); }
+}
+</style>
