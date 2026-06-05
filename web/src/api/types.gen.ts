@@ -5,11 +5,75 @@ export type ClientOptions = {
 };
 
 /**
+ * AbsoluteAnnotationPublic
+ */
+export type AbsoluteAnnotationPublic = {
+    id: number;
+    createdAt: string;
+    postId: number;
+    dimension: string;
+    scale: number;
+    value: number;
+    rubricVersion: string;
+    sessionId: string;
+    elapsedMs?: number | null;
+};
+
+/**
+ * AbsoluteBatchIn
+ */
+export type AbsoluteBatchIn = {
+    events: Array<AbsoluteEventIn>;
+    queue_id?: number | null;
+    queue_position?: number | null;
+};
+
+/**
+ * AbsoluteEventIn
+ */
+export type AbsoluteEventIn = {
+    post_id: number;
+    dimension: string;
+    scale: number;
+    value: number;
+    rubric_version: string;
+    session_id: string;
+    elapsed_ms?: number | null;
+};
+
+/**
+ * AbsoluteQueueCreate
+ */
+export type AbsoluteQueueCreate = {
+    name: string;
+    dimensions: Array<string>;
+    scale: number;
+    post_ids: Array<number>;
+};
+
+/**
+ * AbsoluteQueueItemPublic
+ */
+export type AbsoluteQueueItemPublic = {
+    position: number;
+    post: QueueItemPostPublic;
+};
+
+/**
  * AestheticScorePublic
  */
 export type AestheticScorePublic = {
     scorer: string;
     score: number;
+};
+
+/**
+ * ContentFlagIn
+ */
+export type ContentFlagIn = {
+    post_id: number;
+    flag: string;
+    session_id: string;
 };
 
 /**
@@ -73,6 +137,73 @@ export type GalleryDlStats = {
     new?: number;
     downloaded?: number;
     failed?: number;
+};
+
+/**
+ * InsertedPublic
+ */
+export type InsertedPublic = {
+    inserted: number;
+};
+
+/**
+ * PairwiseAnnotationPublic
+ */
+export type PairwiseAnnotationPublic = {
+    id: number;
+    createdAt: string;
+    postA: number;
+    postB: number;
+    dimension: string;
+    winner: string;
+    rubricVersion: string;
+    sessionId: string;
+    elapsedMs?: number | null;
+};
+
+/**
+ * PairwiseEventIn
+ */
+export type PairwiseEventIn = {
+    post_a: number;
+    post_b: number;
+    dimension: string;
+    winner: string;
+    rubric_version: string;
+    session_id: string;
+    elapsed_ms?: number | null;
+    queue_id?: number | null;
+    queue_position?: number | null;
+};
+
+/**
+ * PairwiseQueueCreate
+ */
+export type PairwiseQueueCreate = {
+    name: string;
+    dimensions: Array<string>;
+    pairs: Array<[
+        number,
+        number
+    ]>;
+};
+
+/**
+ * PairwiseQueueItemPublic
+ */
+export type PairwiseQueueItemPublic = {
+    position: number;
+    postA: QueueItemPostPublic;
+    postB: QueueItemPostPublic;
+};
+
+/**
+ * PostAnnotationsPublic
+ */
+export type PostAnnotationsPublic = {
+    absolute: Array<AbsoluteAnnotationPublic>;
+    pairwise: Array<PairwiseAnnotationPublic>;
+    contentFlag?: string | null;
 };
 
 /**
@@ -284,6 +415,39 @@ export type PostStatsResponse = {
     avgWaifuScore?: number | null;
     waifuCount: number;
     ratingDistribution: Array<RatingCountItem>;
+};
+
+/**
+ * QueueCreatedPublic
+ */
+export type QueueCreatedPublic = {
+    id: number;
+};
+
+/**
+ * QueueItemPostPublic
+ */
+export type QueueItemPostPublic = {
+    id: number;
+    filePath: string;
+    fileName: string;
+    extension: string;
+    sha256: string;
+    width: number;
+    height: number;
+};
+
+/**
+ * QueueSummaryPublic
+ */
+export type QueueSummaryPublic = {
+    id: number;
+    name: string;
+    kind: string;
+    dimensions: Array<string>;
+    scale?: number | null;
+    total: number;
+    done: number;
 };
 
 /**
@@ -2188,3 +2352,277 @@ export type V2GetWaifuScorerStatisticsResponses = {
 };
 
 export type V2GetWaifuScorerStatisticsResponse = V2GetWaifuScorerStatisticsResponses[keyof V2GetWaifuScorerStatisticsResponses];
+
+export type V2PostHistoryData = {
+    body?: never;
+    path: {
+        post_id: number;
+    };
+    query?: never;
+    url: '/v2/annotations/post/{post_id}';
+};
+
+export type V2PostHistoryErrors = {
+    /**
+     * Validation Exception
+     */
+    400: {
+        status_code: number;
+        detail: string;
+        extra?: null | {
+            [key: string]: unknown;
+        } | Array<unknown>;
+    };
+};
+
+export type V2PostHistoryError = V2PostHistoryErrors[keyof V2PostHistoryErrors];
+
+export type V2PostHistoryResponses = {
+    /**
+     * Request fulfilled, document follows
+     */
+    200: PostAnnotationsPublic;
+};
+
+export type V2PostHistoryResponse = V2PostHistoryResponses[keyof V2PostHistoryResponses];
+
+export type V2SubmitAbsoluteData = {
+    body: AbsoluteBatchIn;
+    path?: never;
+    query?: never;
+    url: '/v2/annotations/absolute';
+};
+
+export type V2SubmitAbsoluteErrors = {
+    /**
+     * Validation Exception
+     */
+    400: {
+        status_code: number;
+        detail: string;
+        extra?: null | {
+            [key: string]: unknown;
+        } | Array<unknown>;
+    };
+};
+
+export type V2SubmitAbsoluteError = V2SubmitAbsoluteErrors[keyof V2SubmitAbsoluteErrors];
+
+export type V2SubmitAbsoluteResponses = {
+    /**
+     * Document created, URL follows
+     */
+    201: InsertedPublic;
+};
+
+export type V2SubmitAbsoluteResponse = V2SubmitAbsoluteResponses[keyof V2SubmitAbsoluteResponses];
+
+export type V2SubmitContentFlagData = {
+    body: ContentFlagIn;
+    path?: never;
+    query?: never;
+    url: '/v2/annotations/content-flag';
+};
+
+export type V2SubmitContentFlagErrors = {
+    /**
+     * Validation Exception
+     */
+    400: {
+        status_code: number;
+        detail: string;
+        extra?: null | {
+            [key: string]: unknown;
+        } | Array<unknown>;
+    };
+};
+
+export type V2SubmitContentFlagError = V2SubmitContentFlagErrors[keyof V2SubmitContentFlagErrors];
+
+export type V2SubmitContentFlagResponses = {
+    /**
+     * Document created, URL follows
+     */
+    201: InsertedPublic;
+};
+
+export type V2SubmitContentFlagResponse = V2SubmitContentFlagResponses[keyof V2SubmitContentFlagResponses];
+
+export type V2SubmitPairwiseData = {
+    body: PairwiseEventIn;
+    path?: never;
+    query?: never;
+    url: '/v2/annotations/pairwise';
+};
+
+export type V2SubmitPairwiseErrors = {
+    /**
+     * Validation Exception
+     */
+    400: {
+        status_code: number;
+        detail: string;
+        extra?: null | {
+            [key: string]: unknown;
+        } | Array<unknown>;
+    };
+};
+
+export type V2SubmitPairwiseError = V2SubmitPairwiseErrors[keyof V2SubmitPairwiseErrors];
+
+export type V2SubmitPairwiseResponses = {
+    /**
+     * Document created, URL follows
+     */
+    201: InsertedPublic;
+};
+
+export type V2SubmitPairwiseResponse = V2SubmitPairwiseResponses[keyof V2SubmitPairwiseResponses];
+
+export type V2CreateAbsoluteData = {
+    body: AbsoluteQueueCreate;
+    path?: never;
+    query?: never;
+    url: '/v2/annotation-queues/absolute';
+};
+
+export type V2CreateAbsoluteErrors = {
+    /**
+     * Validation Exception
+     */
+    400: {
+        status_code: number;
+        detail: string;
+        extra?: null | {
+            [key: string]: unknown;
+        } | Array<unknown>;
+    };
+};
+
+export type V2CreateAbsoluteError = V2CreateAbsoluteErrors[keyof V2CreateAbsoluteErrors];
+
+export type V2CreateAbsoluteResponses = {
+    /**
+     * Document created, URL follows
+     */
+    201: QueueCreatedPublic;
+};
+
+export type V2CreateAbsoluteResponse = V2CreateAbsoluteResponses[keyof V2CreateAbsoluteResponses];
+
+export type V2CreatePairwiseData = {
+    body: PairwiseQueueCreate;
+    path?: never;
+    query?: never;
+    url: '/v2/annotation-queues/pairwise';
+};
+
+export type V2CreatePairwiseErrors = {
+    /**
+     * Validation Exception
+     */
+    400: {
+        status_code: number;
+        detail: string;
+        extra?: null | {
+            [key: string]: unknown;
+        } | Array<unknown>;
+    };
+};
+
+export type V2CreatePairwiseError = V2CreatePairwiseErrors[keyof V2CreatePairwiseErrors];
+
+export type V2CreatePairwiseResponses = {
+    /**
+     * Document created, URL follows
+     */
+    201: QueueCreatedPublic;
+};
+
+export type V2CreatePairwiseResponse = V2CreatePairwiseResponses[keyof V2CreatePairwiseResponses];
+
+export type V2ListQueuesData = {
+    body?: never;
+    path?: never;
+    query?: never;
+    url: '/v2/annotation-queues';
+};
+
+export type V2ListQueuesResponses = {
+    /**
+     * Request fulfilled, document follows
+     */
+    200: Array<QueueSummaryPublic>;
+};
+
+export type V2ListQueuesResponse = V2ListQueuesResponses[keyof V2ListQueuesResponses];
+
+export type V2NextAbsoluteData = {
+    body?: never;
+    path: {
+        queue_id: number;
+    };
+    query?: {
+        limit?: number;
+    };
+    url: '/v2/annotation-queues/{queue_id}/next-absolute';
+};
+
+export type V2NextAbsoluteErrors = {
+    /**
+     * Validation Exception
+     */
+    400: {
+        status_code: number;
+        detail: string;
+        extra?: null | {
+            [key: string]: unknown;
+        } | Array<unknown>;
+    };
+};
+
+export type V2NextAbsoluteError = V2NextAbsoluteErrors[keyof V2NextAbsoluteErrors];
+
+export type V2NextAbsoluteResponses = {
+    /**
+     * Request fulfilled, document follows
+     */
+    200: Array<AbsoluteQueueItemPublic>;
+};
+
+export type V2NextAbsoluteResponse = V2NextAbsoluteResponses[keyof V2NextAbsoluteResponses];
+
+export type V2NextPairwiseData = {
+    body?: never;
+    path: {
+        queue_id: number;
+    };
+    query?: {
+        limit?: number;
+    };
+    url: '/v2/annotation-queues/{queue_id}/next-pairwise';
+};
+
+export type V2NextPairwiseErrors = {
+    /**
+     * Validation Exception
+     */
+    400: {
+        status_code: number;
+        detail: string;
+        extra?: null | {
+            [key: string]: unknown;
+        } | Array<unknown>;
+    };
+};
+
+export type V2NextPairwiseError = V2NextPairwiseErrors[keyof V2NextPairwiseErrors];
+
+export type V2NextPairwiseResponses = {
+    /**
+     * Request fulfilled, document follows
+     */
+    200: Array<PairwiseQueueItemPublic>;
+};
+
+export type V2NextPairwiseResponse = V2NextPairwiseResponses[keyof V2NextPairwiseResponses];
