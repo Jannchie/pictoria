@@ -140,6 +140,27 @@ export type GalleryDlStats = {
 };
 
 /**
+ * GenerateAbsoluteIn
+ */
+export type GenerateAbsoluteIn = {
+    dimensions: Array<string>;
+    scale: number;
+    count: number;
+    strategy?: string;
+    name?: string | null;
+};
+
+/**
+ * GeneratePairwiseIn
+ */
+export type GeneratePairwiseIn = {
+    dimension: string;
+    count: number;
+    strategy?: string;
+    name?: string | null;
+};
+
+/**
  * InsertedPublic
  */
 export type InsertedPublic = {
@@ -2540,6 +2561,68 @@ export type V2CreatePairwiseResponses = {
 };
 
 export type V2CreatePairwiseResponse = V2CreatePairwiseResponses[keyof V2CreatePairwiseResponses];
+
+export type V2GenerateAbsoluteData = {
+    body: GenerateAbsoluteIn;
+    path?: never;
+    query?: never;
+    url: '/v2/annotation-queues/generate-absolute';
+};
+
+export type V2GenerateAbsoluteErrors = {
+    /**
+     * Validation Exception
+     */
+    400: {
+        status_code: number;
+        detail: string;
+        extra?: null | {
+            [key: string]: unknown;
+        } | Array<unknown>;
+    };
+};
+
+export type V2GenerateAbsoluteError = V2GenerateAbsoluteErrors[keyof V2GenerateAbsoluteErrors];
+
+export type V2GenerateAbsoluteResponses = {
+    /**
+     * Document created, URL follows
+     */
+    201: QueueSummaryPublic;
+};
+
+export type V2GenerateAbsoluteResponse = V2GenerateAbsoluteResponses[keyof V2GenerateAbsoluteResponses];
+
+export type V2GeneratePairwiseData = {
+    body: GeneratePairwiseIn;
+    path?: never;
+    query?: never;
+    url: '/v2/annotation-queues/generate-pairwise';
+};
+
+export type V2GeneratePairwiseErrors = {
+    /**
+     * Validation Exception
+     */
+    400: {
+        status_code: number;
+        detail: string;
+        extra?: null | {
+            [key: string]: unknown;
+        } | Array<unknown>;
+    };
+};
+
+export type V2GeneratePairwiseError = V2GeneratePairwiseErrors[keyof V2GeneratePairwiseErrors];
+
+export type V2GeneratePairwiseResponses = {
+    /**
+     * Document created, URL follows
+     */
+    201: QueueSummaryPublic;
+};
+
+export type V2GeneratePairwiseResponse = V2GeneratePairwiseResponses[keyof V2GeneratePairwiseResponses];
 
 export type V2ListQueuesData = {
     body?: never;
