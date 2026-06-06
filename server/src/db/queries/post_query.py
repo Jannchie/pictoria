@@ -40,6 +40,7 @@ from db.repositories.tags import TagRepo
 
 if TYPE_CHECKING:
     import sqlite3
+    from collections.abc import Sequence
 
     import numpy as np
 
@@ -495,7 +496,13 @@ class PostQueryService:
 
         return await asyncio.to_thread(_impl)
 
-    async def count_by_tag(self, f: PostFilter, query: str = "", limit: int = 50) -> list[dict]:
+    async def count_by_tag(
+        self,
+        f: PostFilter,
+        query: str = "",
+        limit: int = 50,
+        extra_names: Sequence[str] = (),
+    ) -> list[dict]:
         """Count how many filtered posts carry each tag — the tag-filter facet.
 
         Tags are many-to-many, so (unlike ``count_by_column``) we JOIN
@@ -504,6 +511,11 @@ class PostQueryService:
         add tag X, how many posts match". ``query`` substring-filters tag names so
         the searchable dropdown can surface rare tags outside the top-N; ``limit``
         caps the rows, ordered by descending count then name.
+
+        ``extra_names`` widens the ``query`` match with an explicit name set —
+        the controller resolves localised display-name hits (tag_i18n) to DB
+        tag names, so typing "绿眼" surfaces ``green_eyes``. A tag matches if it
+        hits *either* the LIKE or the set; this layer stays translation-blind.
         """
 
         def _impl() -> list[dict]:
@@ -514,6 +526,20 @@ class PostQueryService:
                 # match literally (the default ESCAPE char '\' is escaped first).
                 escaped = query.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
                 escaped_like = f"%{escaped}%"
+
+            def name_match(col: str) -> tuple[str, list[Any]] | None:
+                """OR-combined name predicate over the LIKE and the extra set."""
+                clauses: list[str] = []
+                p: list[Any] = []
+                if escaped_like is not None:
+                    clauses.append(f"{col} LIKE ? ESCAPE '\\'")
+                    p.append(escaped_like)
+                if extra_names:
+                    clauses.append(f"{col} IN ({sql_placeholders(extra_names)})")
+                    p.extend(extra_names)
+                if not clauses:
+                    return None
+                return "(" + " OR ".join(clauses) + ")", p
 
             # Fast path: no *content* filter, so each tag's match count is just
             # its canonical-post total, maintained on tags.post_count by trigger
@@ -526,9 +552,10 @@ class PostQueryService:
             if f.only_canonical and not has_active_filters(f):
                 fast_params: list[Any] = []
                 sql = "SELECT name AS tag_name, post_count AS count FROM tags WHERE post_count > 0"
-                if escaped_like is not None:
-                    sql += " AND name LIKE ? ESCAPE '\\'"
-                    fast_params.append(escaped_like)
+                fast_match = name_match("name")
+                if fast_match is not None:
+                    sql += f" AND {fast_match[0]}"
+                    fast_params.extend(fast_match[1])
                 sql += " ORDER BY post_count DESC, name ASC LIMIT ?"
                 fast_params.append(limit)
                 self.cur.execute(sql, fast_params)
@@ -536,9 +563,10 @@ class PostQueryService:
 
             # Filtered path: live GROUP BY over the join. The filter narrows the
             # post set first, so this scans far fewer than the full association table.
-            if escaped_like is not None:
-                where_clauses.append("pt.tag_name LIKE ? ESCAPE '\\'")
-                params.append(escaped_like)
+            live_match = name_match("pt.tag_name")
+            if live_match is not None:
+                where_clauses.append(live_match[0])
+                params.extend(live_match[1])
             params.append(limit)  # bound LAST — matches the trailing ? in LIMIT
             joins_sql = "\n".join(joins)
             where_sql = ("WHERE " + " AND ".join(where_clauses)) if where_clauses else ""

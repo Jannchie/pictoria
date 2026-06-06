@@ -24,7 +24,9 @@ const tagData = computed(() => {
   return tagQuery.data.value?.map(d => ({ ...d })) ?? []
 })
 const tagDataSearched = computed(() => {
-  return tagData.value.filter(d => d.name.toLowerCase().includes(search.value.toLowerCase()))
+  // 原始下划线名或本地化显示名命中皆可,中文输入也能搜到 tag。
+  const q = search.value.toLowerCase()
+  return tagData.value.filter(d => d.name.toLowerCase().includes(q) || d.translatedName?.toLowerCase().includes(q))
 })
 const tagGroupByFirstChar = computed(() => {
   const resp: [string, TagWithCountPublic[]][] = []

@@ -85,14 +85,16 @@ const currentGroupTags = computed(() => {
 })
 const displayCurrentGroupTags = computed(() => {
   // only top 100
-  return currentGroupTags.value.filter(d => isSearchMatch(d.name)).slice(0, 100)
+  return currentGroupTags.value.filter(d => isSearchMatch(d)).slice(0, 100)
 })
 
-function isSearchMatch(tagName: string) {
+// 同时匹配原始下划线名与本地化显示名（忽略大小写），中文输入也能搜到 tag。
+function isSearchMatch(tag: { name: string, translatedName?: string | null }) {
   if (!search.value) {
     return true
   }
-  return tagName.includes(search.value)
+  const q = search.value.toLowerCase()
+  return tag.name.toLowerCase().includes(q) || !!tag.translatedName?.toLowerCase().includes(q)
 }
 
 const queryClient = useQueryClient()
@@ -208,7 +210,7 @@ watchEffect(() => {
   }
 })
 const searchingInitCurrentTags = computed(() => {
-  return initCurrentTags.value.filter(tag => isSearchMatch(tag.tagInfo.name))
+  return initCurrentTags.value.filter(tag => isSearchMatch(tag.tagInfo))
 })
 </script>
 
@@ -277,7 +279,7 @@ const searchingInitCurrentTags = computed(() => {
           />
         </div>
         <div
-          v-if="initCurrentTags.some(tag => isSearchMatch(tag.tagInfo.name))"
+          v-if="initCurrentTags.some(tag => isSearchMatch(tag.tagInfo))"
           class="border-b border-border-default"
         >
           <div class="text-xs text-fg-subtle tracking-wider font-medium px-3 py-1.5 uppercase">
@@ -288,7 +290,7 @@ const searchingInitCurrentTags = computed(() => {
             :key="i"
           >
             <ListItem
-              v-if="isSearchMatch(tag.tagInfo.name)"
+              v-if="isSearchMatch(tag.tagInfo)"
               ref="initCurrentTagsRef"
               v-highlight="search"
               class="cursor-pointer"
@@ -306,7 +308,7 @@ const searchingInitCurrentTags = computed(() => {
         </div>
         <div>
           <div class="text-xs text-fg-subtle tracking-wider font-medium px-3 py-1.5 uppercase">
-            {{ $t('tagSelector.all') }} · {{ currentGroupTags.filter(tag => isSearchMatch(tag.name)).length }}
+            {{ $t('tagSelector.all') }} · {{ currentGroupTags.filter(tag => isSearchMatch(tag)).length }}
           </div>
           <template
             v-for="tag, i in displayCurrentGroupTags"

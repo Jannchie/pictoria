@@ -25,7 +25,7 @@ from server.exceptions import (
     TagNotOnPostError,
 )
 from services.intake import UploadIntake
-from services.tag_i18n import translate_tag
+from services.tag_i18n import search_tags_by_translation, translate_tag
 from shared import MAX_POST_RATING, MAX_POST_SCORE
 from utils import calculate_arthash, calculate_sha256, create_thumbnail_by_image
 
@@ -275,7 +275,15 @@ class PostController(Controller):
 
     @litestar.post("/count/tags", status_code=200, description="Count posts per tag (searchable, top-N by count).")
     async def get_tag_count(self, post_query: PostQueryService, data: TagCountRequest) -> list[TagCountItem]:
-        rows = await post_query.count_by_tag(data, query=data.query, limit=data.limit)
+        # Locale-aware search: resolve display-name hits ("绿眼") to DB tag
+        # names ("green_eyes") and widen the name LIKE with them, so the box
+        # matches whichever form the user types.
+        rows = await post_query.count_by_tag(
+            data,
+            query=data.query,
+            limit=data.limit,
+            extra_names=search_tags_by_translation(data.query, data.lang),
+        )
         return [
             TagCountItem(tag_name=r["tag_name"], count=r["count"], translated_name=translate_tag(r["tag_name"], data.lang))
             for r in rows

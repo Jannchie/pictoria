@@ -176,6 +176,22 @@ class TestCounts:
         rows = await query.count_by_tag(PostFilter(extension=("jpg",)))
         assert {r["tag_name"]: r["count"] for r in rows} == {"artist_a": 2, "tag_general": 1}
 
+    async def test_count_by_tag_extra_names_widen_search(self, query: PostQueryService) -> None:
+        # A query that misses every raw name still surfaces tags resolved via
+        # the controller's localised display-name lookup (fast path: no filter).
+        rows = await query.count_by_tag(PostFilter(), query="绿眼", extra_names=["artist_a"])
+        assert {r["tag_name"]: r["count"] for r in rows} == {"artist_a": 2}
+
+    async def test_count_by_tag_extra_names_union_with_like(self, query: PostQueryService) -> None:
+        # The LIKE hit and the name-set hit union (OR), not intersect.
+        rows = await query.count_by_tag(PostFilter(), query="general", extra_names=["artist_a"])
+        assert {r["tag_name"]: r["count"] for r in rows} == {"artist_a": 2, "tag_general": 2}
+
+    async def test_count_by_tag_extra_names_on_filtered_path(self, query: PostQueryService) -> None:
+        # Same widening on the live GROUP BY path (a content filter is active).
+        rows = await query.count_by_tag(PostFilter(extension=("jpg",)), query="zzz", extra_names=["artist_a"])
+        assert {r["tag_name"]: r["count"] for r in rows} == {"artist_a": 2}
+
     async def test_count_by_tag_limit(self, query: PostQueryService) -> None:
         # Ordered by descending count; limit caps the rows returned.
         rows = await query.count_by_tag(PostFilter(), limit=1)
