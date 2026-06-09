@@ -56,20 +56,40 @@ class Totals:
         )
 
 
-async def download_one(
+def _record_fail(tag: str, exc: Exception, totals: Totals, console: Console, start: float) -> None:
+    err = f"{type(exc).__name__}: {exc}"
+    totals.failed_tags.append((tag, err))
+    elapsed = time.monotonic() - start
+    console.print(f"[red]✗[/] {tag} [dim]{elapsed:.1f}s[/] - {err}")
+
+
+async def _post_tag(
     client: httpx.AsyncClient,
     tag: str,
-    sem: asyncio.Semaphore,
-    progress: Progress,
-    task_id: int,
     totals: Totals,
     console: Console,
+    start: float,
+    retries: int,
 ) -> None:
-    async with sem:
-        start = time.monotonic()
+    # The server's /download-from-danbooru is idempotent (already-downloaded
+    # posts are skipped), so retrying a timed-out/5xx tag is safe and, with a
+    # finite read timeout, the only way a transient stall doesn't kill the tag.
+    for attempt in range(1, retries + 1):
         try:
             resp = await client.post(LOCAL_API, params={"tags": tag})
             resp.raise_for_status()
+        except (httpx.TimeoutException, httpx.TransportError) as exc:
+            if attempt >= retries:
+                _record_fail(tag, exc, totals, console, start)
+                return
+        except httpx.HTTPStatusError as exc:
+            if exc.response.status_code < 500 or attempt >= retries:
+                _record_fail(tag, exc, totals, console, start)
+                return
+        except Exception as exc:  # noqa: BLE001 — non-retryable, record and move on
+            _record_fail(tag, exc, totals, console, start)
+            return
+        else:
             body = resp.text
             if not body or body in ("null", "{}"):
                 msg = "empty response — server likely running old code, please restart it"
@@ -90,11 +110,29 @@ async def download_one(
                 f"([cyan]dl={dl}[/] [yellow]sk={sk}[/] [red]err={fl}[/]) "
                 f"[dim]{elapsed:.1f}s[/]"
             )
-        except Exception as exc:
-            err = f"{type(exc).__name__}: {exc}"
-            totals.failed_tags.append((tag, err))
-            elapsed = time.monotonic() - start
-            console.print(f"[red]✗[/] {tag} [dim]{elapsed:.1f}s[/] - {err}")
+            return
+        # Reached only on a retryable failure with attempts left.
+        backoff = 2.0 * attempt
+        console.print(
+            f"[yellow]…[/] {tag} [dim]retry {attempt}/{retries - 1} in {backoff:.0f}s[/]"
+        )
+        await asyncio.sleep(backoff)
+
+
+async def download_one(
+    client: httpx.AsyncClient,
+    tag: str,
+    sem: asyncio.Semaphore,
+    progress: Progress,
+    task_id: int,
+    totals: Totals,
+    console: Console,
+    retries: int,
+) -> None:
+    async with sem:
+        start = time.monotonic()
+        try:
+            await _post_tag(client, tag, totals, console, start, retries)
         finally:
             progress.update(task_id, advance=1, totals=totals.summary())
 
@@ -103,6 +141,14 @@ async def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--concurrency", type=int, default=2, help="同时处理的 tag 数（默认 2）")
     parser.add_argument("--tags-file", type=Path, default=TAGS_FILE, help="tag 列表文件路径")
+    parser.add_argument(
+        "--read-timeout",
+        type=float,
+        default=600.0,
+        help="单个 tag 请求的读超时秒数（默认 600）。服务端处理期间不返回数据，"
+        "所以这是单请求的总处理上限；超时后按 --retries 重试（请求幂等）",
+    )
+    parser.add_argument("--retries", type=int, default=3, help="单个 tag 超时/5xx 时的最大尝试次数（默认 3）")
     args = parser.parse_args()
 
     tags = [line.strip() for line in args.tags_file.read_text(encoding="utf-8").splitlines() if line.strip()]
@@ -114,7 +160,11 @@ async def main() -> None:
     console.print(f"Loaded [cyan]{len(tags)}[/] tags from {args.tags_file}, concurrency=[cyan]{args.concurrency}[/]")
 
     sem = asyncio.Semaphore(args.concurrency)
-    timeout = httpx.Timeout(connect=30.0, read=None, write=30.0, pool=30.0)
+    # A finite read timeout (was None = wait forever) so a stalled server turns
+    # into a retry instead of an invisible hang. Sized to cover a legitimately
+    # long import (CDN download is throttled to ~1 req/s server-side); raise
+    # --read-timeout for tags with thousands of new files.
+    timeout = httpx.Timeout(connect=30.0, read=args.read_timeout, write=30.0, pool=30.0)
     limits = httpx.Limits(max_connections=args.concurrency, max_keepalive_connections=args.concurrency)
     totals = Totals()
     total_start = time.monotonic()
@@ -136,7 +186,7 @@ async def main() -> None:
         with progress:
             task_id = progress.add_task("tags", total=len(tags), totals=totals.summary())
             await asyncio.gather(
-                *(download_one(client, tag, sem, progress, task_id, totals, console) for tag in tags),
+                *(download_one(client, tag, sem, progress, task_id, totals, console, args.retries) for tag in tags),
             )
 
     total_elapsed = time.monotonic() - total_start

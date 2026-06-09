@@ -270,6 +270,7 @@ class CommandController(Controller):
             type_to_group_id=state.canonical_tag_groups,
             db=state.db,
             tags=tags,
+            executor=getattr(state, "io_executor", None),
         )
 
     @litestar.post(

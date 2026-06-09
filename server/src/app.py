@@ -1,4 +1,5 @@
 import asyncio
+import concurrent.futures
 import contextlib
 import os
 import pathlib
@@ -58,6 +59,22 @@ async def my_lifespan(app: Litestar):
     db = DB(db_path)
     app.state.db = db
     app.state.background_tasks = set()
+
+    # asyncio's default thread pool is min(32, cpu+4) — on a 4-8 core box that's
+    # 8-12 threads shared by EVERY ``asyncio.to_thread`` call: request handlers
+    # AND the 5 always-on backfill workers. A busy backfill could leave the
+    # default pool with no free thread, so an inbound /download-from-danbooru's
+    # listing call would queue behind GPU batches and look hung. Give the shared
+    # pool generous headroom, then carve out a *dedicated* pool for Danbooru
+    # imports so their blocking listing/download calls never wait on backfill.
+    loop = asyncio.get_running_loop()
+    loop.set_default_executor(
+        concurrent.futures.ThreadPoolExecutor(max_workers=32, thread_name_prefix="pictoria-wk"),
+    )
+    app.state.io_executor = concurrent.futures.ThreadPoolExecutor(
+        max_workers=8,
+        thread_name_prefix="danbooru-io",
+    )
     # Serialises sync_metadata() so the startup backfill and any manual
     # /v2/cmd/sync-metadata trigger can't race each other on the same pending
     # ids — they would all eventually converge via UPSERT/COALESCE, but the
@@ -161,6 +178,11 @@ async def _graceful_shutdown(app: Litestar, db: DB) -> None:
     if danbooru_client is not None:
         with contextlib.suppress(Exception):
             danbooru_client.client.close()
+
+    io_executor = getattr(app.state, "io_executor", None)
+    if io_executor is not None:
+        with contextlib.suppress(Exception):
+            io_executor.shutdown(wait=False, cancel_futures=True)
 
     with contextlib.suppress(Exception):
         db.close()

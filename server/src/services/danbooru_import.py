@@ -11,9 +11,10 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import functools
 import sqlite3
 from dataclasses import dataclass
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 import shared
 from shared import logger
@@ -21,9 +22,30 @@ from utils import from_rating_to_int, resolve_source
 
 if TYPE_CHECKING:
     from collections.abc import Callable
+    from concurrent.futures import Executor
 
     from danbooru import DanbooruClient, DanbooruPost
     from db import DB
+
+# A whole-tag listing used to fetch ``limit=99999`` — up to ~500 serial /posts
+# pages. Most artist tags short-circuit on the first short page, but big
+# copyright/character tags would page for minutes inside a single to_thread
+# call (which, with the client's read timeout disabled, the caller sees as a
+# hang). Cap the default; common tags are unaffected, pathological ones are
+# bounded.
+_DEFAULT_LISTING_LIMIT = 5000
+
+
+async def _in_executor(executor: Executor | None, fn: Callable[..., Any], /, *args: Any, **kwargs: Any) -> Any:
+    """Run blocking ``fn`` on ``executor`` (``None`` = asyncio's default pool).
+
+    Danbooru imports are routed onto a dedicated pool (see ``app.state``) so a
+    busy backfill — which keeps the default pool's worker threads occupied —
+    can't starve the listing/download calls and stall the request mid-flight.
+    """
+    loop = asyncio.get_running_loop()
+    return await loop.run_in_executor(executor, functools.partial(fn, *args, **kwargs))
+
 
 SUPPORTED_IMAGE_EXTS: frozenset[str] = frozenset(
     {"jpg", "jpeg", "png", "gif", "webp", "avif", "bmp", "tiff", "tif", "svg"},
@@ -49,22 +71,26 @@ class DanbooruDownloadStats:
     failed: int
 
 
-async def import_danbooru_posts(
+async def import_danbooru_posts(  # noqa: PLR0913
     *,
     client: DanbooruClient,
     type_to_group_id: dict[str, int],
     db: DB,
     tags: str,
+    limit: int = _DEFAULT_LISTING_LIMIT,
+    executor: Executor | None = None,
 ) -> DanbooruDownloadStats:
     """Download posts for ``tags`` from Danbooru and persist the new ones.
 
     The shared ``client`` and ``type_to_group_id`` come from startup state (see
     the module docstring); the DB-membership pre-check that short-circuits the
-    download threadpool is the ``to_persist`` filter below.
+    download threadpool is the ``to_persist`` filter below. ``executor`` is the
+    dedicated Danbooru thread pool — passing ``None`` falls back to asyncio's
+    default pool (kept so the test suite can call this without app state).
     """
     danbooru_dir = shared.target_dir / "danbooru"
     save_dir = danbooru_dir / _safe_dir_name(tags)
-    posts_orig = await asyncio.to_thread(client.get_posts, tags=tags, limit=99999)
+    posts_orig = await _in_executor(executor, client.get_posts, tags=tags, limit=limit)
     posts_with_url = [p for p in posts_orig if p.file_url]
     logger.info(f"Fetched {len(posts_with_url)} available posts ({len(posts_orig)} total)")
 
@@ -73,7 +99,7 @@ async def import_danbooru_posts(
         for p in posts_with_url
         if p.file_url and p.file_ext and p.file_ext.lower() in SUPPORTED_IMAGE_EXTS
     ]
-    await asyncio.to_thread(save_dir.mkdir, parents=True, exist_ok=True)
+    await _in_executor(executor, save_dir.mkdir, parents=True, exist_ok=True)
     file_path_str = save_dir.relative_to(shared.target_dir).as_posix()
 
     def _existing_post_names() -> set[str]:
@@ -91,14 +117,15 @@ async def import_danbooru_posts(
         finally:
             cur.close()
 
-    existing_names = await asyncio.to_thread(_existing_post_names)
+    existing_names = await _in_executor(executor, _existing_post_names)
     to_persist = [p for p in filtered if str(p.id) not in existing_names]
     logger.info(f"Persisting {len(to_persist)} new posts ({len(filtered) - len(to_persist)} already in DB)")
 
     # Pre-compute per-post tag maps (in-memory, no DB calls).
     precomputed_tag_maps = [_build_tag_to_group(p, type_to_group_id) for p in to_persist]
 
-    await asyncio.to_thread(
+    await _in_executor(
+        executor,
         _persist_danbooru_batch,
         db,
         file_path_str,
@@ -112,7 +139,7 @@ async def import_danbooru_posts(
     # exists() round trip per post, and short-circuits the 16-worker
     # threadpool entirely when nothing new needs downloading.
     if to_persist:
-        dl_stats = await asyncio.to_thread(client.download_posts, to_persist, save_dir)
+        dl_stats = await _in_executor(executor, client.download_posts, to_persist, save_dir)
     else:
         dl_stats = {"downloaded": 0, "skipped": 0, "failed": 0}
 
@@ -134,9 +161,9 @@ def _persist_danbooru_batch(
 ) -> None:
     """Persist a batch of Danbooru posts + their tags in two transactions.
 
-    Called from ``asyncio.to_thread`` — ``db.cursor()`` therefore returns a
-    cursor on *this worker thread's* SQLite connection, not the event-loop
-    thread's. That isolation matters: transactions in sqlite3 are
+    Called on a pool worker thread (via ``_in_executor``) — ``db.cursor()``
+    therefore returns a cursor on *this worker thread's* SQLite connection, not
+    the event-loop thread's. That isolation matters: transactions in sqlite3 are
     connection-scoped, so if all concurrent requests shared one connection,
     one worker's ``_safe_rollback`` could (and did) rip a sibling worker's
     in-flight BEGIN out from under it — the ``cannot commit - no transaction

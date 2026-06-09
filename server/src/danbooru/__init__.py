@@ -186,7 +186,7 @@ class DanbooruClient:
     ) -> httpx.Response:
         for attempt in range(1, retries + 1):
             try:
-                return self.client.get(url, params=params)
+                resp = self.client.get(url, params=params)
             except (httpx.TimeoutException, httpx.TransportError) as exc:
                 if attempt == retries:
                     raise
@@ -200,6 +200,27 @@ class DanbooruClient:
                     sleep_s,
                 )
                 time.sleep(sleep_s)
+                continue
+            # 403/429 = donmai.us rate-limit. Listing hits the same host as the
+            # CDN download path, so reuse the shared throttle's cool-down and
+            # retry instead of letting raise_for_status turn a transient
+            # throttle into a hard tag failure.
+            if resp.status_code in (httpx.codes.FORBIDDEN, httpx.codes.TOO_MANY_REQUESTS):
+                delay = self._throttle.report_blocked()
+                logger.warning(
+                    "Danbooru GET %s rate-limited (HTTP %d); cooling down %.1fs (attempt %d/%d)",
+                    url,
+                    resp.status_code,
+                    delay,
+                    attempt,
+                    retries,
+                )
+                if attempt == retries:
+                    return resp  # let the caller's raise_for_status surface it
+                time.sleep(delay)
+                continue
+            self._throttle.report_ok()
+            return resp
         # Unreachable: the loop either returns or raises.
         msg = "retry loop exited without returning"
         raise RuntimeError(msg)
