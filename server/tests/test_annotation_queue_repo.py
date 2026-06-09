@@ -116,6 +116,36 @@ async def test_sample_pairs_random(db: DB, queues: AnnotationQueueRepo) -> None:
         assert a != b
 
 
+def _seed_distinct_embeddings(db: DB, post_ids: list[int]) -> None:
+    """One-hot embeddings: every pair is orthogonal (cosine distance ~1), so
+    the similar-pair KNN treats all seeded posts as mutual neighbours and none
+    get dropped as near-duplicates — pairing is then driven purely by score."""
+    cur = db.cursor()
+    for pid in post_ids:
+        vec = [0.0] * 1152
+        vec[pid % 1152] = 1.0
+        cur.execute("INSERT INTO post_vectors_siglip2 (post_id, embedding) VALUES (?, ?)", [pid, sqlite_vec.serialize_float32(vec)])
+
+
+async def test_sample_pairs_similar_respects_score_band(db: DB, queues: AnnotationQueueRepo) -> None:
+    # fixture scores: 1->3, 2->0, 3->5, 4->0, 5->3. All five are mutual
+    # neighbours, so pairing is driven by the score band: 1 & 5 (both 3) pair,
+    # 2 & 4 (unrated) pair, and 3 (score 5) has no same/adjacent-score partner
+    # so it must be stranded rather than forced into a foregone 5-vs-3.
+    _seed_distinct_embeddings(db, [1, 2, 3, 4, 5])
+    pairs = await queues.sample_pairs(count=2, strategy="similar")
+    assert len(pairs) == 2
+    flat = [p for pair in pairs for p in pair]
+    assert len(flat) == len(set(flat))  # disjoint
+    for a, b in pairs:
+        assert a != b
+    assert 3 not in flat  # score-5 post has no in-band partner (1/5 are score 3)
+    score = {1: 3, 2: 0, 3: 5, 4: 0, 5: 3}
+    for a, b in pairs:
+        if score[a] and score[b]:  # both rated -> must be same/adjacent bucket
+            assert abs(score[a] - score[b]) <= 1
+
+
 async def test_sample_absolute_items_carry_image_fields(db: DB, queues: AnnotationQueueRepo) -> None:
     _seed_embeddings(db, [1, 2])
     items = await queues.sample_absolute_items(count=10, strategy="random", dimensions=["color"])

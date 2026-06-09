@@ -162,6 +162,25 @@ def test_stream_sample_pairwise(api_client: TestClient, db: DB) -> None:
     assert items[0]["postA"]["id"] != items[0]["postB"]["id"]
 
 
+def test_stream_sample_pairwise_similar(api_client: TestClient, db: DB) -> None:
+    cur = db.cursor()
+    for pid in (1, 2, 3, 4, 5):  # orthogonal embeddings -> all mutual neighbours
+        vec = [0.0] * 1152
+        vec[pid % 1152] = 1.0
+        cur.execute("INSERT INTO post_vectors_siglip2 (post_id, embedding) VALUES (?, ?)", [pid, sqlite_vec.serialize_float32(vec)])
+    resp = api_client.get("/v2/annotations/sample-pairwise?limit=2&strategy=similar")
+    assert resp.status_code == 200
+    items = resp.json()
+    assert len(items) == 2
+    for it in items:
+        assert it["postA"]["id"] != it["postB"]["id"]
+
+
+def test_sample_pairwise_rejects_bad_strategy(api_client: TestClient) -> None:
+    resp = api_client.get("/v2/annotations/sample-pairwise?limit=2&strategy=bogus")
+    assert resp.status_code == 400
+
+
 def test_generate_absolute_queue(api_client: TestClient, db: DB) -> None:
     # seed embeddings so posts 1-3 qualify as candidates
     cur = db.cursor()

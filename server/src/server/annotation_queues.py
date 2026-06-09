@@ -1,8 +1,10 @@
-"""Annotation queue endpoints: create queues (fed by silva samplers), serve next items.
+"""Annotation queue endpoints: create / auto-generate queues, serve next items.
 
-Queues carry no sampling logic — silva-side scripts decide what to annotate
-(coldstart coverage, OOF disagreement, boundary pairs) and POST ordered item
-lists here; the UI just consumes them in position order.
+Sampling is self-contained (see ``AnnotationQueueRepo``): ``generate-*`` builds
+queues from data pictoria already owns — random, old-score-stratified, or
+content-similar + old-score-band pairs. Callers may also POST an explicit
+ordered item list. Either way the UI just consumes a queue in position order;
+downstream consumers read the resulting annotation events, they don't drive it.
 """
 
 from __future__ import annotations
@@ -19,7 +21,8 @@ from scheme import DTOBaseModel
 
 VALID_DIMENSIONS = {"color", "finish", "composition", "overall"}
 VALID_SCALES = {2, 3, 5}
-VALID_STRATEGIES = {"random", "stratified"}
+VALID_STRATEGIES = {"random", "stratified"}  # absolute sampling
+VALID_PAIRWISE_STRATEGIES = {"random", "similar"}  # pairwise sampling
 
 
 class AbsoluteQueueCreate(Struct):
@@ -141,11 +144,14 @@ class AnnotationQueueController(Controller):
     @litestar.post(
         "/generate-pairwise",
         status_code=201,
-        description="Auto-generate a pairwise queue from random disjoint pairs.",
+        description="Auto-generate a pairwise queue (random disjoint pairs, or content-similar + old-score-band pairs).",
     )
     async def generate_pairwise(self, annotation_queues: AnnotationQueueRepo, data: GeneratePairwiseIn) -> QueueSummaryPublic:
         if data.dimension not in VALID_DIMENSIONS:
             msg = f"invalid dimension: {data.dimension!r}"
+            raise ValidationException(msg)
+        if data.strategy not in VALID_PAIRWISE_STRATEGIES:
+            msg = f"invalid strategy: {data.strategy!r}"
             raise ValidationException(msg)
         pairs = await annotation_queues.sample_pairs(count=data.count, strategy=data.strategy)
         if not pairs:

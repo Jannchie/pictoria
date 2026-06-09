@@ -13,7 +13,8 @@ interface BufferItem {
 }
 
 // queue 与 dimension 二选一：有 queue 走固定批次，否则按 dimension 流式采样。
-const props = defineProps<{ queue?: QueueSummaryPublic, dimension?: string }>()
+// strategy 仅流式有效：similar = 内容相似 + 旧分相近的对子（默认），random = 全库随机。
+const props = defineProps<{ queue?: QueueSummaryPublic, dimension?: string, strategy?: 'random' | 'similar' }>()
 const emit = defineEmits<{ exit: [] }>()
 
 const { handle: handleAPIError } = useAPIError()
@@ -61,7 +62,7 @@ async function refill() {
       fresh = (resp.data ?? []).filter(i => !known.has(i.position)).map(i => ({ postA: i.postA, postB: i.postB, position: i.position }))
     }
     else {
-      const resp = await v2SamplePairwise({ query: { limit: 20 } })
+      const resp = await v2SamplePairwise({ query: { limit: 20, strategy: props.strategy ?? 'similar' } })
       fresh = (resp.data ?? [])
         .map(p => ({ postA: p.postA, postB: p.postB }))
         .filter((p) => {

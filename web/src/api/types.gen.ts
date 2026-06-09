@@ -2455,6 +2455,7 @@ export type V2SamplePairwiseData = {
     path?: never;
     query?: {
         limit?: number;
+        strategy?: string;
     };
     url: '/v2/annotations/sample-pairwise';
 };

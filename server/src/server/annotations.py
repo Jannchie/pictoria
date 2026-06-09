@@ -18,7 +18,7 @@ from msgspec import Struct
 from db.repositories.annotation_queues import AnnotationQueueRepo  # noqa: TC001  # DI needs runtime types
 from db.repositories.annotations import AnnotationRepo  # noqa: TC001  # DI needs runtime types
 from scheme import DTOBaseModel
-from server.annotation_queues import QueueItemPostPublic, post_from_row
+from server.annotation_queues import VALID_PAIRWISE_STRATEGIES, QueueItemPostPublic, post_from_row
 
 VALID_DIMENSIONS = {"color", "finish", "composition", "overall"}
 VALID_FLAGS = {"love", "hate", "none"}
@@ -208,14 +208,18 @@ class AnnotationController(Controller):
     @litestar.get(
         "/sample-pairwise",
         status_code=200,
-        description="Queue-less streaming: sample disjoint random pairs for pairwise annotation.",
+        description="Queue-less streaming: sample disjoint pairs for pairwise annotation ('random', or 'similar' = content-similar + old-score band).",
     )
     async def sample_pairwise(
         self,
         annotation_queues: AnnotationQueueRepo,
         limit: int = 10,
+        strategy: str = "random",
     ) -> list[SampledPairPublic]:
-        items = await annotation_queues.sample_pairwise_items(count=limit)
+        if strategy not in VALID_PAIRWISE_STRATEGIES:
+            msg = f"invalid strategy: {strategy!r}"
+            raise ValidationException(msg)
+        items = await annotation_queues.sample_pairwise_items(count=limit, strategy=strategy)
         return [SampledPairPublic(post_a=post_from_row(r, "a_"), post_b=post_from_row(r, "b_")) for r in items]
 
     @litestar.get("/post/{post_id:int}", status_code=200, description="Full annotation history for a post.")

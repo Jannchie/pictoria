@@ -645,7 +645,7 @@ export const v2SampleAbsolute = <ThrowOnError extends boolean = false>(options: 
 /**
  * SamplePairwise
  *
- * Queue-less streaming: sample disjoint random pairs for pairwise annotation.
+ * Queue-less streaming: sample disjoint pairs for pairwise annotation ('random', or 'similar' = content-similar + old-score band).
  */
 export const v2SamplePairwise = <ThrowOnError extends boolean = false>(options?: Options<V2SamplePairwiseData, ThrowOnError>) => (options?.client ?? client).get<V2SamplePairwiseResponses, V2SamplePairwiseErrors, ThrowOnError>({
     responseType: 'json',
@@ -746,7 +746,7 @@ export const v2GenerateAbsolute = <ThrowOnError extends boolean = false>(options
 /**
  * GeneratePairwise
  *
- * Auto-generate a pairwise queue from random disjoint pairs.
+ * Auto-generate a pairwise queue (random disjoint pairs, or content-similar + old-score-band pairs).
  */
 export const v2GeneratePairwise = <ThrowOnError extends boolean = false>(options: Options<V2GeneratePairwiseData, ThrowOnError>) => (options.client ?? client).post<V2GeneratePairwiseResponses, V2GeneratePairwiseErrors, ThrowOnError>({
     responseType: 'json',

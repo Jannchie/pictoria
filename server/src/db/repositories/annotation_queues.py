@@ -1,7 +1,10 @@
-"""Annotation queue repository: what to annotate next, fed by silva-side samplers.
+"""Annotation queue repository: what to annotate next, sampled from data we own.
 
 Queues are write-once item lists (absolute posts or pairwise pairs); the UI
 consumes them in position order and marks items done as judgements land.
+Sampling is self-contained — it runs on the old manual score, SigLIP2
+embeddings and prior annotation events — so pictoria owns the whole annotation
+loop and downstream consumers just *read* the collected events.
 """
 
 from __future__ import annotations
@@ -19,6 +22,12 @@ if TYPE_CHECKING:
 QUEUE_COLUMNS = "id, name, kind, dimensions, scale, created_at"
 _ITEM_TABLES = {"absolute": "absolute_queue_items", "pairwise": "pairwise_queue_items"}
 _POST_COLS = ("id", "file_path", "file_name", "extension", "sha256", "width", "height")
+
+# Tunables for the ``similar`` pairwise strategy (see ``_sample_pairs_similar``).
+_SIMILAR_PAIRS_PER_CLUSTER = 8   # disjoint pairs harvested from one KNN neighbourhood
+_SIMILAR_KNN_K = 48              # neighbours fetched per seed (includes the seed itself)
+_SIMILAR_MIN_DISTANCE = 0.04     # drop near-duplicates: a near-identical pair is a foregone tie
+_SIMILAR_SCORE_BAND = 1          # |score_a - score_b| <= band -> same or adjacent score bucket
 
 
 def _aliased_post_cols(table_alias: str, out_prefix: str) -> str:
@@ -136,6 +145,14 @@ class AnnotationQueueRepo:
         "AND NOT EXISTS (SELECT 1 FROM absolute_annotations a WHERE a.post_id = p.id AND a.dimension IN ({dims}))"
     )
 
+    # Pairwise eligibility: canonical (no hidden near-dups) and not already
+    # sitting in an undone pairwise queue item. Shared by both strategies.
+    _PAIRWISE_ELIGIBLE = (
+        "p.canonical_post_id IS NULL "
+        "AND NOT EXISTS (SELECT 1 FROM pairwise_queue_items i "
+        "WHERE (i.post_a = p.id OR i.post_b = p.id) AND i.done = 0)"
+    )
+
     def _with_embedding(self, ids: list[int]) -> list[int]:
         """Keep only ids that have a SigLIP2 embedding (vec0 point lookups)."""
         out: list[int] = []
@@ -183,15 +200,21 @@ class AnnotationQueueRepo:
         return await asyncio.to_thread(_impl)
 
     async def sample_pairs(self, *, count: int, strategy: str = "random") -> list[tuple[int, int]]:
-        """Sample disjoint random pairs for pairwise annotation."""
-        del strategy  # only 'random' for now; signature is forward-compatible
+        """Sample disjoint pairs for pairwise annotation.
+
+        ``random``  — arbitrary disjoint pairs (fast, model-agnostic baseline).
+        ``similar`` — content-similar (SigLIP2 KNN) *and* old-score-band pairs:
+        comparable so the verdict is fair (like-with-like, not portrait-vs-
+        landscape), close-in-score so it carries information (a 5-vs-1 verdict
+        is foregone and wastes a label). The band keys off the *human* old
+        score, not a model output, so the collected data stays model-agnostic.
+        """
+        if strategy == "similar":
+            return await asyncio.to_thread(self._sample_pairs_similar, count)
 
         def _impl() -> list[tuple[int, int]]:
             self.cur.execute(
-                "SELECT p.id FROM posts p "
-                "WHERE p.canonical_post_id IS NULL "
-                "AND NOT EXISTS (SELECT 1 FROM pairwise_queue_items i WHERE (i.post_a = p.id OR i.post_b = p.id) AND i.done = 0) "
-                "ORDER BY RANDOM() LIMIT ?",
+                f"SELECT p.id FROM posts p WHERE {self._PAIRWISE_ELIGIBLE} ORDER BY RANDOM() LIMIT ?",  # noqa: S608
                 [count * 4],
             )
             candidates = [row[0] for row in self.cur.fetchall()]
@@ -199,6 +222,101 @@ class AnnotationQueueRepo:
             return [(ids[i], ids[i + 1]) for i in range(0, len(ids) - 1, 2)]
 
         return await asyncio.to_thread(_impl)
+
+    # ─── Similar-pair sampling (content-similar + old-score band) ─────
+    #
+    # A single vec0 KNN over the whole library is ~1.5s (brute-force scan, no
+    # ANN index), so we can't afford one KNN per pair. Instead each KNN pulls a
+    # seed's neighbourhood and we harvest several disjoint pairs from it:
+    # PAIRS_PER_CLUSTER trades batch latency (~1.5s * ceil(count / PPC)) against
+    # how many pairs share one visual neighbourhood inside a batch.
+
+    def _sample_pairs_similar(self, count: int) -> list[tuple[int, int]]:
+        clusters = max(1, -(-count // _SIMILAR_PAIRS_PER_CLUSTER))  # ceil(count / PPC)
+        # Oversample seeds: a seed may have been consumed as an earlier
+        # cluster's neighbour, or sit in a region with no in-band partner.
+        self.cur.execute(
+            f"SELECT p.id FROM posts p WHERE {self._PAIRWISE_ELIGIBLE} ORDER BY RANDOM() LIMIT ?",  # noqa: S608
+            [clusters * 4],
+        )
+        seeds = [row[0] for row in self.cur.fetchall()]
+        used: set[int] = set()
+        pairs: list[tuple[int, int]] = []
+        for seed in seeds:
+            if len(pairs) >= count:
+                break
+            if seed in used:
+                continue
+            # _pair_by_score_band tolerates a lone-seed cluster (returns []),
+            # so no member-count guard is needed here.
+            members = self._similar_cluster(seed, used)
+            cap = min(_SIMILAR_PAIRS_PER_CLUSTER, count - len(pairs))
+            pairs.extend(self._pair_by_score_band(members, used, cap))
+            used.add(seed)  # consumed as a centre — don't re-draw or re-pair it
+        return pairs[:count]
+
+    def _similar_cluster(self, seed: int, used: set[int]) -> list[tuple[int, int | None]]:
+        """``(id, score)`` of eligible posts in ``seed``'s KNN neighbourhood.
+
+        Includes ``seed`` itself; drops near-duplicates (a near-identical pair
+        is a foregone tie), already-used ids, and ids failing pairwise
+        eligibility. Returns ``[]`` when ``seed`` has no embedding — vec0's
+        MATCH rejects a NULL query vector with a hard error.
+        """
+        self.cur.execute("SELECT 1 FROM post_vectors_siglip2 WHERE post_id = ?", [seed])
+        if self.cur.fetchone() is None:
+            return []
+        self.cur.execute(
+            "SELECT post_id, distance FROM post_vectors_siglip2 "
+            "WHERE embedding MATCH (SELECT embedding FROM post_vectors_siglip2 WHERE post_id = ?) "
+            "AND k = ? ORDER BY distance",
+            [seed, _SIMILAR_KNN_K],
+        )
+        member_ids = [seed]
+        member_ids += [
+            pid
+            for pid, dist in self.cur.fetchall()
+            if pid != seed and dist >= _SIMILAR_MIN_DISTANCE and pid not in used
+        ]
+        ph = ",".join("?" * len(member_ids))
+        self.cur.execute(
+            f"SELECT p.id, p.score FROM posts p WHERE p.id IN ({ph}) AND {self._PAIRWISE_ELIGIBLE}",  # noqa: S608
+            member_ids,
+        )
+        return list(self.cur.fetchall())
+
+    @staticmethod
+    def _pair_by_score_band(members: list[tuple[int, int | None]], used: set[int], cap: int) -> list[tuple[int, int]]:
+        """Greedily pair cluster members into disjoint same/adjacent-score pairs.
+
+        Scored members (old score >= 1) sort by score and pair with their
+        nearest-in-score neighbour — consecutive-in-sorted is the smallest
+        possible gap; a pair is rejected (and the lower member stranded) only
+        when even that gap exceeds the band, so a score-isolated image is never
+        forced into a foregone 5-vs-1. Unscored members (score 0 = never rated)
+        share one bucket and pair off freely: their quality is unknown, so any
+        same-content pair is a fair, informative comparison. ``used`` is mutated
+        as pairs are claimed, keeping the whole batch disjoint.
+        """
+        out: list[tuple[int, int]] = []
+        scored = sorted(((pid, s) for pid, s in members if s and pid not in used), key=lambda t: t[1])
+        i = 0
+        while i + 1 < len(scored) and len(out) < cap:
+            (a, sa), (b, sb) = scored[i], scored[i + 1]
+            if abs(sa - sb) <= _SIMILAR_SCORE_BAND:
+                out.append((a, b))
+                used.update((a, b))
+                i += 2
+            else:
+                i += 1  # `a` has no in-band partner among the higher scores
+        unscored = [pid for pid, s in members if not s and pid not in used]
+        for j in range(0, len(unscored) - 1, 2):
+            if len(out) >= cap:
+                break
+            a, b = unscored[j], unscored[j + 1]
+            out.append((a, b))
+            used.update((a, b))
+        return out
 
     async def sample_absolute_items(self, *, count: int, strategy: str, dimensions: list[str]) -> list[dict[str, Any]]:
         """Sample candidates with image fields — queue-less streaming annotation."""

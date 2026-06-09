@@ -13,7 +13,7 @@ const { handle: handleAPIError } = useAPIError()
 type Session
   = | { mode: 'queue', queue: QueueSummaryPublic }
     | { mode: 'stream-absolute', config: StreamConfig }
-    | { mode: 'stream-pairwise', dimension: string }
+    | { mode: 'stream-pairwise', dimension: string, strategy: 'random' | 'similar' }
 
 const session = ref<Session | null>(null)
 
@@ -50,7 +50,8 @@ const form = ref({
   kind: 'pairwise' as 'absolute' | 'pairwise',
   dimensions: ['overall'] as string[],
   scale: 2,
-  strategy: 'stratified' as 'random' | 'stratified',
+  strategy: 'stratified' as 'random' | 'stratified', // 单图评分采样
+  pairwiseStrategy: 'similar' as 'random' | 'similar', // 双图对比配对
 })
 const canStart = computed(() => form.value.dimensions.length > 0)
 
@@ -78,6 +79,10 @@ const STRATEGIES = [
   { value: 'stratified' as const, label: '按旧分分层', hint: '1–5 分各层均匀' },
   { value: 'random' as const, label: '随机', hint: '全库均匀' },
 ]
+const PAIRWISE_STRATEGIES = [
+  { value: 'similar' as const, label: '相似配对', hint: '同题材 + 旧分相近：比较更公平也更有信息量' },
+  { value: 'random' as const, label: '随机', hint: '全库随机两两组合' },
+]
 
 function startStream() {
   if (!canStart.value) {
@@ -92,7 +97,7 @@ function startStream() {
           strategy: form.value.strategy,
         },
       }
-    : { mode: 'stream-pairwise', dimension: form.value.dimensions[0] ?? 'color' }
+    : { mode: 'stream-pairwise', dimension: form.value.dimensions[0] ?? 'color', strategy: form.value.pairwiseStrategy }
 }
 
 // ── 队列（固定批次：形态对比实验 / intra-rater 复测用）──────────
@@ -116,7 +121,7 @@ async function generateQueue() {
           },
         })
       : v2GeneratePairwise({
-          body: { dimension: form.value.dimensions[0] ?? 'color', count: queueCount.value },
+          body: { dimension: form.value.dimensions[0] ?? 'color', count: queueCount.value, strategy: form.value.pairwiseStrategy },
         }))
     await refetch()
   }
@@ -149,6 +154,7 @@ async function generateQueue() {
     <PairwiseAnnotationSession
       v-else-if="session?.mode === 'stream-pairwise'"
       :dimension="session.dimension"
+      :strategy="session.strategy"
       @exit="exitSession"
     />
 
@@ -220,6 +226,26 @@ async function generateQueue() {
             <i :class="d.icon" class="text-base shrink-0" />
             <span class="font-medium">{{ d.label }}</span>
             <span class="annotate-dim-chip__hint">{{ d.hint }}</span>
+          </button>
+        </div>
+      </section>
+
+      <!-- 配对方式（对比模式）：segmented -->
+      <section v-if="form.kind === 'pairwise'" class="mb-7">
+        <div class="annotate-section-title">
+          配对
+          <span class="annotate-section-note">相似配对：同题材且旧分相近，比较更公平也更有信息量</span>
+        </div>
+        <div class="annotate-segment">
+          <button
+            v-for="s in PAIRWISE_STRATEGIES"
+            :key="s.value"
+            class="annotate-segment__item"
+            :class="{ 'annotate-segment__item--active': form.pairwiseStrategy === s.value }"
+            :title="s.hint"
+            @click="form.pairwiseStrategy = s.value"
+          >
+            {{ s.label }}
           </button>
         </div>
       </section>
