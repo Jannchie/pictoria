@@ -29,6 +29,12 @@ _SIMILAR_KNN_K = 48              # neighbours fetched per seed (includes the see
 _SIMILAR_MIN_DISTANCE = 0.04     # drop near-duplicates: a near-identical pair is a foregone tie
 _SIMILAR_SCORE_BAND = 1          # |score_a - score_b| <= band -> same or adjacent score bucket
 
+# Tunable for the ``close`` pairwise strategy (see ``_sample_pairs_close``): ceiling on the
+# SILVA head's |calibrated_score_a - calibrated_score_b|. <= 0.10 keeps only pairs the model
+# itself can't separate (directional accuracy ~0.51-0.64 there) — the boundary pairs that
+# carry the preference signal absolute labels can't teach. ~36% of random pairs fall under it.
+_CLOSE_PAIR_MAX_SILVA_DIFF = 0.10
+
 
 def _aliased_post_cols(table_alias: str, out_prefix: str) -> str:
     """``pa.id AS a_post_id, pa.file_path AS a_file_path, ...`` column list."""
@@ -208,9 +214,16 @@ class AnnotationQueueRepo:
         landscape), close-in-score so it carries information (a 5-vs-1 verdict
         is foregone and wastes a label). The band keys off the *human* old
         score, not a model output, so the collected data stays model-agnostic.
+        ``close``   — content-similar (same KNN) but paired by the SILVA model's
+        score gap instead of the human band: deliberately model-AWARE sampling that
+        concentrates labels on the boundary pairs the head can't resolve (the only
+        comparisons that carry signal absolute labels can't). Use ``close`` to harvest
+        training fuel; keep ``random``/``similar`` for model-agnostic held-out eval.
         """
         if strategy == "similar":
             return await asyncio.to_thread(self._sample_pairs_similar, count)
+        if strategy == "close":
+            return await asyncio.to_thread(self._sample_pairs_close, count)
 
         def _impl() -> list[tuple[int, int]]:
             self.cur.execute(
@@ -317,6 +330,75 @@ class AnnotationQueueRepo:
             out.append((a, b))
             used.update((a, b))
         return out
+
+    # ─── Close-pair sampling (content-similar + SILVA model-score band) ───
+    #
+    # Same KNN neighbourhood harvesting as ``_sample_pairs_similar`` but paired by the
+    # SILVA head's score gap, not the human old-score band — model-AWARE on purpose, to
+    # concentrate labels on the boundary pairs the head can't separate.
+
+    def _load_silva_scores(self, ids: list[int]) -> dict[int, float]:
+        """``post_id -> SILVA calibrated_score`` for ``ids`` (ids with no score dropped)."""
+        if not ids:
+            return {}
+        ph = ",".join("?" * len(ids))
+        self.cur.execute(
+            f"SELECT post_id, score FROM post_aesthetic_scores WHERE scorer = 'silva' AND post_id IN ({ph})",  # noqa: S608
+            ids,
+        )
+        return {pid: score for pid, score in self.cur.fetchall()}
+
+    def _pair_by_silva_band(self, member_ids: list[int], used: set[int], cap: int) -> list[tuple[int, int]]:
+        """Greedily pair cluster members the SILVA head scores CLOSE into disjoint pairs.
+
+        Members sort by SILVA score and pair with their nearest-in-score neighbour
+        (consecutive-in-sorted is the smallest gap); a pair is kept only when that gap is
+        within ``_CLOSE_PAIR_MAX_SILVA_DIFF``, so every emitted pair is one the model can't
+        confidently separate — the opposite of a foregone high-confidence comparison. A
+        score-isolated member is stranded rather than forced into a wide pair. Members
+        without a SILVA score are skipped; ``used`` is mutated to keep the batch disjoint.
+        """
+        silva = self._load_silva_scores([pid for pid in member_ids if pid not in used])
+        scored = sorted(((pid, silva[pid]) for pid in member_ids if pid in silva and pid not in used), key=lambda t: t[1])
+        out: list[tuple[int, int]] = []
+        i = 0
+        while i + 1 < len(scored) and len(out) < cap:
+            (a, sa), (b, sb) = scored[i], scored[i + 1]
+            if abs(sa - sb) <= _CLOSE_PAIR_MAX_SILVA_DIFF:
+                out.append((a, b))
+                used.update((a, b))
+                i += 2
+            else:
+                i += 1  # `a` has no close-enough partner among the higher SILVA scores
+        return out
+
+    def _sample_pairs_close(self, count: int) -> list[tuple[int, int]]:
+        """Visually-similar (KNN) pairs the SILVA head scores close — the boundary pairs.
+
+        Same per-seed neighbourhood harvesting as ``_sample_pairs_similar``, but pairs via
+        :meth:`_pair_by_silva_band` (model score gap) instead of the human old-score band.
+        Seeds are oversampled more heavily than ``similar`` because the close-score
+        constraint rejects more cluster members.
+        """
+        clusters = max(1, -(-count // _SIMILAR_PAIRS_PER_CLUSTER))  # ceil(count / PPC)
+        self.cur.execute(
+            f"SELECT p.id FROM posts p WHERE {self._PAIRWISE_ELIGIBLE} ORDER BY RANDOM() LIMIT ?",  # noqa: S608
+            [clusters * 6],
+        )
+        seeds = [row[0] for row in self.cur.fetchall()]
+        used: set[int] = set()
+        pairs: list[tuple[int, int]] = []
+        for seed in seeds:
+            if len(pairs) >= count:
+                break
+            if seed in used:
+                continue
+            members = self._similar_cluster(seed, used)  # [(id, old_score)] in seed's KNN nbhd
+            member_ids = [pid for pid, _ in members]
+            cap = min(_SIMILAR_PAIRS_PER_CLUSTER, count - len(pairs))
+            pairs.extend(self._pair_by_silva_band(member_ids, used, cap))
+            used.add(seed)  # consumed as a centre — don't re-draw or re-pair it
+        return pairs[:count]
 
     async def sample_absolute_items(self, *, count: int, strategy: str, dimensions: list[str]) -> list[dict[str, Any]]:
         """Sample candidates with image fields — queue-less streaming annotation."""

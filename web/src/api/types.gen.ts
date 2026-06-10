@@ -371,7 +371,7 @@ export type PostFilterWithOrder = {
     /**
      * Order column.
      */
-    order_by?: 'id' | 'score' | 'rating' | 'created_at' | 'published_at' | 'file_name' | 'last_accessed_at' | 'updated_at' | 'waifu_score' | 'silva_score' | null;
+    order_by?: 'id' | 'score' | 'rating' | 'created_at' | 'published_at' | 'file_name' | 'last_accessed_at' | 'updated_at' | 'waifu_score' | 'silva_score' | 'discrepancy' | null;
     /**
      * Order direction.
      */
@@ -492,6 +492,16 @@ export type Result = {
 export type SampledPairPublic = {
     postA: QueueItemPostPublic;
     postB: QueueItemPostPublic;
+};
+
+/**
+ * PairwiseCountPublic
+ */
+export type PairwiseCountPublic = {
+    total: number;
+    decisive: number;
+    tie: number;
+    skip: number;
 };
 
 /**
@@ -2483,6 +2493,39 @@ export type V2SamplePairwiseResponses = {
 };
 
 export type V2SamplePairwiseResponse = V2SamplePairwiseResponses[keyof V2SamplePairwiseResponses];
+
+export type V2CountPairwiseData = {
+    body?: never;
+    path?: never;
+    query?: {
+        dimension?: string;
+    };
+    url: '/v2/annotations/pairwise/count';
+};
+
+export type V2CountPairwiseErrors = {
+    /**
+     * Validation Exception
+     */
+    400: {
+        status_code: number;
+        detail: string;
+        extra?: null | {
+            [key: string]: unknown;
+        } | Array<unknown>;
+    };
+};
+
+export type V2CountPairwiseError = V2CountPairwiseErrors[keyof V2CountPairwiseErrors];
+
+export type V2CountPairwiseResponses = {
+    /**
+     * Request fulfilled, document follows
+     */
+    200: PairwiseCountPublic;
+};
+
+export type V2CountPairwiseResponse = V2CountPairwiseResponses[keyof V2CountPairwiseResponses];
 
 export type V2SubmitAbsoluteData = {
     body: AbsoluteBatchIn;

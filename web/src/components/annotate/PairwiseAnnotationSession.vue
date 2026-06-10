@@ -2,7 +2,7 @@
 import type { QueueItemPostPublic, QueueSummaryPublic } from '@/api'
 import { onKeyStroke } from '@vueuse/core'
 import { computed, ref, watch } from 'vue'
-import { v2NextPairwise, v2SamplePairwise, v2SubmitPairwise } from '@/api'
+import { v2CountPairwise, v2NextPairwise, v2SamplePairwise, v2SubmitPairwise } from '@/api'
 import { useAPIError } from '@/composables/useAPIError'
 import { getPostImageURL } from '@/utils'
 
@@ -14,7 +14,7 @@ interface BufferItem {
 
 // queue 与 dimension 二选一：有 queue 走固定批次，否则按 dimension 流式采样。
 // strategy 仅流式有效：similar = 内容相似 + 旧分相近的对子（默认），random = 全库随机。
-const props = defineProps<{ queue?: QueueSummaryPublic, dimension?: string, strategy?: 'random' | 'similar' }>()
+const props = defineProps<{ queue?: QueueSummaryPublic, dimension?: string, strategy?: 'random' | 'similar' | 'close' }>()
 const emit = defineEmits<{ exit: [] }>()
 
 const { handle: handleAPIError } = useAPIError()
@@ -24,7 +24,25 @@ const dimension = computed(() => props.queue?.dimensions[0] ?? props.dimension ?
 
 const buffer = ref<BufferItem[]>([])
 const doneCount = ref(props.queue?.done ?? 0)
-const totalLabel = computed(() => (props.queue ? `${doneCount.value} / ${props.queue.total}` : `本次已判 ${doneCount.value}`))
+// 该维度数据库累计已判（decisive + tie，skip 不计）；流式模式下顶栏展示进度感。
+const cumulativeCount = ref<number | null>(null)
+const totalLabel = computed(() => {
+  if (props.queue) {
+    return `${doneCount.value} / ${props.queue.total}`
+  }
+  const cum = cumulativeCount.value == null ? '' : ` · 累计 ${cumulativeCount.value}`
+  return `本次 ${doneCount.value}${cum}`
+})
+
+async function refreshCumulative() {
+  try {
+    const resp = await v2CountPairwise({ query: { dimension: dimension.value } })
+    cumulativeCount.value = resp.data?.total ?? 0
+  }
+  catch {
+    // 计数非关键，失败静默，不打断标注
+  }
+}
 const exhausted = ref(false)
 const submitting = ref(false)
 const current = computed(() => buffer.value[0] ?? null)
@@ -107,6 +125,9 @@ async function judge(winner: 'a' | 'b' | 'tie' | 'skip') {
     })
     buffer.value.shift()
     doneCount.value += 1
+    if (winner !== 'skip' && cumulativeCount.value != null) {
+      cumulativeCount.value += 1 // 乐观递增，与后端 total（decisive+tie）口径一致
+    }
     shownAt = performance.now()
     preloadAhead()
     await refill()
@@ -139,6 +160,7 @@ watch(() => [props.queue?.id, props.dimension] as const, () => {
   doneCount.value = props.queue?.done ?? 0
   shownAt = performance.now()
   refill()
+  refreshCumulative()
 }, { immediate: true })
 
 const title = computed(() => props.queue?.name ?? '流式对比')

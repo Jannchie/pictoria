@@ -204,6 +204,11 @@ function formatSortValue(v: number | string): SortBadge | undefined {
       const n = Number(v) * 10
       return { text: n.toFixed(2), color: `rgb(${waifuLevelRgb(n)})` }
     }
+    // |silva − manual| on the 1-5 scale: bigger means model & human disagree
+    // more. Flagged amber/red so the worst offenders pop in the grid.
+    case 'discrepancy': {
+      return { text: Number(v).toFixed(2), color: 'rgb(248 113 113)' }
+    }
     case 'created_at':
     case 'published_at':
     case 'updated_at':

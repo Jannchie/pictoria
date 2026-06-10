@@ -307,6 +307,16 @@ class PostQueryService:
                                     "ON pas_silva.post_id = p.id AND pas_silva.scorer = 'silva'",
                                 )
                             select_cols += ", pas_silva.score AS _sort_col"
+                        elif f.order_by == "discrepancy":
+                            if not any("pas_silva" in j for j in joins):
+                                extra_joins.append(
+                                    "LEFT JOIN post_aesthetic_scores pas_silva "
+                                    "ON pas_silva.post_id = p.id AND pas_silva.scorer = 'silva'",
+                                )
+                            select_cols += (
+                                ", CASE WHEN p.score >= 1 AND pas_silva.score IS NOT NULL "
+                                "THEN ABS(pas_silva.score * 4.0 + 1.0 - p.score) END AS _sort_col"
+                            )
                         else:
                             select_cols += f", p.{f.order_by} AS _sort_col"
                         resort_dir = "ASC" if f.sort_direction == "asc" else "DESC"
@@ -334,6 +344,19 @@ class PostQueryService:
                             )
                         select_cols += ", pas_silva.score AS _sort_col"
                         order_sql = f"ORDER BY pas_silva.score {direction} NULLS LAST{tiebreak}"
+                    elif f.order_by == "discrepancy":
+                        # |silva − manual| on the 1-5 scale; NULL (sunk last) for
+                        # posts without a manual score (0/NULL) or no silva score.
+                        if not any("pas_silva" in j for j in joins):
+                            extra_joins.append(
+                                "LEFT JOIN post_aesthetic_scores pas_silva "
+                                "ON pas_silva.post_id = p.id AND pas_silva.scorer = 'silva'",
+                            )
+                        select_cols += (
+                            ", CASE WHEN p.score >= 1 AND pas_silva.score IS NOT NULL "
+                            "THEN ABS(pas_silva.score * 4.0 + 1.0 - p.score) END AS _sort_col"
+                        )
+                        order_sql = f"ORDER BY _sort_col {direction} NULLS LAST{tiebreak}"
                     else:
                         if f.order_by != "id":
                             select_cols += f", p.{f.order_by} AS _sort_col"

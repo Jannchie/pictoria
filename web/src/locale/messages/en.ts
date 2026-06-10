@@ -111,6 +111,7 @@ const en = {
     fileName: 'File name',
     waifuScore: 'Waifu score',
     silvaScore: 'SILVA score',
+    discrepancy: 'Discrepancy (model vs me)',
     asc: 'Asc',
     desc: 'Desc',
     sortColor: 'Sort Color',

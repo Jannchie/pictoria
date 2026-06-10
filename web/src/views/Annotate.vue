@@ -13,7 +13,7 @@ const { handle: handleAPIError } = useAPIError()
 type Session
   = | { mode: 'queue', queue: QueueSummaryPublic }
     | { mode: 'stream-absolute', config: StreamConfig }
-    | { mode: 'stream-pairwise', dimension: string, strategy: 'random' | 'similar' }
+    | { mode: 'stream-pairwise', dimension: string, strategy: 'random' | 'similar' | 'close' }
 
 const session = ref<Session | null>(null)
 
@@ -51,7 +51,7 @@ const form = ref({
   dimensions: ['overall'] as string[],
   scale: 2,
   strategy: 'stratified' as 'random' | 'stratified', // 单图评分采样
-  pairwiseStrategy: 'similar' as 'random' | 'similar', // 双图对比配对
+  pairwiseStrategy: 'close' as 'random' | 'similar' | 'close', // 双图对比配对：默认难分对（量产边界燃料）
 })
 const canStart = computed(() => form.value.dimensions.length > 0)
 
@@ -80,7 +80,8 @@ const STRATEGIES = [
   { value: 'random' as const, label: '随机', hint: '全库均匀' },
 ]
 const PAIRWISE_STRATEGIES = [
-  { value: 'similar' as const, label: '相似配对', hint: '同题材 + 旧分相近：比较更公平也更有信息量' },
+  { value: 'close' as const, label: '难分对', hint: '同题材 + 模型分相近：聚焦模型拿不准的边界对（量产训练燃料，主推）' },
+  { value: 'similar' as const, label: '相似配对', hint: '中立配对——留作评估/重测，不受模型偏置' },
   { value: 'random' as const, label: '随机', hint: '全库随机两两组合' },
 ]
 

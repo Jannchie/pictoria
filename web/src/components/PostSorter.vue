@@ -7,7 +7,7 @@ const { t } = useI18n()
 
 // Labels stored as message keys so a locale switch re-renders them.
 const sortOptions: {
-  id: 'created_at' | 'published_at' | 'updated_at' | 'score' | 'rating' | 'file_name' | 'waifu_score' | 'silva_score'
+  id: 'created_at' | 'published_at' | 'updated_at' | 'score' | 'rating' | 'file_name' | 'waifu_score' | 'silva_score' | 'discrepancy'
   labelKey: string
   icon: string
 }[] = [
@@ -19,6 +19,7 @@ const sortOptions: {
   { id: 'file_name', labelKey: 'sort.fileName', icon: 'i-tabler-file' },
   { id: 'waifu_score', labelKey: 'sort.waifuScore', icon: 'i-tabler-heart' },
   { id: 'silva_score', labelKey: 'sort.silvaScore', icon: 'i-tabler-rosette' },
+  { id: 'discrepancy', labelKey: 'sort.discrepancy', icon: 'i-tabler-git-compare' },
 ]
 
 const orderOptions: {

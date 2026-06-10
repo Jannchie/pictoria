@@ -99,6 +99,13 @@ class SampledPairPublic(DTOBaseModel):
     post_b: QueueItemPostPublic
 
 
+class PairwiseCountPublic(DTOBaseModel):
+    total: int  # decisive + tie (judged pairs; skips excluded)
+    decisive: int  # a/b verdicts
+    tie: int
+    skip: int
+
+
 def _validate_absolute(e: AbsoluteEventIn) -> None:
     if e.dimension not in VALID_DIMENSIONS:
         msg = f"invalid dimension: {e.dimension!r}"
@@ -221,6 +228,18 @@ class AnnotationController(Controller):
             raise ValidationException(msg)
         items = await annotation_queues.sample_pairwise_items(count=limit, strategy=strategy)
         return [SampledPairPublic(post_a=post_from_row(r, "a_"), post_b=post_from_row(r, "b_")) for r in items]
+
+    @litestar.get(
+        "/pairwise/count",
+        status_code=200,
+        description="Cumulative pairwise judgement counts for a dimension (total = decisive + tie, skips excluded).",
+    )
+    async def count_pairwise(self, annotations: AnnotationRepo, dimension: str = "overall") -> PairwiseCountPublic:
+        if dimension not in VALID_DIMENSIONS:
+            msg = f"invalid dimension: {dimension!r}"
+            raise ValidationException(msg)
+        c = await annotations.count_pairwise(dimension)
+        return PairwiseCountPublic(total=c["total"], decisive=c["decisive"], tie=c["tie"], skip=c["skip"])
 
     @litestar.get("/post/{post_id:int}", status_code=200, description="Full annotation history for a post.")
     async def post_history(self, annotations: AnnotationRepo, post_id: int) -> PostAnnotationsPublic:

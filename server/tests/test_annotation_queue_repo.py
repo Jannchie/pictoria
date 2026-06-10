@@ -146,6 +146,39 @@ async def test_sample_pairs_similar_respects_score_band(db: DB, queues: Annotati
             assert abs(score[a] - score[b]) <= 1
 
 
+def _seed_silva(db: DB, scores: dict[int, float]) -> None:
+    cur = db.cursor()
+    cur.execute("DELETE FROM post_aesthetic_scores")  # drop conftest's preset (4->0.4, 5->0.9) so the test fully controls the band
+    for pid, s in scores.items():
+        cur.execute("INSERT INTO post_aesthetic_scores (post_id, scorer, score) VALUES (?, 'silva', ?)", [pid, s])
+
+
+async def test_sample_pairs_close_pairs_by_silva_band(db: DB, queues: AnnotationQueueRepo) -> None:
+    # All five are mutual neighbours (orthogonal embeddings), so pairing is driven by
+    # the SILVA score gap, not the human band: 1/2/3 cluster near 0.5 and 4/5 near 0.9.
+    # Sorted by silva [1:.50, 3:.51, 2:.52, 4:.90, 5:.91] greedy-adjacent yields (1,3)
+    # and (4,5); 2 is stranded (its only remaining neighbour 4 is 0.38 away > 0.10).
+    _seed_distinct_embeddings(db, [1, 2, 3, 4, 5])
+    silva = {1: 0.50, 2: 0.52, 3: 0.51, 4: 0.90, 5: 0.91}
+    _seed_silva(db, silva)
+    pairs = await queues.sample_pairs(count=2, strategy="close")
+    assert len(pairs) == 2
+    flat = [p for pair in pairs for p in pair]
+    assert len(flat) == len(set(flat))  # disjoint
+    for a, b in pairs:
+        assert a != b
+        assert abs(silva[a] - silva[b]) <= 0.10  # only model-close (boundary) pairs emitted
+
+
+async def test_sample_pairs_close_skips_posts_without_silva(db: DB, queues: AnnotationQueueRepo) -> None:
+    # Only 1 & 2 have a (close) SILVA score; the rest are unscored and must be skipped,
+    # so the single in-band pair (1,2) is all that can be formed.
+    _seed_distinct_embeddings(db, [1, 2, 3, 4, 5])
+    _seed_silva(db, {1: 0.40, 2: 0.45})
+    pairs = await queues.sample_pairs(count=5, strategy="close")
+    assert pairs == [(1, 2)] or pairs == [(2, 1)]
+
+
 async def test_sample_absolute_items_carry_image_fields(db: DB, queues: AnnotationQueueRepo) -> None:
     _seed_embeddings(db, [1, 2])
     items = await queues.sample_absolute_items(count=10, strategy="random", dimensions=["color"])

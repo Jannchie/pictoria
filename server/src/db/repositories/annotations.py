@@ -95,6 +95,26 @@ class AnnotationRepo:
 
         return await asyncio.to_thread(_impl)
 
+    async def count_pairwise(self, dimension: str) -> dict[str, int]:
+        """Cumulative pairwise judgement counts for a dimension.
+
+        ``total`` is decisive (a/b) + tie — the judgements that carry signal;
+        skips are an empty-pool / sampling reaction, not a label, so they're
+        reported separately and excluded from ``total``.
+        """
+
+        def _impl() -> dict[str, int]:
+            self.cur.execute(
+                "SELECT winner, COUNT(*) FROM pairwise_annotations WHERE dimension = ? GROUP BY winner",
+                [dimension],
+            )
+            by = {winner: n for winner, n in self.cur.fetchall()}
+            decisive = by.get("a", 0) + by.get("b", 0)
+            tie = by.get("tie", 0)
+            return {"total": decisive + tie, "decisive": decisive, "tie": tie, "skip": by.get("skip", 0)}
+
+        return await asyncio.to_thread(_impl)
+
     async def latest_content_flag(self, post_id: int) -> ContentFlagEvent | None:
         def _impl() -> ContentFlagEvent | None:
             self.cur.execute(

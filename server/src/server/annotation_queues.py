@@ -22,7 +22,7 @@ from scheme import DTOBaseModel
 VALID_DIMENSIONS = {"color", "finish", "composition", "overall"}
 VALID_SCALES = {2, 3, 5}
 VALID_STRATEGIES = {"random", "stratified"}  # absolute sampling
-VALID_PAIRWISE_STRATEGIES = {"random", "similar"}  # pairwise sampling
+VALID_PAIRWISE_STRATEGIES = {"random", "similar", "close"}  # pairwise sampling
 
 
 class AbsoluteQueueCreate(Struct):

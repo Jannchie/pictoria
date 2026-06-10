@@ -108,6 +108,7 @@ const zhHans: MessageSchema = {
     fileName: '文件名',
     waifuScore: 'Waifu 评分',
     silvaScore: 'SILVA 评分',
+    discrepancy: '分歧（模型 vs 我）',
     asc: '升序',
     desc: '降序',
     sortColor: '按颜色排序',

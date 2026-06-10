@@ -66,6 +66,15 @@ async def test_insert_and_list_pairwise(annotations: AnnotationRepo) -> None:
     assert rows[0].winner == "a"
 
 
+async def test_count_pairwise(annotations: AnnotationRepo) -> None:
+    for winner in ("a", "b", "b", "tie", "skip"):
+        await annotations.insert_pairwise(post_a=1, post_b=2, dimension="overall", winner=winner, rubric_version="overall-v1", session_id="s1")
+    # a different dimension must not leak into the overall count
+    await annotations.insert_pairwise(post_a=1, post_b=2, dimension="color", winner="a", rubric_version="color-v1", session_id="s1")
+    c = await annotations.count_pairwise("overall")
+    assert c == {"total": 4, "decisive": 3, "tie": 1, "skip": 1}  # total = decisive + tie; skip excluded
+
+
 async def test_content_flag_latest(annotations: AnnotationRepo) -> None:
     assert await annotations.latest_content_flag(1) is None
     await annotations.insert_content_flag(post_id=1, flag="love", session_id="s1")
