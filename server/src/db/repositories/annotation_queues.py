@@ -14,7 +14,7 @@ import json
 from typing import TYPE_CHECKING, Any
 
 from db.entities import AnnotationQueue
-from db.helpers import fetch_all_dicts, fetch_one_as
+from db.helpers import fetch_all_dicts, fetch_one_as, sql_placeholders
 
 if TYPE_CHECKING:
     import sqlite3
@@ -174,7 +174,7 @@ class AnnotationQueueRepo:
         Oversamples 2x — the library's embedding coverage is near-total, so a
         single oversized draw is enough (no refill loop, YAGNI).
         """
-        dims_ph = ",".join("?" * len(dimensions))
+        dims_ph = sql_placeholders(dimensions)
         where = self._CANDIDATE_WHERE.format(dims=dims_ph)
         self.cur.execute(
             f"SELECT p.id FROM posts p WHERE {where} {extra_where} ORDER BY RANDOM() LIMIT ?",  # noqa: S608
@@ -198,8 +198,12 @@ class AnnotationQueueRepo:
                         return picked[:count]
                 fill = count - len(picked)
                 if fill > 0:
-                    not_in = ",".join("?" * len(picked)) or "NULL"
-                    picked += self._draw(extra_where=f"AND p.id NOT IN ({not_in})", extra_params=list(picked), dimensions=dimensions, n=fill)
+                    # Omit the NOT IN clause entirely when nothing was picked:
+                    # ``id NOT IN (NULL)`` is NULL for every row under SQL
+                    # three-valued logic, which silently excluded *everything*
+                    # and returned an empty fill on all-unscored libraries.
+                    not_in = f"AND p.id NOT IN ({sql_placeholders(picked)})" if picked else ""
+                    picked += self._draw(extra_where=not_in, extra_params=list(picked), dimensions=dimensions, n=fill)
                 return picked
             return self._draw(extra_where="", extra_params=[], dimensions=dimensions, n=count)
 
@@ -291,7 +295,7 @@ class AnnotationQueueRepo:
             for pid, dist in self.cur.fetchall()
             if pid != seed and dist >= _SIMILAR_MIN_DISTANCE and pid not in used
         ]
-        ph = ",".join("?" * len(member_ids))
+        ph = sql_placeholders(member_ids)
         self.cur.execute(
             f"SELECT p.id, p.score FROM posts p WHERE p.id IN ({ph}) AND {self._PAIRWISE_ELIGIBLE}",  # noqa: S608
             member_ids,
@@ -341,12 +345,12 @@ class AnnotationQueueRepo:
         """``post_id -> SILVA calibrated_score`` for ``ids`` (ids with no score dropped)."""
         if not ids:
             return {}
-        ph = ",".join("?" * len(ids))
+        ph = sql_placeholders(ids)
         self.cur.execute(
             f"SELECT post_id, score FROM post_aesthetic_scores WHERE scorer = 'silva' AND post_id IN ({ph})",  # noqa: S608
             ids,
         )
-        return {pid: score for pid, score in self.cur.fetchall()}
+        return dict(self.cur.fetchall())
 
     def _pair_by_silva_band(self, member_ids: list[int], used: set[int], cap: int) -> list[tuple[int, int]]:
         """Greedily pair cluster members the SILVA head scores CLOSE into disjoint pairs.
@@ -407,7 +411,7 @@ class AnnotationQueueRepo:
             return []
 
         def _impl() -> list[dict[str, Any]]:
-            ph = ",".join("?" * len(ids))
+            ph = sql_placeholders(ids)
             self.cur.execute(
                 f"SELECT {_aliased_post_cols('p', '')} FROM posts p WHERE p.id IN ({ph})",  # noqa: S608
                 ids,
