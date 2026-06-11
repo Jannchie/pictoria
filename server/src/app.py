@@ -88,14 +88,13 @@ async def my_lifespan(app: Litestar):
         run_migrations(db.cursor(), MIGRATIONS_DIR)
 
         # One-shot upsert of the five canonical tag groups; cache the resulting
-        # name -> id map so every /download-from-danbooru request can skip the
-        # five INSERT-then-SELECT round-trips it would otherwise repeat. Also
-        # populate ``shared.canonical_tag_groups`` so the backfill workers
-        # (which don't see ``app.state``) can read the same cache.
+        # name -> id map in ``shared.canonical_tag_groups`` (the single source —
+        # request handlers and the backfill workers both read it) so every
+        # /download-from-danbooru request can skip the five INSERT-then-SELECT
+        # round-trips it would otherwise repeat.
         setup_cur = db.cursor()
         try:
-            app.state.canonical_tag_groups = ensure_canonical_tag_groups_sync(setup_cur)
-            shared.canonical_tag_groups = app.state.canonical_tag_groups
+            shared.canonical_tag_groups = ensure_canonical_tag_groups_sync(setup_cur)
         finally:
             setup_cur.close()
 

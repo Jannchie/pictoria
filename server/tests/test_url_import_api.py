@@ -45,13 +45,16 @@ POLL_DEADLINE = 10.0
 @pytest.fixture
 def api_client(db: DB, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Iterator[TestClient]:
     monkeypatch.setattr(shared, "target_dir", tmp_path)
+    # The endpoint reads the canonical-group cache from ``shared`` (the single
+    # source — see app.py's lifespan); monkeypatch restores the empty dict
+    # after the test so state can't leak between tests.
+    monkeypatch.setattr(shared, "canonical_tag_groups", {"artist": 1, "general": 2})
 
     @asynccontextmanager
     async def _lifespan(app: Litestar):
         app.state.db = db
         app.state.background_tasks = set()
         app.state.backfill_lock = asyncio.Lock()
-        app.state.canonical_tag_groups = {"artist": 1, "general": 2}
         app.state.url_import_status = UrlImportStatus()
         yield
 

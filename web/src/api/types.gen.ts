@@ -183,6 +183,16 @@ export type PairwiseAnnotationPublic = {
 };
 
 /**
+ * PairwiseCountPublic
+ */
+export type PairwiseCountPublic = {
+    total: number;
+    decisive: number;
+    tie: number;
+    skip: number;
+};
+
+/**
  * PairwiseEventIn
  */
 export type PairwiseEventIn = {
@@ -492,16 +502,6 @@ export type Result = {
 export type SampledPairPublic = {
     postA: QueueItemPostPublic;
     postB: QueueItemPostPublic;
-};
-
-/**
- * PairwiseCountPublic
- */
-export type PairwiseCountPublic = {
-    total: number;
-    decisive: number;
-    tie: number;
-    skip: number;
 };
 
 /**
@@ -1712,20 +1712,6 @@ export type V2AutoCaptionResponses = {
 
 export type V2AutoCaptionResponse = V2AutoCaptionResponses[keyof V2AutoCaptionResponses];
 
-export type V2AutoSilvaScorerData = {
-    body?: never;
-    path?: never;
-    query?: never;
-    url: '/v2/cmd/silva-scorer';
-};
-
-export type V2AutoSilvaScorerResponses = {
-    /**
-     * Request fulfilled, document follows
-     */
-    200: unknown;
-};
-
 export type V2AutoTagsData = {
     body?: never;
     path: {
@@ -1758,50 +1744,6 @@ export type V2AutoTagsResponses = {
 };
 
 export type V2AutoTagsResponse = V2AutoTagsResponses[keyof V2AutoTagsResponses];
-
-export type V2AutoTagsAllData = {
-    body?: never;
-    path?: never;
-    query?: never;
-    url: '/v2/cmd/auto-tags';
-};
-
-export type V2AutoTagsAllResponses = {
-    /**
-     * Request fulfilled, document follows
-     */
-    200: unknown;
-};
-
-export type V2AutoWaifuScorerData = {
-    body?: never;
-    path?: never;
-    query?: never;
-    url: '/v2/cmd/waifu-scorer';
-};
-
-export type V2AutoWaifuScorerResponses = {
-    /**
-     * Request fulfilled, document follows
-     */
-    200: unknown;
-};
-
-export type V2CalculateEmbeddingData = {
-    body?: never;
-    path?: never;
-    query?: never;
-    url: '/v2/cmd/posts/embedding';
-};
-
-export type V2CalculateEmbeddingResponses = {
-    /**
-     * Document created, URL follows
-     */
-    201: Result;
-};
-
-export type V2CalculateEmbeddingResponse = V2CalculateEmbeddingResponses[keyof V2CalculateEmbeddingResponses];
 
 export type V2DbSnapshotData = {
     body?: never;
@@ -2392,6 +2334,39 @@ export type V2GetWaifuScorerStatisticsResponses = {
 
 export type V2GetWaifuScorerStatisticsResponse = V2GetWaifuScorerStatisticsResponses[keyof V2GetWaifuScorerStatisticsResponses];
 
+export type V2CountPairwiseData = {
+    body?: never;
+    path?: never;
+    query?: {
+        dimension?: string;
+    };
+    url: '/v2/annotations/pairwise/count';
+};
+
+export type V2CountPairwiseErrors = {
+    /**
+     * Validation Exception
+     */
+    400: {
+        status_code: number;
+        detail: string;
+        extra?: null | {
+            [key: string]: unknown;
+        } | Array<unknown>;
+    };
+};
+
+export type V2CountPairwiseError = V2CountPairwiseErrors[keyof V2CountPairwiseErrors];
+
+export type V2CountPairwiseResponses = {
+    /**
+     * Request fulfilled, document follows
+     */
+    200: PairwiseCountPublic;
+};
+
+export type V2CountPairwiseResponse = V2CountPairwiseResponses[keyof V2CountPairwiseResponses];
+
 export type V2PostHistoryData = {
     body?: never;
     path: {
@@ -2493,39 +2468,6 @@ export type V2SamplePairwiseResponses = {
 };
 
 export type V2SamplePairwiseResponse = V2SamplePairwiseResponses[keyof V2SamplePairwiseResponses];
-
-export type V2CountPairwiseData = {
-    body?: never;
-    path?: never;
-    query?: {
-        dimension?: string;
-    };
-    url: '/v2/annotations/pairwise/count';
-};
-
-export type V2CountPairwiseErrors = {
-    /**
-     * Validation Exception
-     */
-    400: {
-        status_code: number;
-        detail: string;
-        extra?: null | {
-            [key: string]: unknown;
-        } | Array<unknown>;
-    };
-};
-
-export type V2CountPairwiseError = V2CountPairwiseErrors[keyof V2CountPairwiseErrors];
-
-export type V2CountPairwiseResponses = {
-    /**
-     * Request fulfilled, document follows
-     */
-    200: PairwiseCountPublic;
-};
-
-export type V2CountPairwiseResponse = V2CountPairwiseResponses[keyof V2CountPairwiseResponses];
 
 export type V2SubmitAbsoluteData = {
     body: AbsoluteBatchIn;

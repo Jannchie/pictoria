@@ -20,7 +20,7 @@ from db.repositories.annotations import AnnotationRepo
 from db.repositories.posts import PostRepo
 from db.repositories.scores import ScoreRepo
 from db.repositories.tags import TagGroupRepo, TagRepo
-from db.repositories.vectors import VectorRepo
+from db.repositories.vectors import SIGLIP2_DIM, SIGLIP2_TABLE, VectorRepo
 from services.intake import UploadIntake
 
 if TYPE_CHECKING:
@@ -30,9 +30,6 @@ if TYPE_CHECKING:
     from litestar.datastructures import State
 
 T = TypeVar("T")
-
-SIGLIP2_TABLE = "post_vectors_siglip2"
-SIGLIP2_DIM = 1152
 
 
 def _cursor_scoped(make: Callable[[sqlite3.Cursor], T]) -> Callable[[State], AsyncGenerator[T, None]]:

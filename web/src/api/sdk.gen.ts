@@ -2,8 +2,7 @@
 
 import { type Client, formDataBodySerializer, type Options as Options2, type TDataShape } from './client';
 import { client } from './client.gen';
-import type { V2CountPairwiseData, V2CountPairwiseErrors, V2CountPairwiseResponses } from './types.gen';
-import type { V2AddTagToPostData, V2AddTagToPostErrors, V2AddTagToPostResponses, V2AutoCaptionData, V2AutoCaptionErrors, V2AutoCaptionResponses, V2AutoSilvaScorerData, V2AutoSilvaScorerResponses, V2AutoTagsAllData, V2AutoTagsAllResponses, V2AutoTagsData, V2AutoTagsErrors, V2AutoTagsResponses, V2AutoWaifuScorerData, V2AutoWaifuScorerResponses, V2BulkUpdatePostRatingData, V2BulkUpdatePostRatingErrors, V2BulkUpdatePostRatingResponses, V2BulkUpdatePostScoreData, V2BulkUpdatePostScoreErrors, V2BulkUpdatePostScoreResponses, V2CalculateEmbeddingData, V2CalculateEmbeddingResponses, V2CreateAbsoluteData, V2CreateAbsoluteErrors, V2CreateAbsoluteResponses, V2CreatePairwiseData, V2CreatePairwiseErrors, V2CreatePairwiseResponses, V2CreateTagData, V2CreateTagErrors, V2CreateTagResponses, V2DbSnapshotData, V2DbSnapshotResponses, V2DeleteFolderData, V2DeleteFolderErrors, V2DeleteFolderResponses, V2DeletePostsData, V2DeletePostsErrors, V2DeletePostsResponses, V2DeleteTagData, V2DeleteTagErrors, V2DeleteTagResponses, V2DeleteTagsData, V2DeleteTagsErrors, V2DeleteTagsResponses, V2DownloadFromDanbooruData, V2DownloadFromDanbooruErrors, V2DownloadFromDanbooruResponses, V2GenerateAbsoluteData, V2GenerateAbsoluteErrors, V2GenerateAbsoluteResponses, V2GeneratePairwiseData, V2GeneratePairwiseErrors, V2GeneratePairwiseResponses, V2GetExtensionCountData, V2GetExtensionCountErrors, V2GetExtensionCountResponses, V2GetFoldersData, V2GetFoldersResponses, V2GetOriginalByIdData, V2GetOriginalByIdErrors, V2GetOriginalByIdResponses, V2GetOriginalData, V2GetOriginalErrors, V2GetOriginalResponses, V2GetPostData, V2GetPostErrors, V2GetPostGroupData, V2GetPostGroupErrors, V2GetPostGroupResponses, V2GetPostResponses, V2GetPostsCountData, V2GetPostsCountErrors, V2GetPostsCountResponses, V2GetPostsStatsData, V2GetPostsStatsErrors, V2GetPostsStatsResponses, V2GetRatingCountData, V2GetRatingCountErrors, V2GetRatingCountResponses, V2GetScoreCountData, V2GetScoreCountErrors, V2GetScoreCountResponses, V2GetSilvaBucketCountData, V2GetSilvaBucketCountErrors, V2GetSilvaBucketCountResponses, V2GetSilvaScorerOneData, V2GetSilvaScorerOneErrors, V2GetSilvaScorerOneResponses, V2GetSimilarPostsData, V2GetSimilarPostsErrors, V2GetSimilarPostsResponses, V2GetTagCountData, V2GetTagCountErrors, V2GetTagCountResponses, V2GetThumbnailByIdData, V2GetThumbnailByIdErrors, V2GetThumbnailByIdResponses, V2GetThumbnailData, V2GetThumbnailErrors, V2GetThumbnailResponses, V2GetWaifuBucketCountData, V2GetWaifuBucketCountErrors, V2GetWaifuBucketCountResponses, V2GetWaifuScorerOneData, V2GetWaifuScorerOneErrors, V2GetWaifuScorerOneResponses, V2GetWaifuScorerStatisticsData, V2GetWaifuScorerStatisticsResponses, V2GroupDuplicatesData, V2GroupDuplicatesErrors, V2GroupDuplicatesResponses, V2ImportFromUrlEndpointData, V2ImportFromUrlEndpointErrors, V2ImportFromUrlEndpointResponses, V2ImportFromUrlStatusData, V2ImportFromUrlStatusResponses, V2ListPostsData, V2ListPostsErrors, V2ListPostsResponses, V2ListQueuesData, V2ListQueuesResponses, V2ListTagGroupData, V2ListTagGroupResponses, V2ListTagsData, V2ListTagsErrors, V2ListTagsResponses, V2MakePostCanonicalData, V2MakePostCanonicalErrors, V2MakePostCanonicalResponses, V2NextAbsoluteData, V2NextAbsoluteErrors, V2NextAbsoluteResponses, V2NextPairwiseData, V2NextPairwiseErrors, V2NextPairwiseResponses, V2PostHistoryData, V2PostHistoryErrors, V2PostHistoryResponses, V2RemoveTagFromPostData, V2RemoveTagFromPostErrors, V2RemoveTagFromPostResponses, V2RotatePostImageData, V2RotatePostImageErrors, V2RotatePostImageResponses, V2SampleAbsoluteData, V2SampleAbsoluteErrors, V2SampleAbsoluteResponses, V2SamplePairwiseData, V2SamplePairwiseErrors, V2SamplePairwiseResponses, V2SearchPostsByTextData, V2SearchPostsByTextErrors, V2SearchPostsByTextResponses, V2SearchPostsData, V2SearchPostsErrors, V2SearchPostsResponses, V2SubmitAbsoluteData, V2SubmitAbsoluteErrors, V2SubmitAbsoluteResponses, V2SubmitContentFlagData, V2SubmitContentFlagErrors, V2SubmitContentFlagResponses, V2SubmitPairwiseData, V2SubmitPairwiseErrors, V2SubmitPairwiseResponses, V2SyncMetadataEndpointData, V2SyncMetadataEndpointResponses, V2TouchPostData, V2TouchPostErrors, V2TouchPostResponses, V2UngroupPostData, V2UngroupPostErrors, V2UngroupPostResponses, V2UpdatePostCaptionData, V2UpdatePostCaptionErrors, V2UpdatePostCaptionResponses, V2UpdatePostRatingData, V2UpdatePostRatingErrors, V2UpdatePostRatingResponses, V2UpdatePostScoreData, V2UpdatePostScoreErrors, V2UpdatePostScoreResponses, V2UpdatePostSourceData, V2UpdatePostSourceErrors, V2UpdatePostSourceResponses, V2UpdateTagData, V2UpdateTagErrors, V2UpdateTagResponses, V2UploadFileData, V2UploadFileErrors, V2UploadFileResponses } from './types.gen';
+import type { V2AddTagToPostData, V2AddTagToPostErrors, V2AddTagToPostResponses, V2AutoCaptionData, V2AutoCaptionErrors, V2AutoCaptionResponses, V2AutoTagsData, V2AutoTagsErrors, V2AutoTagsResponses, V2BulkUpdatePostRatingData, V2BulkUpdatePostRatingErrors, V2BulkUpdatePostRatingResponses, V2BulkUpdatePostScoreData, V2BulkUpdatePostScoreErrors, V2BulkUpdatePostScoreResponses, V2CountPairwiseData, V2CountPairwiseErrors, V2CountPairwiseResponses, V2CreateAbsoluteData, V2CreateAbsoluteErrors, V2CreateAbsoluteResponses, V2CreatePairwiseData, V2CreatePairwiseErrors, V2CreatePairwiseResponses, V2CreateTagData, V2CreateTagErrors, V2CreateTagResponses, V2DbSnapshotData, V2DbSnapshotResponses, V2DeleteFolderData, V2DeleteFolderErrors, V2DeleteFolderResponses, V2DeletePostsData, V2DeletePostsErrors, V2DeletePostsResponses, V2DeleteTagData, V2DeleteTagErrors, V2DeleteTagResponses, V2DeleteTagsData, V2DeleteTagsErrors, V2DeleteTagsResponses, V2DownloadFromDanbooruData, V2DownloadFromDanbooruErrors, V2DownloadFromDanbooruResponses, V2GenerateAbsoluteData, V2GenerateAbsoluteErrors, V2GenerateAbsoluteResponses, V2GeneratePairwiseData, V2GeneratePairwiseErrors, V2GeneratePairwiseResponses, V2GetExtensionCountData, V2GetExtensionCountErrors, V2GetExtensionCountResponses, V2GetFoldersData, V2GetFoldersResponses, V2GetOriginalByIdData, V2GetOriginalByIdErrors, V2GetOriginalByIdResponses, V2GetOriginalData, V2GetOriginalErrors, V2GetOriginalResponses, V2GetPostData, V2GetPostErrors, V2GetPostGroupData, V2GetPostGroupErrors, V2GetPostGroupResponses, V2GetPostResponses, V2GetPostsCountData, V2GetPostsCountErrors, V2GetPostsCountResponses, V2GetPostsStatsData, V2GetPostsStatsErrors, V2GetPostsStatsResponses, V2GetRatingCountData, V2GetRatingCountErrors, V2GetRatingCountResponses, V2GetScoreCountData, V2GetScoreCountErrors, V2GetScoreCountResponses, V2GetSilvaBucketCountData, V2GetSilvaBucketCountErrors, V2GetSilvaBucketCountResponses, V2GetSilvaScorerOneData, V2GetSilvaScorerOneErrors, V2GetSilvaScorerOneResponses, V2GetSimilarPostsData, V2GetSimilarPostsErrors, V2GetSimilarPostsResponses, V2GetTagCountData, V2GetTagCountErrors, V2GetTagCountResponses, V2GetThumbnailByIdData, V2GetThumbnailByIdErrors, V2GetThumbnailByIdResponses, V2GetThumbnailData, V2GetThumbnailErrors, V2GetThumbnailResponses, V2GetWaifuBucketCountData, V2GetWaifuBucketCountErrors, V2GetWaifuBucketCountResponses, V2GetWaifuScorerOneData, V2GetWaifuScorerOneErrors, V2GetWaifuScorerOneResponses, V2GetWaifuScorerStatisticsData, V2GetWaifuScorerStatisticsResponses, V2GroupDuplicatesData, V2GroupDuplicatesErrors, V2GroupDuplicatesResponses, V2ImportFromUrlEndpointData, V2ImportFromUrlEndpointErrors, V2ImportFromUrlEndpointResponses, V2ImportFromUrlStatusData, V2ImportFromUrlStatusResponses, V2ListPostsData, V2ListPostsErrors, V2ListPostsResponses, V2ListQueuesData, V2ListQueuesResponses, V2ListTagGroupData, V2ListTagGroupResponses, V2ListTagsData, V2ListTagsErrors, V2ListTagsResponses, V2MakePostCanonicalData, V2MakePostCanonicalErrors, V2MakePostCanonicalResponses, V2NextAbsoluteData, V2NextAbsoluteErrors, V2NextAbsoluteResponses, V2NextPairwiseData, V2NextPairwiseErrors, V2NextPairwiseResponses, V2PostHistoryData, V2PostHistoryErrors, V2PostHistoryResponses, V2RemoveTagFromPostData, V2RemoveTagFromPostErrors, V2RemoveTagFromPostResponses, V2RotatePostImageData, V2RotatePostImageErrors, V2RotatePostImageResponses, V2SampleAbsoluteData, V2SampleAbsoluteErrors, V2SampleAbsoluteResponses, V2SamplePairwiseData, V2SamplePairwiseErrors, V2SamplePairwiseResponses, V2SearchPostsByTextData, V2SearchPostsByTextErrors, V2SearchPostsByTextResponses, V2SearchPostsData, V2SearchPostsErrors, V2SearchPostsResponses, V2SubmitAbsoluteData, V2SubmitAbsoluteErrors, V2SubmitAbsoluteResponses, V2SubmitContentFlagData, V2SubmitContentFlagErrors, V2SubmitContentFlagResponses, V2SubmitPairwiseData, V2SubmitPairwiseErrors, V2SubmitPairwiseResponses, V2SyncMetadataEndpointData, V2SyncMetadataEndpointResponses, V2TouchPostData, V2TouchPostErrors, V2TouchPostResponses, V2UngroupPostData, V2UngroupPostErrors, V2UngroupPostResponses, V2UpdatePostCaptionData, V2UpdatePostCaptionErrors, V2UpdatePostCaptionResponses, V2UpdatePostRatingData, V2UpdatePostRatingErrors, V2UpdatePostRatingResponses, V2UpdatePostScoreData, V2UpdatePostScoreErrors, V2UpdatePostScoreResponses, V2UpdatePostSourceData, V2UpdatePostSourceErrors, V2UpdatePostSourceResponses, V2UpdateTagData, V2UpdateTagErrors, V2UpdateTagResponses, V2UploadFileData, V2UploadFileErrors, V2UploadFileResponses } from './types.gen';
 
 export type Options<TData extends TDataShape = TDataShape, ThrowOnError extends boolean = boolean, TResponse = unknown> = Options2<TData, ThrowOnError, TResponse> & {
     /**
@@ -345,13 +344,6 @@ export const v2AutoCaption = <ThrowOnError extends boolean = false>(options: Opt
 });
 
 /**
- * AutoSilvaScorer
- *
- * Batch-score all posts that have a SigLIP2 embedding but no SILVA score.
- */
-export const v2AutoSilvaScorer = <ThrowOnError extends boolean = false>(options?: Options<V2AutoSilvaScorerData, ThrowOnError>) => (options?.client ?? client).put<V2AutoSilvaScorerResponses, unknown, ThrowOnError>({ url: '/v2/cmd/silva-scorer', ...options });
-
-/**
  * AutoTags
  *
  * Auto tag a post
@@ -359,31 +351,6 @@ export const v2AutoSilvaScorer = <ThrowOnError extends boolean = false>(options?
 export const v2AutoTags = <ThrowOnError extends boolean = false>(options: Options<V2AutoTagsData, ThrowOnError>) => (options.client ?? client).put<V2AutoTagsResponses, V2AutoTagsErrors, ThrowOnError>({
     responseType: 'json',
     url: '/v2/cmd/auto-tags/{post_id}',
-    ...options
-});
-
-/**
- * AutoTagsAll
- *
- * Batch auto-tag every post that hasn't been rated yet.
- */
-export const v2AutoTagsAll = <ThrowOnError extends boolean = false>(options?: Options<V2AutoTagsAllData, ThrowOnError>) => (options?.client ?? client).put<V2AutoTagsAllResponses, unknown, ThrowOnError>({ url: '/v2/cmd/auto-tags', ...options });
-
-/**
- * AutoWaifuScorer
- *
- * Batch-score all posts that don't have a waifu score.
- */
-export const v2AutoWaifuScorer = <ThrowOnError extends boolean = false>(options?: Options<V2AutoWaifuScorerData, ThrowOnError>) => (options?.client ?? client).put<V2AutoWaifuScorerResponses, unknown, ThrowOnError>({ url: '/v2/cmd/waifu-scorer', ...options });
-
-/**
- * CalculateEmbedding
- *
- * Calculate embedding for posts that don't have one yet
- */
-export const v2CalculateEmbedding = <ThrowOnError extends boolean = false>(options?: Options<V2CalculateEmbeddingData, ThrowOnError>) => (options?.client ?? client).post<V2CalculateEmbeddingResponses, unknown, ThrowOnError>({
-    responseType: 'json',
-    url: '/v2/cmd/posts/embedding',
     ...options
 });
 
@@ -622,6 +589,17 @@ export const v2GetWaifuScorerStatistics = <ThrowOnError extends boolean = false>
 });
 
 /**
+ * CountPairwise
+ *
+ * Cumulative pairwise judgement counts for a dimension (total = decisive + tie, skips excluded).
+ */
+export const v2CountPairwise = <ThrowOnError extends boolean = false>(options?: Options<V2CountPairwiseData, ThrowOnError>) => (options?.client ?? client).get<V2CountPairwiseResponses, V2CountPairwiseErrors, ThrowOnError>({
+    responseType: 'json',
+    url: '/v2/annotations/pairwise/count',
+    ...options
+});
+
+/**
  * PostHistory
  *
  * Full annotation history for a post.
@@ -651,17 +629,6 @@ export const v2SampleAbsolute = <ThrowOnError extends boolean = false>(options: 
 export const v2SamplePairwise = <ThrowOnError extends boolean = false>(options?: Options<V2SamplePairwiseData, ThrowOnError>) => (options?.client ?? client).get<V2SamplePairwiseResponses, V2SamplePairwiseErrors, ThrowOnError>({
     responseType: 'json',
     url: '/v2/annotations/sample-pairwise',
-    ...options
-});
-
-/**
- * CountPairwise
- *
- * Cumulative pairwise judgement counts for a dimension (total = decisive + tie, skips excluded).
- */
-export const v2CountPairwise = <ThrowOnError extends boolean = false>(options?: Options<V2CountPairwiseData, ThrowOnError>) => (options?.client ?? client).get<V2CountPairwiseResponses, V2CountPairwiseErrors, ThrowOnError>({
-    responseType: 'json',
-    url: '/v2/annotations/pairwise/count',
     ...options
 });
 

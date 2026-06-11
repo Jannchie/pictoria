@@ -1,5 +1,4 @@
 import asyncio
-import contextlib
 import sqlite3
 import tempfile
 from dataclasses import dataclass
@@ -122,46 +121,6 @@ class CommandController(Controller):
         await attach_wdtagger_results(posts, tag_group_repo, post_id, resp, is_auto=True)
         return PostDetailPublic.model_validate(await post_query.get_detail(post_id))
 
-    @litestar.put("/auto-tags")
-    async def auto_tags_all(self, posts: PostRepo, tag_group_repo: TagGroupRepo) -> None:
-        """Batch auto-tag every post that hasn't been rated yet."""
-        batch_size = 32
-        tagger = get_tagger()
-        last_id = 0
-
-        while True:
-
-            def _next_batch(_last_id: int = last_id) -> list[dict]:
-                posts.cur.execute(
-                    "SELECT id, file_path, file_name, extension FROM posts WHERE rating = 0 AND id > ? ORDER BY id LIMIT ?",
-                    [_last_id, batch_size],
-                )
-                cols = ["id", "file_path", "file_name", "extension"]
-                return [dict(zip(cols, r, strict=True)) for r in posts.cur.fetchall()]
-
-            batch = await asyncio.to_thread(_next_batch)
-            if not batch:
-                break
-            for row in batch:
-                abs_path = shared.target_dir / row["file_path"] / f"{row['file_name']}.{row['extension']}"
-                if not is_image(abs_path):
-                    continue
-                try:
-                    resp = await asyncio.to_thread(tagger.tag, abs_path)
-                    await posts.update_field(row["id"], "rating", from_rating_to_int(resp.rating))
-                    await attach_wdtagger_results(posts, tag_group_repo, row["id"], resp, is_auto=True)
-                except Exception:
-                    logger.exception(f"Failed to tag post {row['id']}")
-            last_id = batch[-1]["id"]
-            logger.info(f"Processed batch up to ID: {last_id}")
-
-    @litestar.put("/waifu-scorer")
-    async def auto_waifu_scorer(self, posts: PostRepo) -> None:
-        """Batch-score all posts that don't have a waifu score."""
-        from services.waifu import waifu_score_all_posts  # noqa: PLC0415  # lazy: defer ML stack load until first use
-
-        await waifu_score_all_posts(posts)
-
     @litestar.get("/waifu-scorer/{post_id:int}")
     async def get_waifu_scorer_one(self, posts: PostRepo, scores: ScoreRepo, post_id: int) -> float:
         """Compute (and persist) the waifu score for a single post."""
@@ -180,25 +139,6 @@ class CommandController(Controller):
         score = float(result[0]) if isinstance(result, (list, tuple)) else float(result)
         await scores.upsert_waifu_score(post_id, score)
         return score
-
-    @litestar.put("/silva-scorer")
-    async def auto_silva_scorer(self, state: State) -> None:
-        """Batch-score all posts that have a SigLIP2 embedding but no SILVA score."""
-        from processors import run_silva_worker  # noqa: PLC0415  # lazy: defer ML stack load
-        from progress import get_progress  # noqa: PLC0415
-
-        db: DB = state.db
-        conn = db.new_connection()
-        try:
-            with get_progress() as progress:
-                await run_silva_worker(
-                    PostRepo(conn.cursor()),
-                    VectorRepo(conn.cursor(), table="post_vectors_siglip2", dim=1152),
-                    progress=progress,
-                )
-        finally:
-            with contextlib.suppress(Exception):
-                conn.close()
 
     @litestar.get("/silva-scorer/{post_id:int}")
     async def get_silva_scorer_one(
@@ -234,30 +174,6 @@ class CommandController(Controller):
         await scores.upsert_aesthetic_score(post_id, SCORER_NAME, score)
         return score
 
-    @litestar.post("/posts/embedding", description="Calculate embedding for posts that don't have one yet")
-    async def calculate_embedding(
-        self,
-        posts: PostRepo,
-        vectors: VectorRepo,
-    ) -> Result:
-        ids = await vectors.list_missing_post_ids()
-        if not ids:
-            return Result(msg="Embedding already calculated.")
-        from server.utils.vec import get_image_vec  # noqa: PLC0415  # lazy: defer ML stack load until first use
-
-        done = 0
-        for pid in ids:
-            post = await posts.get(pid)
-            if not post or not is_image(post.absolute_path):
-                continue
-            try:
-                emb = await get_image_vec(post.absolute_path)
-                await vectors.upsert(pid, emb)
-                done += 1
-            except Exception:
-                logger.exception(f"Failed to calculate embedding for post {pid}")
-        return Result(msg=f"Calculated embedding for {done} posts.")
-
     @litestar.post("/download-from-danbooru", description="Download posts from Danbooru")
     async def download_from_danbooru(
         self,
@@ -267,7 +183,7 @@ class CommandController(Controller):
         """Download posts from Danbooru and persist them (see ``import_danbooru_posts``)."""
         return await import_danbooru_posts(
             client=state.danbooru_client,
-            type_to_group_id=state.canonical_tag_groups,
+            type_to_group_id=shared.canonical_tag_groups,
             db=state.db,
             tags=tags,
             executor=getattr(state, "io_executor", None),
@@ -305,7 +221,7 @@ class CommandController(Controller):
                     run_url_import,
                     url,
                     db=conn,
-                    type_to_group_id=state.canonical_tag_groups,
+                    type_to_group_id=shared.canonical_tag_groups,
                     apply=True,
                     config_path=_find_gallery_dl_conf(),
                 )
@@ -358,25 +274,34 @@ class CommandController(Controller):
         embedded post, so on a large library it runs for minutes): returns
         immediately and logs the member count when done. ``threshold`` overrides
         the default cosine-distance ceiling for tuning; smaller = stricter.
+
+        ``services.dedup.rebuild_lock`` serialises rebuilds: the check-then-spawn
+        below is race-free on the single event loop (same pattern as
+        ``sync-metadata``'s backfill_lock), so a double-POST — or a POST while
+        the backfill pipeline's post-embedding regroup is running — reports busy
+        instead of racing a second last-writer-wins rebuild.
         """
-        from services.dedup import DEFAULT_DEDUP_THRESHOLD, rebuild_groups  # noqa: PLC0415
+        from services.dedup import DEFAULT_DEDUP_THRESHOLD, rebuild_groups, rebuild_lock  # noqa: PLC0415
+
+        if rebuild_lock.locked():
+            return Result(msg="Near-duplicate grouping already running")
 
         db: DB = state.db
         thr = DEFAULT_DEDUP_THRESHOLD if threshold is None else threshold
 
         async def _run() -> None:
-            conn = db.new_connection()
-            try:
-                await rebuild_groups(
-                    PostRepo(conn.cursor()),
-                    VectorRepo(conn.cursor(), table="post_vectors_siglip2", dim=1152),
-                    threshold=thr,
-                )
-            except Exception:
-                logger.exception("Near-duplicate grouping failed")
-            finally:
-                with contextlib.suppress(Exception):
-                    conn.close()
+            async with rebuild_lock:
+                conn = db.new_connection()
+                try:
+                    await rebuild_groups(
+                        PostRepo(conn.cursor()),
+                        VectorRepo(conn.cursor()),
+                        threshold=thr,
+                    )
+                except Exception:
+                    logger.exception("Near-duplicate grouping failed")
+                finally:
+                    db.discard_connection(conn)
 
         _spawn_tracked(state, _run())
         return Result(msg=f"Near-duplicate grouping started (threshold={thr}).")
