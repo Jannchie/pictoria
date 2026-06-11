@@ -256,8 +256,13 @@ def build_where(f: PostFilter) -> tuple[list[str], list[Any], list[str]]:  # noq
         where.append(f"p.extension IN ({sql_placeholders(f.extension)})")
         params.extend(f.extension)
     if f.folder and f.folder != ".":
-        where.append("p.file_path GLOB ?")
-        params.append(f"{f.folder}*")
+        # Exact-prefix semantics, matching PostRepo.list_ids_in_folder: the
+        # folder itself or anything under ``folder/`` ('0' is the code point
+        # after '/'). The previous ``GLOB folder*`` also matched sibling
+        # directories sharing the name as a prefix (``art`` vs ``art2``) and
+        # broke entirely on ``[ ] * ?`` metacharacters in folder names.
+        where.append("(p.file_path = ? OR (p.file_path >= ? AND p.file_path < ?))")
+        params.extend([f.folder, f"{f.folder}/", f"{f.folder}0"])
 
     needs_waifu_join = bool(f.waifu_score_range) or bool(f.waifu_score_levels)
     if needs_waifu_join:

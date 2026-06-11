@@ -84,15 +84,17 @@ class PostRepo:
     async def list_ids_in_folder(self, folder: str) -> list[int]:
         """Ids of every post stored directly in ``folder`` or any subfolder.
 
-        Exact-prefix semantics (``folder`` or ``folder/...``) — unlike the
-        gallery filter's looser ``GLOB folder*``, this never matches a sibling
-        directory that merely shares the name as a prefix (``art`` vs ``art2``).
+        Exact-prefix semantics (``folder`` or ``folder/...``): the range
+        comparison captures exactly the paths starting with ``folder/`` ('0'
+        is the code point after '/'), never a sibling directory that merely
+        shares the name as a prefix (``art`` vs ``art2``), and — unlike GLOB —
+        is immune to ``[ ] * ?`` metacharacters in folder names.
         """
 
         def _impl() -> list[int]:
             self.cur.execute(
-                "SELECT id FROM posts WHERE file_path = ? OR file_path GLOB ? ORDER BY id",
-                [folder, f"{folder}/*"],
+                "SELECT id FROM posts WHERE file_path = ? OR (file_path >= ? AND file_path < ?) ORDER BY id",
+                [folder, f"{folder}/", f"{folder}0"],
             )
             return [r[0] for r in self.cur.fetchall()]
 
