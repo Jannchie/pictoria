@@ -81,12 +81,28 @@ html.is-theme-switching *::after {
   --p-duration-slow: 260ms;
   --p-ease: cubic-bezier(.2, .8, .2, 1);
 
-  /* Layering */
+  /* Layering — one ordered scale, ascending:
+       base    < overlay (POverlay scrim)
+               < modal
+               < popover (PMenu dropdown)
+               < popup   (Popover.vue dropdowns, the fullscreen PostDetail
+                          layer, the SelectArea drag box — historically all
+                          z-index 10000; kept equal so DOM order still
+                          tie-breaks between them)
+               < float   (FloatWindow, e.g. the tag-selector window)
+               < toast   (toasts + undo snackbar — intentionally topmost so
+                          notifications are never hidden by an open float
+                          window or detail view).
+     Raw utility z-indexes in components (z-10 sticky bits, the z-999
+     ScrollArea bar, the focus:z-9999 skip link) slot in below --p-z-popup,
+     matching the pre-token order. */
   --p-z-base: 1;
   --p-z-overlay: 40;
   --p-z-modal: 50;
   --p-z-popover: 55;
-  --p-z-toast: 60;
+  --p-z-popup: 10000;
+  --p-z-float: 10100;
+  --p-z-toast: 10200;
 }
 
 /* Dark scheme — default for Pictoria (gallery viewer is dark by design). */

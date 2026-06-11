@@ -3,7 +3,7 @@ defineProps<{
   items: T[]
 }>()
 defineExpose({})
-const positionClass = 'fixed top-25 w-full items-center z-1000'
+const positionClass = 'fixed top-25 w-full items-center z-[var(--p-z-toast)]'
 const layoutClass = 'flex flex-col gap-2'
 </script>
 

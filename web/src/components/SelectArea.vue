@@ -24,7 +24,7 @@ const startPoint = ref({ x: 0, y: 0 })
 const endPoint = ref({ x: 0, y: 0 })
 // pointerDown：左键已在 target 内按下；dragging：已移动超过阈值、真正进入框选。
 // 把两者分开是关键：纯点击（pointerDown 但从未越过阈值）绝不渲染选框层、也不在
-// 松手时 emit selectEnd。否则每一次点击都被当成一次框选——选框层(z-10000)会盖在
+// 松手时 emit selectEnd。否则每一次点击都被当成一次框选——选框层(--p-z-popup)会盖在
 // 删除确认按钮(POverlay z-40)上方，pointerup 落到选框层而非按钮，click 不成立，
 // 于是“选框更优先，点不下按钮”；同时 selectEnd 还会无谓地重写 selectedPostIdSet。
 const pointerDown = ref(false)
@@ -116,7 +116,7 @@ useEventListener(globalThis, 'dragend', () => {
   <div class="relative">
     <div
       v-if="dragging"
-      class="border border-primary/75 bg-primary/25 h-1 absolute z-10000"
+      class="border border-primary/75 bg-primary/25 h-1 absolute z-[var(--p-z-popup)]"
       :style="{
         left: `${Math.min(startPoint.x, endPoint.x)}px`,
         top: `${Math.min(startPoint.y, endPoint.y)}px`,

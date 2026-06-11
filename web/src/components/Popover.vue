@@ -7,13 +7,13 @@ type Position = 'top-start' | 'top-end' | 'bottom-start' | 'bottom-end' | 'left-
 const props = withDefaults(defineProps<{
   trigger?: 'hover' | 'click'
   position?: Position
-  zIndex?: number
+  zIndex?: number | string
   offset?: number
   overlay?: boolean
 }>(), {
   trigger: 'click',
   position: 'bottom',
-  zIndex: 10_000,
+  zIndex: 'var(--p-z-popup)',
   offset: 4,
   overlay: false,
 })

@@ -32,7 +32,7 @@ function onAction() {
 </script>
 
 <template>
-  <div class="px-4 pb-6 flex pointer-events-none bottom-0 left-0 right-0 justify-center fixed z-1000">
+  <div class="px-4 pb-6 flex pointer-events-none bottom-0 left-0 right-0 justify-center fixed z-[var(--p-z-toast)]">
     <Transition name="undo-snackbar">
       <div
         v-if="data"

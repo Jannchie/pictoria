@@ -346,7 +346,7 @@ onUnmounted(() => {
     aria-modal="true"
     :aria-label="$t('post.viewerAria', { name: `${post.fileName}.${post.extension}` })"
     tabindex="-1"
-    class="bg-bg flex flex-col inset-0 absolute z-10000 focus:outline-none"
+    class="bg-bg flex flex-col inset-0 absolute z-[var(--p-z-popup)] focus:outline-none"
     style="overscroll-behavior: contain;"
     @keydown="onDialogKeyDown"
   >
