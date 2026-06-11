@@ -6,15 +6,12 @@ retrieval and its ``post_vectors`` table were removed (migration 0007).
 
 from __future__ import annotations
 
-import asyncio
 from typing import TYPE_CHECKING
 
 import numpy as np
-from PIL import UnidentifiedImageError
 
-from db.repositories.failures import FailureRepo
-from processors.common import FALLBACK_MINI_BATCH_SIZE, IMAGE_EXTS, drive
-from shared import logger
+from db.repositories.failures import WORKER_EMBEDDING_SIGLIP2, FailureRepo
+from processors.common import IMAGE_EXTS, build_image_items, drive, run_batch_with_fallback
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -43,7 +40,7 @@ async def run_siglip_embedding_worker(
     """
     pending = await vectors.list_missing_post_ids(
         image_exts=[ext.lstrip(".") for ext in IMAGE_EXTS],
-        worker="embedding:siglip2",
+        worker=WORKER_EMBEDDING_SIGLIP2,
     )
 
     async def _process(batch_ids: list[int]) -> None:
@@ -60,75 +57,39 @@ async def run_siglip_embedding_worker(
     return len(pending)
 
 
-async def _process_siglip_embedding_batch(  # noqa: C901, PLR0912
+async def _process_siglip_embedding_batch(
     posts: PostRepo,
     vectors: VectorRepo,
     post_ids: list[int],
 ) -> None:
     """Encode a batch into SigLIP 2 embeddings written to post_vectors_siglip2.
 
-    On a whole-batch forward failure it first shrinks to mini-batches, then to
-    single-image; an unreadable single image is recorded under the
-    'embedding:siglip2' one-shot blacklist. ``vectors`` must be a VectorRepo
-    pointed at post_vectors_siglip2 (dim=1152).
+    Runs the shared batch → mini-batch → per-image fallback ladder; an
+    unreadable image is recorded under the ``embedding:siglip2`` one-shot
+    blacklist. Successful embeddings are persisted in one batched upsert at
+    the end, so a persistence error propagates to the driver instead of
+    blacklisting the post. ``vectors`` must be a VectorRepo pointed at
+    post_vectors_siglip2 (dim=1152).
     """
-    from ai.siglip_embed import (  # noqa: PLC0415  # lazy: defer ML stack load
-        calculate_image_features,
-        calculate_image_features_batch,
-    )
+    from ai.siglip_embed import calculate_image_features_batch  # noqa: PLC0415  # lazy: defer ML stack load
 
     posts_map = await posts.get_many(post_ids)
-    items: list[tuple[int, Path]] = []
-    for pid in post_ids:
-        post = posts_map.get(pid)
-        if post is None:
-            continue
-        abs_path = post.absolute_path
-        if abs_path.suffix.lower() not in IMAGE_EXTS or not abs_path.exists():
-            continue
-        items.append((pid, abs_path))
+    items = [(pid, path) for pid, _, path in build_image_items(posts_map, post_ids)]
     if not items:
         return
 
-    paths = [p for _, p in items]
-    try:
-        features = await asyncio.to_thread(calculate_image_features_batch, paths)
-    except Exception as exc:
-        logger.warning(
-            f"[siglip-embedding] batch failed ({exc!s}); retrying in mini-batches of {FALLBACK_MINI_BATCH_SIZE}",
-        )
-        failed: list[tuple[int, str, str]] = []
-        for i in range(0, len(items), FALLBACK_MINI_BATCH_SIZE):
-            chunk = items[i : i + FALLBACK_MINI_BATCH_SIZE]
-            chunk_paths = [p for _, p in chunk]
-            try:
-                chunk_features = await asyncio.to_thread(
-                    calculate_image_features_batch,
-                    chunk_paths,
-                )
-            except Exception as exc2:
-                logger.warning(
-                    f"[siglip-embedding] mini-batch failed ({exc2!s}); falling back per-image",
-                )
-                for pid, path in chunk:
-                    try:
-                        single = await asyncio.to_thread(calculate_image_features, path)
-                        embedding = single.cpu().numpy()[0].astype(np.float32)
-                        await vectors.upsert(pid, embedding)
-                    except (UnidentifiedImageError, OSError) as exc3:
-                        logger.warning(f"[siglip-embedding] skipping unreadable image {pid} ({path}): {exc3}")
-                        failed.append((pid, "embedding:siglip2", f"{type(exc3).__name__}: {exc3}"))
-                    except Exception as exc3:
-                        logger.exception(f"[siglip-embedding] post {pid} ({path})")
-                        failed.append((pid, "embedding:siglip2", f"{type(exc3).__name__}: {exc3}"))
-            else:
-                embeddings_np = chunk_features.cpu().numpy().astype(np.float32)
-                for (pid, _), emb in zip(chunk, embeddings_np, strict=True):
-                    await vectors.upsert(pid, emb)
-        if failed:
-            await FailureRepo(posts.cur).record_failures(failed)
-        return
+    def _encode(paths: list[Path]) -> list[np.ndarray]:
+        features = calculate_image_features_batch(paths)
+        return list(features.cpu().numpy().astype(np.float32))
 
-    embeddings_np = features.cpu().numpy().astype(np.float32)
-    for (pid, _), emb in zip(items, embeddings_np, strict=True):
-        await vectors.upsert(pid, emb)
+    successes, failures = await run_batch_with_fallback(
+        _encode,
+        items,
+        worker_label="siglip-embedding",
+    )
+    if successes:
+        await vectors.upsert_many([(pid, emb.tolist()) for pid, emb in successes])
+    if failures:
+        await FailureRepo(posts.cur).record_failures(
+            [(pid, WORKER_EMBEDDING_SIGLIP2, err) for pid, err in failures],
+        )

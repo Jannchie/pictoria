@@ -8,7 +8,7 @@ import time
 from typing import TYPE_CHECKING, Any
 
 import shared
-from db.repositories.failures import FailureRepo
+from db.repositories.failures import WORKER_BASICS, FailureRepo
 from db.repositories.posts import PostRepo
 from db.repositories.tags import TagGroupRepo
 from db.repositories.vectors import VectorRepo
@@ -114,11 +114,7 @@ async def run_all_backfill(db: DB) -> None:
                 ),
                 run_siglip_embedding_worker(
                     PostRepo(siglip_embed_conn.cursor()),
-                    VectorRepo(
-                        siglip_embed_conn.cursor(),
-                        table="post_vectors_siglip2",
-                        dim=1152,
-                    ),
+                    VectorRepo(siglip_embed_conn.cursor()),
                     progress=progress,
                 ),
                 run_tagger_worker(
@@ -132,11 +128,7 @@ async def run_all_backfill(db: DB) -> None:
                 ),
                 run_silva_worker(
                     PostRepo(silva_conn.cursor()),
-                    VectorRepo(
-                        silva_conn.cursor(),
-                        table="post_vectors_siglip2",
-                        dim=1152,
-                    ),
+                    VectorRepo(silva_conn.cursor()),
                     progress=progress,
                 ),
             ]
@@ -151,25 +143,32 @@ async def run_all_backfill(db: DB) -> None:
             await _group_near_duplicates(db)
     finally:
         for conn in connections:
-            with contextlib.suppress(Exception):
-                conn.close()
+            # discard (not plain close): keeps DB._all_conns from accumulating
+            # a dead reference per worker per backfill cycle.
+            db.discard_connection(conn)
 
 
 async def _group_near_duplicates(db: DB) -> None:
-    """Rebuild near-duplicate groups on a fresh connection (logs, never raises)."""
-    from services.dedup import rebuild_groups  # noqa: PLC0415
+    """Rebuild near-duplicate groups on a fresh connection (logs, never raises).
 
-    conn = db.new_connection()
-    try:
-        await rebuild_groups(
-            PostRepo(conn.cursor()),
-            VectorRepo(conn.cursor(), table="post_vectors_siglip2", dim=1152),
-        )
-    except Exception:
-        logger.exception("Near-duplicate grouping failed")
-    finally:
-        with contextlib.suppress(Exception):
-            conn.close()
+    Takes ``services.dedup.rebuild_lock`` so it can't race a manual
+    /v2/cmd/group-duplicates rebuild — waiting (rather than skipping) is fine
+    here because the embeddings that triggered this call still deserve a
+    regroup once the in-flight rebuild finishes.
+    """
+    from services.dedup import rebuild_groups, rebuild_lock  # noqa: PLC0415
+
+    async with rebuild_lock:
+        conn = db.new_connection()
+        try:
+            await rebuild_groups(
+                PostRepo(conn.cursor()),
+                VectorRepo(conn.cursor()),
+            )
+        except Exception:
+            logger.exception("Near-duplicate grouping failed")
+        finally:
+            db.discard_connection(conn)
 
 
 async def process_post(
@@ -216,7 +215,7 @@ async def process_post(
         # step failed leaves dominant_color NULL, which would re-select the
         # post on the next sync. One-shot black-list it instead.
         if basics.get("color_error"):
-            await FailureRepo(posts.cur).record_failures([(post.id, "basics", f"color: {basics['color_error']}")])
+            await FailureRepo(posts.cur).record_failures([(post.id, WORKER_BASICS, f"color: {basics['color_error']}")])
 
     # ``vectors`` is the SigLIP 2 retrieval repo (provide_vector_repo binds
     # post_vectors_siglip2), so encode the upload straight into it.

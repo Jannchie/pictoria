@@ -3,19 +3,14 @@
 from __future__ import annotations
 
 import asyncio
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING
 
-from PIL import UnidentifiedImageError
-
-from db.repositories.failures import FailureRepo
+from db.repositories.failures import WORKER_WAIFU, FailureRepo, aesthetic_worker, not_failed_clause
 from db.repositories.scores import ScoreRepo
-from processors.common import FALLBACK_MINI_BATCH_SIZE, IMAGE_EXT_WHERE, IMAGE_EXTS, drive
+from processors.common import IMAGE_EXT_WHERE, build_image_items, drive, run_batch_with_fallback
 from shared import logger
 
 if TYPE_CHECKING:
-    from collections.abc import Callable
-    from pathlib import Path
-
     from rich.progress import Progress
 
     from db.repositories.posts import PostRepo
@@ -62,7 +57,7 @@ async def run_silva_worker(
     """
     from ai.silva_scorer import SCORER_NAME  # noqa: PLC0415  # lazy: defer ML stack load
 
-    pending = await _list_silva_pending(posts, SCORER_NAME)
+    pending = await _list_silva_pending(posts, vectors, SCORER_NAME)
 
     async def _process(batch_ids: list[int]) -> None:
         await _process_silva_batch(posts, vectors, batch_ids)
@@ -81,48 +76,43 @@ async def _list_waifu_pending(posts: PostRepo) -> list[int]:
             LEFT JOIN post_waifu_scores pws ON pws.post_id = p.id
             WHERE pws.post_id IS NULL
               AND {IMAGE_EXT_WHERE}
-              AND NOT EXISTS (
-                SELECT 1 FROM post_process_failures f
-                WHERE f.post_id = p.id AND f.worker = 'waifu'
-              )
+              AND {not_failed_clause("p")}
             ORDER BY p.id
             """,  # noqa: S608
+            [WORKER_WAIFU],
         )
         return [r[0] for r in posts.cur.fetchall()]
 
     return await asyncio.to_thread(_impl)
 
 
-async def _list_silva_pending(posts: PostRepo, scorer: str) -> list[int]:
+async def _list_silva_pending(posts: PostRepo, vectors: VectorRepo, scorer: str) -> list[int]:
     """Posts that have a SigLIP2 embedding but no ``scorer`` aesthetic score.
 
-    SILVA scores the *embedding*, not the
-    image, so it requires one to exist. The ``EXISTS`` against
-    post_vectors_siglip2 is a per-post primary-key lookup on the vec0 table (the
-    same ``WHERE post_id = ?`` access VectorRepo.get uses) — not a vector scan —
-    so it stays fast on a large library.
+    SILVA scores the *embedding*, not the image, so it requires one to exist.
+    The "has an embedding?" check is a Python set-intersection against one
+    scan of the vec0 post_id column (``embedded_post_ids_sync``) rather than a
+    per-row ``EXISTS``: a vec0 lookup is a virtual-table probe, not a B-tree
+    probe, so probing once per posts row took tens of seconds at library
+    scale. Candidate order (``p.id`` ascending) is preserved by the filter.
     """
 
     def _impl() -> list[int]:
         posts.cur.execute(
-            """
+            f"""
             SELECT p.id FROM posts p
-            WHERE EXISTS (
-                SELECT 1 FROM post_vectors_siglip2 pv WHERE pv.post_id = p.id
-              )
-              AND NOT EXISTS (
+            WHERE NOT EXISTS (
                 SELECT 1 FROM post_aesthetic_scores pas
                 WHERE pas.post_id = p.id AND pas.scorer = ?
               )
-              AND NOT EXISTS (
-                SELECT 1 FROM post_process_failures f
-                WHERE f.post_id = p.id AND f.worker = ?
-              )
+              AND {not_failed_clause("p")}
             ORDER BY p.id
-            """,
-            [scorer, f"aesthetic:{scorer}"],
+            """,  # noqa: S608
+            [scorer, aesthetic_worker(scorer)],
         )
-        return [r[0] for r in posts.cur.fetchall()]
+        candidates = [r[0] for r in posts.cur.fetchall()]
+        embedded = vectors.embedded_post_ids_sync()
+        return [pid for pid in candidates if pid in embedded]
 
     return await asyncio.to_thread(_impl)
 
@@ -130,89 +120,24 @@ async def _list_silva_pending(posts: PostRepo, scorer: str) -> list[int]:
 # ─── Batch processors ───────────────────────────────────────────────────
 
 
-async def _score_batch_with_fallback(
-    scorer_fn: Callable[[list[Path]], Any],
-    items: list[tuple[int, Path]],
-    *,
-    worker_label: str,
-) -> tuple[list[tuple[int, float]], list[tuple[int, str]]]:
-    """Run ``scorer_fn`` on every item, shrinking the batch on failure.
-
-    Tries the full batch first; on exception, retries in groups of
-    ``FALLBACK_MINI_BATCH_SIZE`` so a single corrupt image doesn't drop the
-    rest to single-image inference (which leaves the GPU ~80% idle between
-    PIL decodes). Only the mini-batch that contains the bad image falls all
-    the way to per-image retry.
-
-    Returns ``(successes, failures)`` where ``successes`` is a list of
-    ``(post_id, score)`` and ``failures`` is ``(post_id, error_message)``.
-    """
-    paths = [p for _, p in items]
-    try:
-        results = await asyncio.to_thread(scorer_fn, paths)
-    except Exception as exc:
-        logger.warning(
-            f"[{worker_label}] full batch failed ({exc!s}); retrying in mini-batches of {FALLBACK_MINI_BATCH_SIZE}",
-        )
-    else:
-        return (
-            [(pid, float(r)) for (pid, _), r in zip(items, results, strict=True)],
-            [],
-        )
-
-    successes: list[tuple[int, float]] = []
-    failures: list[tuple[int, str]] = []
-    for i in range(0, len(items), FALLBACK_MINI_BATCH_SIZE):
-        chunk = items[i : i + FALLBACK_MINI_BATCH_SIZE]
-        chunk_paths = [p for _, p in chunk]
-        try:
-            results = await asyncio.to_thread(scorer_fn, chunk_paths)
-        except Exception as exc:
-            logger.warning(
-                f"[{worker_label}] mini-batch failed ({exc!s}); falling back per-image",
-            )
-            for pid, path in chunk:
-                try:
-                    single = await asyncio.to_thread(scorer_fn, [path])
-                    successes.append((pid, float(single[0])))
-                except (UnidentifiedImageError, OSError) as exc2:
-                    logger.warning(f"[{worker_label}] unreadable {pid} ({path}): {exc2}")
-                    failures.append((pid, f"{type(exc2).__name__}: {exc2}"))
-                except Exception as exc2:
-                    logger.exception(f"[{worker_label}] post {pid} ({path})")
-                    failures.append((pid, f"{type(exc2).__name__}: {exc2}"))
-        else:
-            for (pid, _), r in zip(chunk, results, strict=True):
-                successes.append((pid, float(r)))
-    return successes, failures
-
-
 async def _process_waifu_batch(posts: PostRepo, post_ids: list[int]) -> None:
     from ai.waifu_scorer import get_waifu_scorer  # noqa: PLC0415  # lazy: defer ML stack load
 
     scorer = get_waifu_scorer()
     posts_map = await posts.get_many(post_ids)
-    items: list[tuple[int, Path]] = []
-    for pid in post_ids:
-        post = posts_map.get(pid)
-        if post is None:
-            continue
-        abs_path = post.absolute_path
-        if abs_path.suffix.lower() not in IMAGE_EXTS or not abs_path.exists():
-            continue
-        items.append((pid, abs_path))
+    items = [(pid, path) for pid, _, path in build_image_items(posts_map, post_ids)]
     if not items:
         return
 
-    successes, failures = await _score_batch_with_fallback(
+    raw, failures = await run_batch_with_fallback(
         scorer,
         items,
-        worker_label="waifu",
+        worker_label=WORKER_WAIFU,
     )
-    for pid, score in successes:
-        await ScoreRepo(posts.cur).upsert_waifu_score(pid, score)
+    if raw:
+        await ScoreRepo(posts.cur).upsert_waifu_scores_many([(pid, float(score)) for pid, score in raw])
     if failures:
-        await FailureRepo(posts.cur).record_failures([(pid, "waifu", err) for pid, err in failures])
+        await FailureRepo(posts.cur).record_failures([(pid, WORKER_WAIFU, err) for pid, err in failures])
 
 
 async def _process_silva_batch(posts: PostRepo, vectors: VectorRepo, post_ids: list[int]) -> None:
@@ -239,6 +164,7 @@ async def _process_silva_batch(posts: PostRepo, vectors: VectorRepo, post_ids: l
         logger.exception(f"[silva] head forward failed for {len(pids)} posts starting at id {pids[0]}")
         return
 
-    score_repo = ScoreRepo(posts.cur)
-    for pid, score in zip(pids, scores, strict=True):
-        await score_repo.upsert_aesthetic_score(pid, SCORER_NAME, float(score))
+    await ScoreRepo(posts.cur).upsert_aesthetic_scores_many(
+        SCORER_NAME,
+        [(pid, float(score)) for pid, score in zip(pids, scores, strict=True)],
+    )

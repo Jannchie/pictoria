@@ -24,6 +24,7 @@ Why two code paths:
 
 from __future__ import annotations
 
+import asyncio
 from typing import TYPE_CHECKING
 
 from shared import logger
@@ -48,6 +49,14 @@ DEFAULT_CHUNK_SIZE = 1024
 # Neighbours pulled per KNN in the incremental path. Near-duplicate clusters are
 # small, so this is ample; only the within-threshold prefix is used.
 DEFAULT_KNN_K = 200
+
+# Serialises full group rebuilds. ``rebuild_groups`` ends in a wholesale
+# canonical_post_id swap, so two concurrent rebuilds (a double-POSTed
+# /v2/cmd/group-duplicates, or the endpoint racing the backfill pipeline's
+# post-embedding regroup) would be last-writer-wins with a GPU pass wasted.
+# Both callers take this lock; the endpoint additionally uses ``locked()``
+# as its busy-check before spawning.
+rebuild_lock = asyncio.Lock()
 
 
 def _find_near_pairs(matrix: np.ndarray, threshold: float, chunk_size: int) -> dict[int, list[int]]:
@@ -131,8 +140,6 @@ async def rebuild_groups(
 async def _to_thread_find_pairs(
     matrix: np.ndarray, threshold: float, chunk_size: int,
 ) -> dict[int, list[int]]:
-    import asyncio  # noqa: PLC0415
-
     return await asyncio.to_thread(_find_near_pairs, matrix, threshold, chunk_size)
 
 

@@ -15,8 +15,8 @@ from skimage import color
 
 import shared
 from db.helpers import sql_placeholders
-from db.repositories.failures import FailureRepo
-from processors.common import IMAGE_EXT_WHERE, IMAGE_EXTS, drive
+from db.repositories.failures import WORKER_BASICS, FailureRepo, not_failed_clause
+from processors.common import IMAGE_EXT_WHERE, build_image_items, drive
 from shared import logger
 from tools.colors import get_palette, rgb2int
 from utils import (
@@ -65,32 +65,20 @@ async def _list_basics_pending(posts: PostRepo) -> list[int]:
                 {arthash_clause}
                 OR p.dominant_color IS NULL)
               AND {IMAGE_EXT_WHERE}
-              AND NOT EXISTS (
-                SELECT 1 FROM post_process_failures f
-                WHERE f.post_id = p.id AND f.worker = 'basics'
-              )
+              AND {not_failed_clause("p")}
             ORDER BY p.id
             """,  # noqa: S608
+            [WORKER_BASICS],
         )
         return [r[0] for r in posts.cur.fetchall()]
 
     return await asyncio.to_thread(_impl)
 
 
-async def _process_basics_batch(posts: PostRepo, post_ids: list[int]) -> None:  # noqa: C901
+async def _process_basics_batch(posts: PostRepo, post_ids: list[int]) -> None:
     """Resolve paths, decode each image once, write back basics in one batch."""
     posts_map = await posts.get_many(post_ids)
-    items: list[tuple[Post, Path]] = []
-    for pid in post_ids:
-        post = posts_map.get(pid)
-        if post is None:
-            continue
-        abs_path = post.absolute_path
-        if abs_path.suffix.lower() not in IMAGE_EXTS:
-            continue
-        if not abs_path.exists():
-            continue
-        items.append((post, abs_path))
+    items = [(post, path) for _, post, path in build_image_items(posts_map, post_ids)]
     if not items:
         return
 
@@ -103,7 +91,7 @@ async def _process_basics_batch(posts: PostRepo, post_ids: list[int]) -> None:  
     for (post, path), b in zip(items, raw_results, strict=True):
         if isinstance(b, BaseException):
             logger.warning(f"[basics] compute failed for {path}: {b}")
-            failed.append((post.id, "basics", f"compute failed: {b}"))
+            failed.append((post.id, WORKER_BASICS, f"compute failed: {b}"))
             continue
         if b is None:
             continue
@@ -112,7 +100,7 @@ async def _process_basics_batch(posts: PostRepo, post_ids: list[int]) -> None:  
         # NULL. Without a failure row, the post would be re-selected on
         # every sync forever; the blacklist makes it one-shot.
         if b.get("color_error"):
-            failed.append((post.id, "basics", f"color: {b['color_error']}"))
+            failed.append((post.id, WORKER_BASICS, f"color: {b['color_error']}"))
         valid.append((post, path, b))
     if valid:
         await asyncio.to_thread(_persist_basics_batch, posts, valid)

@@ -8,8 +8,8 @@ from typing import TYPE_CHECKING, Any
 from PIL import UnidentifiedImageError
 
 from db.helpers import sql_placeholders
-from db.repositories.failures import FailureRepo
-from processors.common import FALLBACK_MINI_BATCH_SIZE, IMAGE_EXT_WHERE, IMAGE_EXTS, drive
+from db.repositories.failures import WORKER_TAGGER, FailureRepo, not_failed_clause
+from processors.common import FALLBACK_MINI_BATCH_SIZE, IMAGE_EXT_WHERE, build_image_items, drive
 from services.wd_tagging import attach_wdtagger_results, attach_wdtagger_results_many, get_tagger
 from shared import logger
 from utils import from_rating_to_int
@@ -60,34 +60,24 @@ async def _list_tagger_pending(posts: PostRepo) -> list[int]:
                 WHERE pht.post_id = p.id AND pht.is_auto = 1
             )
               AND {IMAGE_EXT_WHERE}
-              AND NOT EXISTS (
-                SELECT 1 FROM post_process_failures f
-                WHERE f.post_id = p.id AND f.worker = 'tagger'
-              )
+              AND {not_failed_clause("p")}
             ORDER BY p.id
             """,  # noqa: S608
+            [WORKER_TAGGER],
         )
         return [r[0] for r in posts.cur.fetchall()]
 
     return await asyncio.to_thread(_impl)
 
 
-async def _process_tagger_batch(  # noqa: C901
+async def _process_tagger_batch(
     posts: PostRepo,
     tag_groups: TagGroupRepo,
     post_ids: list[int],
 ) -> None:
     tagger = get_tagger()
     posts_map = await posts.get_many(post_ids)
-    items: list[tuple[int, Post, Path]] = []
-    for pid in post_ids:
-        post = posts_map.get(pid)
-        if post is None:
-            continue
-        abs_path = post.absolute_path
-        if abs_path.suffix.lower() not in IMAGE_EXTS or not abs_path.exists():
-            continue
-        items.append((pid, post, abs_path))
+    items = build_image_items(posts_map, post_ids)
     if not items:
         return
 
@@ -113,7 +103,7 @@ async def _process_tagger_batch(  # noqa: C901
         # post stays pending forever. Black-list it instead — re-running
         # would just produce the same empty response.
         if not resp.general_tags and not resp.character_tags:
-            failed.append((pid, "tagger", "no auto tags produced"))
+            failed.append((pid, WORKER_TAGGER, "no auto tags produced"))
             early_failed.add(pid)
             continue
         new_rating = from_rating_to_int(resp.rating)
@@ -135,7 +125,7 @@ async def _process_tagger_batch(  # noqa: C901
     attempted = [pid for pid, _, _ in items if pid not in early_failed]
     if attempted:
         shadowed = await _find_posts_without_auto_tags(posts, attempted)
-        failed.extend((pid, "tagger", "all auto tags shadowed by manual tags") for pid in shadowed)
+        failed.extend((pid, WORKER_TAGGER, "all auto tags shadowed by manual tags") for pid in shadowed)
 
     if failed:
         await FailureRepo(posts.cur).record_failures(failed)
@@ -200,7 +190,7 @@ async def _tagger_fallback_mini_batch(
             continue
         for (pid, post, _), resp in zip(chunk, results, strict=True):
             if not resp.general_tags and not resp.character_tags:
-                failed.append((pid, "tagger", "no auto tags produced"))
+                failed.append((pid, WORKER_TAGGER, "no auto tags produced"))
                 continue
             new_rating = from_rating_to_int(resp.rating)
             if post.rating == 0 and new_rating != 0:
@@ -214,7 +204,7 @@ async def _tagger_fallback_mini_batch(
         await attach_wdtagger_results_many(posts, tag_groups, tag_items, is_auto=True)
     if persisted:
         shadowed = await _find_posts_without_auto_tags(posts, persisted)
-        failed.extend((pid, "tagger", "all auto tags shadowed by manual tags") for pid in shadowed)
+        failed.extend((pid, WORKER_TAGGER, "all auto tags shadowed by manual tags") for pid in shadowed)
     if failed:
         await FailureRepo(posts.cur).record_failures(failed)
 
@@ -231,7 +221,7 @@ async def _tagger_per_image(  # noqa: PLR0913
         try:
             resp = await asyncio.to_thread(tagger.tag, abs_path)
             if not resp.general_tags and not resp.character_tags:
-                failed.append((pid, "tagger", "no auto tags produced"))
+                failed.append((pid, WORKER_TAGGER, "no auto tags produced"))
                 continue
             new_rating = from_rating_to_int(resp.rating)
             if post.rating == 0 and new_rating != 0:
@@ -240,10 +230,10 @@ async def _tagger_per_image(  # noqa: PLR0913
             persisted.append(pid)
         except (UnidentifiedImageError, OSError) as exc:
             logger.warning(f"[tagger] skipping unreadable image {pid} ({abs_path}): {exc}")
-            failed.append((pid, "tagger", f"{type(exc).__name__}: {exc}"))
+            failed.append((pid, WORKER_TAGGER, f"{type(exc).__name__}: {exc}"))
         except Exception as exc:
             logger.exception(f"[tagger] post {pid} ({abs_path})")
-            failed.append((pid, "tagger", f"{type(exc).__name__}: {exc}"))
+            failed.append((pid, WORKER_TAGGER, f"{type(exc).__name__}: {exc}"))
 
 
 def _update_ratings(posts: PostRepo, updates: list[tuple[int, int]]) -> None:
