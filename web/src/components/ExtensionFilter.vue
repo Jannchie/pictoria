@@ -6,7 +6,7 @@ import { useFacetFilter } from '@/composables/useFacetFilter'
 
 const { t } = useI18n()
 
-const { selected: ratingFilterData, has: hasExt, toggle, countQuery } = useFacetFilter<string, { extension: string, count: number }>({
+const { selected: ratingFilterData, has: hasExt, toggle, countQuery, pct } = useFacetFilter<string, { extension: string, count: number }>({
   field: 'extension',
   countKind: 'extension',
   fetchCounts: async (filter) => {
@@ -25,12 +25,6 @@ const scoreCountList = computed(() => {
   }
   return resp
 })
-
-const total = computed(() => Object.values(scoreCountList.value).reduce((a, b) => a + b, 0))
-
-function pct(count: number) {
-  return total.value > 0 ? ((count / total.value) * 100).toFixed(1) : '0.0'
-}
 
 // 确保已选择的扩展名选项始终显示在列表中
 const extensions = computed(() => {

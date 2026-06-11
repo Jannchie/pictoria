@@ -12,10 +12,20 @@ import { postFilter, queryKeys } from '@/shared'
  * and row rendering.
  */
 
-type PostFilterValue = typeof postFilter.value
+export type PostFilterValue = typeof postFilter.value
 type ArrayFilterField = 'rating' | 'score' | 'extension' | 'waifu_score_levels' | 'silva_score_levels'
 
-export function useFacetFilter<T extends string | number, TRow>(opts: {
+/**
+ * Percentage share of `count` in `total`, formatted to one decimal ('0.0' when
+ * the total is unknown/zero). Exported standalone for TagFilter, whose
+ * denominator is a separate posts-count query (tags aren't mutually exclusive)
+ * rather than the sum of its facet rows.
+ */
+export function formatPct(count: number, total: number): string {
+  return total > 0 ? ((count / total) * 100).toFixed(1) : '0.0'
+}
+
+export function useFacetFilter<T extends string | number, TRow extends { count: number }>(opts: {
   field: ArrayFilterField
   countKind: CountKind
   fetchCounts: (filter: PostFilterValue) => Promise<TRow[] | undefined>
@@ -48,5 +58,12 @@ export function useFacetFilter<T extends string | number, TRow>(opts: {
     queryFn: async () => opts.fetchCounts(filterWithoutSelf.value),
   })
 
-  return { selected, has, toggle, filterWithoutSelf, countQuery }
+  // The facet's options are mutually exclusive, so the rows sum to the post
+  // total and each option's share is count/total.
+  const total = computed(() => (countQuery.data.value ?? []).reduce((sum, row) => sum + row.count, 0))
+  function pct(count: number): string {
+    return formatPct(count, total.value)
+  }
+
+  return { selected, has, toggle, filterWithoutSelf, countQuery, total, pct }
 }

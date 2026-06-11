@@ -4,7 +4,7 @@ import { computed } from 'vue'
 import { useRoute } from 'vue-router'
 import { v2GetPostsStats } from '@/api'
 import { formatNumber } from '@/locale'
-import { bottomBarInfo, postFilter, queryKeys, selectedPostIdSet, usePosts } from '@/shared'
+import { bottomBarInfo, postFilter, queryKeys, RATING_LEVEL_LABEL_KEYS, RATING_LEVEL_SHORT, selectedPostIdSet, usePosts } from '@/shared'
 
 const posts = usePosts()
 const route = useRoute()
@@ -21,17 +21,15 @@ const statsQuery = useQuery({
   staleTime: 1000 * 30,
 })
 
-const RATING_META: Record<number, { short: string, fullKey: string }> = {
-  1: { short: 'G', fullKey: 'rating.general' },
-  2: { short: 'S', fullKey: 'rating.sensitive' },
-  3: { short: 'Q', fullKey: 'rating.questionable' },
-  4: { short: 'E', fullKey: 'rating.explicit' },
-}
-
 const ratingCounts = computed(() => {
   const dist = statsQuery.data.value?.ratingDistribution ?? []
   return [1, 2, 3, 4]
-    .map(r => ({ rating: r, ...RATING_META[r], count: dist.find(d => d.rating === r)?.count ?? 0 }))
+    .map(r => ({
+      rating: r,
+      short: RATING_LEVEL_SHORT[r - 1],
+      fullKey: RATING_LEVEL_LABEL_KEYS[r - 1],
+      count: dist.find(d => d.rating === r)?.count ?? 0,
+    }))
     .filter(d => d.count > 0)
 })
 

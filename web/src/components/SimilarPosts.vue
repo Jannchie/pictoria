@@ -6,14 +6,14 @@ const props = defineProps<{
   postId: number
   scrollElement: MaybeRef<HTMLElement>
 }>()
-const scrollElement = computed(() => props.scrollElement ?? document.documentElement)
+const scrollElement = computed(() => toValue(props.scrollElement) ?? document.documentElement)
 const postId = computed(() => props.postId)
 // Shares the ['similarPosts', { postId }] cache with Post.vue, which reads the
 // same array to drive box-selection — see useWaterfallSelection wiring there.
 const query = useSimilarPostsQuery(postId)
 
 const data = computed(() => query.data.value ?? [])
-const width = useClientWidth(scrollElement as any)
+const { width } = useElementSize(scrollElement)
 const cols = computed(() => Math.floor(width.value / 300))
 
 // Exposed so Post.vue can read layoutData/wrapper for drag-box selection,

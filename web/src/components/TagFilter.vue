@@ -5,6 +5,7 @@ import { useDebounce } from '@vueuse/core'
 import { computed, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { v2GetPostsCount, v2GetTagCount } from '@/api'
+import { formatPct } from '@/composables/useFacetFilter'
 import { resolvedLocale } from '@/locale'
 import { postFilter, queryKeys } from '@/shared'
 import { naturalizeTagName } from '@/utils'
@@ -93,7 +94,7 @@ const translationMap = computed(() => {
 })
 const total = computed(() => postTotalQuery.data.value ?? 0)
 function pct(count: number): string {
-  return total.value > 0 ? ((count / total.value) * 100).toFixed(1) : '0.0'
+  return formatPct(count, total.value)
 }
 
 // Pin selected tags at the top so they stay un-checkable even when they fall

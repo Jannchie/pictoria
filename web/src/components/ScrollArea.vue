@@ -1,7 +1,6 @@
 <script setup lang="ts">
-import { useElementBounding, useEventListener, useMouse, useScroll } from '@vueuse/core'
+import { useElementBounding, useElementSize, useEventListener, useMouse, useScroll } from '@vueuse/core'
 import { computed, ref } from 'vue'
-import { useClientHeight } from '../composables/useClientHeight'
 
 const props = withDefaults(
   defineProps<{
@@ -25,7 +24,9 @@ const scrollBarIndicatorBounds = useElementBounding(() => scrollBarIndicatorRef.
 
 const scrollDomRef = ref<HTMLElement>()
 
-const clientHeight = useClientHeight(() => scrollDomRef.value)
+// The scroll div has no padding and hides its native scrollbar, so the
+// observed content-box height ≈ clientHeight.
+const { height: clientHeight } = useElementSize(() => scrollDomRef.value)
 const scrollHeight = ref(0)
 // 为了检查滚动区域长度的变化，姑且使用 Mutation Observer
 useMutationObserver(scrollDomRef, () => {

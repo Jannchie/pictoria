@@ -25,6 +25,19 @@ export const RATING_LEVEL_COLORS = ['#22c55e', '#eab308', '#f97316', '#ef4444']
 export const RATING_UNRATED_ICON = 'i-tabler-star-off'
 
 /**
+ * i18n message keys for rating levels 1..MAX_POST_RATING (index 0 = level 1),
+ * resolved with `t()` at render — same consumption pattern as the icon/colour
+ * arrays above.
+ */
+export const RATING_LEVEL_LABEL_KEYS = ['rating.general', 'rating.sensitive', 'rating.questionable', 'rating.explicit']
+
+/** Message key for the synthetic "unrated" bucket (rating 0). */
+export const RATING_UNRATED_LABEL_KEY = 'rating.unrated'
+
+/** One-letter abbreviations for rating levels 1..MAX_POST_RATING (G/S/Q/E). */
+export const RATING_LEVEL_SHORT = ['G', 'S', 'Q', 'E']
+
+/**
  * Quality ramp for the manual 1..MAX_POST_SCORE score: low = red → high =
  * green (index 0 is score 1). The multi-select distribution bar prepends a
  * muted colour for its unscored bucket.

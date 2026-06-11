@@ -3,11 +3,11 @@ import { computed } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { v2GetRatingCount } from '@/api'
 import { useFacetFilter } from '@/composables/useFacetFilter'
-import { RATING_LEVEL_COLORS, RATING_LEVEL_ICONS, RATING_UNRATED_ICON } from '@/shared/ratings'
+import { RATING_LEVEL_COLORS, RATING_LEVEL_ICONS, RATING_LEVEL_LABEL_KEYS, RATING_UNRATED_ICON, RATING_UNRATED_LABEL_KEY } from '@/shared/ratings'
 
 const { t } = useI18n()
 
-const { selected: ratingFilterData, has: hasRating, toggle, countQuery } = useFacetFilter<number, { rating: number, count: number }>({
+const { selected: ratingFilterData, has: hasRating, toggle, countQuery, pct } = useFacetFilter<number, { rating: number, count: number }>({
   field: 'rating',
   countKind: 'rating',
   fetchCounts: async (filter) => {
@@ -27,12 +27,6 @@ const scoreCountList = computed(() => {
   return resp
 })
 
-const total = computed(() => scoreCountList.value.reduce((a, b) => a + b, 0))
-
-function pct(count: number) {
-  return total.value > 0 ? ((count / total.value) * 100).toFixed(1) : '0.0'
-}
-
 // Same order as the popover rows: real levels first, unrated last.
 const DISPLAY_ORDER = [1, 2, 3, 4, 0]
 const sortedSelection = computed(() =>
@@ -51,26 +45,11 @@ function ratingIconStyle(rating: number) {
   return rating === 0 ? undefined : { color: RATING_LEVEL_COLORS[rating - 1] }
 }
 function getRatingName(rating: number) {
-  switch (rating) {
-    case 0: {
-      return t('rating.unrated')
-    }
-    case 1: {
-      return t('rating.general')
-    }
-    case 2: {
-      return t('rating.sensitive')
-    }
-    case 3: {
-      return t('rating.questionable')
-    }
-    case 4: {
-      return t('rating.explicit')
-    }
-    default: {
-      return t('rating.unknown')
-    }
+  if (rating === 0) {
+    return t(RATING_UNRATED_LABEL_KEY)
   }
+  const key = RATING_LEVEL_LABEL_KEYS[rating - 1]
+  return key ? t(key) : t('rating.unknown')
 }
 </script>
 

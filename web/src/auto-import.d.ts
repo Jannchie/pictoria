@@ -42,6 +42,7 @@ declare global {
   const formatDate: typeof import('./locale/index').formatDate
   const formatDateTime: typeof import('./locale/index').formatDateTime
   const formatNumber: typeof import('./locale/index').formatNumber
+  const formatPct: typeof import('./composables/useFacetFilter').formatPct
   const getCurrentInstance: typeof import('vue').getCurrentInstance
   const getCurrentScope: typeof import('vue').getCurrentScope
   const getCurrentWatcher: typeof import('vue').getCurrentWatcher
@@ -151,8 +152,6 @@ declare global {
   const useBroadcastChannel: typeof import('@vueuse/core').useBroadcastChannel
   const useBrowserLocation: typeof import('@vueuse/core').useBrowserLocation
   const useCached: typeof import('@vueuse/core').useCached
-  const useClientHeight: typeof import('./composables/useClientHeight').useClientHeight
-  const useClientWidth: typeof import('./composables/useClientWidth').useClientWidth
   const useClipboard: typeof import('@vueuse/core').useClipboard
   const useClipboardItems: typeof import('@vueuse/core').useClipboardItems
   const useCloned: typeof import('@vueuse/core').useCloned
@@ -333,6 +332,9 @@ declare global {
   // @ts-ignore
   export type { UseElementOffsetOptions, UseElementBoundingReturn } from './composables/useElementOffset'
   import('./composables/useElementOffset')
+  // @ts-ignore
+  export type { PostFilterValue } from './composables/useFacetFilter'
+  import('./composables/useFacetFilter')
   // @ts-ignore
   export type { FocusMode } from './composables/useFocusedPost'
   import('./composables/useFocusedPost')

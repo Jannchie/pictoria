@@ -14,6 +14,8 @@ import {
   deletePosts,
   RATING_LEVEL_COLORS,
   RATING_LEVEL_ICONS,
+  RATING_LEVEL_SHORT,
+  RATING_UNRATED_LABEL_KEY,
   SCORE_LEVEL_COLORS,
   selectedPostIdSet,
   showPostDetail,
@@ -57,7 +59,7 @@ const {
   commonScore,
 } = useSelectedPostStats(selectedPosts)
 
-const RATING_LABELS = computed(() => [t('rating.unrated'), 'G', 'S', 'Q', 'E'])
+const RATING_LABELS = computed(() => [t(RATING_UNRATED_LABEL_KEY), ...RATING_LEVEL_SHORT])
 const RATING_COLORS = ['var(--p-fg-subtle)', ...RATING_LEVEL_COLORS]
 const SCORE_LABELS = computed(() => [t('common.unscored'), '1', '2', '3', '4', '5'])
 // Quality ramp: low score = red, high score = green (0 = unscored, muted).

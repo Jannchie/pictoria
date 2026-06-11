@@ -6,7 +6,7 @@ import { useFacetFilter } from '@/composables/useFacetFilter'
 
 const { t } = useI18n()
 
-const { selected: scoreFilterData, has: hasScore, toggle, countQuery } = useFacetFilter<number, { score: number, count: number }>({
+const { selected: scoreFilterData, has: hasScore, toggle, countQuery, pct } = useFacetFilter<number, { score: number, count: number }>({
   field: 'score',
   countKind: 'score',
   fetchCounts: async (filter) => {
@@ -24,12 +24,6 @@ const scoreCountList = computed(() => {
   }
   return resp
 })
-
-const total = computed(() => scoreCountList.value.reduce((a, b) => a + b, 0))
-
-function pct(count: number) {
-  return total.value > 0 ? ((count / total.value) * 100).toFixed(1) : '0.0'
-}
 
 const btnText = computed(() => {
   const item = scoreFilterData.value

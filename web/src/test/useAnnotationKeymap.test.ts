@@ -3,7 +3,7 @@ import { activeKeys, KEY_ROWS, keyToChoice } from '@/composables/useAnnotationKe
 
 const DIMS = ['color', 'finish', 'composition']
 
-describe('keyToChoice', () => {
+describe('keytochoice', () => {
   it('maps row keys to (dimension, value) within scale', () => {
     expect(keyToChoice('1', DIMS, 2)).toEqual({ dimension: 'color', value: 1 })
     expect(keyToChoice('2', DIMS, 2)).toEqual({ dimension: 'color', value: 2 })
@@ -25,13 +25,13 @@ describe('keyToChoice', () => {
     expect(keyToChoice('5', ['overall'], 5)).toEqual({ dimension: 'overall', value: 5 })
   })
 
-  it('exposes key rows for UI hints', () => {
+  it('exposes key rows for ui hints', () => {
     expect(KEY_ROWS[0][0]).toBe('1')
     expect(KEY_ROWS[1][0]).toBe('q')
   })
 })
 
-describe('activeKeys', () => {
+describe('activekeys', () => {
   it('returns the listened keys for dimensions x scale', () => {
     expect(activeKeys(DIMS, 2)).toEqual(['1', '2', 'q', 'w', 'a', 's'])
     expect(activeKeys(['overall'], 5)).toEqual(['1', '2', '3', '4', '5'])

@@ -1,6 +1,4 @@
 export { useAdjacentImagePreload } from './useAdjacentImagePreload'
-export { useClientHeight } from './useClientHeight'
-export { useClientWidth } from './useClientWidth'
 export { useFocusedPost } from './useFocusedPost'
 export { useGlobalUndoRedo } from './useGlobalUndoRedo'
 export { usePostQuery } from './usePostQuery'
