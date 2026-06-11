@@ -92,8 +92,13 @@ class FoldersController(Controller):
         if not target_path.is_dir():
             raise PathNotADirectoryError
 
-        summary = await asyncio.to_thread(get_directory_summary, target_path)
-        aggregates = await post_query.folder_score_aggregates()
+        # The disk walk and the DB aggregate are independent (combined only in
+        # attach_folder_stats) and run on different threads/connections, so
+        # overlap them: latency drops from walk+query to max(walk, query).
+        summary, aggregates = await asyncio.gather(
+            asyncio.to_thread(get_directory_summary, target_path),
+            post_query.folder_score_aggregates(),
+        )
         attach_folder_stats(summary, aggregates)
         return summary
 

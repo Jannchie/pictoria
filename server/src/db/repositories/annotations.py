@@ -108,7 +108,7 @@ class AnnotationRepo:
                 "SELECT winner, COUNT(*) FROM pairwise_annotations WHERE dimension = ? GROUP BY winner",
                 [dimension],
             )
-            by = {winner: n for winner, n in self.cur.fetchall()}
+            by = dict(self.cur.fetchall())
             decisive = by.get("a", 0) + by.get("b", 0)
             tie = by.get("tie", 0)
             return {"total": decisive + tie, "decisive": decisive, "tie": tie, "skip": by.get("skip", 0)}

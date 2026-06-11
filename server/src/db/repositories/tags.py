@@ -33,22 +33,28 @@ class TagRepo:
         prev: str | None = None,
         limit: int | None = None,
     ) -> list[dict]:
-        """Return [{name, group, count}, ...] for ``TagWithCountPublic``."""
+        """Return [{name, group, count}, ...] for ``TagWithCountPublic``.
+
+        ``count`` reads the trigger-maintained ``tags.post_count`` (migration
+        0008) instead of GROUP BY-ing the ~9.4M-row ``post_has_tag`` table
+        (~630ms per call). That denormalised count covers *canonical* posts
+        only — hidden near-duplicate group members are excluded (migration
+        0009) — aligning this listing with the tag-filter facet's semantics.
+        """
 
         def _impl() -> list[dict]:
             sql = (
                 "SELECT t.name AS name, t.group_id AS group_id, "
                 "tg.id AS g_id, tg.name AS g_name, tg.color AS g_color, "
-                "count(pht.tag_name) AS count "
+                "t.post_count AS count "
                 "FROM tags t "
-                "LEFT JOIN post_has_tag pht ON pht.tag_name = t.name "
                 "LEFT JOIN tag_groups tg ON tg.id = t.group_id "
             )
             params: list = []
             if prev:
                 sql += "WHERE t.name > ? "
                 params.append(prev)
-            sql += "GROUP BY t.name, t.group_id, tg.id, tg.name, tg.color ORDER BY t.name "
+            sql += "ORDER BY t.name "
             if limit:
                 sql += "LIMIT ?"
                 params.append(limit)

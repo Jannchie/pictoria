@@ -12,7 +12,7 @@ from __future__ import annotations
 import asyncio
 from typing import TYPE_CHECKING
 
-from db.helpers import sql_placeholders
+from db.helpers import sql_placeholders, transaction
 
 if TYPE_CHECKING:
     import sqlite3
@@ -44,6 +44,26 @@ class ScoreRepo:
 
         await asyncio.to_thread(_impl)
 
+    async def upsert_waifu_scores_many(self, pairs: list[tuple[int, float]]) -> None:
+        """Batch counterpart of :meth:`upsert_waifu_score` (one ``executemany``).
+
+        Wrapped in an explicit transaction: connections are autocommit, so
+        ``executemany`` would otherwise commit per row — the transaction makes
+        the batch atomic and cheap (one fsync instead of one per score).
+        """
+        if not pairs:
+            return
+
+        def _impl() -> None:
+            with transaction(self.cur):
+                self.cur.executemany(
+                    "INSERT INTO post_waifu_scores(post_id, score) VALUES (?, ?) "
+                    "ON CONFLICT (post_id) DO UPDATE SET score = excluded.score",
+                    pairs,
+                )
+
+        await asyncio.to_thread(_impl)
+
     # ─── Aesthetic scores (generic per-scorer table) ─────────────────
     async def get_aesthetic_score(self, post_id: int, scorer: str) -> float | None:
         def _impl() -> float | None:
@@ -65,6 +85,26 @@ class ScoreRepo:
                 "ON CONFLICT (post_id, scorer) DO UPDATE SET score = excluded.score",
                 [post_id, scorer, score],
             )
+
+        await asyncio.to_thread(_impl)
+
+    async def upsert_aesthetic_scores_many(self, scorer: str, pairs: list[tuple[int, float]]) -> None:
+        """Batch counterpart of :meth:`upsert_aesthetic_score` for one scorer.
+
+        One ``executemany``, wrapped in a transaction for the same atomic-and-
+        cheap reason as :meth:`upsert_waifu_scores_many`.
+        """
+        if not pairs:
+            return
+
+        def _impl() -> None:
+            with transaction(self.cur):
+                self.cur.executemany(
+                    "INSERT INTO post_aesthetic_scores(post_id, scorer, score) "
+                    "VALUES (?, ?, ?) "
+                    "ON CONFLICT (post_id, scorer) DO UPDATE SET score = excluded.score",
+                    [(post_id, scorer, score) for post_id, score in pairs],
+                )
 
         await asyncio.to_thread(_impl)
 

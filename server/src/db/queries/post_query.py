@@ -663,34 +663,40 @@ class PostQueryService:
                 joins.append("LEFT JOIN post_waifu_scores pws ON pws.post_id = p.id")
             joins_sql = "\n".join(joins)
             where_sql = ("WHERE " + " AND ".join(where_clauses)) if where_clauses else ""
+            # Single pass over the filtered set: the per-rating GROUP BY carries
+            # the score / waifu sums alongside the rating counts, and Python
+            # recombines them into the overall weighted averages
+            # (total_sum / total_count — exactly what the previous separate
+            # scalar SELECT computed via AVG). post_waifu_scores joins 1:1 on
+            # its PK, so the LEFT JOIN never multiplies rows.
             self.cur.execute(
                 f"""
                 SELECT
-                    count(p.id) AS total,
-                    AVG(CASE WHEN p.score > 0 THEN p.score END) AS avg_score,
+                    p.rating AS rating,
+                    count(*) AS count,
+                    SUM(CASE WHEN p.score > 0 THEN p.score END) AS score_sum,
                     count(CASE WHEN p.score > 0 THEN 1 END) AS scored_count,
-                    AVG(pws.score) AS avg_waifu_score,
+                    SUM(pws.score) AS waifu_sum,
                     count(pws.post_id) AS waifu_count
                 FROM posts p {joins_sql} {where_sql}
+                GROUP BY p.rating
                 """,  # noqa: S608
                 params,
             )
-            agg = fetch_one_dict(self.cur) or {}
-            self.cur.execute(
-                f"SELECT p.rating AS rating, count(*) AS count "  # noqa: S608
-                f"FROM posts p {joins_sql} {where_sql} GROUP BY p.rating",
-                params,
-            )
-            rating_rows = fetch_all_dicts(self.cur)
+            rows = fetch_all_dicts(self.cur)
+            scored_count = sum(int(r["scored_count"]) for r in rows)
+            score_sum = sum(float(r["score_sum"]) for r in rows if r["score_sum"] is not None)
+            waifu_count = sum(int(r["waifu_count"]) for r in rows)
+            waifu_sum = sum(float(r["waifu_sum"]) for r in rows if r["waifu_sum"] is not None)
             return {
-                "total": int(agg.get("total") or 0),
-                "avg_score": agg.get("avg_score"),
-                "scored_count": int(agg.get("scored_count") or 0),
-                "avg_waifu_score": agg.get("avg_waifu_score"),
-                "waifu_count": int(agg.get("waifu_count") or 0),
+                "total": sum(int(r["count"]) for r in rows),
+                "avg_score": (score_sum / scored_count) if scored_count else None,
+                "scored_count": scored_count,
+                "avg_waifu_score": (waifu_sum / waifu_count) if waifu_count else None,
+                "waifu_count": waifu_count,
                 "rating_distribution": [
                     {"rating": int(r["rating"] or 0), "count": int(r["count"])}
-                    for r in rating_rows
+                    for r in rows
                 ],
             }
 

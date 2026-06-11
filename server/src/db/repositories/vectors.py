@@ -17,7 +17,8 @@ from typing import TYPE_CHECKING
 import sqlite_vec
 
 from db import SimilarImageResult
-from db.helpers import fetch_all_dicts, sql_placeholders
+from db.helpers import sql_placeholders, transaction
+from db.repositories.failures import not_failed_clause
 
 if TYPE_CHECKING:
     import sqlite3
@@ -25,12 +26,17 @@ if TYPE_CHECKING:
     import numpy as np
 
 
+# Canonical SigLIP 2 table name + dimensionality. Import these instead of
+# re-declaring the literals elsewhere.
+SIGLIP2_TABLE = "post_vectors_siglip2"
+SIGLIP2_DIM = 1152
+
 # Table names may only come from this code-level allowlist: they are
 # interpolated into SQL strings (a placeholder can't stand in for an
 # identifier), so the set is sealed to keep any external input out of the
 # table name. The value is the vec0 table's dimensionality.
 _ALLOWED_TABLES: dict[str, int] = {
-    "post_vectors_siglip2": 1152,
+    SIGLIP2_TABLE: SIGLIP2_DIM,
 }
 
 
@@ -45,7 +51,7 @@ class VectorRepo:
         self,
         cur: sqlite3.Cursor,
         *,
-        table: str = "post_vectors_siglip2",
+        table: str = SIGLIP2_TABLE,
         dim: int | None = None,
     ) -> None:
         if table not in _ALLOWED_TABLES:
@@ -110,6 +116,70 @@ class VectorRepo:
 
         await asyncio.to_thread(_impl)
 
+    async def upsert_many(self, pairs: list[tuple[int, list[float]]]) -> None:
+        """Insert or replace many ``(post_id, embedding)`` pairs in one batch.
+
+        Batch counterpart of :meth:`upsert` — same DELETE + INSERT emulation
+        (vec0 doesn't support ON CONFLICT), one ``executemany`` per statement.
+        Wrapped in an explicit transaction: connections are autocommit, so
+        without it an interruption mid-batch would commit half the rows (or
+        a DELETE without its INSERT).
+        """
+        if not pairs:
+            return
+        blobs: list[tuple[int, bytes]] = []
+        for post_id, emb in pairs:
+            if len(emb) != self.dim:
+                msg = f"{self.table}: expected dim {self.dim}, got {len(emb)}"
+                raise ValueError(msg)
+            blobs.append((post_id, sqlite_vec.serialize_float32(emb)))
+
+        def _impl() -> None:
+            with transaction(self.cur):
+                self.cur.executemany(
+                    f"DELETE FROM {self.table} WHERE post_id = ?",  # noqa: S608
+                    [(pid,) for pid, _ in blobs],
+                )
+                self.cur.executemany(
+                    f"INSERT INTO {self.table}(post_id, embedding) VALUES (?, ?)",  # noqa: S608
+                    blobs,
+                )
+
+        await asyncio.to_thread(_impl)
+
+    # ─── Sync cores (callable from inside another asyncio.to_thread block) ──
+    def exists_sync(self, post_id: int) -> bool:
+        """Whether ``post_id`` has an embedding — a single vec0 point lookup."""
+        self.cur.execute(
+            f"SELECT 1 FROM {self.table} WHERE post_id = ?",  # noqa: S608
+            [post_id],
+        )
+        return self.cur.fetchone() is not None
+
+    def knn_sync(self, seed_post_id: int, k: int) -> list[tuple[int, float]]:
+        """Raw KNN rows ``(post_id, distance)`` around ``seed_post_id``, nearest first.
+
+        The seed row itself comes back too (distance ~= 0) — callers that
+        don't want it filter it out. Returns ``[]`` when the seed has no
+        embedding: vec0's MATCH rejects NULL as the query vector with a hard
+        OperationalError, so short-circuit instead of letting the inner
+        subselect bubble up a confusing schema-level error.
+        """
+        if not self.exists_sync(seed_post_id):
+            return []
+        self.cur.execute(
+            f"""
+            SELECT post_id, distance
+            FROM {self.table}
+            WHERE embedding MATCH (
+                SELECT embedding FROM {self.table} WHERE post_id = ?
+            ) AND k = ?
+            ORDER BY distance
+            """,  # noqa: S608
+            [seed_post_id, k],
+        )
+        return [(int(pid), float(dist)) for pid, dist in self.cur.fetchall()]
+
     async def similar_to_post(
         self,
         post_id: int,
@@ -121,36 +191,19 @@ class VectorRepo:
         Equivalent to ``similar(await self.get(post_id), skip_self=True)``
         but avoids the extra round-trip + Python-side blob ↔ list conversion
         by feeding the source row's blob straight into the MATCH query via
-        a subselect. Returns ``[]`` when the source has no embedding.
+        a subselect (see :meth:`knn_sync`). Returns ``[]`` when the source
+        has no embedding.
         """
         fetch_limit = limit + 1
 
         def _impl() -> list[SimilarImageResult]:
-            # vec0's MATCH rejects NULL as the query vector with a hard
-            # OperationalError, so short-circuit when the source post has
-            # no embedding instead of letting the inner subselect bubble
-            # up a confusing schema-level error.
-            self.cur.execute(
-                f"SELECT 1 FROM {self.table} WHERE post_id = ?",  # noqa: S608
-                [post_id],
-            )
-            if self.cur.fetchone() is None:
-                return []
-            self.cur.execute(
-                f"""
-                SELECT post_id, distance
-                FROM {self.table}
-                WHERE embedding MATCH (
-                    SELECT embedding FROM {self.table} WHERE post_id = ?
-                ) AND k = ?
-                ORDER BY distance
-                """,  # noqa: S608
-                [post_id, fetch_limit],
-            )
-            rows = fetch_all_dicts(self.cur)
+            rows = self.knn_sync(post_id, fetch_limit)
             # The source row itself comes back first (distance ~= 0); drop it.
-            filtered = [r for r in rows if r["post_id"] != post_id]
-            return [SimilarImageResult(**r) for r in filtered[:limit]]
+            filtered = [(pid, dist) for pid, dist in rows if pid != post_id]
+            return [
+                SimilarImageResult(post_id=pid, distance=dist)
+                for pid, dist in filtered[:limit]
+            ]
 
         return await asyncio.to_thread(_impl)
 
@@ -181,11 +234,25 @@ class VectorRepo:
 
         return await asyncio.to_thread(_impl)
 
+    def embedded_post_ids_sync(self) -> set[int]:
+        """Every post_id present in ``self.table``, as a set.
+
+        A plain scan of the vec0 rowid column (no distance computation), so
+        it stays fast at library scale — used to turn per-row vec0 probes
+        into one set-difference (see ``list_missing_post_ids``).
+        """
+        self.cur.execute(f"SELECT post_id FROM {self.table}")  # noqa: S608
+        return {row[0] for row in self.cur.fetchall()}
+
+    async def list_embedded_post_ids(self) -> set[int]:
+        """Async wrapper over :meth:`embedded_post_ids_sync`."""
+        return await asyncio.to_thread(self.embedded_post_ids_sync)
+
     async def list_missing_post_ids(
         self,
         *,
         image_exts: list[str] | None = None,
-        worker: str = "embedding",
+        worker: str,
     ) -> list[int]:
         """Return post ids that don't yet have an embedding in ``self.table``.
 
@@ -194,41 +261,35 @@ class VectorRepo:
         be filtered out one-by-one in the worker, but would still inflate
         the progress total. Passing the list lets the DB do that filter.
 
-        ``worker`` selects which ``post_process_failures`` bucket to honour as
-        a one-shot blacklist; the CLIP table uses ``"embedding"`` (default),
-        the SigLIP 2 table uses ``"embedding:siglip2"`` so each has its own
-        failure log.
+        ``worker`` selects which ``post_process_failures`` bucket to honour
+        as a one-shot blacklist; the SigLIP 2 worker passes
+        ``WORKER_EMBEDDING_SIGLIP2`` so each table has its own failure log.
         """
 
         def _impl() -> list[int]:
-            # NOT EXISTS clause skips posts already permanently failed by the
-            # embedding worker (see migration 0002_post_process_failures.sql).
-            blacklist_clause = (
-                "AND NOT EXISTS ("
-                "SELECT 1 FROM post_process_failures f "
-                "WHERE f.post_id = p.id AND f.worker = ?)"
-            )
+            # Candidates come from plain-table predicates only; the "already
+            # embedded?" check is a Python set-difference rather than a
+            # LEFT JOIN ... IS NULL: a vec0 lookup is a virtual-table probe,
+            # not a B-tree probe, so the join ran one probe per posts row
+            # (tens of seconds at 170k posts), whereas scanning the vec0
+            # post_id column once is fast.
+            clauses: list[str] = []
+            params: list[object] = []
             if image_exts:
                 # The `?` placeholder count is derived from len(image_exts);
                 # ext strings flow through cur.execute params, never into SQL.
                 placeholders = sql_placeholders(image_exts)
-                ext_clause = f"AND LOWER(p.extension) IN ({placeholders})"
-                self.cur.execute(
-                    f"SELECT p.id FROM posts p "  # noqa: S608
-                    f"LEFT JOIN {self.table} pv ON pv.post_id = p.id "
-                    "WHERE pv.post_id IS NULL "
-                    + ext_clause + " " + blacklist_clause
-                    + " ORDER BY p.id",
-                    [*image_exts, worker],
-                )
-            else:
-                self.cur.execute(
-                    f"SELECT p.id FROM posts p "  # noqa: S608
-                    f"LEFT JOIN {self.table} pv ON pv.post_id = p.id "
-                    "WHERE pv.post_id IS NULL " + blacklist_clause
-                    + " ORDER BY p.id",
-                    [worker],
-                )
-            return [r[0] for r in self.cur.fetchall()]
+                clauses.append(f"LOWER(p.extension) IN ({placeholders})")
+                params.extend(image_exts)
+            clauses.append(not_failed_clause("p"))
+            params.append(worker)
+            self.cur.execute(
+                f"SELECT p.id FROM posts p WHERE {' AND '.join(clauses)} ORDER BY p.id",  # noqa: S608
+                params,
+            )
+            candidates = [r[0] for r in self.cur.fetchall()]
+            embedded = self.embedded_post_ids_sync()
+            # Candidates are already ordered by p.id; the subtraction keeps it.
+            return [pid for pid in candidates if pid not in embedded]
 
         return await asyncio.to_thread(_impl)

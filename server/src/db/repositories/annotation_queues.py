@@ -15,6 +15,7 @@ from typing import TYPE_CHECKING, Any
 
 from db.entities import AnnotationQueue
 from db.helpers import fetch_all_dicts, fetch_one_as, sql_placeholders
+from db.repositories.vectors import VectorRepo
 
 if TYPE_CHECKING:
     import sqlite3
@@ -46,6 +47,10 @@ def _aliased_post_cols(table_alias: str, out_prefix: str) -> str:
 class AnnotationQueueRepo:
     def __init__(self, cur: sqlite3.Cursor) -> None:
         self.cur = cur
+        # Sampling reuses VectorRepo's sync cores (exists_sync / knn_sync) for
+        # its vec0 lookups; the sampling code already runs inside
+        # ``asyncio.to_thread``, so calling them directly is correct.
+        self._vectors = VectorRepo(cur)
 
     async def create_absolute_queue(self, *, name: str, dimensions: list[str], scale: int, post_ids: list[int]) -> int:
         def _impl() -> int:
@@ -161,12 +166,7 @@ class AnnotationQueueRepo:
 
     def _with_embedding(self, ids: list[int]) -> list[int]:
         """Keep only ids that have a SigLIP2 embedding (vec0 point lookups)."""
-        out: list[int] = []
-        for pid in ids:
-            self.cur.execute("SELECT 1 FROM post_vectors_siglip2 WHERE post_id = ?", [pid])
-            if self.cur.fetchone() is not None:
-                out.append(pid)
-        return out
+        return [pid for pid in ids if self._vectors.exists_sync(pid)]
 
     def _draw(self, *, extra_where: str, extra_params: list[Any], dimensions: list[str], n: int) -> list[int]:
         """Phase 1: random candidates on plain predicates; phase 2: vec0 filter.
@@ -277,22 +277,17 @@ class AnnotationQueueRepo:
 
         Includes ``seed`` itself; drops near-duplicates (a near-identical pair
         is a foregone tie), already-used ids, and ids failing pairwise
-        eligibility. Returns ``[]`` when ``seed`` has no embedding — vec0's
-        MATCH rejects a NULL query vector with a hard error.
+        eligibility. Returns ``[]`` when ``seed`` has no embedding —
+        ``knn_sync`` short-circuits then (vec0's MATCH rejects a NULL query
+        vector with a hard error).
         """
-        self.cur.execute("SELECT 1 FROM post_vectors_siglip2 WHERE post_id = ?", [seed])
-        if self.cur.fetchone() is None:
+        knn = self._vectors.knn_sync(seed, _SIMILAR_KNN_K)
+        if not knn:
             return []
-        self.cur.execute(
-            "SELECT post_id, distance FROM post_vectors_siglip2 "
-            "WHERE embedding MATCH (SELECT embedding FROM post_vectors_siglip2 WHERE post_id = ?) "
-            "AND k = ? ORDER BY distance",
-            [seed, _SIMILAR_KNN_K],
-        )
         member_ids = [seed]
         member_ids += [
             pid
-            for pid, dist in self.cur.fetchall()
+            for pid, dist in knn
             if pid != seed and dist >= _SIMILAR_MIN_DISTANCE and pid not in used
         ]
         ph = sql_placeholders(member_ids)

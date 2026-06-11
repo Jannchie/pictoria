@@ -22,6 +22,7 @@ import pytest
 from db.filters import PostFilter, PostFilterWithOrder
 
 if TYPE_CHECKING:
+    from db.connection import DB
     from db.queries.post_query import PostQueryService
     from db.repositories.posts import PostRepo
     from db.repositories.scores import ScoreRepo
@@ -331,6 +332,29 @@ class TestTagAssociation:
         assert await tag_repo.remove_tag(1, "artist_a") is True
         assert await tag_repo.remove_tag(1, "artist_a") is False
 
+    async def test_list_with_counts(self, tag_repo: TagRepo) -> None:
+        rows = await tag_repo.list_with_counts()
+        assert [(r["name"], r["count"]) for r in rows] == [
+            ("artist_a", 2), ("no_group_tag", 1), ("tag_general", 2),
+        ]
+        assert rows[0]["group"] == {"id": 1, "name": "artist", "color": "#ff0000"}
+        assert rows[1]["group"] is None
+
+    async def test_list_with_counts_excludes_hidden_group_members(
+        self, db: DB, tag_repo: TagRepo,
+    ) -> None:
+        # Semantic alignment (not a regression): list_with_counts now reads the
+        # trigger-maintained tags.post_count, which counts canonical posts only
+        # (migrations 0008/0009) — matching the tag-filter facet. The old live
+        # GROUP BY over post_has_tag also counted hidden group members.
+        db.cursor().execute("UPDATE posts SET canonical_post_id = 1 WHERE id = 5")
+        rows = await tag_repo.list_with_counts()
+        assert {r["name"]: r["count"] for r in rows}["artist_a"] == 1
+
+    async def test_list_with_counts_pagination(self, tag_repo: TagRepo) -> None:
+        rows = await tag_repo.list_with_counts(prev="artist_a", limit=1)
+        assert [(r["name"], r["count"]) for r in rows] == [("no_group_tag", 1)]
+
 
 # ─── scores ──────────────────────────────────────────────────────────────────
 class TestScores:
@@ -351,6 +375,20 @@ class TestScores:
     async def test_upsert_aesthetic_score(self, score_repo: ScoreRepo) -> None:
         await score_repo.upsert_aesthetic_score(2, "silva", 5.0)
         assert await score_repo.get_aesthetic_score(2, "silva") == 5.0
+
+    async def test_upsert_waifu_scores_many(self, score_repo: ScoreRepo) -> None:
+        # Batch mixes an insert (post 2 unscored) and an update (post 1 = 8.5).
+        await score_repo.upsert_waifu_scores_many([(2, 7.0), (1, 9.9)])
+        assert await score_repo.get_waifu_score(2) == 7.0
+        assert await score_repo.get_waifu_score(1) == 9.9
+        await score_repo.upsert_waifu_scores_many([])  # empty batch is a no-op
+
+    async def test_upsert_aesthetic_scores_many(self, score_repo: ScoreRepo) -> None:
+        # Batch mixes an insert (post 2 unscored) and an update (post 4 = 0.4).
+        await score_repo.upsert_aesthetic_scores_many("silva", [(2, 0.6), (4, 0.7)])
+        assert await score_repo.get_aesthetic_score(2, "silva") == 0.6
+        assert await score_repo.get_aesthetic_score(4, "silva") == 0.7
+        await score_repo.upsert_aesthetic_scores_many("silva", [])  # no-op
 
     async def test_waifu_score_distribution(self, score_repo: ScoreRepo) -> None:
         # Seed scores: 8.5 (bucket 8), 5.0 (bucket 5), 1.0 (bucket 1), 3.5 (bucket 3).
