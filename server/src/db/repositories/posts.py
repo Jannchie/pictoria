@@ -187,11 +187,12 @@ class PostRepo:
         return await asyncio.to_thread(_impl)
 
     # ─── Mutation: rotate (geometry refresh after image rotation) ─────
-    async def update_for_rotate(
+    async def update_for_rotate(  # noqa: PLR0913
         self,
         post_id: int,
         *,
         sha256: str,
+        size: int,
         width: int,
         height: int,
         arthash: str | None,
@@ -200,10 +201,10 @@ class PostRepo:
             self.cur.execute(
                 """
                 UPDATE posts
-                SET sha256 = ?, width = ?, height = ?, arthash = ?, updated_at = CURRENT_TIMESTAMP
+                SET sha256 = ?, size = ?, width = ?, height = ?, arthash = ?, updated_at = CURRENT_TIMESTAMP
                 WHERE id = ?
                 """,
-                [sha256, width, height, arthash, post_id],
+                [sha256, size, width, height, arthash, post_id],
             )
 
         await asyncio.to_thread(_impl)

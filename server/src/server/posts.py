@@ -358,17 +358,21 @@ class PostController(Controller):
         if post is None:
             raise PostNotFoundError(post_id)
 
-        def _rotate_and_describe() -> tuple[str, int, int, str | None]:
+        def _rotate_and_describe() -> tuple[str, int, int, int, str | None]:
             image = Image.open(post.absolute_path)
             image = image.rotate(-90 if clockwise else 90, expand=True)
             image.save(post.absolute_path)
             create_thumbnail_by_image(image, post.thumbnail_path)
-            sha = calculate_sha256(image.tobytes())
+            # Hash the encoded bytes actually on disk — the same domain every
+            # other writer uses (see processors/basics.py) — not the decoded
+            # pixel buffer; and capture the re-encoded file's new size.
+            file_bytes = post.absolute_path.read_bytes()
+            sha = calculate_sha256(file_bytes)
             ah = calculate_arthash(image)
-            return sha, image.size[0], image.size[1], ah
+            return sha, len(file_bytes), image.size[0], image.size[1], ah
 
-        sha, w, h, ah = await asyncio.to_thread(_rotate_and_describe)
-        await posts.update_for_rotate(post_id, sha256=sha, width=w, height=h, arthash=ah)
+        sha, size, w, h, ah = await asyncio.to_thread(_rotate_and_describe)
+        await posts.update_for_rotate(post_id, sha256=sha, size=size, width=w, height=h, arthash=ah)
         return PostDetailPublic.model_validate(await post_query.get_detail(post_id))
 
     @litestar.put("/{post_id:int}/tags/{tag_name:str}")
