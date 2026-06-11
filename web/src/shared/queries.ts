@@ -59,11 +59,23 @@ export function useInfinityPostsQuery() {
   const requestBody = computed(() => {
     const base = {
       ...postFilter.value,
-      order_by: orderBy.value,
       order: order.value,
+      // On /random the default sort (id — PostSorter's "no specific sort")
+      // must NOT be sent as order_by: the backend re-sorts the shuffled page
+      // by any order_by it receives, so sending the default re-ordered every
+      // random page back into id order and pure random browsing was
+      // unreachable. Only forward an explicitly chosen sort.
+      ...(isRandomPage.value && postSort.value === 'id'
+        ? {}
+        : { order_by: orderBy.value }),
       // Pin the random shuffle seed so every page of the infinite query shares
       // one ordering; it's part of the queryKey, so a new seed → a fresh query.
-      ...(isRandomPage.value ? { order_seed: randomSeed.value, sort_direction: postSortOrder.value } : {}),
+      ...(isRandomPage.value
+        ? {
+            order_seed: randomSeed.value,
+            ...(postSort.value === 'id' ? {} : { sort_direction: postSortOrder.value }),
+          }
+        : {}),
     }
     return labTuple.value ? { ...base, lab: labTuple.value } : base
   })
@@ -90,7 +102,9 @@ export function useInfinityPostsQuery() {
       if (!lastPage || lastPage.length < limit) {
         return
       }
-      return allPages.flat().length
+      // Sum page lengths instead of flat().length: flattening allocates an
+      // array of every loaded post reference per fetch just to read a count.
+      return allPages.reduce((n, page) => n + (page?.length ?? 0), 0)
     },
   })
 }

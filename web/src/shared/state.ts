@@ -5,13 +5,6 @@ import { useRoute, useRouter } from 'vue-router'
 
 export const baseURL = 'http://localhost:4777'
 
-interface ImageDatum {
-  src: string
-}
-interface InputDatum {
-  label: string
-  value: string
-}
 interface PostFilter {
   rating: number[]
   score: number[]
@@ -22,7 +15,6 @@ interface PostFilter {
   waifu_score_levels: string[]
   silva_score_levels: string[]
 }
-export type RightPanelDatum = PostSimplePublic | ImageDatum | InputDatum
 export const postFilter = ref<PostFilter>({
   rating: [],
   score: [],
@@ -56,6 +48,17 @@ const ARRAY_FILTERS: { key: keyof PostFilter & string, numeric?: boolean, encode
   { key: 'silva_score_levels' },
 ]
 
+// vue-router query values are `string | null | (string | null)[]`: a valueless
+// param (`?score`) yields null and a repeated key (`?tags=a&tags=b`) an array.
+// Our own URLs only ever produce single comma-joined strings, but hand-edited
+// or shared URLs can produce the other shapes — calling .split on them threw
+// inside the immediate route watcher and broke filter sync for the session.
+// Normalize to the first string value, or undefined when there is none.
+function queryParamString(value: unknown): string | undefined {
+  const raw = Array.isArray(value) ? value[0] : value
+  return typeof raw === 'string' ? raw : undefined
+}
+
 // Sync postFilter with URL query parameters. Must be mounted on a component
 // that survives route changes (App.vue) — the URL→filter watcher below has to
 // observe every navigation, and the filter→URL one re-projects after each
@@ -73,28 +76,32 @@ export function useSyncFilterWithUrl() {
   // the source of truth across navigations).
   watch(() => route.query, (newQuery) => {
     for (const { key, numeric, encode } of ARRAY_FILTERS) {
-      if (newQuery[key] !== undefined) {
-        const parts = (newQuery[key] as string).split(',')
+      const raw = queryParamString(newQuery[key])
+      if (raw !== undefined) {
+        const parts = raw.split(',')
         const decoded = encode ? parts.map(p => decodeURIComponent(p)) : parts
         ;(postFilter.value[key] as any) = numeric ? decoded.map(Number) : decoded
       }
     }
 
-    if (newQuery.waifu_score_range !== undefined) {
-      const range = (newQuery.waifu_score_range as string).split(',').map(Number) as [number, number]
-      postFilter.value.waifu_score_range = range
+    const rangeRaw = queryParamString(newQuery.waifu_score_range)
+    if (rangeRaw !== undefined) {
+      postFilter.value.waifu_score_range = rangeRaw.split(',').map(Number) as [number, number]
     }
 
-    if (newQuery.sort !== undefined) {
-      postSort.value = newQuery.sort as typeof postSort.value
+    const sort = queryParamString(newQuery.sort)
+    if (sort !== undefined) {
+      postSort.value = sort as typeof postSort.value
     }
 
-    if (newQuery.order !== undefined) {
-      postSortOrder.value = newQuery.order as typeof postSortOrder.value
+    const order = queryParamString(newQuery.order)
+    if (order !== undefined) {
+      postSortOrder.value = order as typeof postSortOrder.value
     }
 
-    if (newQuery.sort_color !== undefined) {
-      postSortColor.value = newQuery.sort_color as string
+    const sortColor = queryParamString(newQuery.sort_color)
+    if (sortColor !== undefined) {
+      postSortColor.value = sortColor
     }
   }, { immediate: true })
 

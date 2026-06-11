@@ -80,11 +80,23 @@ export function captureOldValues<P extends { id: number }, T>(
 
 // ---- 应用层：写 SDK + 复用乐观 patch + invalidate（apply / revert 共用）----
 
+// 批量端点把 ids 作为重复 query 参数传输；select-all 轻易产出上千个 id，
+// 一次性发送会超出服务器的请求行长度上限（请求整体被拒）。所有批量写
+// 一律按 100 个分批。
+const BULK_BATCH_SIZE = 100
+async function inBatches(ids: number[], run: (chunk: number[]) => Promise<unknown>): Promise<void> {
+  for (let i = 0; i < ids.length; i += BULK_BATCH_SIZE) {
+    await run(ids.slice(i, i + BULK_BATCH_SIZE))
+  }
+}
+
 async function writeScore(qc: QueryClient, ids: number[], score: number): Promise<void> {
   if (ids.length === 0) {
     return
   }
-  await (ids.length === 1 ? v2UpdatePostScore({ path: { post_id: ids[0] }, body: { score } }) : v2BulkUpdatePostScore({ query: { ids, score } }))
+  await (ids.length === 1
+    ? v2UpdatePostScore({ path: { post_id: ids[0] }, body: { score } })
+    : inBatches(ids, chunk => v2BulkUpdatePostScore({ query: { ids: chunk, score } })))
   // When the gallery is sorted by this very field, the per-item sort badge
   // echoes sortValue — patch it too so the badge doesn't show the stale value.
   patchPostsInListCache(qc, ids, postSort.value === 'score' ? { score, sortValue: score } : { score })
@@ -113,7 +125,9 @@ async function writeRating(qc: QueryClient, ids: number[], rating: number): Prom
   if (ids.length === 0) {
     return
   }
-  await (ids.length === 1 ? v2UpdatePostRating({ path: { post_id: ids[0] }, query: { rating } }) : v2BulkUpdatePostRating({ query: { ids, rating } }))
+  await (ids.length === 1
+    ? v2UpdatePostRating({ path: { post_id: ids[0] }, query: { rating } })
+    : inBatches(ids, chunk => v2BulkUpdatePostRating({ query: { ids: chunk, rating } })))
   patchPostsInListCache(qc, ids, postSort.value === 'rating' ? { rating, sortValue: rating } : { rating })
   const idSet = new Set(ids)
   qc.invalidateQueries({
@@ -219,16 +233,17 @@ export async function deletePosts(qc: QueryClient, ids: number[]): Promise<void>
   if (ids.length === 0) {
     return
   }
-  const batchSize = 100
-  for (let i = 0; i < ids.length; i += batchSize) {
-    await v2DeletePosts({ query: { ids: ids.slice(i, i + batchSize) } })
-  }
+  await inBatches(ids, chunk => v2DeletePosts({ query: { ids: chunk } }))
   removeDeletedPostsFromCaches(qc, ids)
   qc.invalidateQueries({ queryKey: queryKeys.countRoot('score') })
   qc.invalidateQueries({ queryKey: queryKeys.countRoot('rating') })
   qc.invalidateQueries({ queryKey: queryKeys.countRoot('extension') })
   qc.invalidateQueries({ queryKey: queryKeys.countRoot('tags') })
   qc.invalidateQueries({ queryKey: queryKeys.postsStatsRoot })
+  // The sidebar folder tree's per-folder counts/averages come from the folders
+  // query (staleTime 1h) — without this it kept showing pre-delete numbers.
+  qc.invalidateQueries({ queryKey: queryKeys.folders })
+  qc.invalidateQueries({ queryKey: queryKeys.postCount })
 }
 
 /** Delete a library folder (its posts, files and the directory tree). Not undoable. */
