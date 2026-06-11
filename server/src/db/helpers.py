@@ -10,14 +10,34 @@ from __future__ import annotations
 
 import json
 import struct
+from contextlib import contextmanager
 from typing import TYPE_CHECKING, Any, TypeVar
 
 from pydantic import BaseModel
 
 if TYPE_CHECKING:
     import sqlite3
+    from collections.abc import Iterator
 
 T = TypeVar("T", bound=BaseModel)
+
+
+@contextmanager
+def transaction(cur: sqlite3.Cursor) -> Iterator[None]:
+    """Wrap multi-statement writes in an explicit BEGIN/COMMIT.
+
+    Connections run with ``isolation_level=None`` (autocommit), so any write
+    that must keep multiple statements consistent — delete-with-children,
+    pointer swaps, mirrored updates — needs this; otherwise an interruption
+    (crash, SQLITE_BUSY under backfill) commits a half-applied state.
+    """
+    cur.execute("BEGIN")
+    try:
+        yield
+        cur.execute("COMMIT")
+    except Exception:
+        cur.execute("ROLLBACK")
+        raise
 
 
 def decode_dominant_color(v: Any) -> list[float] | None:

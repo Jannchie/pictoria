@@ -29,7 +29,7 @@ import sqlite_vec
 import shared
 from db.entities import POST_COLUMNS, Post
 from db.filters import BULK_UPDATABLE_FIELDS, UPDATABLE_FIELDS
-from db.helpers import fetch_all_as, fetch_one_as, sql_placeholders
+from db.helpers import fetch_all_as, fetch_one_as, sql_placeholders, transaction
 
 if TYPE_CHECKING:
     import sqlite3
@@ -110,18 +110,23 @@ class PostRepo:
             raise ValueError(msg)
 
         def _impl() -> bool:
-            self.cur.execute(
+            update_sql = (
                 f"UPDATE posts SET {field} = ?, updated_at = CURRENT_TIMESTAMP, "  # noqa: S608
-                "last_accessed_at = CURRENT_TIMESTAMP WHERE id = ?",
-                [value, post_id],
+                "last_accessed_at = CURRENT_TIMESTAMP WHERE id = ?"
             )
-            matched = self.cur.rowcount > 0
-            if field == "score":
-                # Scoring a canonical post mirrors the score onto *every* member
-                # of its near-duplicate group, so the whole group always shares
-                # the representative's score (members are hidden duplicates).
-                # This overwrites any score a member was given individually, and
-                # a score of 0 clears the group too.
+            if field != "score":
+                self.cur.execute(update_sql, [value, post_id])
+                return self.cur.rowcount > 0
+            # Scoring a canonical post mirrors the score onto *every* member
+            # of its near-duplicate group, so the whole group always shares
+            # the representative's score (members are hidden duplicates).
+            # This overwrites any score a member was given individually, and
+            # a score of 0 clears the group too. One transaction — an
+            # interruption between the two UPDATEs must not leave the group
+            # diverged from its representative.
+            with transaction(self.cur):
+                self.cur.execute(update_sql, [value, post_id])
+                matched = self.cur.rowcount > 0
                 self.cur.execute(
                     "UPDATE posts SET score = ?, updated_at = CURRENT_TIMESTAMP "
                     "WHERE canonical_post_id = ?",
@@ -140,17 +145,21 @@ class PostRepo:
 
         def _impl() -> None:
             placeholders = sql_placeholders(ids)
-            self.cur.execute(
+            update_sql = (
                 f"UPDATE posts SET {field} = ?, updated_at = CURRENT_TIMESTAMP, "  # noqa: S608
                 f"last_accessed_at = CURRENT_TIMESTAMP "
-                f"WHERE id IN ({placeholders})",
-                [value, *ids],
+                f"WHERE id IN ({placeholders})"
             )
-            if field == "score":
-                # Mirror the score onto every member of each canonical's group
-                # (see update_field): the hidden group always shares the
-                # representative's score, overwriting any individual member score
-                # (a score of 0 clears the group too).
+            if field != "score":
+                self.cur.execute(update_sql, [value, *ids])
+                return
+            # Mirror the score onto every member of each canonical's group
+            # (see update_field): the hidden group always shares the
+            # representative's score, overwriting any individual member score
+            # (a score of 0 clears the group too). Transactional for the same
+            # reason as update_field.
+            with transaction(self.cur):
+                self.cur.execute(update_sql, [value, *ids])
                 self.cur.execute(
                     f"UPDATE posts SET score = ?, updated_at = CURRENT_TIMESTAMP "  # noqa: S608
                     f"WHERE canonical_post_id IN ({placeholders})",
@@ -247,8 +256,7 @@ class PostRepo:
         """
 
         def _impl() -> None:
-            self.cur.execute("BEGIN")
-            try:
+            with transaction(self.cur):
                 self.cur.execute(
                     "UPDATE posts SET canonical_post_id = NULL WHERE canonical_post_id IS NOT NULL",
                 )
@@ -256,10 +264,6 @@ class PostRepo:
                     "UPDATE posts SET canonical_post_id = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?",
                     [(canonical_id, member_id) for member_id, canonical_id in assignments],
                 )
-                self.cur.execute("COMMIT")
-            except Exception:
-                self.cur.execute("ROLLBACK")
-                raise
 
         await asyncio.to_thread(_impl)
 
@@ -277,17 +281,23 @@ class PostRepo:
             if row is None or row[0] is None:
                 return False
             current = row[0]
-            # Old canonical + its other members all now point at post_id.
-            self.cur.execute(
-                "UPDATE posts SET canonical_post_id = ?, updated_at = CURRENT_TIMESTAMP "
-                "WHERE (id = ? OR canonical_post_id = ?) AND id != ?",
-                [post_id, current, current, post_id],
-            )
-            # post_id itself becomes canonical (visible).
-            self.cur.execute(
-                "UPDATE posts SET canonical_post_id = NULL, updated_at = CURRENT_TIMESTAMP WHERE id = ?",
-                [post_id],
-            )
+            # One transaction: between the two UPDATEs the group is a 2-cycle
+            # where *every* member (old canonical included) has a non-NULL
+            # pointer — i.e. the whole group is hidden from listings. An
+            # interruption must not freeze that state, and a WAL reader must
+            # never observe it.
+            with transaction(self.cur):
+                # Old canonical + its other members all now point at post_id.
+                self.cur.execute(
+                    "UPDATE posts SET canonical_post_id = ?, updated_at = CURRENT_TIMESTAMP "
+                    "WHERE (id = ? OR canonical_post_id = ?) AND id != ?",
+                    [post_id, current, current, post_id],
+                )
+                # post_id itself becomes canonical (visible).
+                self.cur.execute(
+                    "UPDATE posts SET canonical_post_id = NULL, updated_at = CURRENT_TIMESTAMP WHERE id = ?",
+                    [post_id],
+                )
             return True
 
         return await asyncio.to_thread(_impl)
@@ -303,33 +313,43 @@ class PostRepo:
         deleted explicitly *before* the posts row so the canonical-aware
         ``tags.post_count`` trigger (migration 0009) sees each post's real
         canonical status instead of racing the FK cascade.
+
+        Chunked so callers can pass arbitrarily many ids without tripping
+        SQLite's bound-parameter limit (32766 since 3.32), and each chunk's
+        three DELETEs run in one transaction so an interruption never leaves a
+        post alive but stripped of its tags/vector.
         """
         if not ids:
             return
+        chunk_size = 500
 
         def _impl() -> list[str]:
-            placeholders = sql_placeholders(ids)
-            # Collect file paths before deleting rows.
-            self.cur.execute(
-                f"SELECT full_path FROM posts WHERE id IN ({placeholders})",  # noqa: S608
-                ids,
-            )
-            full_paths = [row[0] for row in self.cur.fetchall()]
-            # Explicit, ahead of the posts delete, so trg_post_has_tag_count_ad
-            # fires while the post row still exists (correct canonical guard).
-            self.cur.execute(
-                f"DELETE FROM post_has_tag WHERE post_id IN ({placeholders})",  # noqa: S608
-                ids,
-            )
-            # vec0 virtual table — no FK CASCADE
-            self.cur.execute(
-                f"DELETE FROM post_vectors_siglip2 WHERE post_id IN ({placeholders})",  # noqa: S608
-                ids,
-            )
-            self.cur.execute(
-                f"DELETE FROM posts WHERE id IN ({placeholders})",  # noqa: S608
-                ids,
-            )
+            full_paths: list[str] = []
+            for i in range(0, len(ids), chunk_size):
+                chunk = ids[i : i + chunk_size]
+                placeholders = sql_placeholders(chunk)
+                with transaction(self.cur):
+                    # Collect file paths before deleting rows.
+                    self.cur.execute(
+                        f"SELECT full_path FROM posts WHERE id IN ({placeholders})",  # noqa: S608
+                        chunk,
+                    )
+                    full_paths += [row[0] for row in self.cur.fetchall()]
+                    # Explicit, ahead of the posts delete, so trg_post_has_tag_count_ad
+                    # fires while the post row still exists (correct canonical guard).
+                    self.cur.execute(
+                        f"DELETE FROM post_has_tag WHERE post_id IN ({placeholders})",  # noqa: S608
+                        chunk,
+                    )
+                    # vec0 virtual table — no FK CASCADE
+                    self.cur.execute(
+                        f"DELETE FROM post_vectors_siglip2 WHERE post_id IN ({placeholders})",  # noqa: S608
+                        chunk,
+                    )
+                    self.cur.execute(
+                        f"DELETE FROM posts WHERE id IN ({placeholders})",  # noqa: S608
+                        chunk,
+                    )
             return full_paths
 
         full_paths = await asyncio.to_thread(_impl)
