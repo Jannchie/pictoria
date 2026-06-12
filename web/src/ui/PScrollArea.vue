@@ -116,15 +116,18 @@ defineExpose({
 </script>
 
 <template>
+  <!-- isolation:isolate makes this root its own stacking context, so the
+       scrollbar's z-index only competes with its sibling scroll content and
+       never leaks into the surrounding layer stack (no --p-z-* step needed). -->
   <div
-    class="relative overflow-hidden"
+    class="relative overflow-hidden isolate"
   >
     <div
       v-if="scrollBarData"
       :style="{
         width: `${barWidth}px`,
       }"
-      class="h-full right-0 absolute z-999"
+      class="h-full right-0 absolute z-1"
     >
       <div
         v-show="scrollBarData.barHeight < clientHeight"

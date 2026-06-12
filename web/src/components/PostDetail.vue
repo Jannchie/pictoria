@@ -465,7 +465,7 @@ onUnmounted(() => {
       >
       <div
         ref="miniMapRef"
-        class="border border-border-strong rounded bg-bg shadow-md bottom-4 left-4 absolute z-200 overflow-hidden"
+        class="border border-border-strong rounded bg-bg shadow-md bottom-4 left-4 absolute z-1 overflow-hidden"
         @pointerdown.stop="onMiniMapPointerDown"
         @pointerup.stop="onMiniMapPointerUp"
         @pointermove.stop="onMiniMapPointerMove"

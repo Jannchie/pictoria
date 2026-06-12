@@ -106,14 +106,6 @@ describe('no raw z-index above the local-stacking threshold', () => {
     // Skip link, deliberately parked just below --p-z-popup so it surfaces
     // over content but never over popups (see tokens.css comment).
     'App.vue': new Set([9999]),
-    // Migrated verbatim from the old ScrollArea; still on a raw value pending
-    // a move onto the --p-z-* scale. TODO: tokenise.
-    'PScrollArea.vue': new Set([999]),
-    // Local stack *inside* the full-screen PostDetail layer. TODO: tokenise.
-    'PostDetail.vue': new Set([200]),
-    // Overflow-count badge: a local stacking nudge within an already-absolute
-    // overlay (20 > 10 only nominally). TODO: tokenise to a --p-z-* step.
-    'PostMultiSelectPanel.vue': new Set([20]),
     // Comment-only reference to POverlay's z-40 in PSelectArea's docstring —
     // not a style rule. Allowlisted to keep the regex simple.
     'PSelectArea.vue': new Set([40]),

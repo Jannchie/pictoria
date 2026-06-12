@@ -329,9 +329,12 @@ const sectionTitleClass
         </div>
       </div>
 
+      <!-- isolate: the thumb pile (inline zIndex 0..Z_LEVELS-1) and the
+           overflow badge form a self-contained local stacking context, so the
+           badge's z sits above the topmost thumb without leaking outward. -->
       <div
         v-if="displayedThumbs.length > 0"
-        class="flex shrink-0 h-50 w-full select-none items-center justify-center relative"
+        class="flex shrink-0 h-50 w-full select-none items-center justify-center relative isolate"
       >
         <button
           v-for="d of displayedThumbs"
@@ -355,7 +358,7 @@ const sectionTitleClass
         <div
           v-if="overflowCount > 0"
           class="text-sm text-fg tracking-tight font-mono font-semibold px-2.5 py-1 rounded-full bg-surface-2/90 pointer-events-none ring-1 ring-border-default shadow-sm left-1/2 top-1/2 absolute backdrop-blur tabular-nums -translate-x-1/2 -translate-y-1/2"
-          style="z-index: 20"
+          :style="{ zIndex: Z_LEVELS }"
         >
           +{{ overflowCount }}
         </div>
