@@ -18,6 +18,36 @@ is the single source of truth for the actual values.
 5. **No nested panels.** Cards do not sit inside cards. Group the inside of a
    floating layer with a `p-divider`, never a second surface level.
 
+### Focus
+
+One keyboard-focus ring for everything. `style.css` sets a global
+`:focus-visible { outline: var(--p-focus-ring); outline-offset: 1px }`
+(`--p-focus-ring` lives in `tokens.css`). It uses `outline`, not `box-shadow`,
+so it never stacks with existing shadows. Exceptions:
+
+- **Inputs** (`PInput`, annotate field) highlight the border instead of drawing
+  a ring.
+- **`PCheckbox`** focus lands on the `sr-only` input, so the ring is forwarded
+  to the visible box (`:focus-visible + .p-checkbox__box`).
+- **Virtual-scroll rows** (`PTreeList`, sidebar) use
+  `focus-visible:[outline-offset:-2px]` so the ring insets and isn't clipped.
+
+Don't write ad-hoc focus styles on new interactive components — let the global
+rule cover them.
+
+### Motion
+
+Floating layers share two transitions, both defined in `style.css` (global, not
+scoped, because content Teleports to `<body>`):
+
+- **`p-float`** — fade + 2px rise. Used by `PPopover`, `PMenu`, `PDialog`.
+- **`p-float-fade`** — fade only, for scrims (`POverlay`) that must not shift.
+
+Timing/easing come only from `--p-duration-*` / `--p-ease`. `PDialog` and
+`POverlay` are `appear`-only. The reduced-motion fallback is the global rule at
+the bottom of `style.css`. New floating components reuse these two classes —
+don't hand-roll motion.
+
 ## 2. Layering model
 
 One ascending background scale. Each step is a deliberate signal:
@@ -87,9 +117,13 @@ One ordered scale (`tokens.css`), ascending:
 | `--p-z-float`    | 10100 | `PFloatWindow` (e.g. tag-selector window)                    |
 | `--p-z-toast`    | 10200 | Toasts + undo snackbar (intentionally topmost)               |
 
-**Rule:** raw `z-*` values are allowed only at `≤ 10` (sticky headers, the
-`z-999` scrollbar, the `focus:z-9999` skip link — these slot below `--p-z-popup`
-by design). Anything higher must reference a token: `z-[var(--p-z-*)]`.
+**Rule:** raw `z-*` values are allowed only at `≤ 10`. Anything higher must
+reference a token: `z-[var(--p-z-*)]`. For a component's *internal* stacking,
+establish a local stacking context with `isolation: isolate` plus a small local
+`z` value (see `PScrollArea`, `PostDetailPanel`) rather than reaching for a big
+global number. The `design.test.ts` allowlist is now down to two entries: the
+`focus:z-9999` skip link (parked just below `--p-z-popup`) and one comment-only
+reference in `PSelectArea`.
 
 ## 5. Component inventory
 
@@ -106,6 +140,7 @@ by design). Anything higher must reference a token: `z-[var(--p-z-*)]`.
 | `PTag`             | Pill / label                         | `variant` (soft/outline/solid), `tone` (neutral/primary/success/warning/danger/info), `size` (xs/sm/md) |
 | `PColorSwatch`     | Color chip                           | `size`, `rounded` (sm/md/lg/full)                           |
 | `PListItem`        | Interactive list row                 | `type` (normal/checkbox)                                    |
+| `PEmpty`           | Empty state (no border / card)       | `icon`; default slot = text (caller passes `$t`), `action` slot |
 | `PMenu`            | Context / click menu                 | `items` (label/divider/item roles), `trigger` (contextmenu/click) |
 | `PPopover`         | Anchored popover                     | `trigger` (hover/click), `position` (12 placements), `zIndex` (default `var(--p-z-popup)`) |
 | `POverlay`         | Scrim                                | scrim props                                                 |
@@ -146,6 +181,7 @@ primitives:
 | Put new reusable primitives in `src/ui` with a `P` prefix + `index.ts` export | Add gradients                                     |
 | Size controls in scoped CSS via `--p-control-*`                     | Nest panels / use a second surface level inside a layer |
 | Keep shadows on floating layers only (`sm` / `md`)                  | Use `shadow-lg` in `components/` or `views/`      |
+| Separate detail-panel groups with `p-divider`; render numbers with `tabular-nums` | Lean on bare spacing alone to group metadata rows |
 
 ## 7. Guard tests
 
