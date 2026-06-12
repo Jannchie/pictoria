@@ -383,7 +383,7 @@ function splitHighlight(text: string, filter: string): HighlightPart[] {
               <i class="i-tabler-x h-3.5 w-3.5" aria-hidden="true" />
             </button>
           </div>
-          <Popover v-model="folderSortShow" position="bottom-end">
+          <PPopover v-model="folderSortShow" position="bottom-end">
             <PButton size="sm" icon variant="secondary" :aria-label="$t('sidebar.sortFolders')" :title="$t('sidebar.sortTitle', { label: sortKeyLabel })">
               <i class="i-tabler-arrows-sort h-3.5 w-3.5" aria-hidden="true" />
             </PButton>
@@ -417,7 +417,7 @@ function splitHighlight(text: string, filter: string): HighlightPart[] {
                 </div>
               </div>
             </template>
-          </Popover>
+          </PPopover>
         </div>
         <div class="px-2 pb-1 flex-grow min-h-0">
           <PTreeList

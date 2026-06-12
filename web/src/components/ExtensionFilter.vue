@@ -49,7 +49,7 @@ function getExtensionName(extension: string) {
 
 <template>
   <div class="relative">
-    <Popover position="bottom-start">
+    <PPopover position="bottom-start">
       <PButton
         size="sm"
       >
@@ -90,6 +90,6 @@ function getExtensionName(extension: string) {
           </div>
         </div>
       </template>
-    </Popover>
+    </PPopover>
   </div>
 </template>

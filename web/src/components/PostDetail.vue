@@ -352,7 +352,7 @@ onUnmounted(() => {
   >
     <header class="px-2 py-2 border-b border-border-default flex gap-2 items-center justify-between">
       <div class="flex flex-1 basis-0 gap-2 items-center overflow-hidden">
-        <Popover
+        <PPopover
           position="bottom"
           trigger="hover"
         >
@@ -375,7 +375,7 @@ onUnmounted(() => {
               <span class="text-fg-muted ml-1">{{ $t('post.escToClose') }}</span>
             </PSurface>
           </template>
-        </Popover>
+        </PPopover>
         <span class="text-sm text-fg-muted truncate">
           {{ `${post.fileName}.${post.extension}` }}
         </span>
@@ -395,7 +395,7 @@ onUnmounted(() => {
           :aria-valuetext="`${scaleStr}%`"
           @update:model-value="scaleWithSlider"
         />
-        <Popover
+        <PPopover
           position="bottom"
           trigger="hover"
         >
@@ -416,7 +416,7 @@ onUnmounted(() => {
               {{ $t('post.initialScale') }}
             </PSurface>
           </template>
-        </Popover>
+        </PPopover>
         <PButton
           icon
           size="sm"

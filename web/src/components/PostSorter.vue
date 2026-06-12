@@ -74,7 +74,7 @@ function resetSort() {
         </span>
       </span>
     </PButton>
-    <Popover
+    <PPopover
       v-else
       v-model="show"
       position="bottom-end"
@@ -173,7 +173,7 @@ function resetSort() {
           </div>
         </div>
       </template>
-    </Popover>
+    </PPopover>
     <PButton
       v-if="isNonDefaultSort && !sortOverriddenBySearch"
       size="sm"

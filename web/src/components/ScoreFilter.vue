@@ -33,7 +33,7 @@ const btnText = computed(() => {
 
 <template>
   <div class="relative">
-    <Popover position="bottom-start">
+    <PPopover position="bottom-start">
       <PButton
         size="sm"
       >
@@ -78,6 +78,6 @@ const btnText = computed(() => {
           </div>
         </div>
       </template>
-    </Popover>
+    </PPopover>
   </div>
 </template>

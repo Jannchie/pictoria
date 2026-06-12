@@ -55,7 +55,7 @@ function getRatingName(rating: number) {
 
 <template>
   <div class="relative">
-    <Popover position="bottom-start">
+    <PPopover position="bottom-start">
       <PButton
         size="sm"
       >
@@ -101,6 +101,6 @@ function getRatingName(rating: number) {
           </div>
         </div>
       </template>
-    </Popover>
+    </PPopover>
   </div>
 </template>

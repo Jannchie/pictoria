@@ -97,7 +97,7 @@ html.is-theme-switching *::after {
        base    < overlay (POverlay scrim)
                < modal
                < popover (PMenu dropdown)
-               < popup   (Popover.vue dropdowns, the fullscreen PostDetail
+               < popup   (PPopover.vue dropdowns, the fullscreen PostDetail
                           layer, the SelectArea drag box — historically all
                           z-index 10000; kept equal so DOM order still
                           tie-breaks between them)

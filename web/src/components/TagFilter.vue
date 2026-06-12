@@ -44,7 +44,7 @@ const search = ref('')
 const debouncedSearch = useDebounce(search, 250)
 
 // The tag-count GROUP BY is heavier than the other (single-column) facet
-// counts, so bind this to the Popover's open state (v-model below) and only
+// counts, so bind this to the PPopover's open state (v-model below) and only
 // run the queries while the dropdown is actually open.
 const opened = ref(false)
 
@@ -110,7 +110,7 @@ const btnText = computed(() => (selected.value.length === 0 ? t('filter.tags') :
 
 <template>
   <div class="relative">
-    <Popover
+    <PPopover
       v-model="opened"
       position="bottom-start"
     >
@@ -169,6 +169,6 @@ const btnText = computed(() => (selected.value.length === 0 ? t('filter.tags') :
           </div>
         </div>
       </template>
-    </Popover>
+    </PPopover>
   </div>
 </template>
