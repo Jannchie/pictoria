@@ -74,6 +74,8 @@ const zhHans: MessageSchema = {
   gallery: {
     columnsAria: '画廊列数',
     columnsValue: '{n} 列',
+    noTextMatch: '没有匹配“{query}”的图片。',
+    noPosts: '没有找到图片。',
   },
   filter: {
     semanticPlaceholder: '描述你想看到的内容…',
@@ -175,6 +177,7 @@ const zhHans: MessageSchema = {
     autoGenerateCaption: '自动生成描述',
     autoGenerateTag: '自动生成标签',
     loadingSimilar: '正在加载近似图片…',
+    noSimilar: '没有找到相似图片。',
   },
   multiSelect: {
     selected: '已选中',

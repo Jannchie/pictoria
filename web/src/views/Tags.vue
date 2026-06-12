@@ -88,15 +88,13 @@ const tagGroupByFirstChar = computed(() => {
         {{ $t('tagsView.loadFailed') }}
       </div>
     </div>
-    <div
+    <PEmpty
       v-else-if="tagGroupByFirstChar.length === 0"
-      class="p-16 text-center op-50 flex flex-col gap-2 items-center"
+      icon="i-tabler-mood-empty"
+      class="p-16"
     >
-      <i class="i-tabler-mood-empty text-2xl" aria-hidden="true" />
-      <div class="text-sm">
-        {{ $t('tagsView.noMatch', { search }) }}
-      </div>
-    </div>
+      {{ $t('tagsView.noMatch', { search }) }}
+    </PEmpty>
     <div v-else class="flex-1 overflow-hidden">
       <PVirtualScroll
         :items="tagGroupByFirstChar"

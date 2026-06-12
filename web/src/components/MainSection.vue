@@ -537,17 +537,13 @@ onMounted(() => {
           </div>
         </div>
       </div>
-      <div v-else-if="isTextSearchActive && posts.length === 0">
-        <div class="p-16 text-center op-50 flex flex-col gap-2 items-center">
-          <i class="i-tabler-mood-empty text-2xl" />
-          <div class="text-sm">
-            No images matched “{{ textSearchPrompt }}”.
-          </div>
-          <div class="text-xs">
-            Try a different description or clear the text search box.
-          </div>
-        </div>
-      </div>
+      <PEmpty
+        v-else-if="isTextSearchActive && posts.length === 0"
+        icon="i-tabler-mood-empty"
+        class="p-16"
+      >
+        {{ $t('gallery.noTextMatch', { query: textSearchPrompt }) }}
+      </PEmpty>
       <div v-else-if="!isTextSearchActive && infinityPostsQuery.isLoading.value && posts.length === 0">
         <div class="p-16 text-center op-50 flex flex-col gap-2 items-center">
           <i class="i-tabler-loader text-2xl animate-spin" />
@@ -556,17 +552,13 @@ onMounted(() => {
           </div>
         </div>
       </div>
-      <div v-else-if="posts.length === 0">
-        <div class="p-16 text-center op-50 flex flex-col gap-2 items-center">
-          <i class="i-tabler-photo-off text-2xl" />
-          <div class="text-sm">
-            No posts found
-          </div>
-          <div class="text-xs">
-            Try a different folder, or adjust the filters.
-          </div>
-        </div>
-      </div>
+      <PEmpty
+        v-else-if="posts.length === 0"
+        icon="i-tabler-photo-off"
+        class="p-16"
+      >
+        {{ $t('gallery.noPosts') }}
+      </PEmpty>
 
       <Waterfall
         ref="waterfallRef"

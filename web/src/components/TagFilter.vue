@@ -161,11 +161,18 @@ const btnText = computed(() => (selected.value.length === 0 ? t('filter.tags') :
               </div>
             </div>
             <div
-              v-if="tagRows.length === 0"
+              v-if="tagRows.length === 0 && isLoading"
               class="text-xs text-fg-subtle px-2 py-3 text-center"
             >
-              {{ isLoading ? $t('common.loading') : $t('filter.noTagsFound') }}
+              {{ $t('common.loading') }}
             </div>
+            <PEmpty
+              v-else-if="tagRows.length === 0"
+              icon="i-tabler-tag-off"
+              class="py-4"
+            >
+              {{ $t('filter.noTagsFound') }}
+            </PEmpty>
           </div>
         </div>
       </template>

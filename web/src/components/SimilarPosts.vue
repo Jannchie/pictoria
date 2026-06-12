@@ -40,6 +40,13 @@ function emptyPointerDown(e: PointerEvent) {
       </span>
     </div>
   </template>
+  <PEmpty
+    v-else-if="data.length === 0"
+    icon="i-tabler-photo-off"
+    class="h-64"
+  >
+    {{ $t('post.noSimilar') }}
+  </PEmpty>
   <Waterfall
     v-else
     ref="waterfallRef"

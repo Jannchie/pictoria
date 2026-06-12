@@ -77,6 +77,8 @@ const en = {
   gallery: {
     columnsAria: 'Gallery columns',
     columnsValue: '{n} columns',
+    noTextMatch: 'No images matched “{query}”.',
+    noPosts: 'No posts found.',
   },
   filter: {
     semanticPlaceholder: 'Describe what you want to see…',
@@ -178,6 +180,7 @@ const en = {
     autoGenerateCaption: 'Auto Generate Caption',
     autoGenerateTag: 'Auto Generate Tag',
     loadingSimilar: 'Loading similar posts…',
+    noSimilar: 'No similar images found.',
   },
   multiSelect: {
     selected: 'selected',
