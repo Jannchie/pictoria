@@ -8,7 +8,7 @@ const items = ref(Array.from({ length: 200 }, _ => Math.random() * 60 + 30))
   <div
     class="h-full"
   >
-    <VirtualScroll
+    <PVirtualScroll
       :items="items"
     >
       <template #default="{ item, index }">
@@ -20,6 +20,6 @@ const items = ref(Array.from({ length: 200 }, _ => Math.random() * 60 + 30))
           {{ index }}
         </div>
       </template>
-    </VirtualScroll>
+    </PVirtualScroll>
   </div>
 </template>

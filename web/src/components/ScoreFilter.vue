@@ -52,7 +52,7 @@ const btnText = computed(() => {
             class="text-xs px-2 py-1 rounded flex gap-2 w-full cursor-pointer items-center hover:bg-surface-2"
             @pointerdown="toggle(score)"
           >
-            <Checkbox
+            <PCheckbox
               class="flex-shrink-0 pointer-events-none"
               :model-value="hasScore(score)"
             />

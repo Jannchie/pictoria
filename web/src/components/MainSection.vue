@@ -505,11 +505,11 @@ onMounted(() => {
 </script>
 
 <template>
-  <ScrollArea
+  <PScrollArea
     ref="mainSectionRef"
     class="flex flex-grow basis-0 flex-col relative"
   >
-    <SelectArea
+    <PSelectArea
       :target="mainSectionRef"
       @select-change="onSelectChange"
       @select-end="onSelectEnd"
@@ -620,5 +620,5 @@ onMounted(() => {
         </p>
       </Dialog>
     </POverlay>
-  </ScrollArea>
+  </PScrollArea>
 </template>

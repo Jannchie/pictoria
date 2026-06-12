@@ -278,7 +278,7 @@ const sectionTitleClass
 </script>
 
 <template>
-  <ScrollArea
+  <PScrollArea
     class="text-xs h-full overflow-x-hidden overflow-y-auto"
   >
     <!-- px-3: the pane has no padding of its own, the scrolled content owns
@@ -371,7 +371,7 @@ const sectionTitleClass
         </div>
         <div class="gap-x-3 gap-y-2 grid grid-cols-[auto_1fr_auto] items-center">
           <div>{{ $t('post.ratingLabel') }}</div>
-          <Rating
+          <PRating
             :model-value="commonRating ?? 0"
             highlight-selected-only
             :count="4"
@@ -386,7 +386,7 @@ const sectionTitleClass
           <span v-else />
 
           <div>{{ $t('post.scoreLabel') }}</div>
-          <Rating
+          <PRating
             :model-value="commonScore ?? 0"
             :count="5"
             @select="applyScore"
@@ -511,5 +511,5 @@ const sectionTitleClass
         </PButton>
       </div>
     </div>
-  </ScrollArea>
+  </PScrollArea>
 </template>

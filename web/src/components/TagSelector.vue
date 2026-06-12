@@ -249,7 +249,7 @@ const searchingInitCurrentTags = computed(() => {
     </div>
     <div class="flex flex-grow overflow-auto">
       <div class="p-1 border-r border-border-default flex-shrink-0 w-32">
-        <ListItem
+        <PListItem
           v-for="group, i in finalTagGroups"
           :key="i"
           class="cursor-pointer"
@@ -259,14 +259,14 @@ const searchingInitCurrentTags = computed(() => {
           @click="currentGroupId = group.id"
         />
       </div>
-      <ScrollArea
+      <PScrollArea
         class="flex-grow"
       >
         <div
           v-if="showAddTag"
           class="border-b border-border-default"
         >
-          <ListItem
+          <PListItem
             ref="addTagRef"
             class="cursor-pointer"
             :title="addTagText"
@@ -289,7 +289,7 @@ const searchingInitCurrentTags = computed(() => {
             v-for="tag, i in initCurrentTags"
             :key="i"
           >
-            <ListItem
+            <PListItem
               v-if="isSearchMatch(tag.tagInfo)"
               ref="initCurrentTagsRef"
               v-highlight="search"
@@ -314,7 +314,7 @@ const searchingInitCurrentTags = computed(() => {
             v-for="tag, i in displayCurrentGroupTags"
             :key="tag.name"
           >
-            <ListItem
+            <PListItem
               ref="currentGroupTagsRef"
               v-highlight="search"
               class="cursor-pointer"
@@ -336,7 +336,7 @@ const searchingInitCurrentTags = computed(() => {
         >
           {{ $t('tagSelector.onlyTop') }}
         </div>
-      </ScrollArea>
+      </PScrollArea>
     </div>
     <div class="text-xs text-fg-muted px-3 py-2 border-t border-border-default flex flex-wrap gap-x-3 gap-y-1 items-center">
       <span class="flex gap-1 items-center">

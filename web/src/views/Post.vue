@@ -261,11 +261,11 @@ async function confirmDelete() {
       </h1>
       <span class="flex-1 basis-0" />
     </div>
-    <ScrollArea
+    <PScrollArea
       ref="scrollAreaRef"
       class="flex flex-grow flex-basis-0 flex-col gap-4 h-full w-full relative"
     >
-      <SelectArea
+      <PSelectArea
         :target="scrollAreaRef"
         @select-change="onSelectChange"
         @select-end="onSelectEnd"
@@ -306,7 +306,7 @@ async function confirmDelete() {
         :post-id="post.id"
         :scroll-element="scrollAreaRef"
       />
-    </ScrollArea>
+    </PScrollArea>
   </div>
   <POverlay
     v-if="showDeleteConfirm"

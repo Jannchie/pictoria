@@ -1,7 +1,7 @@
 import type { Ref } from 'vue'
 import type { Waterfall } from 'vue-wf'
 import type { PostSimplePublic } from '@/api'
-import type { Area } from '@/components/SelectArea.vue'
+import type { Area } from '@/ui/PSelectArea.vue'
 import { computed } from 'vue'
 import { useElementOffset } from '@/composables/useElementOffset'
 import { selectedPostIdSet, selectingPostIdSet, unselectedPostIdSet } from '@/shared'

@@ -14,12 +14,12 @@ function bindTagSelectorWindow(el: Element | ComponentPublicInstance | null) {
 </script>
 
 <template>
-  <FloatWindow
+  <PFloatWindow
     :ref="bindTagSelectorWindow"
     :safe-margin="16"
   >
     <TagSelector
       :post-id="focusedPostId"
     />
-  </FloatWindow>
+  </PFloatWindow>
 </template>

@@ -1,6 +1,6 @@
 <script setup lang="ts">
-import type { TreeListCollapseData, TreeListItemData, TreeListLeafData } from './components/TreeList.vue'
 import type { DirectorySummary } from '@/api'
+import type { TreeListCollapseData, TreeListItemData, TreeListLeafData } from '@/ui/PTreeList.vue'
 import { useQueryClient } from '@tanstack/vue-query'
 import { Pane, Splitpanes } from 'splitpanes'
 import { computed, ref, watch } from 'vue'
@@ -8,8 +8,8 @@ import { useI18n } from 'vue-i18n'
 import { RouterLink, useRoute, useRouter } from 'vue-router'
 import { useAPIError } from '@/composables/useAPIError'
 import { formatNumber } from '@/locale'
+import PTreeList from '@/ui/PTreeList.vue'
 import FolderStatsLine from './components/FolderStatsLine.vue'
-import TreeList from './components/TreeList.vue'
 import { useGlobalUndoRedo, useWatchRoute } from './composables'
 import { deleteFolder, focusedTreeFolder, isAnyDialogOpen, menuData, showMenu, useCurrentFolder, useFoldersQuery, useSyncFilterWithUrl } from './shared'
 import 'splitpanes/dist/splitpanes.css'
@@ -300,7 +300,7 @@ function splitHighlight(text: string, filter: string): HighlightPart[] {
   <div
     class="text-fg bg-bg flex flex-col h-100vh w-100vw select-none overflow-hidden"
   >
-    <FloatWindow v-model="showMenu">
+    <PFloatWindow v-model="showMenu">
       <div
         role="menu"
         :aria-label="contextTarget?.title"
@@ -309,33 +309,33 @@ function splitHighlight(text: string, filter: string): HighlightPart[] {
         <div class="text-xs text-fg-subtle tracking-wide font-semibold px-2.5 py-2 border-b border-border-subtle uppercase">
           <span class="max-w-60 block truncate">{{ contextTarget?.title ?? $t('sidebar.actions') }}</span>
         </div>
-        <ListItem
+        <PListItem
           :title="$t('sidebar.openFolder')"
           icon="i-tabler-folder-open"
           @click="openFolder"
         />
-        <ListItem
+        <PListItem
           :title="$t('sidebar.copyPath')"
           icon="i-tabler-copy"
           @click="copyPath"
         />
-        <ListItem
+        <PListItem
           :title="$t('sidebar.revealInSystem')"
           icon="i-tabler-external-link"
           @click="revealInExplorer"
         />
         <div class="my-1 border-t border-border-subtle" />
-        <ListItem
+        <PListItem
           :title="$t('sidebar.newSubfolder')"
           icon="i-tabler-folder-plus"
         />
-        <ListItem
+        <PListItem
           :title="$t('sidebar.deleteFolder')"
           icon="i-tabler-folder-x"
           @click="onMenuDeleteFolder"
         />
       </div>
-    </FloatWindow>
+    </PFloatWindow>
     <TagSelectorWindow />
     <Splitpanes class="max-h-[calc(100vh-24px)]">
       <Pane
@@ -420,7 +420,7 @@ function splitHighlight(text: string, filter: string): HighlightPart[] {
           </Popover>
         </div>
         <div class="px-2 pb-1 flex-grow min-h-0">
-          <TreeList
+          <PTreeList
             :model-value="currentFolder"
             :open-paths="openPaths"
             :items="folderTree"
@@ -576,14 +576,14 @@ function splitHighlight(text: string, filter: string): HighlightPart[] {
                 </span>
               </RouterLink>
             </template>
-          </TreeList>
+          </PTreeList>
         </div>
         <div class="p-2 border-t border-border-subtle">
           <RouterLink
             to="/settings"
             class="rounded block focus:outline-none focus-visible:ring-1 focus-visible:ring-primary/50"
           >
-            <ListItem
+            <PListItem
               class="px-4!"
               icon="i-tabler-settings"
               :active="$route.path === '/settings'"

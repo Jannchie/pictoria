@@ -188,7 +188,7 @@ const sectionTitleClass
 </script>
 
 <template>
-  <ScrollArea
+  <PScrollArea
     class="text-xs h-full overflow-x-hidden overflow-y-auto"
   >
     <!-- px-3: the pane has no padding of its own (the scrollbar hugs its
@@ -324,7 +324,7 @@ const sectionTitleClass
         >
           <div>{{ $t('post.ratingLabel') }}</div>
           <div>
-            <Rating
+            <PRating
               :model-value="post.rating"
               highlight-selected-only
               :count="4"
@@ -335,7 +335,7 @@ const sectionTitleClass
           </div>
           <div>{{ $t('post.scoreLabel') }}</div>
           <div>
-            <Rating
+            <PRating
               :model-value="post.score"
               :count="5"
               @select="(d) => onSelectScore(post.id, d)"
@@ -594,5 +594,5 @@ const sectionTitleClass
         </div>
       </section>
     </div>
-  </ScrollArea>
+  </PScrollArea>
 </template>

@@ -98,7 +98,7 @@ const tagGroupByFirstChar = computed(() => {
       </div>
     </div>
     <div v-else class="flex-1 overflow-hidden">
-      <VirtualScroll
+      <PVirtualScroll
         :items="tagGroupByFirstChar"
         class="h-full"
       >
@@ -136,7 +136,7 @@ const tagGroupByFirstChar = computed(() => {
             </div>
           </section>
         </template>
-      </VirtualScroll>
+      </PVirtualScroll>
     </div>
   </div>
 </template>

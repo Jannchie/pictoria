@@ -384,7 +384,7 @@ onUnmounted(() => {
         <div class="text-xs text-fg-muted font-mono w-32px tabular-nums">
           {{ scaleStr }}%
         </div>
-        <Slider
+        <PSlider
           :model-value="scale"
           size="sm"
           :min="0.10"

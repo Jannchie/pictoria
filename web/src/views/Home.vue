@@ -21,7 +21,7 @@ useEventListener('wheel', (event) => {
       <div class="px-2 pt-1 flex shrink-0 h-8 items-center justify-center">
         <div class="text-fg-subtle flex gap-2 w-40 items-center">
           <i class="i-tabler-grid-dots text-sm shrink-0" aria-hidden="true" />
-          <Slider
+          <PSlider
             v-model="waterfallRowCount"
             size="sm"
             :min="1"

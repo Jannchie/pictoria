@@ -47,7 +47,7 @@ defineExpose({
     @dragleave="onDragleave"
     @drop="onDrop"
   >
-    <Checkbox
+    <PCheckbox
       v-if="type === 'checkbox'"
       class="flex-shrink-0 pointer-events-none"
       :model-value="active"
