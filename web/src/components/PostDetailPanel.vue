@@ -195,7 +195,7 @@ const sectionTitleClass
          edge), so the scrolled content owns the 12px gutter. -->
     <div class="px-3 flex flex-col">
       <!-- Hero: thumbnail + dominant/palette colour band -->
-      <div class="pb-4 pt-3 flex flex-col gap-3">
+      <div class="pb-4 pt-3 p-divider flex flex-col gap-3">
         <div
           v-if="isImage(post.extension)"
           class="flex justify-center"
@@ -229,7 +229,7 @@ const sectionTitleClass
       <!-- Near-duplicate group: members hidden behind this canonical post -->
       <section
         v-if="post.canonicalPostId != null || groupMembers.length > 0"
-        class="py-4"
+        class="py-3 p-divider"
       >
         <div
           :class="sectionTitleClass"
@@ -311,7 +311,7 @@ const sectionTitleClass
       </section>
 
       <!-- Ratings: every quality signal grouped together -->
-      <section class="py-4">
+      <section class="py-3 p-divider">
         <div
           :class="sectionTitleClass"
           class="mb-2"
@@ -320,7 +320,7 @@ const sectionTitleClass
           <span>{{ $t('post.ratings') }}</span>
         </div>
         <div
-          class="gap-x-3 gap-y-2 grid grid-cols-[auto_1fr] items-center children:break-words odd:children:text-fg-subtle"
+          class="gap-x-3 gap-y-1 grid grid-cols-[auto_1fr] items-center children:break-words odd:children:text-fg-muted"
         >
           <div>{{ $t('post.ratingLabel') }}</div>
           <div>
@@ -380,7 +380,7 @@ const sectionTitleClass
       <AnnotationHistory :post-id="post.id" />
 
       <!-- File info: pure metadata, numbers tabular-aligned -->
-      <section class="py-4">
+      <section class="py-3 p-divider">
         <div
           :class="sectionTitleClass"
           class="mb-2"
@@ -389,7 +389,7 @@ const sectionTitleClass
           <span>{{ $t('post.fileInfo') }}</span>
         </div>
         <div
-          class="gap-x-3 gap-y-2 grid grid-cols-[auto_1fr] children:break-words odd:children:text-fg-subtle"
+          class="gap-x-3 gap-y-1 grid grid-cols-[auto_1fr] children:break-words odd:children:text-fg-muted"
         >
           <template v-if="post.size > 0">
             <div>{{ $t('post.size') }}</div>
@@ -425,7 +425,7 @@ const sectionTitleClass
       </section>
 
       <!-- Folder breadcrumb -->
-      <section class="py-4">
+      <section class="py-3 p-divider">
         <div
           :class="sectionTitleClass"
           class="mb-2"
@@ -457,7 +457,7 @@ const sectionTitleClass
       </section>
 
       <!-- Tags -->
-      <section class="py-4">
+      <section class="py-3 p-divider">
         <div class="mb-2 flex items-center justify-between">
           <div :class="sectionTitleClass">
             <i class="i-tabler-tag" />
@@ -523,7 +523,7 @@ const sectionTitleClass
       <!-- Auto tags -->
       <section
         v-if="autoTags.length > 0"
-        class="py-4"
+        class="py-3 p-divider"
       >
         <div
           :class="sectionTitleClass"
@@ -546,7 +546,7 @@ const sectionTitleClass
       </section>
 
       <!-- Caption -->
-      <section class="py-4">
+      <section class="py-3 p-divider">
         <div
           :class="sectionTitleClass"
           class="mb-2"
@@ -563,7 +563,7 @@ const sectionTitleClass
       </section>
 
       <!-- Source -->
-      <section class="py-4">
+      <section class="py-3 p-divider">
         <div
           :class="sectionTitleClass"
           class="mb-2"
@@ -580,7 +580,7 @@ const sectionTitleClass
       </section>
 
       <!-- Commands -->
-      <section class="py-4">
+      <section class="pb-4 pt-3">
         <div
           :class="sectionTitleClass"
           class="mb-2"
