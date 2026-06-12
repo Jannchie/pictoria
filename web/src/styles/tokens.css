@@ -45,12 +45,24 @@ html.is-theme-switching *::after {
   --p-space-10: 40px;
   --p-space-12: 48px;
 
+  /* Controls — shared sizing for buttons / inputs / interactive rows */
+  --p-control-h-xs: 22px;
+  --p-control-h-sm: 28px;
+  --p-control-h-md: 36px;
+  --p-control-h-lg: 44px;
+  --p-control-px-xs: 8px;
+  --p-control-px-sm: 10px;
+  --p-control-px-md: 14px;
+  --p-control-px-lg: 18px;
+  --p-control-gap: 6px;
+
   /* Typography */
   --p-font-sans-latin: 'Inter', 'Segoe UI', system-ui, sans-serif;
   --p-font-mono-latin: 'Berkeley Mono', ui-monospace, SFMono-Regular, Menlo, Consolas, 'Share Tech Mono';
   --p-font-sans: 'HarmonyOS Sans SC', 'PingFang SC', 'Microsoft YaHei UI', 'Sarasa Gothic SC', 'Noto Sans SC', var(--p-font-sans-latin);
   --p-font-mono: var(--p-font-mono-latin), 'HarmonyOS Sans SC', 'PingFang SC', 'Microsoft YaHei UI', monospace;
 
+  --p-text-2xs:  10px;
   --p-text-xs:   12px;
   --p-text-sm:   13px;
   --p-text-base: 14px;
@@ -127,12 +139,16 @@ html[data-scheme="dark"] {
   --p-fg-muted-rgb:    161 161 170;
   --p-fg-subtle-rgb:   113 113 122;
   --p-fg-disabled-rgb:  82  82  91;
-  --p-fg-on-brand-rgb:  14   8  22;
 
   --p-success-rgb: 16 185 129;
   --p-warning-rgb: 245 158 11;
   --p-danger-rgb:  239 68 68;
   --p-info-rgb:    var(--p-brand-400-rgb);
+
+  --p-on-success-rgb: 255 255 255;
+  --p-on-warning-rgb: 26 29 36;
+  --p-on-danger-rgb:  255 255 255;
+  --p-on-info-rgb:    255 255 255;
 
   --p-shadow-sm: 0 1px 2px rgb(0 0 0 / 0.4);
   --p-shadow-md: 0 1px 2px rgb(0 0 0 / 0.4), 0 4px 12px rgb(0 0 0 / 0.45);
@@ -162,12 +178,16 @@ html[data-scheme="light"] {
   --p-fg-muted-rgb:     82  90 107;
   --p-fg-subtle-rgb:   110 118 137;
   --p-fg-disabled-rgb: 163 169 182;
-  --p-fg-on-brand-rgb: 255 255 255;
 
   --p-success-rgb:   4 120  87;
   --p-warning-rgb: 180  83   9;
   --p-danger-rgb:  185  28  28;
   --p-info-rgb:    var(--p-brand-700-rgb);
+
+  --p-on-success-rgb: 255 255 255;
+  --p-on-warning-rgb: 255 255 255;
+  --p-on-danger-rgb:  255 255 255;
+  --p-on-info-rgb:    255 255 255;
 
   --p-shadow-sm: 0 1px 2px rgb(15 23 42 / 0.04);
   --p-shadow-md: 0 1px 2px rgb(15 23 42 / 0.04), 0 4px 12px rgb(15 23 42 / 0.06);
@@ -206,6 +226,11 @@ html[data-scheme="light"] {
   --p-warning: rgb(var(--p-warning-rgb));
   --p-danger:  rgb(var(--p-danger-rgb));
   --p-info:    rgb(var(--p-info-rgb));
+
+  --p-on-success: rgb(var(--p-on-success-rgb));
+  --p-on-warning: rgb(var(--p-on-warning-rgb));
+  --p-on-danger:  rgb(var(--p-on-danger-rgb));
+  --p-on-info:    rgb(var(--p-on-info-rgb));
 
   --p-primary-soft: rgb(var(--p-primary-rgb) / 0.18);
   --p-success-soft: rgb(var(--p-success-rgb) / 0.16);

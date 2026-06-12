@@ -63,7 +63,7 @@ function pick(value: 'dark' | 'light' | 'auto') {
   align-items: center;
   justify-content: center;
   width: 28px;
-  height: 28px;
+  height: var(--p-control-h-sm);
   border-radius: var(--p-radius-full);
   border: none;
   background: transparent;

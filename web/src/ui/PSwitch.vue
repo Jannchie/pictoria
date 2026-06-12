@@ -65,9 +65,11 @@ function toggle() {
   cursor: not-allowed;
 }
 
+/* Widths are intrinsic to the switch track and aren't part of the shared
+   control-height system, so they stay literal. */
 .p-switch--sm { width: 32px; height: 18px; }
-.p-switch--md { width: 40px; height: 22px; }
-.p-switch--lg { width: 52px; height: 28px; }
+.p-switch--md { width: 40px; height: var(--p-control-h-xs); }
+.p-switch--lg { width: 52px; height: var(--p-control-h-sm); }
 
 .p-switch--on {
   background: var(--p-primary);

@@ -60,6 +60,10 @@ export default defineConfig({
       'warning': color('warning'),
       'danger': color('danger'),
       'info': color('info'),
+      'on-success': color('on-success'),
+      'on-warning': color('on-warning'),
+      'on-danger': color('on-danger'),
+      'on-info': color('on-info'),
     },
     radius: {
       'xs': 'var(--p-radius-xs)',
@@ -85,6 +89,7 @@ export default defineConfig({
     // (see preset-wind4 rules.handleText) — both keys must be provided here
     // to avoid the bare `line-height: 1` that clips descenders.
     text: {
+      '2xs': { fontSize: 'var(--p-text-2xs)', lineHeight: 'var(--p-leading-normal)' },
       'xs': { fontSize: 'var(--p-text-xs)', lineHeight: 'var(--p-leading-normal)' },
       'sm': { fontSize: 'var(--p-text-sm)', lineHeight: 'var(--p-leading-normal)' },
       'base': { fontSize: 'var(--p-text-base)', lineHeight: 'var(--p-leading-normal)' },

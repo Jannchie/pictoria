@@ -45,8 +45,8 @@ const options = computed<{ value: LocaleSetting, label: string }[]>(() => [
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  height: 28px;
-  padding: 0 10px;
+  height: var(--p-control-h-sm);
+  padding: 0 var(--p-control-px-sm);
   font-size: 12px;
   border-radius: var(--p-radius-full);
   border: none;

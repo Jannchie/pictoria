@@ -74,12 +74,12 @@ const hasRight = !!slots.rightSection
 .p-input {
   display: inline-flex;
   align-items: center;
-  gap: 6px;
+  gap: var(--p-control-gap);
   background: var(--p-surface-1);
   color: var(--p-fg);
   border: 1px solid var(--p-border);
   border-radius: var(--p-radius-md);
-  padding: 0 10px;
+  padding: 0 var(--p-control-px-sm);
   transition:
     border-color var(--p-duration-fast) var(--p-ease),
     box-shadow var(--p-duration-fast) var(--p-ease),
@@ -97,9 +97,9 @@ const hasRight = !!slots.rightSection
   cursor: not-allowed;
 }
 
-.p-input--sm { height: 28px; font-size: var(--p-text-xs); }
-.p-input--md { height: 36px; font-size: var(--p-text-base); }
-.p-input--lg { height: 44px; font-size: var(--p-text-md); }
+.p-input--sm { height: var(--p-control-h-sm); font-size: var(--p-text-xs); }
+.p-input--md { height: var(--p-control-h-md); font-size: var(--p-text-base); }
+.p-input--lg { height: var(--p-control-h-lg); font-size: var(--p-text-md); }
 
 /* Fills a block container outright; in a flex row it grows/shrinks with
    the remaining space (siblings keep their shrink-0). */

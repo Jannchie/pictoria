@@ -49,7 +49,7 @@ withDefaults(defineProps<{
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  gap: 6px;
+  gap: var(--p-control-gap);
   font-family: inherit;
   font-weight: var(--p-weight-medium);
   border: 1px solid transparent;
@@ -89,10 +89,10 @@ withDefaults(defineProps<{
 .p-btn--r-lg  { border-radius: var(--p-radius-lg); }
 .p-btn--r-full{ border-radius: var(--p-radius-full); }
 
-.p-btn--xs { height: 22px; padding: 0 8px;  font-size: var(--p-text-xs); }
-.p-btn--sm { height: 28px; padding: 0 10px; font-size: var(--p-text-xs); }
-.p-btn--md { height: 36px; padding: 0 14px; font-size: var(--p-text-base); }
-.p-btn--lg { height: 44px; padding: 0 18px; font-size: var(--p-text-md); }
+.p-btn--xs { height: var(--p-control-h-xs); padding: 0 var(--p-control-px-xs); font-size: var(--p-text-xs); }
+.p-btn--sm { height: var(--p-control-h-sm); padding: 0 var(--p-control-px-sm); font-size: var(--p-text-xs); }
+.p-btn--md { height: var(--p-control-h-md); padding: 0 var(--p-control-px-md); font-size: var(--p-text-base); }
+.p-btn--lg { height: var(--p-control-h-lg); padding: 0 var(--p-control-px-lg); font-size: var(--p-text-md); }
 
 /* Primary — solid brand */
 .p-btn--primary {
