@@ -74,7 +74,7 @@ function getRatingName(rating: number) {
       </PButton>
       <template #content>
         <div
-          class="p-1 border border-border-default rounded bg-surface min-w-52 shadow-lg"
+          class="p-popover-panel min-w-52"
         >
           <div
             v-for="rating in [1, 2, 3, 4, 0]"

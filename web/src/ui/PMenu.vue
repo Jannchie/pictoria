@@ -220,7 +220,7 @@ onBeforeUnmount(() => {
   background: var(--p-surface);
   border: 1px solid var(--p-border);
   border-radius: var(--p-radius-md);
-  box-shadow: var(--p-shadow-lg);
+  box-shadow: var(--p-shadow-md);
   font-size: var(--p-text-sm);
   color: var(--p-fg);
 }

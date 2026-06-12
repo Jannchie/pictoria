@@ -14,7 +14,7 @@ const emit = defineEmits<{
 <template>
   <div
     role="status"
-    class="text-sm text-fg px-4 py-2 border border-border-default rounded-xl bg-surface inline-flex gap-2 w-96 shadow-lg items-center"
+    class="text-sm text-fg px-4 py-2 border border-border-default rounded-xl bg-surface inline-flex gap-2 w-96 shadow-md items-center"
   >
     <div
       v-if="icon"

@@ -123,7 +123,7 @@ const btnText = computed(() => (selected.value.length === 0 ? t('filter.tags') :
         </span>
       </PButton>
       <template #content>
-        <div class="p-1 border border-border-default rounded bg-surface min-w-64 shadow-lg">
+        <div class="p-popover-panel min-w-64">
           <div class="mb-2">
             <PInput
               v-model="search"

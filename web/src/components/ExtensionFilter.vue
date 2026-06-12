@@ -60,7 +60,7 @@ function getExtensionName(extension: string) {
       </PButton>
       <template #content>
         <div
-          class="p-1 border border-border-default rounded bg-surface min-w-52 shadow-lg"
+          class="p-popover-panel min-w-52"
         >
           <div
             v-for="ext in extensions"

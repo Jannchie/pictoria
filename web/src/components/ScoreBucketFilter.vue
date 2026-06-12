@@ -66,7 +66,7 @@ const btnText = computed(() => {
       </PButton>
       <template #content>
         <div
-          class="p-1 border border-border-default rounded bg-surface max-w-sm w-max shadow-lg"
+          class="p-popover-panel max-w-sm w-max"
         >
           <div
             v-for="bucket in buckets"

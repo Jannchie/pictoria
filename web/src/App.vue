@@ -304,7 +304,7 @@ function splitHighlight(text: string, filter: string): HighlightPart[] {
       <div
         role="menu"
         :aria-label="contextTarget?.title"
-        class="text-sm border border-border-default rounded-lg bg-surface min-w-44 shadow-lg overflow-hidden"
+        class="text-sm border border-border-default rounded-lg bg-surface min-w-44 shadow-md overflow-hidden"
       >
         <div class="text-xs text-fg-subtle tracking-wide font-semibold px-2.5 py-2 border-b border-border-subtle uppercase">
           <span class="max-w-60 block truncate">{{ contextTarget?.title ?? $t('sidebar.actions') }}</span>
@@ -388,7 +388,7 @@ function splitHighlight(text: string, filter: string): HighlightPart[] {
               <i class="i-tabler-arrows-sort h-3.5 w-3.5" aria-hidden="true" />
             </PButton>
             <template #content>
-              <div class="p-1 border border-border-default rounded bg-surface min-w-36 shadow-lg">
+              <div class="p-popover-panel min-w-36">
                 <div class="flex flex-col gap-1">
                   <div class="flex gap-1">
                     <PButton

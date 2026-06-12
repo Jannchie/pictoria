@@ -38,7 +38,7 @@ function onAction() {
         v-if="data"
         role="status"
         aria-live="polite"
-        class="text-sm text-fg px-4 py-3 border border-border-default rounded-xl bg-surface flex gap-3 max-w-full pointer-events-none shadow-lg items-center"
+        class="text-sm text-fg px-4 py-3 border border-border-default rounded-xl bg-surface flex gap-3 max-w-full pointer-events-none shadow-md items-center"
       >
         <i
           v-if="data.tone === 'error'"

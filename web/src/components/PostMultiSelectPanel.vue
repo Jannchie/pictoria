@@ -354,7 +354,7 @@ const sectionTitleClass
         </button>
         <div
           v-if="overflowCount > 0"
-          class="text-sm text-fg tracking-tight font-mono font-semibold px-2.5 py-1 rounded-full bg-surface-2/90 pointer-events-none ring-1 ring-border-default shadow-lg left-1/2 top-1/2 absolute backdrop-blur tabular-nums -translate-x-1/2 -translate-y-1/2"
+          class="text-sm text-fg tracking-tight font-mono font-semibold px-2.5 py-1 rounded-full bg-surface-2/90 pointer-events-none ring-1 ring-border-default shadow-sm left-1/2 top-1/2 absolute backdrop-blur tabular-nums -translate-x-1/2 -translate-y-1/2"
           style="z-index: 20"
         >
           +{{ overflowCount }}

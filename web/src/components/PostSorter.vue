@@ -104,7 +104,7 @@ function resetSort() {
       </PButton>
       <template #content>
         <div
-          class="p-1 border border-border-default rounded bg-surface min-w-36 shadow-lg"
+          class="p-popover-panel min-w-36"
         >
           <div class="flex flex-col gap-1">
             <div class="mt-1 p-2 border border-border-default rounded flex gap-2 items-center">

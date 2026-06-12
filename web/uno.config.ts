@@ -105,5 +105,6 @@ export default defineConfig({
     // Frequently-used semantic combinations.
     'p-border': 'border border-border-default',
     'p-divider': 'border-b border-border-subtle',
+    'p-popover-panel': 'p-1 border border-border-default rounded bg-surface shadow-md',
   },
 })
