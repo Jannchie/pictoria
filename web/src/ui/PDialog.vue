@@ -45,41 +45,43 @@ onKeyStroke('Escape', (e) => {
 </script>
 
 <template>
-  <PSurface
-    role="dialog"
-    aria-modal="true"
-    :aria-label="title"
-    level="1"
-    bordered
-    shadow="md"
-    class="text-sm p-4 flex flex-col gap-3 min-w-86"
-  >
-    <slot name="header">
-      <div v-if="title" class="text-base text-fg font-semibold">
-        {{ title }}
+  <Transition appear name="p-float">
+    <PSurface
+      role="dialog"
+      aria-modal="true"
+      :aria-label="title"
+      level="1"
+      bordered
+      shadow="md"
+      class="text-sm p-4 flex flex-col gap-3 min-w-86"
+    >
+      <slot name="header">
+        <div v-if="title" class="text-base text-fg font-semibold">
+          {{ title }}
+        </div>
+      </slot>
+      <div class="text-fg-muted">
+        <slot />
       </div>
-    </slot>
-    <div class="text-fg-muted">
-      <slot />
-    </div>
-    <slot name="footer">
-      <div class="mt-1 flex gap-2 justify-end">
-        <PButton
-          v-if="cancelLabel"
-          variant="ghost"
-          @click="emit('cancel')"
-        >
-          {{ cancelLabel }}
-        </PButton>
-        <PButton
-          v-if="confirmLabel"
-          ref="confirmButton"
-          :variant="variant"
-          @click="emit('confirm')"
-        >
-          {{ confirmLabel }}
-        </PButton>
-      </div>
-    </slot>
-  </PSurface>
+      <slot name="footer">
+        <div class="mt-1 flex gap-2 justify-end">
+          <PButton
+            v-if="cancelLabel"
+            variant="ghost"
+            @click="emit('cancel')"
+          >
+            {{ cancelLabel }}
+          </PButton>
+          <PButton
+            v-if="confirmLabel"
+            ref="confirmButton"
+            :variant="variant"
+            @click="emit('confirm')"
+          >
+            {{ confirmLabel }}
+          </PButton>
+        </div>
+      </slot>
+    </PSurface>
+  </Transition>
 </template>

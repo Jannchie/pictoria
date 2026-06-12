@@ -88,6 +88,32 @@ button {
   white-space: normal;
 }
 
+/* Unified overlay/popup enter-leave transition. Shared by PPopover, PMenu,
+   PDialog (appear-only) and POverlay (fade-only — overrides translateY below).
+   Defined globally (not scoped) because PMenu/PPopover content can Teleport to
+   <body>, where scoped styles don't reach. Honours prefers-reduced-motion via
+   the global transition-duration override at the bottom of this file. */
+.p-float-enter-active,
+.p-float-leave-active {
+  transition: opacity var(--p-duration-fast) var(--p-ease),
+    transform var(--p-duration-fast) var(--p-ease);
+}
+.p-float-enter-from,
+.p-float-leave-to {
+  opacity: 0;
+  transform: translateY(2px);
+}
+
+/* Overlay variant: fade only — a backdrop must not shift position. */
+.p-float-fade-enter-active,
+.p-float-fade-leave-active {
+  transition: opacity var(--p-duration-fast) var(--p-ease);
+}
+.p-float-fade-enter-from,
+.p-float-fade-leave-to {
+  opacity: 0;
+}
+
 @media (prefers-reduced-motion: reduce) {
   *,
   *::before,

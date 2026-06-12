@@ -169,39 +169,41 @@ onBeforeUnmount(() => {
   >
     <slot />
     <Teleport to="body">
-      <div
-        v-if="open"
-        ref="menuRef"
-        class="p-menu"
-        :style="{ left: `${x}px`, top: `${y}px` }"
-        role="menu"
-      >
-        <template v-for="(item, i) in data" :key="i">
-          <div
-            v-if="item.role === 'divider'"
-            class="p-menu__divider"
-            role="separator"
-          />
-          <div
-            v-else-if="item.role === 'label'"
-            class="p-menu__label"
-          >
-            {{ item.title }}
-          </div>
-          <button
-            v-else
-            type="button"
-            class="p-menu__item"
-            :class="{ 'p-menu__item--disabled': item.disabled }"
-            :disabled="item.disabled"
-            role="menuitem"
-            @click="pick(item)"
-          >
-            <i v-if="item.icon" :class="item.icon" class="p-menu__icon" />
-            <span>{{ item.title }}</span>
-          </button>
-        </template>
-      </div>
+      <Transition name="p-float">
+        <div
+          v-if="open"
+          ref="menuRef"
+          class="p-menu"
+          :style="{ left: `${x}px`, top: `${y}px` }"
+          role="menu"
+        >
+          <template v-for="(item, i) in data" :key="i">
+            <div
+              v-if="item.role === 'divider'"
+              class="p-menu__divider"
+              role="separator"
+            />
+            <div
+              v-else-if="item.role === 'label'"
+              class="p-menu__label"
+            >
+              {{ item.title }}
+            </div>
+            <button
+              v-else
+              type="button"
+              class="p-menu__item"
+              :class="{ 'p-menu__item--disabled': item.disabled }"
+              :disabled="item.disabled"
+              role="menuitem"
+              @click="pick(item)"
+            >
+              <i v-if="item.icon" :class="item.icon" class="p-menu__icon" />
+              <span>{{ item.title }}</span>
+            </button>
+          </template>
+        </div>
+      </Transition>
     </Teleport>
   </div>
 </template>

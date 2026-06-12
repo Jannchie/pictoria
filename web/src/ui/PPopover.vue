@@ -152,14 +152,16 @@ onClickOutside(contentRef, (e) => {
       :style="{ zIndex }"
       @pointerup="active = false"
     />
-    <div
-      v-if="showContent"
-      ref="contentRef"
-      :class="positionClass"
-      :style="[positionStyle, { zIndex }]"
-      class="absolute"
-    >
-      <slot name="content" />
-    </div>
+    <Transition name="p-float">
+      <div
+        v-if="showContent"
+        ref="contentRef"
+        :class="positionClass"
+        :style="[positionStyle, { zIndex }]"
+        class="absolute"
+      >
+        <slot name="content" />
+      </div>
+    </Transition>
   </div>
 </template>

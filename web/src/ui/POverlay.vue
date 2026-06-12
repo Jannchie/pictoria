@@ -1,4 +1,6 @@
 <script setup lang="ts">
+defineOptions({ inheritAttrs: false })
+
 withDefaults(defineProps<{
   opacity?: number
 }>(), {
@@ -7,13 +9,15 @@ withDefaults(defineProps<{
 </script>
 
 <template>
-  <div
-    class="p-overlay"
-    :style="{ background: `rgb(0 0 0 / ${opacity})` }"
-    v-bind="$attrs"
-  >
-    <slot />
-  </div>
+  <Transition appear name="p-float-fade">
+    <div
+      class="p-overlay"
+      :style="{ background: `rgb(0 0 0 / ${opacity})` }"
+      v-bind="$attrs"
+    >
+      <slot />
+    </div>
+  </Transition>
 </template>
 
 <style scoped>
