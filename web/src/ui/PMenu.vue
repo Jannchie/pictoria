@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { nextTick, onBeforeUnmount, ref, watch } from 'vue'
+import { nextRovingIndex } from '@/composables/useRovingIndex'
 
 export interface PMenuItem {
   role?: 'label' | 'divider' | 'item'
@@ -107,9 +108,7 @@ function moveFocus(delta: 1 | -1) {
       pos = i
     }
   }
-  const next = pos === -1
-    ? (delta === 1 ? 0 : items.length - 1)
-    : (pos + delta + items.length) % items.length
+  const next = nextRovingIndex(pos, delta, items.length)
   items[next]?.focus()
 }
 

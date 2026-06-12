@@ -3,6 +3,7 @@ import { useQuery, useQueryClient } from '@tanstack/vue-query'
 import { computed, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { v2ListTagGroup, v2ListTags } from '@/api'
+import { useRovingIndex } from '@/composables/useRovingIndex'
 import { resolvedLocale } from '@/locale'
 import { commitTag } from '@/shared'
 import { queryKeys } from '@/shared/queryKeys'
@@ -168,20 +169,19 @@ function getIndexOfRef(type: string, index: number) {
   }
 }
 
-onKeyStroke('ArrowDown', () => {
-  currentHoverIndex.value = currentHoverIndex.value + 1 >= referenceList.value.length ? 0 : Math.min(currentHoverIndex.value + 1, referenceList.value.length - 1)
-
-  referenceList.value[currentHoverIndex.value]?.$el.scrollIntoView({
-    block: 'nearest',
-  })
+const { move: moveHover } = useRovingIndex({
+  count: () => referenceList.value.length,
+  index: currentHoverIndex,
+  onMove: (index) => {
+    referenceList.value[index]?.$el.scrollIntoView({
+      block: 'nearest',
+    })
+  },
 })
 
-onKeyStroke('ArrowUp', () => {
-  currentHoverIndex.value = currentHoverIndex.value - 1 < 0 ? referenceList.value.length - 1 : Math.max(currentHoverIndex.value - 1, 0)
-  referenceList.value[currentHoverIndex.value]?.$el.scrollIntoView({
-    block: 'nearest',
-  })
-})
+onKeyStroke('ArrowDown', () => moveHover(1))
+
+onKeyStroke('ArrowUp', () => moveHover(-1))
 
 onKeyStroke('Enter', () => {
   const reference = referenceList.value[currentHoverIndex.value]

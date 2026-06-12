@@ -39,6 +39,7 @@ declare global {
   const eagerComputed: typeof import('@vueuse/core').eagerComputed
   const effectScope: typeof import('vue').effectScope
   const extendRef: typeof import('@vueuse/core').extendRef
+  const firstRovingIndex: typeof import('./composables/useRovingIndex').firstRovingIndex
   const formatDate: typeof import('./locale/index').formatDate
   const formatDateTime: typeof import('./locale/index').formatDateTime
   const formatNumber: typeof import('./locale/index').formatNumber
@@ -58,10 +59,12 @@ declare global {
   const isRef: typeof import('vue').isRef
   const isShallow: typeof import('vue').isShallow
   const keyToChoice: typeof import('./composables/useAnnotationKeymap').keyToChoice
+  const lastRovingIndex: typeof import('./composables/useRovingIndex').lastRovingIndex
   const localeSetting: typeof import('./locale/index').localeSetting
   const makeDestructurable: typeof import('@vueuse/core').makeDestructurable
   const manualResetRef: typeof import('@vueuse/core').manualResetRef
   const markRaw: typeof import('vue').markRaw
+  const nextRovingIndex: typeof import('./composables/useRovingIndex').nextRovingIndex
   const nextTick: typeof import('vue').nextTick
   const onActivated: typeof import('vue').onActivated
   const onBeforeMount: typeof import('vue').onBeforeMount
@@ -249,6 +252,7 @@ declare global {
   const useRafFn: typeof import('@vueuse/core').useRafFn
   const useRefHistory: typeof import('@vueuse/core').useRefHistory
   const useResizeObserver: typeof import('@vueuse/core').useResizeObserver
+  const useRovingIndex: typeof import('./composables/useRovingIndex').useRovingIndex
   const useSSRWidth: typeof import('@vueuse/core').useSSRWidth
   const useScreenOrientation: typeof import('@vueuse/core').useScreenOrientation
   const useScreenSafeArea: typeof import('@vueuse/core').useScreenSafeArea
@@ -338,6 +342,9 @@ declare global {
   // @ts-ignore
   export type { FocusMode } from './composables/useFocusedPost'
   import('./composables/useFocusedPost')
+  // @ts-ignore
+  export type { UseRovingIndexOptions } from './composables/useRovingIndex'
+  import('./composables/useRovingIndex')
   // @ts-ignore
   export type { AppLocale, LocaleSetting } from './locale/index'
   import('./locale/index')
