@@ -96,8 +96,8 @@ uv run python scripts/inspect_db.py
 
 - **src/App.vue**: Root component with 3-panel splitpanes layout
 - **src/views/**: Page components (Home, Post, Settings, etc.)
-- **src/components/**: Reusable feature/UI components (incl. the virtualised `TreeList` powering the sidebar folder tree)
-- **src/ui/**: In-house design-system primitives (`PButton`, `PInput`, `PMenu`, `PSwitch`, …) styled with `--p-*` CSS variables + scoped styles; auto-registered alongside `src/components` (these replaced the former `@roku-ui` dependency)
+- **src/components/**: Reusable feature components and mixed-boundary wrappers (`ToastSystem`, `UndoSnackbar`, `TagSelectorWindow`, …) that bind a primitive to global app state
+- **src/ui/**: ~22 in-house design-system primitives (`PButton`, `PInput`, `PMenu`, `PSwitch`, `PDialog`, `PPopover`, `PToast`/`PToastContainer`, the virtualised `PTreeList` powering the sidebar folder tree, …) plus `modal.ts` (shared `openDialogCount`), all styled with `--p-*` CSS variables + scoped styles and exported from `index.ts` (these replaced the former `@roku-ui` dependency). See `web/docs/design-system.md`
 - **src/api/**: Auto-generated API client from OpenAPI schema
 - **src/composables/**: Vue composables for shared logic
 - **src/shared/**: Global state and utilities
@@ -141,7 +141,7 @@ Notes when writing SQL for SQLite:
 1. Follow Vue 3 Composition API patterns
 2. Use existing composables from `src/composables/`
 3. Maintain three-panel layout structure
-4. Use UnoCSS (`presetWind4` + `presetIcons`) for styling; UI primitives live in `src/ui` and read design tokens from `--p-*` CSS variables (no external component library)
+4. Use UnoCSS for styling and follow `web/docs/design-system.md` — tokens only from `--p-*` (no hardcoded hex), floating panels use the `p-popover-panel` shortcut, shadows for floating layers only (`sm`/`md`, no `shadow-lg`), no gradients, no nested panels; new reusable UI primitives go in `src/ui` with a `P` prefix and an `index.ts` export. `src/test/design.test.ts` enforces the hex / z-index / gradient / shadow rules
 5. No hardcoded user-visible strings — every label/placeholder/aria/toast goes through vue-i18n: `$t('…')` in templates, `useI18n()` in `<script setup>`, `i18n.global.t` in non-component modules; static option arrays store message *keys* (`labelKey`) resolved at render. Add new keys to **both** `src/locale/messages/en.ts` and `zh-Hans.ts` — `src/test/locale.test.ts` fails on key-tree drift, on zh-only interpolation params, and on any literal key used in source that's missing from the catalogue. Numbers/dates use `formatNumber`/`formatDateTime` from `@/locale` (never `Intl.NumberFormat('en-US')` or bare `toLocaleString()`). Tag display names are translated server-side: pass `lang: resolvedLocale.value` to those endpoints and include `resolvedLocale` in the TanStack queryKey so a language switch refetches
 6. Run linting before commit: `pnpm lint`
 
