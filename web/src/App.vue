@@ -614,7 +614,7 @@ function splitHighlight(text: string, filter: string): HighlightPart[] {
       class="flex items-center justify-center"
       @click.self="pendingDeleteFolder = null"
     >
-      <Dialog
+      <PDialog
         :title="$t('sidebar.deleteDialogTitle')"
         :confirm-label="isDeletingFolder ? $t('sidebar.deleteDialogDeleting') : $t('sidebar.deleteDialogConfirm')"
         :cancel-label="$t('common.cancel')"
@@ -630,7 +630,7 @@ function splitHighlight(text: string, filter: string): HighlightPart[] {
             <span class="text-fg font-medium tabular-nums">{{ formatNumber(pendingDeleteFolder.postCount) }}</span>
           </template>
         </i18n-t>
-      </Dialog>
+      </PDialog>
     </POverlay>
     <!-- Global toast outlet — useToast()/useAPIError() push here. -->
     <ToastSystem />

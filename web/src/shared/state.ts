@@ -206,14 +206,9 @@ export function openTagSelectorWindow() {
 
 export const showPostDetail = ref<PostSimplePublic | null>(null)
 
-// Count of mounted <Dialog> modals — Dialog.vue increments/decrements on
-// mount/unmount. Pages gate their global onKeyStroke hotkeys on this
-// (see canHandle*Keys): Dialog's own Enter/Escape handlers can't swallow
-// other window-level listeners, so the standing-down has to happen at each
-// listener's guard, and a shared count beats every caller hand-tracking its
-// own "is my dialog open" flag.
-export const openDialogCount = ref(0)
-export const isAnyDialogOpen = computed(() => openDialogCount.value > 0)
+// Dialog open-count lives in the design system (ui/) so it doesn't depend on
+// the app store; re-exported here so `@/shared` stays the single import.
+export { isAnyDialogOpen, openDialogCount } from '@/ui/modal'
 
 // Path of the folder-tree row that currently has keyboard focus (the tree's
 // RouterLinks carry data-tree-value; clicking one focuses it). While a tree

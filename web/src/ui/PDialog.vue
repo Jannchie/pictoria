@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { openDialogCount } from '@/shared'
+import { openDialogCount } from './modal'
 
 withDefaults(defineProps<{
   title?: string
@@ -24,7 +24,7 @@ const emit = defineEmits<{
 const confirmButton = ref<{ $el?: HTMLElement } | null>(null)
 onMounted(() => confirmButton.value?.$el?.focus())
 
-// While any Dialog is mounted, page-level hotkey guards (canHandle*Keys)
+// While any PDialog is mounted, page-level hotkey guards (canHandle*Keys)
 // stand down via this shared count — the handlers below can't swallow other
 // window-level onKeyStroke listeners, so the gating happens at their guards.
 onMounted(() => openDialogCount.value++)
@@ -54,28 +54,32 @@ onKeyStroke('Escape', (e) => {
     shadow="md"
     class="text-sm p-4 flex flex-col gap-3 min-w-86"
   >
-    <div v-if="title" class="text-base text-fg font-semibold">
-      {{ title }}
-    </div>
+    <slot name="header">
+      <div v-if="title" class="text-base text-fg font-semibold">
+        {{ title }}
+      </div>
+    </slot>
     <div class="text-fg-muted">
       <slot />
     </div>
-    <div class="mt-1 flex gap-2 justify-end">
-      <PButton
-        v-if="cancelLabel"
-        variant="ghost"
-        @click="emit('cancel')"
-      >
-        {{ cancelLabel }}
-      </PButton>
-      <PButton
-        v-if="confirmLabel"
-        ref="confirmButton"
-        :variant="variant"
-        @click="emit('confirm')"
-      >
-        {{ confirmLabel }}
-      </PButton>
-    </div>
+    <slot name="footer">
+      <div class="mt-1 flex gap-2 justify-end">
+        <PButton
+          v-if="cancelLabel"
+          variant="ghost"
+          @click="emit('cancel')"
+        >
+          {{ cancelLabel }}
+        </PButton>
+        <PButton
+          v-if="confirmLabel"
+          ref="confirmButton"
+          :variant="variant"
+          @click="emit('confirm')"
+        >
+          {{ confirmLabel }}
+        </PButton>
+      </div>
+    </slot>
   </PSurface>
 </template>

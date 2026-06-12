@@ -14,9 +14,9 @@ const TYPE_STYLE: Record<ToastData['type'], { icon: string, color: string }> = {
 </script>
 
 <template>
-  <ToastContainer :items="toasts">
+  <PToastContainer :items="toasts">
     <template #default="{ item }">
-      <Toast
+      <PToast
         :message="item.message"
         :icon="TYPE_STYLE[item.type].icon"
         :icon-color="item.color ?? TYPE_STYLE[item.type].color"
@@ -24,5 +24,5 @@ const TYPE_STYLE: Record<ToastData['type'], { icon: string, color: string }> = {
         @close="dismissToast(item)"
       />
     </template>
-  </ToastContainer>
+  </PToastContainer>
 </template>

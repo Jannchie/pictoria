@@ -4,10 +4,10 @@ import { useI18n } from 'vue-i18n'
 import { useRoute, useRouter } from 'vue-router'
 import { v2TouchPost } from '@/api'
 import ArthashPlaceholder from '@/components/ArthashPlaceholder.vue'
-import Dialog from '@/components/Dialog.vue'
 import PostDetail from '@/components/PostDetail.vue'
 import { bottomBarInfo, currentPostList, deletePosts, enableArthash, enableFancyPlaceholder, focusedTreeFolder, isAnyDialogOpen, selectedPostIdSet, showPostDetail, similarPostList } from '@/shared'
 import { POverlay } from '@/ui'
+import PDialog from '@/ui/PDialog.vue'
 import { getPostImageURL } from '@/utils'
 import { colorNumToHex } from '@/utils/color'
 
@@ -313,7 +313,7 @@ async function confirmDelete() {
     class="flex items-center justify-center"
     @click.self="showDeleteConfirm = false"
   >
-    <Dialog
+    <PDialog
       :title="$t('post.deleteDialogTitle')"
       :confirm-label="isDeleting ? $t('post.deleteDialogDeleting') : $t('post.deleteDialogConfirm', { n: pendingDeleteIds.length })"
       :cancel-label="$t('common.cancel')"
@@ -326,7 +326,7 @@ async function confirmDelete() {
           <span class="text-fg font-medium tabular-nums">{{ pendingDeleteIds.length }}</span>
         </template>
       </i18n-t>
-    </Dialog>
+    </PDialog>
   </POverlay>
 </template>
 

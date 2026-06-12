@@ -7,9 +7,9 @@ import { logicAnd } from '@vueuse/math'
 import { onBeforeRouteLeave, useRoute, useRouter } from 'vue-router'
 import { Waterfall } from 'vue-wf'
 import { v2SearchPostsByText } from '@/api'
-import Dialog from '@/components/Dialog.vue'
 import { commitRotate, commitScore, currentPostList, deletePosts, focusedTreeFolder, galleryScrollPositions, isAnyDialogOpen, postFilter, queryKeys, selectedPostIdSet, showPostDetail, textSearchQuery, useInfinityPostsQuery, waterfallRowCount } from '@/shared'
 import { POverlay } from '@/ui'
+import PDialog from '@/ui/PDialog.vue'
 import { isImageExtension } from '@/utils'
 
 const route = useRoute()
@@ -605,7 +605,7 @@ onMounted(() => {
       class="flex items-center justify-center"
       @click.self="cancelDelete"
     >
-      <Dialog
+      <PDialog
         title="Delete selected posts?"
         :confirm-label="isDeleting ? 'Deleting…' : `Delete ${pendingDeleteIds.length}`"
         cancel-label="Cancel"
@@ -618,7 +618,7 @@ onMounted(() => {
           <span class="text-fg font-medium tabular-nums">{{ pendingDeleteIds.length }}</span>
           post<span v-if="pendingDeleteIds.length !== 1">s</span>. This cannot be undone.
         </p>
-      </Dialog>
+      </PDialog>
     </POverlay>
   </PScrollArea>
 </template>
