@@ -638,6 +638,10 @@ function splitHighlight(text: string, filter: string): HighlightPart[] {
 </template>
 
 <style>
+.splitpanes__splitter:before {
+  transition: opacity var(--p-duration-fast) var(--p-ease),
+    background-color var(--p-duration-fast) var(--p-ease);
+}
 .splitpanes__splitter:hover:before {
   opacity: 1;
   background-color: var(--p-border-strong);
