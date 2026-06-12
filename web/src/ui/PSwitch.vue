@@ -56,10 +56,6 @@ function toggle() {
     background-color var(--p-duration-fast) var(--p-ease),
     border-color var(--p-duration-fast) var(--p-ease);
 }
-.p-switch:focus-visible {
-  outline: 2px solid var(--p-primary);
-  outline-offset: 2px;
-}
 .p-switch:disabled {
   opacity: 0.5;
   cursor: not-allowed;

@@ -34,7 +34,7 @@ function clearTextSearch() {
           <button
             type="button"
             :aria-label="$t('filter.clearSearch')"
-            class="text-fg-muted rounded hover:text-fg focus:outline-none focus-visible:ring-2 focus-visible:ring-primary/60"
+            class="text-fg-muted rounded hover:text-fg"
             @click="clearTextSearch"
           >
             <i class="i-tabler-x text-sm" aria-hidden="true" />

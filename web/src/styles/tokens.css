@@ -232,6 +232,9 @@ html[data-scheme="light"] {
   --p-on-danger:  rgb(var(--p-on-danger-rgb));
   --p-on-info:    rgb(var(--p-on-info-rgb));
 
+  /* Keyboard-focus ring — one ring for every interactive element. */
+  --p-focus-ring: 2px solid rgb(var(--p-primary-rgb) / 0.55);
+
   --p-primary-soft: rgb(var(--p-primary-rgb) / 0.18);
   --p-success-soft: rgb(var(--p-success-rgb) / 0.16);
   --p-warning-soft: rgb(var(--p-warning-rgb) / 0.18);

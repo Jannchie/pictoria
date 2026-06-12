@@ -309,7 +309,7 @@ const animateCls = computed(() => props.animate
             :aria-valuetext="ariaValuetext"
             aria-orientation="horizontal"
             :aria-disabled="disabled || undefined"
-            class="rounded-full cursor-pointer transition-colors top-50% absolute focus:outline-none focus-visible:ring-2 focus-visible:ring-primary/60"
+            class="rounded-full cursor-pointer transition-colors top-50% absolute"
             :class="[sizeCls.indicator, animateCls.indicator, indicatorOuterCls]"
             :style="[
               `--i-bg: ${filledColor}`,

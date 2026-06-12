@@ -445,7 +445,7 @@ function splitHighlight(text: string, filter: string): HighlightPart[] {
                   tabindex="0"
                   :data-tree-value="data.value"
                   :title="data.value"
-                  class="group/row text-sm pr-4 rounded-md flex h-full w-full cursor-pointer transition-colors items-center relative focus:outline-none focus-visible:ring-1 focus-visible:ring-primary/50 focus-visible:ring-inset"
+                  class="group/row text-sm pr-4 rounded-md flex h-full w-full cursor-pointer transition-colors items-center relative focus-visible:[outline-offset:-2px]"
                   :class="[
                     isSelected ? 'text-fg bg-primary/10' : 'text-fg-muted hover:bg-surface-1 hover:text-fg',
                   ]"
@@ -521,7 +521,7 @@ function splitHighlight(text: string, filter: string): HighlightPart[] {
                 tabindex="0"
                 :data-tree-value="data.value"
                 :title="data.value"
-                class="group/row text-sm pr-4 rounded-md flex h-full w-full cursor-pointer transition-colors items-center relative focus:outline-none focus-visible:ring-1 focus-visible:ring-primary/50 focus-visible:ring-inset"
+                class="group/row text-sm pr-4 rounded-md flex h-full w-full cursor-pointer transition-colors items-center relative focus-visible:[outline-offset:-2px]"
                 :class="[
                   isSelected ? 'text-fg bg-primary/10' : 'text-fg-muted hover:bg-surface-1 hover:text-fg',
                 ]"
@@ -581,7 +581,7 @@ function splitHighlight(text: string, filter: string): HighlightPart[] {
         <div class="p-2 border-t border-border-subtle">
           <RouterLink
             to="/settings"
-            class="rounded block focus:outline-none focus-visible:ring-1 focus-visible:ring-primary/50"
+            class="rounded block"
           >
             <PListItem
               class="px-4!"

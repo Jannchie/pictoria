@@ -234,7 +234,7 @@ function focusStar(index: number) {
       :aria-checked="model === i + 1"
       :aria-label="$t('rating.option', { n: i + 1, count })"
       :tabindex="(model > 0 ? model - 1 === i : i === 0) ? 0 : -1"
-      class="pr-1 rounded cursor-pointer focus:outline-none focus-visible:ring-2 focus-visible:ring-primary/60"
+      class="pr-1 rounded cursor-pointer"
       @mouseover="hoverIndex = i + 1"
       @mouseleave="hoverIndex = -1"
       @pointerdown="onPointerDown(i)"

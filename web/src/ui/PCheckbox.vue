@@ -36,8 +36,10 @@ const model = defineModel<boolean | undefined>({ default: undefined })
 </template>
 
 <style scoped>
+/* Focus lands on the visually-hidden (sr-only) input, so the unified
+   :focus-visible ring would be invisible — forward it to the box instead. */
 .p-checkbox__input:focus-visible + .p-checkbox__box {
-  outline: 2px solid var(--p-primary);
-  outline-offset: 2px;
+  outline: var(--p-focus-ring);
+  outline-offset: 1px;
 }
 </style>

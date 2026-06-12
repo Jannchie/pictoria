@@ -66,10 +66,6 @@ withDefaults(defineProps<{
     box-shadow var(--p-duration-fast) var(--p-ease),
     transform var(--p-duration-fast) var(--p-ease);
 }
-.p-btn:focus-visible {
-  outline: 2px solid var(--p-primary);
-  outline-offset: 2px;
-}
 .p-btn:disabled {
   cursor: not-allowed;
   opacity: 0.5;

@@ -57,6 +57,14 @@ button {
   font-family: inherit;
 }
 
+/* Unified keyboard-focus ring for every interactive element. Uses outline
+   (not box-shadow) so it never stacks with existing shadows/glows, and it
+   follows border-radius in modern browsers. */
+:focus-visible {
+  outline: var(--p-focus-ring);
+  outline-offset: 1px;
+}
+
 .sr-only {
   position: absolute;
   width: 1px;

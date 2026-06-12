@@ -420,7 +420,7 @@ export default defineComponent({
       )
     }
 
-    const ROW_BASE = 'group/row relative h-8 w-full flex items-center gap-1.5 pr-1 text-sm transition-colors focus:outline-none focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-primary/50 cursor-pointer'
+    const ROW_BASE = 'group/row relative h-8 w-full flex items-center gap-1.5 pr-1 text-sm transition-colors focus-visible:[outline-offset:-2px] cursor-pointer'
 
     function LeafDefault(item: TreeListLeafData, level: number, isSelected: boolean, inChain: boolean) {
       return (
