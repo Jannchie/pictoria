@@ -1,10 +1,13 @@
 """Download a Danbooru tag search and persist the new posts + their tags.
 
 Lifted out of ``CommandController.download_from_danbooru`` so the HTTP handler
-is a thin call: fetch → filter to supported images → skip what's already in the
-DB → persist (tags, then posts+links, each in its own retried transaction) →
-download the files. The transaction/retry shape is load-bearing under
-concurrent imports; it is preserved verbatim here.
+is a thin call: fetch → filter to supported images → skip posts that already
+have manual tags → download the files → persist the ones that landed on disk
+(tags, then posts+links, each in its own retried transaction). Download precedes
+persist on purpose: a post row must not exist before its file, or the sync
+reconciler's ``remove_deleted_files`` races the throttled download and deletes
+the just-committed post mid-flight (see ``import_danbooru_posts``). The
+transaction/retry shape is load-bearing under concurrent imports.
 """
 
 from __future__ import annotations
@@ -94,54 +97,80 @@ async def import_danbooru_posts(  # noqa: PLR0913
     posts_with_url = [p for p in posts_orig if p.file_url]
     logger.info(f"Fetched {len(posts_with_url)} available posts ({len(posts_orig)} total)")
 
-    filtered = [
-        p
-        for p in posts_with_url
-        if p.file_url and p.file_ext and p.file_ext.lower() in SUPPORTED_IMAGE_EXTS
-    ]
+    filtered = [p for p in posts_with_url if p.file_url and p.file_ext and p.file_ext.lower() in SUPPORTED_IMAGE_EXTS]
     await _in_executor(executor, save_dir.mkdir, parents=True, exist_ok=True)
     file_path_str = save_dir.relative_to(shared.target_dir).as_posix()
 
-    def _existing_post_names() -> set[str]:
+    def _names_with_manual_tags() -> set[str]:
         # Worker-thread-local cursor: ``db.cursor()`` returns a cursor on
         # *this* thread's connection. The event-loop-thread connection is
         # shared by every concurrent request, so doing BEGIN/COMMIT on it
         # makes concurrent imports trample each other's transactions.
+        #
+        # Dedup on "already has a manual (is_auto=0) tag", NOT merely "the post
+        # row exists": a file can land in the DB tag-less first — folder-sync
+        # reconciliation (``PostRepo.create_paths``) inserts a bare row for any
+        # file already on disk, and a DB reset / snapshot rollback can leave
+        # files behind without their ``post_has_tag`` links. Keying on
+        # post-existence would skip those bare rows forever (their file_name is
+        # "present"), so the Danbooru tags never get written. Keying on
+        # manual-tag presence lets a re-run backfill them.
         cur = db.cursor()
         try:
             cur.execute(
-                "SELECT file_name FROM posts WHERE file_path = ?",
+                """
+                SELECT p.file_name
+                FROM posts p
+                JOIN post_has_tag pht
+                  ON pht.post_id = p.id AND pht.is_auto = 0
+                WHERE p.file_path = ?
+                """,
                 [file_path_str],
             )
             return {row[0] for row in cur.fetchall()}
         finally:
             cur.close()
 
-    existing_names = await _in_executor(executor, _existing_post_names)
-    to_persist = [p for p in filtered if str(p.id) not in existing_names]
-    logger.info(f"Persisting {len(to_persist)} new posts ({len(filtered) - len(to_persist)} already in DB)")
+    tagged_names = await _in_executor(executor, _names_with_manual_tags)
+    to_persist = [p for p in filtered if str(p.id) not in tagged_names]
+    # `filtered \ to_persist` was already imported *with tags*; its files are on
+    # disk. `to_persist` may include tag-backfill posts whose file is already
+    # present — ``download_image`` short-circuits those on its exists() check.
+    logger.info(
+        f"Downloading {len(to_persist)} posts ({len(filtered) - len(to_persist)} already imported with tags)",
+    )
 
-    # Pre-compute per-post tag maps (in-memory, no DB calls).
-    precomputed_tag_maps = [_build_tag_to_group(p, type_to_group_id) for p in to_persist]
+    # DOWNLOAD BEFORE PERSIST. A post row must never exist before its file does:
+    # the importer commits on a worker connection, but the file lands seconds-to-
+    # minutes later (the CDN download is throttled to ~1 req/s pool-wide). In
+    # that gap a concurrent ``sync_metadata`` would run ``remove_deleted_files``,
+    # see the freshly-committed rows as "file deleted from disk", and DELETE them
+    # (FK-cascading their tags). The download then finishes, orphaning the files,
+    # which the next sync re-adds as bare, tag-less rows — the exact source of
+    # the source='' / no-manual-tag posts. Persisting only AFTER the bytes are on
+    # disk closes that window: the reconciler never sees a row without its file.
+    if to_persist:
+        dl_stats = await _in_executor(executor, client.download_posts, to_persist, save_dir)
+    else:
+        dl_stats = {"downloaded": 0, "skipped": 0, "failed": 0}
 
+    # Persist only the posts whose file actually made it to disk (a download can
+    # fail/4xx). For those, the row is created with its file already present, so
+    # the reconciler can't delete it; if sync happened to add a bare row in the
+    # tiny post-download window, the persist's ON CONFLICT DO UPDATE upgrades it.
+    def _on_disk(post: DanbooruPost) -> bool:
+        return (save_dir / f"{post.id}.{post.file_ext}").exists()
+
+    downloaded_posts = await _in_executor(executor, lambda: [p for p in to_persist if _on_disk(p)])
+    precomputed_tag_maps = [_build_tag_to_group(p, type_to_group_id) for p in downloaded_posts]
     await _in_executor(
         executor,
         _persist_danbooru_batch,
         db,
         file_path_str,
-        to_persist,
+        downloaded_posts,
         precomputed_tag_maps,
     )
-
-    # Pass `to_persist` (not `filtered`) to download_posts: every entry in
-    # `filtered \ to_persist` is already in the DB, which under normal
-    # operation means its file is on disk. Skipping it avoids a wasted
-    # exists() round trip per post, and short-circuits the 16-worker
-    # threadpool entirely when nothing new needs downloading.
-    if to_persist:
-        dl_stats = await _in_executor(executor, client.download_posts, to_persist, save_dir)
-    else:
-        dl_stats = {"downloaded": 0, "skipped": 0, "failed": 0}
 
     return DanbooruDownloadStats(
         total=len(posts_orig),
@@ -273,6 +302,9 @@ def _insert_posts_and_links_tx(
                 d_post.created_at,
             ],
         )
+        # RETURNING fires for both INSERT (new post) and the DO UPDATE branch
+        # (a pre-existing tag-less row being backfilled), so we get the id
+        # either way and the post_has_tag upsert below attaches the tags.
         row = cur.fetchone()
         if row:
             post_tag_pairs.append((int(row[0]), tag_map))
@@ -282,8 +314,7 @@ def _insert_posts_and_links_tx(
     post_tag_rows = [(post_id, name) for post_id, tag_map in post_tag_pairs for name in tag_map]
     if post_tag_rows:
         cur.executemany(
-            "INSERT INTO post_has_tag(post_id, tag_name, is_auto) VALUES (?, ?, 0) "
-            "ON CONFLICT DO NOTHING",
+            "INSERT INTO post_has_tag(post_id, tag_name, is_auto) VALUES (?, ?, 0) ON CONFLICT DO NOTHING",
             post_tag_rows,
         )
     cur.execute("COMMIT")
