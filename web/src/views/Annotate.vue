@@ -362,7 +362,7 @@ async function generateQueue() {
   gap: 8px;
   margin-bottom: 10px;
   font-size: 11px;
-  font-weight: var(--p-weight-semibold, 600);
+  font-weight: var(--p-weight-semibold);
   letter-spacing: 0.08em;
   text-transform: uppercase;
   color: var(--p-fg-subtle);
@@ -381,23 +381,23 @@ async function generateQueue() {
   gap: 10px;
   padding: 14px;
   text-align: left;
-  border: 1px solid var(--p-border-default);
+  border: 1px solid var(--p-border);
   border-radius: var(--p-radius-lg);
-  background: var(--p-surface-1, transparent);
+  background: var(--p-surface-1);
   color: var(--p-fg-muted);
   cursor: pointer;
   transition:
-    border-color var(--p-duration-fast) var(--p-ease),
-    background-color var(--p-duration-fast) var(--p-ease),
-    color var(--p-duration-fast) var(--p-ease);
+    border-color var(--p-transition-fast),
+    background-color var(--p-transition-fast),
+    color var(--p-transition-fast);
 }
 .annotate-mode-card:hover {
-  border-color: rgb(var(--p-brand-500-rgb) / 0.45);
+  border-color: rgb(var(--p-primary-rgb) / 0.45);
 }
 .annotate-mode-card--active {
   color: var(--p-fg);
-  border-color: rgb(var(--p-brand-500-rgb) / 0.8);
-  background: rgb(var(--p-brand-500-rgb) / 0.08);
+  border-color: rgb(var(--p-primary-rgb) / 0.8);
+  background: rgb(var(--p-primary-rgb) / 0.08);
 }
 .annotate-mode-card--active i {
   color: var(--p-primary);
@@ -410,24 +410,24 @@ async function generateQueue() {
   gap: 7px;
   padding: 8px 13px;
   font-size: var(--p-text-sm);
-  border: 1px solid var(--p-border-default);
+  border: 1px solid var(--p-border);
   border-radius: var(--p-radius-full);
   color: var(--p-fg-muted);
   background: transparent;
   cursor: pointer;
   transition:
-    border-color var(--p-duration-fast) var(--p-ease),
-    background-color var(--p-duration-fast) var(--p-ease),
-    color var(--p-duration-fast) var(--p-ease);
+    border-color var(--p-transition-fast),
+    background-color var(--p-transition-fast),
+    color var(--p-transition-fast);
 }
 .annotate-dim-chip:hover {
-  border-color: rgb(var(--p-brand-500-rgb) / 0.45);
+  border-color: rgb(var(--p-primary-rgb) / 0.45);
   color: var(--p-fg);
 }
 .annotate-dim-chip--active {
   color: var(--p-fg);
-  border-color: rgb(var(--p-brand-500-rgb) / 0.8);
-  background: rgb(var(--p-brand-500-rgb) / 0.12);
+  border-color: rgb(var(--p-primary-rgb) / 0.8);
+  background: rgb(var(--p-primary-rgb) / 0.12);
 }
 .annotate-dim-chip--active i {
   color: var(--p-primary);
@@ -442,9 +442,9 @@ async function generateQueue() {
   display: inline-flex;
   padding: 3px;
   gap: 2px;
-  border: 1px solid var(--p-border-default);
+  border: 1px solid var(--p-border);
   border-radius: var(--p-radius-md);
-  background: var(--p-surface-1, transparent);
+  background: var(--p-surface-1);
 }
 .annotate-segment__item {
   padding: 6px 14px;
@@ -455,15 +455,15 @@ async function generateQueue() {
   border: none;
   cursor: pointer;
   transition:
-    background-color var(--p-duration-fast) var(--p-ease),
-    color var(--p-duration-fast) var(--p-ease);
+    background-color var(--p-transition-fast),
+    color var(--p-transition-fast);
 }
 .annotate-segment__item:hover {
   color: var(--p-fg);
 }
 .annotate-segment__item--active {
   color: var(--p-fg);
-  background: rgb(var(--p-brand-500-rgb) / 0.22);
+  background: rgb(var(--p-primary-rgb) / 0.22);
 }
 
 /* misc */
@@ -472,7 +472,7 @@ async function generateQueue() {
   padding: 1px 6px;
   font-family: var(--p-font-mono);
   font-size: 11px;
-  border: 1px solid var(--p-border-default);
+  border: 1px solid var(--p-border);
   border-bottom-width: 2px;
   border-radius: var(--p-radius-xs);
   color: var(--p-fg-muted);
@@ -482,13 +482,13 @@ async function generateQueue() {
   font-size: var(--p-text-sm);
   color: var(--p-fg);
   background: transparent;
-  border: 1px solid var(--p-border-default);
+  border: 1px solid var(--p-border);
   border-radius: var(--p-radius-sm);
-  transition: border-color var(--p-duration-fast) var(--p-ease);
+  transition: border-color var(--p-transition-fast);
 }
 .annotate-input:focus {
   outline: none;
-  border-color: rgb(var(--p-brand-500-rgb) / 0.7);
+  border-color: rgb(var(--p-primary-rgb) / 0.7);
 }
 .annotate-queue-row {
   display: flex;
@@ -497,29 +497,29 @@ async function generateQueue() {
   width: 100%;
   padding: 12px 14px;
   text-align: left;
-  border: 1px solid var(--p-border-default);
+  border: 1px solid var(--p-border);
   border-radius: var(--p-radius-lg);
   background: transparent;
   color: var(--p-fg);
   cursor: pointer;
   transition:
-    border-color var(--p-duration-fast) var(--p-ease),
-    background-color var(--p-duration-fast) var(--p-ease);
+    border-color var(--p-transition-fast),
+    background-color var(--p-transition-fast);
 }
 .annotate-queue-row:hover {
-  border-color: rgb(var(--p-brand-500-rgb) / 0.45);
-  background: rgb(var(--p-brand-500-rgb) / 0.05);
+  border-color: rgb(var(--p-primary-rgb) / 0.45);
+  background: rgb(var(--p-primary-rgb) / 0.05);
 }
 .annotate-progress {
   height: 3px;
   border-radius: var(--p-radius-full);
-  background: var(--p-surface-3, rgb(255 255 255 / 0.08));
+  background: var(--p-surface-3);
   overflow: hidden;
 }
 .annotate-progress__bar {
   height: 100%;
   border-radius: inherit;
   background: var(--p-primary);
-  transition: width var(--p-duration-fast) var(--p-ease);
+  transition: width var(--p-transition-fast);
 }
 </style>

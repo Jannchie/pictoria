@@ -123,17 +123,32 @@ describe('no raw z-index above the local-stacking threshold', () => {
   })
 })
 
-// 4. shadow-lg is the PSurface top elevation tier and must stay confined to
-//    the ui/ primitives that define the elevation system. Feature components
-//    (components/, views/, App.vue) should use lower tiers / PSurface.
-describe('shadow-lg stays in the ui/ elevation primitives', () => {
-  const SHADOW = /shadow-lg/g
+// 4. Reserved shadows (lg/xl/2xl) must stay confined to the ui/ primitives
+//    that define the elevation system. `uno.config.ts` only defines sm/md/lg
+//    as tokens; shadow-lg is the PSurface top tier, and shadow-xl/2xl fall
+//    through to wind4 defaults (bypassing the token scale entirely). Feature
+//    components (components/, views/, App.vue) should use lower tiers / PSurface.
+describe('reserved shadows stay in the ui/ elevation primitives', () => {
+  const SHADOW = /shadow-(lg|xl|2xl)\b/g
 
-  it('no shadow-lg outside src/ui', () => {
+  it('no reserved shadow outside src/ui', () => {
     const violations = findViolations(SHADOW, (file) => {
       // Only ui/ primitives (e.g. PSurface) may define the shadow-lg tier.
       return shortName(file).startsWith('ui/')
     })
-    expect(violations, 'shadow-lg outside src/ui (use a lower PSurface tier)').toEqual([])
+    expect(violations, 'reserved shadow (lg/xl/2xl) outside src/ui (use sm/md)').toEqual([])
+  })
+})
+
+// 5. No references to `--p-border-default` — it is a UnoCSS theme *key name*
+//    (theme.colors['border-default']), not a CSS variable. tokens.css only
+//    defines --p-border / --p-border-strong / --p-border-subtle, so
+//    var(--p-border-default) resolves to empty and the border silently drops.
+describe('no phantom --p-border-default token', () => {
+  const PHANTOM = /var\(--p-border-default\)/g
+
+  it('no var(--p-border-default) (use --p-border)', () => {
+    const violations = findViolations(PHANTOM, () => false)
+    expect(violations, 'var(--p-border-default) is not a token (use var(--p-border))').toEqual([])
   })
 })

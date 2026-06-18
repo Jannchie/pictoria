@@ -301,13 +301,13 @@ function onKeyDown(e: KeyboardEvent) {
         />
         <div
           v-if="post.matchProb != null"
-          class="text-10px text-white tracking-wide font-bold font-mono px-1.5 py-0.5 rounded bg-black/60 pointer-events-none right-1.5 top-1.5 absolute tabular-nums"
+          class="p-thumb-badge bg-black/60 right-1.5 top-1.5 absolute"
         >
           {{ (post.matchProb * 100).toFixed(1) }}%
         </div>
         <div
           v-else-if="sortBadge"
-          class="text-10px text-white tracking-wide font-bold font-mono px-1.5 py-0.5 rounded flex pointer-events-none items-center right-1.5 top-1.5 absolute tabular-nums"
+          class="p-thumb-badge flex items-center right-1.5 top-1.5 absolute"
           :class="sortBadgeStyle ? undefined : 'bg-black/60'"
           :style="sortBadgeStyle"
         >
@@ -322,7 +322,7 @@ function onKeyDown(e: KeyboardEvent) {
         </div>
         <div
           v-if="(post.groupMemberCount ?? 0) > 0"
-          class="text-10px text-white tracking-wide font-bold font-mono px-1.5 py-0.5 rounded bg-black/60 flex gap-0.5 pointer-events-none items-center bottom-1.5 right-1.5 absolute tabular-nums"
+          class="p-thumb-badge bg-black/60 flex gap-0.5 items-center bottom-1.5 right-1.5 absolute"
           :title="$t('post.groupBadgeTitle', { n: post.groupMemberCount }, post.groupMemberCount ?? 0)"
         >
           <i class="i-tabler-stack-2" />+{{ post.groupMemberCount }}
@@ -363,12 +363,12 @@ function onKeyDown(e: KeyboardEvent) {
 
 <style lang="css" scoped>
 .post-item {
-  transition: transform var(--p-duration-fast) var(--p-ease);
+  transition: transform var(--p-transition-fast);
 }
 .post-content {
   transition:
-    outline-color var(--p-duration-fast) var(--p-ease),
-    box-shadow var(--p-duration-fast) var(--p-ease);
+    outline-color var(--p-transition-fast),
+    box-shadow var(--p-transition-fast);
   outline: 2px solid transparent;
   outline-offset: 2px;
 }
@@ -384,7 +384,7 @@ function onKeyDown(e: KeyboardEvent) {
   box-shadow: 0 0 0 4px rgb(var(--p-primary-rgb) / 0.18);
 }
 .selected .filename-wrapper {
-  background-color: var(--p-primary) !important;
-  color: var(--p-on-primary) !important;
+  background-color: var(--p-primary);
+  color: var(--p-on-primary);
 }
 </style>

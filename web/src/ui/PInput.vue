@@ -81,9 +81,9 @@ const hasRight = !!slots.rightSection
   border-radius: var(--p-radius-md);
   padding: 0 var(--p-control-px-sm);
   transition:
-    border-color var(--p-duration-fast) var(--p-ease),
-    box-shadow var(--p-duration-fast) var(--p-ease),
-    background-color var(--p-duration-fast) var(--p-ease);
+    border-color var(--p-transition-fast),
+    box-shadow var(--p-transition-fast),
+    background-color var(--p-transition-fast);
 }
 .p-input:hover:not(.p-input--disabled) {
   border-color: var(--p-border-strong);

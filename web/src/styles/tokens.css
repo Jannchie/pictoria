@@ -92,6 +92,11 @@ html.is-theme-switching *::after {
   --p-duration-base: 180ms;
   --p-duration-slow: 260ms;
   --p-ease: cubic-bezier(.2, .8, .2, 1);
+  /* Shorthand — avoids repeating the duration+easing pair in every scoped
+     transition rule.  Use in scoped <style> only; templates should use
+     UnoCSS duration-* ease-* utilities. */
+  --p-transition-fast: var(--p-duration-fast) var(--p-ease);
+  --p-transition-base: var(--p-duration-base) var(--p-ease);
 
   /* Layering — one ordered scale, ascending:
        base    < overlay (POverlay scrim)

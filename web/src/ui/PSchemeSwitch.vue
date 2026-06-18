@@ -70,8 +70,8 @@ function pick(value: 'dark' | 'light' | 'auto') {
   color: var(--p-fg-subtle);
   cursor: pointer;
   transition:
-    background-color var(--p-duration-fast) var(--p-ease),
-    color var(--p-duration-fast) var(--p-ease);
+    background-color var(--p-transition-fast),
+    color var(--p-transition-fast);
 }
 .p-scheme__btn:hover { color: var(--p-fg); }
 .p-scheme__btn--active {

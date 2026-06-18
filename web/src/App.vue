@@ -8,7 +8,7 @@ import { useI18n } from 'vue-i18n'
 import { RouterLink, useRoute, useRouter } from 'vue-router'
 import { useAPIError } from '@/composables/useAPIError'
 import { formatNumber } from '@/locale'
-import PTreeList from '@/ui/PTreeList.vue'
+import PTreeList, { CHEVRON_SLOT, LEVEL_INDENT } from '@/ui/PTreeList.vue'
 import FolderStatsLine from './components/FolderStatsLine.vue'
 import { useGlobalUndoRedo, useWatchRoute } from './composables'
 import { deleteFolder, focusedTreeFolder, isAnyDialogOpen, menuData, showMenu, useCurrentFolder, useFoldersQuery, useSyncFilterWithUrl } from './shared'
@@ -449,7 +449,7 @@ function splitHighlight(text: string, filter: string): HighlightPart[] {
                   :class="[
                     isSelected ? 'text-fg bg-primary/10' : 'text-fg-muted hover:bg-surface-1 hover:text-fg',
                   ]"
-                  :style="{ paddingLeft: `${16 + level * 14}px` }"
+                  :style="{ paddingLeft: `${CHEVRON_SLOT + level * LEVEL_INDENT}px` }"
                   @contextmenu.prevent="onItemContext({ data, event: $event })"
                 >
                   <span
@@ -459,7 +459,7 @@ function splitHighlight(text: string, filter: string): HighlightPart[] {
                     :class="[
                       inChain && i === level ? 'bg-primary/40' : 'bg-border-subtle',
                     ]"
-                    :style="{ left: `${10 + (i - 1) * 14}px` }"
+                    :style="{ left: `${10 + (i - 1) * LEVEL_INDENT}px` }"
                   />
                   <span
                     v-if="isSelected"
@@ -499,7 +499,7 @@ function splitHighlight(text: string, filter: string): HighlightPart[] {
                 <button
                   type="button"
                   class="text-fg-subtle rounded flex shrink-0 h-5 w-5 transition items-center top-1/2 justify-center absolute hover:text-fg focus-visible:outline-none hover:bg-surface-2 focus-visible:ring-1 focus-visible:ring-primary/50 -translate-y-1/2"
-                  :style="{ left: `${16 + level * 14 - 3}px` }"
+                  :style="{ left: `${CHEVRON_SLOT + level * LEVEL_INDENT - 3}px` }"
                   :aria-label="isOpen ? $t('sidebar.collapse') : $t('sidebar.expand')"
                   :aria-expanded="isOpen"
                   @click.stop.prevent="toggle"
@@ -525,7 +525,7 @@ function splitHighlight(text: string, filter: string): HighlightPart[] {
                 :class="[
                   isSelected ? 'text-fg bg-primary/10' : 'text-fg-muted hover:bg-surface-1 hover:text-fg',
                 ]"
-                :style="{ paddingLeft: `${16 + level * 14}px` }"
+                :style="{ paddingLeft: `${CHEVRON_SLOT + level * LEVEL_INDENT}px` }"
                 @contextmenu.prevent="onItemContext({ data, event: $event })"
               >
                 <span
@@ -535,7 +535,7 @@ function splitHighlight(text: string, filter: string): HighlightPart[] {
                   :class="[
                     inChain && i === level ? 'bg-primary/40' : 'bg-border-subtle',
                   ]"
-                  :style="{ left: `${10 + (i - 1) * 14}px` }"
+                  :style="{ left: `${10 + (i - 1) * LEVEL_INDENT}px` }"
                 />
                 <span
                   v-if="isSelected"
@@ -639,8 +639,8 @@ function splitHighlight(text: string, filter: string): HighlightPart[] {
 
 <style>
 .splitpanes__splitter:before {
-  transition: opacity var(--p-duration-fast) var(--p-ease),
-    background-color var(--p-duration-fast) var(--p-ease);
+  transition: opacity var(--p-transition-fast),
+    background-color var(--p-transition-fast);
 }
 .splitpanes__splitter:hover:before {
   opacity: 1;

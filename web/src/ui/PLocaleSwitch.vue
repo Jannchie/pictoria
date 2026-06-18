@@ -54,8 +54,8 @@ const options = computed<{ value: LocaleSetting, label: string }[]>(() => [
   color: var(--p-fg-subtle);
   cursor: pointer;
   transition:
-    background-color var(--p-duration-fast) var(--p-ease),
-    color var(--p-duration-fast) var(--p-ease);
+    background-color var(--p-transition-fast),
+    color var(--p-transition-fast);
 }
 .p-locale__btn:hover { color: var(--p-fg); }
 .p-locale__btn--active {

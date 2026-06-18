@@ -106,5 +106,9 @@ export default defineConfig({
     'p-border': 'border border-border-default',
     'p-divider': 'border-b border-border-subtle',
     'p-popover-panel': 'p-1 border border-border-default rounded bg-surface shadow-md',
+    // Badge overlaid on a thumbnail image — white mono text on a translucent
+    // black scim. Used by the match-prob / sort / group badges in PostItem.
+    // Position (absolute offsets) and exact bg opacity stay on the caller.
+    'p-thumb-badge': 'text-2xs text-white tracking-wide font-bold font-mono px-1.5 py-0.5 rounded pointer-events-none tabular-nums',
   },
 })

@@ -68,8 +68,8 @@ const RADIUS: Record<Rounded, string> = {
   full: 'rounded-full',
 }
 
-const CHEVRON_SLOT = 16
-const LEVEL_INDENT = 14
+export const CHEVRON_SLOT = 16
+export const LEVEL_INDENT = 14
 
 function hasChildren(it: TreeListItemData): it is TreeListCollapseData {
   return 'children' in it && Array.isArray((it as any).children)

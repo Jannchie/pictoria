@@ -238,10 +238,10 @@ const question = computed(() => DIMENSION_QUESTIONS[dimension.value] ?? `哪边�
   background: transparent;
   color: var(--p-fg-muted);
   cursor: pointer;
-  transition: background-color var(--p-duration-fast) var(--p-ease), color var(--p-duration-fast) var(--p-ease);
+  transition: background-color var(--p-transition-fast), color var(--p-transition-fast);
 }
 .pairwise-exit:hover {
-  background: rgb(var(--p-brand-500-rgb) / 0.12);
+  background: rgb(var(--p-primary-rgb) / 0.12);
   color: var(--p-fg);
 }
 
@@ -252,7 +252,7 @@ const question = computed(() => DIMENSION_QUESTIONS[dimension.value] ?? `哪边�
   margin: 0 1px;
   font-family: var(--p-font-mono);
   font-size: 10px;
-  border: 1px solid var(--p-border-default);
+  border: 1px solid var(--p-border);
   border-bottom-width: 2px;
   border-radius: var(--p-radius-xs);
   color: inherit;
@@ -276,10 +276,10 @@ const question = computed(() => DIMENSION_QUESTIONS[dimension.value] ?? `哪边�
   inset: 0;
   pointer-events: none;
   border: 2px solid transparent;
-  transition: border-color var(--p-duration-fast) var(--p-ease);
+  transition: border-color var(--p-transition-fast);
 }
 .pairwise-side:hover::after {
-  border-color: rgb(var(--p-brand-500-rgb) / 0.6);
+  border-color: rgb(var(--p-primary-rgb) / 0.6);
 }
 .pairwise-side__pick {
   position: absolute;
@@ -293,7 +293,7 @@ const question = computed(() => DIMENSION_QUESTIONS[dimension.value] ?? `哪边�
   color: white;
   opacity: 0;
   pointer-events: none;
-  transition: opacity var(--p-duration-fast) var(--p-ease);
+  transition: opacity var(--p-transition-fast);
   white-space: nowrap;
 }
 .pairwise-side:hover .pairwise-side__pick {
@@ -303,7 +303,7 @@ const question = computed(() => DIMENSION_QUESTIONS[dimension.value] ?? `哪边�
 .pairwise-spinner {
   width: 14px;
   height: 14px;
-  border: 2px solid var(--p-border-default);
+  border: 2px solid var(--p-border);
   border-top-color: var(--p-primary);
   border-radius: 50%;
   animation: pairwise-spin 0.7s linear infinite;

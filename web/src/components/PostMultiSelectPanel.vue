@@ -340,7 +340,7 @@ const sectionTitleClass
           v-for="d of displayedThumbs"
           :key="d.id"
           type="button"
-          class="rounded bg-white cursor-pointer ring-1 ring-black/10 shadow-md left-1/2 top-1/2 absolute overflow-hidden hover:ring-2 hover:ring-primary hover:shadow-xl"
+          class="ring-border rounded bg-white cursor-pointer ring-1 shadow-md left-1/2 top-1/2 absolute overflow-hidden hover:ring-2 hover:ring-primary hover:shadow-md"
           :style="{
             ...thumbStyle(d.post, d.idx),
             opacity: d.opacity,

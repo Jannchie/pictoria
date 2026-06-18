@@ -53,8 +53,8 @@ function toggle() {
   border-radius: var(--p-radius-full);
   cursor: pointer;
   transition:
-    background-color var(--p-duration-fast) var(--p-ease),
-    border-color var(--p-duration-fast) var(--p-ease);
+    background-color var(--p-transition-fast),
+    border-color var(--p-transition-fast);
 }
 .p-switch:disabled {
   opacity: 0.5;

@@ -60,11 +60,11 @@ withDefaults(defineProps<{
   background: transparent;
   color: var(--p-fg);
   transition:
-    background-color var(--p-duration-fast) var(--p-ease),
-    border-color var(--p-duration-fast) var(--p-ease),
-    color var(--p-duration-fast) var(--p-ease),
-    box-shadow var(--p-duration-fast) var(--p-ease),
-    transform var(--p-duration-fast) var(--p-ease);
+    background-color var(--p-transition-fast),
+    border-color var(--p-transition-fast),
+    color var(--p-transition-fast),
+    box-shadow var(--p-transition-fast),
+    transform var(--p-transition-fast);
 }
 .p-btn:disabled {
   cursor: not-allowed;

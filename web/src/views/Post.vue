@@ -335,8 +335,8 @@ async function confirmDelete() {
   outline: 2px solid transparent;
   outline-offset: 2px;
   transition:
-    outline-color var(--p-duration-fast) var(--p-ease),
-    box-shadow var(--p-duration-fast) var(--p-ease);
+    outline-color var(--p-transition-fast),
+    box-shadow var(--p-transition-fast);
 }
 .main-post-selected {
   outline-color: var(--p-primary);

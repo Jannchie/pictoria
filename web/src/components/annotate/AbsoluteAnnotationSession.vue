@@ -329,10 +329,10 @@ const DIMENSION_META: Record<string, { label: string, prompt: string, icon: stri
   background: transparent;
   color: var(--p-fg-muted);
   cursor: pointer;
-  transition: background-color var(--p-duration-fast) var(--p-ease), color var(--p-duration-fast) var(--p-ease);
+  transition: background-color var(--p-transition-fast), color var(--p-transition-fast);
 }
 .annotate-exit:hover {
-  background: rgb(var(--p-brand-500-rgb) / 0.12);
+  background: rgb(var(--p-primary-rgb) / 0.12);
   color: var(--p-fg);
 }
 
@@ -343,7 +343,7 @@ const DIMENSION_META: Record<string, { label: string, prompt: string, icon: stri
   margin: 0 1px;
   font-family: var(--p-font-mono);
   font-size: 10px;
-  border: 1px solid var(--p-border-default);
+  border: 1px solid var(--p-border);
   border-bottom-width: 2px;
   border-radius: var(--p-radius-xs);
   color: var(--p-fg-muted);
@@ -352,15 +352,15 @@ const DIMENSION_META: Record<string, { label: string, prompt: string, icon: stri
 /* 判断卡片 */
 .annotate-judge-card {
   padding: 13px 14px;
-  border: 1px solid var(--p-border-default);
+  border: 1px solid var(--p-border);
   border-radius: var(--p-radius-lg);
-  transition: border-color var(--p-duration-fast) var(--p-ease), opacity var(--p-duration-fast) var(--p-ease);
+  transition: border-color var(--p-transition-fast), opacity var(--p-transition-fast);
 }
 .annotate-judge-card--done {
   opacity: 0.62;
 }
 .annotate-judge-card:not(.annotate-judge-card--done) {
-  border-color: rgb(var(--p-brand-500-rgb) / 0.45);
+  border-color: rgb(var(--p-primary-rgb) / 0.45);
 }
 .annotate-judge-card__icon {
   color: var(--p-primary);
@@ -374,19 +374,19 @@ const DIMENSION_META: Record<string, { label: string, prompt: string, icon: stri
   gap: 6px;
   padding: 7px 11px;
   font-size: var(--p-text-sm);
-  border: 1px solid var(--p-border-default);
+  border: 1px solid var(--p-border);
   border-radius: var(--p-radius-md);
   background: transparent;
   color: var(--p-fg-muted);
   cursor: pointer;
   transition:
-    border-color var(--p-duration-fast) var(--p-ease),
-    background-color var(--p-duration-fast) var(--p-ease),
-    color var(--p-duration-fast) var(--p-ease),
-    transform var(--p-duration-fast) var(--p-ease);
+    border-color var(--p-transition-fast),
+    background-color var(--p-transition-fast),
+    color var(--p-transition-fast),
+    transform var(--p-transition-fast);
 }
 .annotate-choice:hover {
-  border-color: rgb(var(--p-brand-500-rgb) / 0.55);
+  border-color: rgb(var(--p-primary-rgb) / 0.55);
   color: var(--p-fg);
 }
 .annotate-choice:active {
@@ -406,7 +406,7 @@ const DIMENSION_META: Record<string, { label: string, prompt: string, icon: stri
 .annotate-spinner {
   width: 14px;
   height: 14px;
-  border: 2px solid var(--p-border-default);
+  border: 2px solid var(--p-border);
   border-top-color: var(--p-primary);
   border-radius: 50%;
   animation: annotate-spin 0.7s linear infinite;
