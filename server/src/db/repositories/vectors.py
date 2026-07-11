@@ -10,13 +10,13 @@ little-endian float32 BLOB); reads go through the inverse decoder below.
 
 from __future__ import annotations
 
-import asyncio
 import struct
 from typing import TYPE_CHECKING
 
 import sqlite_vec
 
 from db import SimilarImageResult
+from db.asyncbridge import in_thread
 from db.helpers import sql_placeholders, transaction
 from db.repositories.failures import not_failed_clause
 
@@ -61,36 +61,32 @@ class VectorRepo:
         self.table = table
         self.dim = dim if dim is not None else _ALLOWED_TABLES[table]
 
-    async def get(self, post_id: int) -> list[float] | None:
-        def _impl() -> list[float] | None:
-            self.cur.execute(
-                f"SELECT embedding FROM {self.table} WHERE post_id = ?",  # noqa: S608
-                [post_id],
-            )
-            row = self.cur.fetchone()
-            if not row:
-                return None
-            return _decode_vec_blob(row[0])
+    @in_thread
+    def get(self, post_id: int) -> list[float] | None:
+        self.cur.execute(
+            f"SELECT embedding FROM {self.table} WHERE post_id = ?",  # noqa: S608
+            [post_id],
+        )
+        row = self.cur.fetchone()
+        if not row:
+            return None
+        return _decode_vec_blob(row[0])
 
-        return await asyncio.to_thread(_impl)
-
-    async def get_many(self, post_ids: list[int]) -> dict[int, list[float]]:
+    @in_thread
+    def get_many(self, post_ids: list[int]) -> dict[int, list[float]]:
         """Batch-fetch embeddings by post_id; ids without a vector are absent."""
+        if not post_ids:
+            return {}
+        placeholders = sql_placeholders(post_ids)
+        self.cur.execute(
+            f"SELECT post_id, embedding FROM {self.table} "  # noqa: S608
+            f"WHERE post_id IN ({placeholders})",
+            post_ids,
+        )
+        return {pid: _decode_vec_blob(blob) for pid, blob in self.cur.fetchall()}
 
-        def _impl() -> dict[int, list[float]]:
-            if not post_ids:
-                return {}
-            placeholders = sql_placeholders(post_ids)
-            self.cur.execute(
-                f"SELECT post_id, embedding FROM {self.table} "  # noqa: S608
-                f"WHERE post_id IN ({placeholders})",
-                post_ids,
-            )
-            return {pid: _decode_vec_blob(blob) for pid, blob in self.cur.fetchall()}
-
-        return await asyncio.to_thread(_impl)
-
-    async def upsert(self, post_id: int, embedding: np.ndarray | list[float]) -> None:
+    @in_thread
+    def upsert(self, post_id: int, embedding: np.ndarray | list[float]) -> None:
         """Insert or replace an embedding for ``post_id``.
 
         Unlike the DuckDB era (where HNSW tolerated neither DELETE nor UPDATE
@@ -102,21 +98,18 @@ class VectorRepo:
             msg = f"{self.table}: expected dim {self.dim}, got {len(emb)}"
             raise ValueError(msg)
         blob = sqlite_vec.serialize_float32(emb)
+        # vec0 doesn't support ON CONFLICT, so emulate UPSERT manually.
+        self.cur.execute(
+            f"DELETE FROM {self.table} WHERE post_id = ?",  # noqa: S608
+            [post_id],
+        )
+        self.cur.execute(
+            f"INSERT INTO {self.table}(post_id, embedding) VALUES (?, ?)",  # noqa: S608
+            [post_id, blob],
+        )
 
-        def _impl() -> None:
-            # vec0 doesn't support ON CONFLICT, so emulate UPSERT manually.
-            self.cur.execute(
-                f"DELETE FROM {self.table} WHERE post_id = ?",  # noqa: S608
-                [post_id],
-            )
-            self.cur.execute(
-                f"INSERT INTO {self.table}(post_id, embedding) VALUES (?, ?)",  # noqa: S608
-                [post_id, blob],
-            )
-
-        await asyncio.to_thread(_impl)
-
-    async def upsert_many(self, pairs: list[tuple[int, list[float]]]) -> None:
+    @in_thread
+    def upsert_many(self, pairs: list[tuple[int, list[float]]]) -> None:
         """Insert or replace many ``(post_id, embedding)`` pairs in one batch.
 
         Batch counterpart of :meth:`upsert` — same DELETE + INSERT emulation
@@ -133,19 +126,15 @@ class VectorRepo:
                 msg = f"{self.table}: expected dim {self.dim}, got {len(emb)}"
                 raise ValueError(msg)
             blobs.append((post_id, sqlite_vec.serialize_float32(emb)))
-
-        def _impl() -> None:
-            with transaction(self.cur):
-                self.cur.executemany(
-                    f"DELETE FROM {self.table} WHERE post_id = ?",  # noqa: S608
-                    [(pid,) for pid, _ in blobs],
-                )
-                self.cur.executemany(
-                    f"INSERT INTO {self.table}(post_id, embedding) VALUES (?, ?)",  # noqa: S608
-                    blobs,
-                )
-
-        await asyncio.to_thread(_impl)
+        with transaction(self.cur):
+            self.cur.executemany(
+                f"DELETE FROM {self.table} WHERE post_id = ?",  # noqa: S608
+                [(pid,) for pid, _ in blobs],
+            )
+            self.cur.executemany(
+                f"INSERT INTO {self.table}(post_id, embedding) VALUES (?, ?)",  # noqa: S608
+                blobs,
+            )
 
     # ─── Sync cores (callable from inside another asyncio.to_thread block) ──
     def exists_sync(self, post_id: int) -> bool:
@@ -180,7 +169,8 @@ class VectorRepo:
         )
         return [(int(pid), float(dist)) for pid, dist in self.cur.fetchall()]
 
-    async def similar_to_post(
+    @in_thread
+    def similar_to_post(
         self,
         post_id: int,
         *,
@@ -195,16 +185,13 @@ class VectorRepo:
         has no embedding.
         """
         fetch_limit = limit + 1
+        rows = self.knn_sync(post_id, fetch_limit)
+        # The source row itself comes back first (distance ~= 0); drop it.
+        filtered = [(pid, dist) for pid, dist in rows if pid != post_id]
+        return [SimilarImageResult(post_id=pid, distance=dist) for pid, dist in filtered[:limit]]
 
-        def _impl() -> list[SimilarImageResult]:
-            rows = self.knn_sync(post_id, fetch_limit)
-            # The source row itself comes back first (distance ~= 0); drop it.
-            filtered = [(pid, dist) for pid, dist in rows if pid != post_id]
-            return [SimilarImageResult(post_id=pid, distance=dist) for pid, dist in filtered[:limit]]
-
-        return await asyncio.to_thread(_impl)
-
-    async def load_all(self) -> tuple[list[int], np.ndarray]:
+    @in_thread
+    def load_all(self) -> tuple[list[int], np.ndarray]:
         """Load every embedding into a ``(N, dim)`` float32 matrix + id list.
 
         Returned ids are ascending and parallel to the matrix rows. Drives the
@@ -216,20 +203,17 @@ class VectorRepo:
         """
         import numpy as np  # noqa: PLC0415
 
-        def _impl() -> tuple[list[int], np.ndarray]:
-            self.cur.execute(
-                f"SELECT post_id, embedding FROM {self.table} ORDER BY post_id ASC",  # noqa: S608
-            )
-            ids: list[int] = []
-            vecs: list[np.ndarray] = []
-            for pid, blob in self.cur.fetchall():
-                ids.append(pid)
-                vecs.append(np.frombuffer(bytes(blob), dtype=np.float32))
-            if not vecs:
-                return [], np.empty((0, self.dim), dtype=np.float32)
-            return ids, np.vstack(vecs)
-
-        return await asyncio.to_thread(_impl)
+        self.cur.execute(
+            f"SELECT post_id, embedding FROM {self.table} ORDER BY post_id ASC",  # noqa: S608
+        )
+        ids: list[int] = []
+        vecs: list[np.ndarray] = []
+        for pid, blob in self.cur.fetchall():
+            ids.append(pid)
+            vecs.append(np.frombuffer(bytes(blob), dtype=np.float32))
+        if not vecs:
+            return [], np.empty((0, self.dim), dtype=np.float32)
+        return ids, np.vstack(vecs)
 
     def embedded_post_ids_sync(self) -> set[int]:
         """Every post_id present in ``self.table``, as a set.
@@ -241,11 +225,13 @@ class VectorRepo:
         self.cur.execute(f"SELECT post_id FROM {self.table}")  # noqa: S608
         return {row[0] for row in self.cur.fetchall()}
 
-    async def list_embedded_post_ids(self) -> set[int]:
+    @in_thread
+    def list_embedded_post_ids(self) -> set[int]:
         """Async wrapper over :meth:`embedded_post_ids_sync`."""
-        return await asyncio.to_thread(self.embedded_post_ids_sync)
+        return self.embedded_post_ids_sync()
 
-    async def list_missing_post_ids(
+    @in_thread
+    def list_missing_post_ids(
         self,
         *,
         image_exts: list[str] | None = None,
@@ -262,31 +248,27 @@ class VectorRepo:
         as a one-shot blacklist; the SigLIP 2 worker passes
         ``WORKER_EMBEDDING_SIGLIP2`` so each table has its own failure log.
         """
-
-        def _impl() -> list[int]:
-            # Candidates come from plain-table predicates only; the "already
-            # embedded?" check is a Python set-difference rather than a
-            # LEFT JOIN ... IS NULL: a vec0 lookup is a virtual-table probe,
-            # not a B-tree probe, so the join ran one probe per posts row
-            # (tens of seconds at 170k posts), whereas scanning the vec0
-            # post_id column once is fast.
-            clauses: list[str] = []
-            params: list[object] = []
-            if image_exts:
-                # The `?` placeholder count is derived from len(image_exts);
-                # ext strings flow through cur.execute params, never into SQL.
-                placeholders = sql_placeholders(image_exts)
-                clauses.append(f"LOWER(p.extension) IN ({placeholders})")
-                params.extend(image_exts)
-            clauses.append(not_failed_clause("p"))
-            params.append(worker)
-            self.cur.execute(
-                f"SELECT p.id FROM posts p WHERE {' AND '.join(clauses)} ORDER BY p.id",  # noqa: S608
-                params,
-            )
-            candidates = [r[0] for r in self.cur.fetchall()]
-            embedded = self.embedded_post_ids_sync()
-            # Candidates are already ordered by p.id; the subtraction keeps it.
-            return [pid for pid in candidates if pid not in embedded]
-
-        return await asyncio.to_thread(_impl)
+        # Candidates come from plain-table predicates only; the "already
+        # embedded?" check is a Python set-difference rather than a
+        # LEFT JOIN ... IS NULL: a vec0 lookup is a virtual-table probe,
+        # not a B-tree probe, so the join ran one probe per posts row
+        # (tens of seconds at 170k posts), whereas scanning the vec0
+        # post_id column once is fast.
+        clauses: list[str] = []
+        params: list[object] = []
+        if image_exts:
+            # The `?` placeholder count is derived from len(image_exts);
+            # ext strings flow through cur.execute params, never into SQL.
+            placeholders = sql_placeholders(image_exts)
+            clauses.append(f"LOWER(p.extension) IN ({placeholders})")
+            params.extend(image_exts)
+        clauses.append(not_failed_clause("p"))
+        params.append(worker)
+        self.cur.execute(
+            f"SELECT p.id FROM posts p WHERE {' AND '.join(clauses)} ORDER BY p.id",  # noqa: S608
+            params,
+        )
+        candidates = [r[0] for r in self.cur.fetchall()]
+        embedded = self.embedded_post_ids_sync()
+        # Candidates are already ordered by p.id; the subtraction keeps it.
+        return [pid for pid in candidates if pid not in embedded]

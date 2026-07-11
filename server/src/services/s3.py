@@ -1,9 +1,9 @@
-import asyncio
 from functools import cache
 
 from minio import Minio
 
 import shared
+from db.asyncbridge import in_thread
 
 
 @cache
@@ -17,10 +17,10 @@ def get_s3_client() -> Minio:
     )
 
 
-async def presigned_get_object_from_s3(object_name: str):
+@in_thread
+def presigned_get_object_from_s3(object_name: str):
     s3_client = get_s3_client()
-    return await asyncio.to_thread(
-        s3_client.presigned_get_object,
+    return s3_client.presigned_get_object(
         shared.s3_bucket,
         f"{shared.s3_base_dir}/{object_name}",
     )

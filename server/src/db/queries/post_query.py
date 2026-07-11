@@ -15,12 +15,12 @@ hand-builds them.
 
 from __future__ import annotations
 
-import asyncio
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 
 import sqlite_vec
 
+from db.asyncbridge import in_thread
 from db.entities import POST_COLUMNS
 from db.filters import (
     GROUPABLE_COLUMNS,
@@ -249,108 +249,100 @@ class PostQueryService:
         for r in rows:
             r["group_member_count"] = counts.get(r["id"], 0)
 
-    async def get_group_members(self, canonical_id: int) -> list[dict]:
+    @in_thread
+    def get_group_members(self, canonical_id: int) -> list[dict]:
         """Return the hidden members of ``canonical_id``'s group, oldest first.
 
         Used by the post-detail "same group" strip to reveal the other
         resolutions / near-duplicates hidden from the main listings. Returns
         ``[]`` when the post has no members.
         """
-
-        def _impl() -> list[dict]:
-            self.cur.execute(
-                f"SELECT {SIMPLE_POST_COLUMNS} FROM posts "  # noqa: S608
-                "WHERE canonical_post_id = ? ORDER BY id ASC",
-                [canonical_id],
-            )
-            rows = fetch_all_dicts(self.cur)
-            _decode_dominant_colors_in(rows)
-            ids = [r["id"] for r in rows]
-            colors_by_post = self._colors.fetch_by_ids(ids)
-            for r in rows:
-                r["colors"] = colors_by_post.get(r["id"], [])
-                r["group_member_count"] = 0
-            return rows
-
-        return await asyncio.to_thread(_impl)
+        self.cur.execute(
+            f"SELECT {SIMPLE_POST_COLUMNS} FROM posts "  # noqa: S608
+            "WHERE canonical_post_id = ? ORDER BY id ASC",
+            [canonical_id],
+        )
+        rows = fetch_all_dicts(self.cur)
+        _decode_dominant_colors_in(rows)
+        ids = [r["id"] for r in rows]
+        colors_by_post = self._colors.fetch_by_ids(ids)
+        for r in rows:
+            r["colors"] = colors_by_post.get(r["id"], [])
+            r["group_member_count"] = 0
+        return rows
 
     # 笏笏笏 Read single 笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏
-    async def get_detail(self, post_id: int, lang: str = "zh-Hans") -> dict | None:
+    @in_thread
+    def get_detail(self, post_id: int, lang: str = "zh-Hans") -> dict | None:
         """Detail read model: post columns + joined tags / colors / scores.
 
         Returns ``None`` if the post doesn't exist. ``lang`` picks the tag
         ``translated_name`` table (``en`` yields ``None`` → raw names).
         """
-
-        def _impl() -> dict | None:
-            self.cur.execute(
-                f"SELECT {POST_COLUMNS} FROM posts WHERE id = ?",  # noqa: S608
-                [post_id],
-            )
-            post = fetch_one_dict(self.cur)
-            if post is None:
-                return None
-            _decode_dominant_colors_in([post])
-            ids = [post_id]
-            tags = self._tags.fetch_tags_by_ids(ids, lang).get(post_id, [])
-            colors = self._colors.fetch_by_ids(ids).get(post_id, [])
-            waifu_score = self._scores.fetch_waifu_by_ids(ids).get(post_id)
-            aesthetic_scores = self._scores.fetch_aesthetic_by_ids(ids).get(post_id, [])
-            return {
-                **post,
-                "tags": tags,
-                "colors": colors,
-                "waifu_score": waifu_score,
-                "aesthetic_scores": aesthetic_scores,
-                "group_member_count": self._member_counts([post_id]).get(post_id, 0),
-            }
-
-        return await asyncio.to_thread(_impl)
+        self.cur.execute(
+            f"SELECT {POST_COLUMNS} FROM posts WHERE id = ?",  # noqa: S608
+            [post_id],
+        )
+        post = fetch_one_dict(self.cur)
+        if post is None:
+            return None
+        _decode_dominant_colors_in([post])
+        ids = [post_id]
+        tags = self._tags.fetch_tags_by_ids(ids, lang).get(post_id, [])
+        colors = self._colors.fetch_by_ids(ids).get(post_id, [])
+        waifu_score = self._scores.fetch_waifu_by_ids(ids).get(post_id)
+        aesthetic_scores = self._scores.fetch_aesthetic_by_ids(ids).get(post_id, [])
+        return {
+            **post,
+            "tags": tags,
+            "colors": colors,
+            "waifu_score": waifu_score,
+            "aesthetic_scores": aesthetic_scores,
+            "group_member_count": self._member_counts([post_id]).get(post_id, 0),
+        }
 
     # 笏笏笏 Read many 笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏
-    async def list_paginated(self, start: int, limit: int, lang: str = "zh-Hans") -> tuple[list[dict], int | None]:
+    @in_thread
+    def list_paginated(self, start: int, limit: int, lang: str = "zh-Hans") -> tuple[list[dict], int | None]:
         """Return ``(items_as_detail_dicts, next_cursor)``.
 
         Batches the joined lookups (tags, colors, waifu, aesthetic scores) into
         a single SQL round-trip each, then stitches them in Python.
         """
+        self.cur.execute(
+            f"SELECT {POST_COLUMNS} FROM posts "  # noqa: S608
+            "WHERE id >= ? AND canonical_post_id IS NULL ORDER BY id ASC LIMIT ?",
+            [start, limit + 1],
+        )
+        posts = fetch_all_dicts(self.cur)
+        _decode_dominant_colors_in(posts)
+        next_cursor: int | None = None
+        if len(posts) > limit:
+            next_cursor = posts[-1]["id"]
+            posts = posts[:-1]
 
-        def _impl() -> tuple[list[dict], int | None]:
-            self.cur.execute(
-                f"SELECT {POST_COLUMNS} FROM posts "  # noqa: S608
-                "WHERE id >= ? AND canonical_post_id IS NULL ORDER BY id ASC LIMIT ?",
-                [start, limit + 1],
-            )
-            posts = fetch_all_dicts(self.cur)
-            _decode_dominant_colors_in(posts)
-            next_cursor: int | None = None
-            if len(posts) > limit:
-                next_cursor = posts[-1]["id"]
-                posts = posts[:-1]
+        ids = [p["id"] for p in posts]
+        tags_by_post = self._tags.fetch_tags_by_ids(ids, lang)
+        colors_by_post = self._colors.fetch_by_ids(ids)
+        waifu_by_post = self._scores.fetch_waifu_by_ids(ids)
+        aesthetic_by_post = self._scores.fetch_aesthetic_by_ids(ids)
+        member_counts = self._member_counts(ids)
 
-            ids = [p["id"] for p in posts]
-            tags_by_post = self._tags.fetch_tags_by_ids(ids, lang)
-            colors_by_post = self._colors.fetch_by_ids(ids)
-            waifu_by_post = self._scores.fetch_waifu_by_ids(ids)
-            aesthetic_by_post = self._scores.fetch_aesthetic_by_ids(ids)
-            member_counts = self._member_counts(ids)
+        details = [
+            {
+                **p,
+                "tags": tags_by_post.get(p["id"], []),
+                "colors": colors_by_post.get(p["id"], []),
+                "waifu_score": waifu_by_post.get(p["id"]),
+                "aesthetic_scores": aesthetic_by_post.get(p["id"], []),
+                "group_member_count": member_counts.get(p["id"], 0),
+            }
+            for p in posts
+        ]
+        return details, next_cursor
 
-            details = [
-                {
-                    **p,
-                    "tags": tags_by_post.get(p["id"], []),
-                    "colors": colors_by_post.get(p["id"], []),
-                    "waifu_score": waifu_by_post.get(p["id"]),
-                    "aesthetic_scores": aesthetic_by_post.get(p["id"], []),
-                    "group_member_count": member_counts.get(p["id"], 0),
-                }
-                for p in posts
-            ]
-            return details, next_cursor
-
-        return await asyncio.to_thread(_impl)
-
-    async def list_simple_by_ids_preserving_order(
+    @in_thread
+    def list_simple_by_ids_preserving_order(
         self,
         id_list: list[int],
         *,
@@ -362,59 +354,53 @@ class PostQueryService:
         result — used by the similar-image search so hidden members don't leak
         into the grid (only their canonical representative should surface).
         """
+        if not id_list:
+            return []
+        placeholders = sql_placeholders(id_list)
+        self.cur.execute(
+            f"SELECT {SIMPLE_POST_COLUMNS} FROM posts WHERE id IN ({placeholders})",  # noqa: S608
+            id_list,
+        )
+        rows = fetch_all_dicts(self.cur)
+        _decode_dominant_colors_in(rows)
+        by_id = {r["id"]: r for r in rows}
+        ordered = [by_id[i] for i in id_list if i in by_id]
+        if only_canonical:
+            ordered = [r for r in ordered if r["canonical_post_id"] is None]
+        ids = [r["id"] for r in ordered]
+        colors_by_post = self._colors.fetch_by_ids(ids)
+        for r in ordered:
+            r["colors"] = colors_by_post.get(r["id"], [])
+        self._attach_member_counts(ordered)
+        return ordered
 
-        def _impl() -> list[dict]:
-            if not id_list:
-                return []
-            placeholders = sql_placeholders(id_list)
-            self.cur.execute(
-                f"SELECT {SIMPLE_POST_COLUMNS} FROM posts WHERE id IN ({placeholders})",  # noqa: S608
-                id_list,
-            )
-            rows = fetch_all_dicts(self.cur)
-            _decode_dominant_colors_in(rows)
-            by_id = {r["id"]: r for r in rows}
-            ordered = [by_id[i] for i in id_list if i in by_id]
-            if only_canonical:
-                ordered = [r for r in ordered if r["canonical_post_id"] is None]
-            ids = [r["id"] for r in ordered]
-            colors_by_post = self._colors.fetch_by_ids(ids)
-            for r in ordered:
-                r["colors"] = colors_by_post.get(r["id"], [])
-            self._attach_member_counts(ordered)
-            return ordered
-
-        return await asyncio.to_thread(_impl)
-
-    async def search(self, f: PostFilterWithOrder, *, limit: int = 100, offset: int = 0) -> list[dict]:
+    @in_thread
+    def search(self, f: PostFilterWithOrder, *, limit: int = 100, offset: int = 0) -> list[dict]:
         """Search posts, returning rows ready for ``PostSimplePublic``.
 
         ``f.lab`` triggers brute-force L2 distance ordering over dominant_color
         via sqlite-vec's ``vec_distance_L2``. ``f.order_by`` is one of the
         whitelisted columns; ``f.order`` is ``asc`` | ``desc`` | ``random``.
         """
+        sql, exec_params = _build_search_query(f, build_where(f), limit, offset)
+        self.cur.execute(sql, exec_params)
 
-        def _impl() -> list[dict]:
-            sql, exec_params = _build_search_query(f, build_where(f), limit, offset)
-            self.cur.execute(sql, exec_params)
+        rows = fetch_all_dicts(self.cur)
+        for r in rows:
+            r.pop("_dist", None)
+            # Surface the active sort column's value so the grid can badge
+            # each item with what it sorted by (None when sorting by id/lab).
+            r["sort_value"] = r.pop("_sort_col", None)
+        _decode_dominant_colors_in(rows)
+        ids = [r["id"] for r in rows]
+        colors_by_post = self._colors.fetch_by_ids(ids)
+        for r in rows:
+            r["colors"] = colors_by_post.get(r["id"], [])
+        self._attach_member_counts(rows)
+        return rows
 
-            rows = fetch_all_dicts(self.cur)
-            for r in rows:
-                r.pop("_dist", None)
-                # Surface the active sort column's value so the grid can badge
-                # each item with what it sorted by (None when sorting by id/lab).
-                r["sort_value"] = r.pop("_sort_col", None)
-            _decode_dominant_colors_in(rows)
-            ids = [r["id"] for r in rows]
-            colors_by_post = self._colors.fetch_by_ids(ids)
-            for r in rows:
-                r["colors"] = colors_by_post.get(r["id"], [])
-            self._attach_member_counts(rows)
-            return rows
-
-        return await asyncio.to_thread(_impl)
-
-    async def search_by_text_vector(
+    @in_thread
+    def search_by_text_vector(
         self,
         vec: np.ndarray | list[float],
         f: PostFilter,
@@ -437,73 +423,65 @@ class PostQueryService:
         fewer than ``limit`` rows. Posts without a SigLIP 2 embedding never
         appear (they aren't in the KNN table).
         """
-
-        def _impl() -> list[dict]:
-            where_clauses, params, joins = build_where(f)
-            vec_blob = sqlite_vec.serialize_float32(list(vec))
-            want = limit + offset
-            # vec0's KNN cost is dominated by the O(N) distance scan, so a larger
-            # k is nearly free; oversample when filtering so the post-filter has
-            # enough candidates to fill `limit`.
-            k = want if not where_clauses else max(want, 1000)
-            joins_sql = "\n".join(joins)
-            where_sql = _where_sql(where_clauses)
-            sql = f"""
-                SELECT {_SIMPLE_BASE_SELECT},
-                       knn.distance AS _knn_distance
-                FROM (SELECT post_id, distance FROM post_vectors_siglip2
-                      WHERE embedding MATCH ? AND k = ?) AS knn
-                JOIN posts p ON p.id = knn.post_id
-                {joins_sql}
-                {where_sql}
-                ORDER BY knn.distance LIMIT ? OFFSET ?
-            """  # noqa: S608
-            self.cur.execute(sql, [vec_blob, k, *params, limit, offset])
-            rows = fetch_all_dicts(self.cur)
-            _decode_dominant_colors_in(rows)
-            ids = [r["id"] for r in rows]
-            colors_by_post = self._colors.fetch_by_ids(ids)
-            for r in rows:
-                r["colors"] = colors_by_post.get(r["id"], [])
-            self._attach_member_counts(rows)
-            return rows
-
-        return await asyncio.to_thread(_impl)
+        where_clauses, params, joins = build_where(f)
+        vec_blob = sqlite_vec.serialize_float32(list(vec))
+        want = limit + offset
+        # vec0's KNN cost is dominated by the O(N) distance scan, so a larger
+        # k is nearly free; oversample when filtering so the post-filter has
+        # enough candidates to fill `limit`.
+        k = want if not where_clauses else max(want, 1000)
+        joins_sql = "\n".join(joins)
+        where_sql = _where_sql(where_clauses)
+        sql = f"""
+            SELECT {_SIMPLE_BASE_SELECT},
+                   knn.distance AS _knn_distance
+            FROM (SELECT post_id, distance FROM post_vectors_siglip2
+                  WHERE embedding MATCH ? AND k = ?) AS knn
+            JOIN posts p ON p.id = knn.post_id
+            {joins_sql}
+            {where_sql}
+            ORDER BY knn.distance LIMIT ? OFFSET ?
+        """  # noqa: S608
+        self.cur.execute(sql, [vec_blob, k, *params, limit, offset])
+        rows = fetch_all_dicts(self.cur)
+        _decode_dominant_colors_in(rows)
+        ids = [r["id"] for r in rows]
+        colors_by_post = self._colors.fetch_by_ids(ids)
+        for r in rows:
+            r["colors"] = colors_by_post.get(r["id"], [])
+        self._attach_member_counts(rows)
+        return rows
 
     # 笏笏笏 Counts / aggregates 笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏
-    async def count(self, f: PostFilter) -> int:
-        def _impl() -> int:
-            where_clauses, params, joins = build_where(f)
-            joins_sql = "\n".join(joins)
-            where_sql = _where_sql(where_clauses)
-            self.cur.execute(
-                f"SELECT count(p.id) FROM posts p {joins_sql} {where_sql}",  # noqa: S608
-                params,
-            )
-            row = self.cur.fetchone()
-            return int(row[0]) if row else 0
+    @in_thread
+    def count(self, f: PostFilter) -> int:
+        where_clauses, params, joins = build_where(f)
+        joins_sql = "\n".join(joins)
+        where_sql = _where_sql(where_clauses)
+        self.cur.execute(
+            f"SELECT count(p.id) FROM posts p {joins_sql} {where_sql}",  # noqa: S608
+            params,
+        )
+        row = self.cur.fetchone()
+        return int(row[0]) if row else 0
 
-        return await asyncio.to_thread(_impl)
-
-    async def count_by_column(self, column: str, f: PostFilter) -> list[dict]:
+    @in_thread
+    def count_by_column(self, column: str, f: PostFilter) -> list[dict]:
         if column not in GROUPABLE_COLUMNS:
             msg = f"Cannot group by unsafe column: {column}"
             raise ValueError(msg)
+        where_clauses, params, joins = build_where(f)
+        joins_sql = "\n".join(joins)
+        where_sql = _where_sql(where_clauses)
+        self.cur.execute(
+            f"SELECT p.{column} AS {column}, count(*) AS count "  # noqa: S608
+            f"FROM posts p {joins_sql} {where_sql} GROUP BY p.{column}",
+            params,
+        )
+        return fetch_all_dicts(self.cur)
 
-        def _impl() -> list[dict]:
-            where_clauses, params, joins = build_where(f)
-            joins_sql = "\n".join(joins)
-            where_sql = _where_sql(where_clauses)
-            self.cur.execute(
-                f"SELECT p.{column} AS {column}, count(*) AS count "  # noqa: S608
-                f"FROM posts p {joins_sql} {where_sql} GROUP BY p.{column}",
-                params,
-            )
-            return fetch_all_dicts(self.cur)
-
-        return await asyncio.to_thread(_impl)
-
-    async def folder_score_aggregates(self) -> dict[str, FolderScoreAgg]:
+    @in_thread
+    def folder_score_aggregates(self) -> dict[str, FolderScoreAgg]:
         """Sum score / rating / silva per ``file_path`` directory in one GROUP BY.
 
         Keyed by ``posts.file_path`` (the directory a post lives in, e.g.
@@ -512,38 +490,35 @@ class PostQueryService:
         cover only scored posts (``score > 0``) so unscored 0s don't drag the
         manual-score average down; coverage is reported separately via the ratio.
         """
-
-        def _impl() -> dict[str, FolderScoreAgg]:
-            self.cur.execute(
-                f"""
-                SELECT
-                    p.file_path                                          AS file_path,
-                    count(*)                                             AS posts,
-                    sum(CASE WHEN p.score > 0 THEN 1 ELSE 0 END)         AS scored,
-                    sum(CASE WHEN p.score > 0 THEN p.score ELSE 0 END)   AS score_total,
-                    sum(p.rating)                                        AS rating_total,
-                    sum(COALESCE(a.score, 0))                            AS silva_total,
-                    sum(CASE WHEN a.score IS NOT NULL THEN 1 ELSE 0 END) AS silva_n
-                FROM posts p
-                {SILVA.join_sql(alias="a")}
-                GROUP BY p.file_path
-                """,  # noqa: S608
+        self.cur.execute(
+            f"""
+            SELECT
+                p.file_path                                          AS file_path,
+                count(*)                                             AS posts,
+                sum(CASE WHEN p.score > 0 THEN 1 ELSE 0 END)         AS scored,
+                sum(CASE WHEN p.score > 0 THEN p.score ELSE 0 END)   AS score_total,
+                sum(p.rating)                                        AS rating_total,
+                sum(COALESCE(a.score, 0))                            AS silva_total,
+                sum(CASE WHEN a.score IS NOT NULL THEN 1 ELSE 0 END) AS silva_n
+            FROM posts p
+            {SILVA.join_sql(alias="a")}
+            GROUP BY p.file_path
+            """,  # noqa: S608
+        )
+        return {
+            row[0]: FolderScoreAgg(
+                posts=int(row[1]),
+                scored=int(row[2]),
+                score_total=float(row[3]),
+                rating_total=float(row[4]),
+                silva_total=float(row[5]),
+                silva_n=int(row[6]),
             )
-            return {
-                row[0]: FolderScoreAgg(
-                    posts=int(row[1]),
-                    scored=int(row[2]),
-                    score_total=float(row[3]),
-                    rating_total=float(row[4]),
-                    silva_total=float(row[5]),
-                    silva_n=int(row[6]),
-                )
-                for row in self.cur.fetchall()
-            }
+            for row in self.cur.fetchall()
+        }
 
-        return await asyncio.to_thread(_impl)
-
-    async def count_by_tag(
+    @in_thread
+    def count_by_tag(
         self,
         f: PostFilter,
         query: str = "",
@@ -564,73 +539,70 @@ class PostQueryService:
         tag names, so typing "绿眼" surfaces ``green_eyes``. A tag matches if it
         hits *either* the LIKE or the set; this layer stays translation-blind.
         """
+        where_clauses, params, joins = build_where(f)
+        escaped_like: str | None = None
+        if query:
+            # Escape LIKE metacharacters so '%' / '_' typed in the search box
+            # match literally (the default ESCAPE char '\' is escaped first).
+            escaped = query.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+            escaped_like = f"%{escaped}%"
 
-        def _impl() -> list[dict]:
-            where_clauses, params, joins = build_where(f)
-            escaped_like: str | None = None
-            if query:
-                # Escape LIKE metacharacters so '%' / '_' typed in the search box
-                # match literally (the default ESCAPE char '\' is escaped first).
-                escaped = query.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
-                escaped_like = f"%{escaped}%"
+        def name_match(col: str) -> tuple[str, list[Any]] | None:
+            """OR-combined name predicate over the LIKE and the extra set."""
+            clauses: list[str] = []
+            p: list[Any] = []
+            if escaped_like is not None:
+                clauses.append(f"{col} LIKE ? ESCAPE '\\'")
+                p.append(escaped_like)
+            if extra_names:
+                clauses.append(f"{col} IN ({sql_placeholders(extra_names)})")
+                p.extend(extra_names)
+            if not clauses:
+                return None
+            return "(" + " OR ".join(clauses) + ")", p
 
-            def name_match(col: str) -> tuple[str, list[Any]] | None:
-                """OR-combined name predicate over the LIKE and the extra set."""
-                clauses: list[str] = []
-                p: list[Any] = []
-                if escaped_like is not None:
-                    clauses.append(f"{col} LIKE ? ESCAPE '\\'")
-                    p.append(escaped_like)
-                if extra_names:
-                    clauses.append(f"{col} IN ({sql_placeholders(extra_names)})")
-                    p.extend(extra_names)
-                if not clauses:
-                    return None
-                return "(" + " OR ".join(clauses) + ")", p
-
-            # Fast path: no *content* filter, so each tag's match count is just
-            # its canonical-post total, maintained on tags.post_count by trigger
-            # (the triggers count only canonical posts, so this already excludes
-            # hidden group members). Served from ix_tags_post_count instead of
-            # GROUP BY-ing the ~9.4M-row post_has_tag table on every dropdown
-            # open. ``only_canonical`` alone keeps us on this path; the live path
-            # is taken only when a real filter narrows the set (or members are
-            # explicitly requested via only_canonical=False).
-            if f.only_canonical and not has_active_filters(f):
-                fast_params: list[Any] = []
-                sql = "SELECT name AS tag_name, post_count AS count FROM tags WHERE post_count > 0"
-                fast_match = name_match("name")
-                if fast_match is not None:
-                    sql += f" AND {fast_match[0]}"
-                    fast_params.extend(fast_match[1])
-                sql += " ORDER BY post_count DESC, name ASC LIMIT ?"
-                fast_params.append(limit)
-                self.cur.execute(sql, fast_params)
-                return fetch_all_dicts(self.cur)
-
-            # Filtered path: live GROUP BY over the join. The filter narrows the
-            # post set first, so this scans far fewer than the full association table.
-            live_match = name_match("pt.tag_name")
-            if live_match is not None:
-                where_clauses.append(live_match[0])
-                params.extend(live_match[1])
-            params.append(limit)  # bound LAST — matches the trailing ? in LIMIT
-            joins_sql = "\n".join(joins)
-            where_sql = _where_sql(where_clauses)
-            self.cur.execute(
-                f"SELECT pt.tag_name AS tag_name, count(*) AS count "  # noqa: S608
-                f"FROM posts p JOIN post_has_tag pt ON pt.post_id = p.id "
-                f"{joins_sql} {where_sql} "
-                f"GROUP BY pt.tag_name "
-                f"ORDER BY count DESC, pt.tag_name ASC "
-                f"LIMIT ?",
-                params,
-            )
+        # Fast path: no *content* filter, so each tag's match count is just
+        # its canonical-post total, maintained on tags.post_count by trigger
+        # (the triggers count only canonical posts, so this already excludes
+        # hidden group members). Served from ix_tags_post_count instead of
+        # GROUP BY-ing the ~9.4M-row post_has_tag table on every dropdown
+        # open. ``only_canonical`` alone keeps us on this path; the live path
+        # is taken only when a real filter narrows the set (or members are
+        # explicitly requested via only_canonical=False).
+        if f.only_canonical and not has_active_filters(f):
+            fast_params: list[Any] = []
+            sql = "SELECT name AS tag_name, post_count AS count FROM tags WHERE post_count > 0"
+            fast_match = name_match("name")
+            if fast_match is not None:
+                sql += f" AND {fast_match[0]}"
+                fast_params.extend(fast_match[1])
+            sql += " ORDER BY post_count DESC, name ASC LIMIT ?"
+            fast_params.append(limit)
+            self.cur.execute(sql, fast_params)
             return fetch_all_dicts(self.cur)
 
-        return await asyncio.to_thread(_impl)
+        # Filtered path: live GROUP BY over the join. The filter narrows the
+        # post set first, so this scans far fewer than the full association table.
+        live_match = name_match("pt.tag_name")
+        if live_match is not None:
+            where_clauses.append(live_match[0])
+            params.extend(live_match[1])
+        params.append(limit)  # bound LAST — matches the trailing ? in LIMIT
+        joins_sql = "\n".join(joins)
+        where_sql = _where_sql(where_clauses)
+        self.cur.execute(
+            f"SELECT pt.tag_name AS tag_name, count(*) AS count "  # noqa: S608
+            f"FROM posts p JOIN post_has_tag pt ON pt.post_id = p.id "
+            f"{joins_sql} {where_sql} "
+            f"GROUP BY pt.tag_name "
+            f"ORDER BY count DESC, pt.tag_name ASC "
+            f"LIMIT ?",
+            params,
+        )
+        return fetch_all_dicts(self.cur)
 
-    async def _count_by_scorer_bucket(  # noqa: PLR0913
+    @in_thread
+    def _count_by_scorer_bucket(  # noqa: PLR0913
         self,
         f: PostFilter,
         buckets: dict[str, tuple[float, float]],
@@ -639,27 +611,24 @@ class PostQueryService:
         join_sql: str,
         join_marker: str,
     ) -> list[dict]:
-        def _impl() -> list[dict]:
-            where_clauses, params, joins = build_where(f)
-            if not any(join_marker in j for j in joins):
-                joins.append(join_sql)
-            joins_str = "\n".join(joins)
-            where_str = _where_sql(where_clauses)
-            self.cur.execute(
-                f"""
-                SELECT
-                    {bucket_case_sql(buckets, score_col, null_col)} AS bucket,
-                    count(*) AS count
-                FROM posts p
-                {joins_str}
-                {where_str}
-                GROUP BY bucket
-                """,  # noqa: S608
-                params,
-            )
-            return fetch_all_dicts(self.cur)
-
-        return await asyncio.to_thread(_impl)
+        where_clauses, params, joins = build_where(f)
+        if not any(join_marker in j for j in joins):
+            joins.append(join_sql)
+        joins_str = "\n".join(joins)
+        where_str = _where_sql(where_clauses)
+        self.cur.execute(
+            f"""
+            SELECT
+                {bucket_case_sql(buckets, score_col, null_col)} AS bucket,
+                count(*) AS count
+            FROM posts p
+            {joins_str}
+            {where_str}
+            GROUP BY bucket
+            """,  # noqa: S608
+            params,
+        )
+        return fetch_all_dicts(self.cur)
 
     async def count_by_waifu_bucket(self, f: PostFilter) -> list[dict]:
         """Group posts into the 5 waifu-score buckets (A/B/C/D/E) plus UNSCORED."""
@@ -683,47 +652,44 @@ class PostQueryService:
             SILVA.alias,
         )
 
-    async def aggregate_stats(self, f: PostFilter) -> dict:
+    @in_thread
+    def aggregate_stats(self, f: PostFilter) -> dict:
         """Aggregate post-quality stats for a filter (used by the footer)."""
-
-        def _impl() -> dict:
-            where_clauses, params, joins = build_where(f)
-            if not any("post_waifu_scores" in j for j in joins):
-                joins.append("LEFT JOIN post_waifu_scores pws ON pws.post_id = p.id")
-            joins_sql = "\n".join(joins)
-            where_sql = _where_sql(where_clauses)
-            # Single pass over the filtered set: the per-rating GROUP BY carries
-            # the score / waifu sums alongside the rating counts, and Python
-            # recombines them into the overall weighted averages
-            # (total_sum / total_count — exactly what the previous separate
-            # scalar SELECT computed via AVG). post_waifu_scores joins 1:1 on
-            # its PK, so the LEFT JOIN never multiplies rows.
-            self.cur.execute(
-                f"""
-                SELECT
-                    p.rating AS rating,
-                    count(*) AS count,
-                    SUM(CASE WHEN p.score > 0 THEN p.score END) AS score_sum,
-                    count(CASE WHEN p.score > 0 THEN 1 END) AS scored_count,
-                    SUM(pws.score) AS waifu_sum,
-                    count(pws.post_id) AS waifu_count
-                FROM posts p {joins_sql} {where_sql}
-                GROUP BY p.rating
-                """,  # noqa: S608
-                params,
-            )
-            rows = fetch_all_dicts(self.cur)
-            scored_count = sum(int(r["scored_count"]) for r in rows)
-            score_sum = sum(float(r["score_sum"]) for r in rows if r["score_sum"] is not None)
-            waifu_count = sum(int(r["waifu_count"]) for r in rows)
-            waifu_sum = sum(float(r["waifu_sum"]) for r in rows if r["waifu_sum"] is not None)
-            return {
-                "total": sum(int(r["count"]) for r in rows),
-                "avg_score": (score_sum / scored_count) if scored_count else None,
-                "scored_count": scored_count,
-                "avg_waifu_score": (waifu_sum / waifu_count) if waifu_count else None,
-                "waifu_count": waifu_count,
-                "rating_distribution": [{"rating": int(r["rating"] or 0), "count": int(r["count"])} for r in rows],
-            }
-
-        return await asyncio.to_thread(_impl)
+        where_clauses, params, joins = build_where(f)
+        if not any("post_waifu_scores" in j for j in joins):
+            joins.append("LEFT JOIN post_waifu_scores pws ON pws.post_id = p.id")
+        joins_sql = "\n".join(joins)
+        where_sql = _where_sql(where_clauses)
+        # Single pass over the filtered set: the per-rating GROUP BY carries
+        # the score / waifu sums alongside the rating counts, and Python
+        # recombines them into the overall weighted averages
+        # (total_sum / total_count — exactly what the previous separate
+        # scalar SELECT computed via AVG). post_waifu_scores joins 1:1 on
+        # its PK, so the LEFT JOIN never multiplies rows.
+        self.cur.execute(
+            f"""
+            SELECT
+                p.rating AS rating,
+                count(*) AS count,
+                SUM(CASE WHEN p.score > 0 THEN p.score END) AS score_sum,
+                count(CASE WHEN p.score > 0 THEN 1 END) AS scored_count,
+                SUM(pws.score) AS waifu_sum,
+                count(pws.post_id) AS waifu_count
+            FROM posts p {joins_sql} {where_sql}
+            GROUP BY p.rating
+            """,  # noqa: S608
+            params,
+        )
+        rows = fetch_all_dicts(self.cur)
+        scored_count = sum(int(r["scored_count"]) for r in rows)
+        score_sum = sum(float(r["score_sum"]) for r in rows if r["score_sum"] is not None)
+        waifu_count = sum(int(r["waifu_count"]) for r in rows)
+        waifu_sum = sum(float(r["waifu_sum"]) for r in rows if r["waifu_sum"] is not None)
+        return {
+            "total": sum(int(r["count"]) for r in rows),
+            "avg_score": (score_sum / scored_count) if scored_count else None,
+            "scored_count": scored_count,
+            "avg_waifu_score": (waifu_sum / waifu_count) if waifu_count else None,
+            "waifu_count": waifu_count,
+            "rating_distribution": [{"rating": int(r["rating"] or 0), "count": int(r["count"])} for r in rows],
+        }

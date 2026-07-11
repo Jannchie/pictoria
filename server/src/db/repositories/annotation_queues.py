@@ -13,6 +13,7 @@ import asyncio
 import json
 from typing import TYPE_CHECKING, Any
 
+from db.asyncbridge import in_thread
 from db.entities import AnnotationQueue
 from db.helpers import fetch_all_dicts, fetch_one_as, sql_placeholders
 from db.repositories.vectors import VectorRepo
@@ -52,89 +53,76 @@ class AnnotationQueueRepo:
         # ``asyncio.to_thread``, so calling them directly is correct.
         self._vectors = VectorRepo(cur)
 
-    async def create_absolute_queue(self, *, name: str, dimensions: list[str], scale: int, post_ids: list[int]) -> int:
-        def _impl() -> int:
-            self.cur.execute(
-                "INSERT INTO annotation_queues (name, kind, dimensions, scale) VALUES (?, 'absolute', ?, ?)",
-                [name, json.dumps(dimensions), scale],
-            )
-            qid = int(self.cur.lastrowid or 0)
-            self.cur.executemany(
-                "INSERT INTO absolute_queue_items (queue_id, position, post_id) VALUES (?, ?, ?)",
-                [(qid, pos, pid) for pos, pid in enumerate(post_ids)],
-            )
-            return qid
+    @in_thread
+    def create_absolute_queue(self, *, name: str, dimensions: list[str], scale: int, post_ids: list[int]) -> int:
+        self.cur.execute(
+            "INSERT INTO annotation_queues (name, kind, dimensions, scale) VALUES (?, 'absolute', ?, ?)",
+            [name, json.dumps(dimensions), scale],
+        )
+        qid = int(self.cur.lastrowid or 0)
+        self.cur.executemany(
+            "INSERT INTO absolute_queue_items (queue_id, position, post_id) VALUES (?, ?, ?)",
+            [(qid, pos, pid) for pos, pid in enumerate(post_ids)],
+        )
+        return qid
 
-        return await asyncio.to_thread(_impl)
+    @in_thread
+    def create_pairwise_queue(self, *, name: str, dimensions: list[str], pairs: list[tuple[int, int]]) -> int:
+        self.cur.execute(
+            "INSERT INTO annotation_queues (name, kind, dimensions, scale) VALUES (?, 'pairwise', ?, NULL)",
+            [name, json.dumps(dimensions)],
+        )
+        qid = int(self.cur.lastrowid or 0)
+        self.cur.executemany(
+            "INSERT INTO pairwise_queue_items (queue_id, position, post_a, post_b) VALUES (?, ?, ?, ?)",
+            [(qid, pos, a, b) for pos, (a, b) in enumerate(pairs)],
+        )
+        return qid
 
-    async def create_pairwise_queue(self, *, name: str, dimensions: list[str], pairs: list[tuple[int, int]]) -> int:
-        def _impl() -> int:
-            self.cur.execute(
-                "INSERT INTO annotation_queues (name, kind, dimensions, scale) VALUES (?, 'pairwise', ?, NULL)",
-                [name, json.dumps(dimensions)],
-            )
-            qid = int(self.cur.lastrowid or 0)
-            self.cur.executemany(
-                "INSERT INTO pairwise_queue_items (queue_id, position, post_a, post_b) VALUES (?, ?, ?, ?)",
-                [(qid, pos, a, b) for pos, (a, b) in enumerate(pairs)],
-            )
-            return qid
+    @in_thread
+    def get(self, queue_id: int) -> AnnotationQueue | None:
+        self.cur.execute(
+            f"SELECT {QUEUE_COLUMNS} FROM annotation_queues WHERE id = ?",  # noqa: S608
+            [queue_id],
+        )
+        return fetch_one_as(self.cur, AnnotationQueue)
 
-        return await asyncio.to_thread(_impl)
-
-    async def get(self, queue_id: int) -> AnnotationQueue | None:
-        def _impl() -> AnnotationQueue | None:
-            self.cur.execute(
-                f"SELECT {QUEUE_COLUMNS} FROM annotation_queues WHERE id = ?",  # noqa: S608
-                [queue_id],
-            )
-            return fetch_one_as(self.cur, AnnotationQueue)
-
-        return await asyncio.to_thread(_impl)
-
-    async def list_queues(self) -> list[tuple[AnnotationQueue, int, int]]:
+    @in_thread
+    def list_queues(self) -> list[tuple[AnnotationQueue, int, int]]:
         """Return ``(queue, total_items, done_items)`` for every queue, newest first."""
-
-        def _impl() -> list[tuple[AnnotationQueue, int, int]]:
-            self.cur.execute(f"SELECT {QUEUE_COLUMNS} FROM annotation_queues ORDER BY id DESC")  # noqa: S608
-            queues = [AnnotationQueue.model_validate(row) for row in fetch_all_dicts(self.cur)]
-            out: list[tuple[AnnotationQueue, int, int]] = []
-            for q in queues:
-                table = _ITEM_TABLES[q.kind]
-                self.cur.execute(
-                    f"SELECT COUNT(*), COALESCE(SUM(done), 0) FROM {table} WHERE queue_id = ?",  # noqa: S608
-                    [q.id],
-                )
-                total, done = self.cur.fetchone()
-                out.append((q, int(total), int(done)))
-            return out
-
-        return await asyncio.to_thread(_impl)
-
-    async def next_absolute_items(self, queue_id: int, *, limit: int = 20) -> list[dict[str, Any]]:
-        def _impl() -> list[dict[str, Any]]:
+        self.cur.execute(f"SELECT {QUEUE_COLUMNS} FROM annotation_queues ORDER BY id DESC")  # noqa: S608
+        queues = [AnnotationQueue.model_validate(row) for row in fetch_all_dicts(self.cur)]
+        out: list[tuple[AnnotationQueue, int, int]] = []
+        for q in queues:
+            table = _ITEM_TABLES[q.kind]
             self.cur.execute(
-                "SELECT i.position, p.id AS post_id, p.file_path, p.file_name, p.extension, p.sha256, p.width, p.height "
-                "FROM absolute_queue_items i JOIN posts p ON p.id = i.post_id "
-                "WHERE i.queue_id = ? AND i.done = 0 ORDER BY i.position LIMIT ?",
-                [queue_id, limit],
+                f"SELECT COUNT(*), COALESCE(SUM(done), 0) FROM {table} WHERE queue_id = ?",  # noqa: S608
+                [q.id],
             )
-            return fetch_all_dicts(self.cur)
+            total, done = self.cur.fetchone()
+            out.append((q, int(total), int(done)))
+        return out
 
-        return await asyncio.to_thread(_impl)
+    @in_thread
+    def next_absolute_items(self, queue_id: int, *, limit: int = 20) -> list[dict[str, Any]]:
+        self.cur.execute(
+            "SELECT i.position, p.id AS post_id, p.file_path, p.file_name, p.extension, p.sha256, p.width, p.height "
+            "FROM absolute_queue_items i JOIN posts p ON p.id = i.post_id "
+            "WHERE i.queue_id = ? AND i.done = 0 ORDER BY i.position LIMIT ?",
+            [queue_id, limit],
+        )
+        return fetch_all_dicts(self.cur)
 
-    async def next_pairwise_items(self, queue_id: int, *, limit: int = 20) -> list[dict[str, Any]]:
-        def _impl() -> list[dict[str, Any]]:
-            self.cur.execute(
-                f"SELECT i.position, {_aliased_post_cols('pa', 'a_')}, {_aliased_post_cols('pb', 'b_')} "  # noqa: S608
-                "FROM pairwise_queue_items i "
-                "JOIN posts pa ON pa.id = i.post_a JOIN posts pb ON pb.id = i.post_b "
-                "WHERE i.queue_id = ? AND i.done = 0 ORDER BY i.position LIMIT ?",
-                [queue_id, limit],
-            )
-            return fetch_all_dicts(self.cur)
-
-        return await asyncio.to_thread(_impl)
+    @in_thread
+    def next_pairwise_items(self, queue_id: int, *, limit: int = 20) -> list[dict[str, Any]]:
+        self.cur.execute(
+            f"SELECT i.position, {_aliased_post_cols('pa', 'a_')}, {_aliased_post_cols('pb', 'b_')} "  # noqa: S608
+            "FROM pairwise_queue_items i "
+            "JOIN posts pa ON pa.id = i.post_a JOIN posts pb ON pb.id = i.post_b "
+            "WHERE i.queue_id = ? AND i.done = 0 ORDER BY i.position LIMIT ?",
+            [queue_id, limit],
+        )
+        return fetch_all_dicts(self.cur)
 
     # ─── Sampling (queue auto-generation / streaming) ─────────────────
     #
@@ -181,31 +169,28 @@ class AnnotationQueueRepo:
         candidates = [row[0] for row in self.cur.fetchall()]
         return self._with_embedding(candidates)[:n]
 
-    async def sample_post_ids(self, *, count: int, strategy: str, dimensions: list[str]) -> list[int]:
+    @in_thread
+    def sample_post_ids(self, *, count: int, strategy: str, dimensions: list[str]) -> list[int]:
         """Sample candidate post ids for absolute annotation."""
-
-        def _impl() -> list[int]:
-            if strategy == "stratified":
-                # Even split across old manual score levels 1..5, random within
-                # each level; top up with random candidates if levels run dry.
-                per_level = max(1, count // 5)
-                picked: list[int] = []
-                for level in range(1, 6):
-                    picked += self._draw(extra_where="AND p.score = ?", extra_params=[level], dimensions=dimensions, n=per_level)
-                    if len(picked) >= count:
-                        return picked[:count]
-                fill = count - len(picked)
-                if fill > 0:
-                    # Omit the NOT IN clause entirely when nothing was picked:
-                    # ``id NOT IN (NULL)`` is NULL for every row under SQL
-                    # three-valued logic, which silently excluded *everything*
-                    # and returned an empty fill on all-unscored libraries.
-                    not_in = f"AND p.id NOT IN ({sql_placeholders(picked)})" if picked else ""
-                    picked += self._draw(extra_where=not_in, extra_params=list(picked), dimensions=dimensions, n=fill)
-                return picked
-            return self._draw(extra_where="", extra_params=[], dimensions=dimensions, n=count)
-
-        return await asyncio.to_thread(_impl)
+        if strategy == "stratified":
+            # Even split across old manual score levels 1..5, random within
+            # each level; top up with random candidates if levels run dry.
+            per_level = max(1, count // 5)
+            picked: list[int] = []
+            for level in range(1, 6):
+                picked += self._draw(extra_where="AND p.score = ?", extra_params=[level], dimensions=dimensions, n=per_level)
+                if len(picked) >= count:
+                    return picked[:count]
+            fill = count - len(picked)
+            if fill > 0:
+                # Omit the NOT IN clause entirely when nothing was picked:
+                # ``id NOT IN (NULL)`` is NULL for every row under SQL
+                # three-valued logic, which silently excluded *everything*
+                # and returned an empty fill on all-unscored libraries.
+                not_in = f"AND p.id NOT IN ({sql_placeholders(picked)})" if picked else ""
+                picked += self._draw(extra_where=not_in, extra_params=list(picked), dimensions=dimensions, n=fill)
+            return picked
+        return self._draw(extra_where="", extra_params=[], dimensions=dimensions, n=count)
 
     async def sample_pairs(self, *, count: int, strategy: str = "random") -> list[tuple[int, int]]:
         """Sample disjoint pairs for pairwise annotation.
@@ -428,14 +413,11 @@ class AnnotationQueueRepo:
 
         return await asyncio.to_thread(_impl)
 
-    async def mark_done(self, queue_id: int, *, kind: str, position: int) -> bool:
+    @in_thread
+    def mark_done(self, queue_id: int, *, kind: str, position: int) -> bool:
         table = _ITEM_TABLES[kind]
-
-        def _impl() -> bool:
-            self.cur.execute(
-                f"UPDATE {table} SET done = 1 WHERE queue_id = ? AND position = ?",  # noqa: S608
-                [queue_id, position],
-            )
-            return self.cur.rowcount > 0
-
-        return await asyncio.to_thread(_impl)
+        self.cur.execute(
+            f"UPDATE {table} SET done = 1 WHERE queue_id = ? AND position = ?",  # noqa: S608
+            [queue_id, position],
+        )
+        return self.cur.rowcount > 0

@@ -9,9 +9,9 @@ Owns ``post_waifu_scores`` (single hard-coded scorer) and
 
 from __future__ import annotations
 
-import asyncio
 from typing import TYPE_CHECKING
 
+from db.asyncbridge import in_thread
 from db.helpers import sql_placeholders, transaction
 
 if TYPE_CHECKING:
@@ -23,27 +23,24 @@ class ScoreRepo:
         self.cur = cur
 
     # ─── Waifu score ─────────────────────────────────────────────────
-    async def get_waifu_score(self, post_id: int) -> float | None:
-        def _impl() -> float | None:
-            self.cur.execute(
-                "SELECT score FROM post_waifu_scores WHERE post_id = ?",
-                [post_id],
-            )
-            row = self.cur.fetchone()
-            return float(row[0]) if row else None
+    @in_thread
+    def get_waifu_score(self, post_id: int) -> float | None:
+        self.cur.execute(
+            "SELECT score FROM post_waifu_scores WHERE post_id = ?",
+            [post_id],
+        )
+        row = self.cur.fetchone()
+        return float(row[0]) if row else None
 
-        return await asyncio.to_thread(_impl)
+    @in_thread
+    def upsert_waifu_score(self, post_id: int, score: float) -> None:
+        self.cur.execute(
+            "INSERT INTO post_waifu_scores(post_id, score) VALUES (?, ?) ON CONFLICT (post_id) DO UPDATE SET score = excluded.score",
+            [post_id, score],
+        )
 
-    async def upsert_waifu_score(self, post_id: int, score: float) -> None:
-        def _impl() -> None:
-            self.cur.execute(
-                "INSERT INTO post_waifu_scores(post_id, score) VALUES (?, ?) ON CONFLICT (post_id) DO UPDATE SET score = excluded.score",
-                [post_id, score],
-            )
-
-        await asyncio.to_thread(_impl)
-
-    async def upsert_waifu_scores_many(self, pairs: list[tuple[int, float]]) -> None:
+    @in_thread
+    def upsert_waifu_scores_many(self, pairs: list[tuple[int, float]]) -> None:
         """Batch counterpart of :meth:`upsert_waifu_score` (one ``executemany``).
 
         Wrapped in an explicit transaction: connections are autocommit, so
@@ -52,38 +49,31 @@ class ScoreRepo:
         """
         if not pairs:
             return
-
-        def _impl() -> None:
-            with transaction(self.cur):
-                self.cur.executemany(
-                    "INSERT INTO post_waifu_scores(post_id, score) VALUES (?, ?) ON CONFLICT (post_id) DO UPDATE SET score = excluded.score",
-                    pairs,
-                )
-
-        await asyncio.to_thread(_impl)
+        with transaction(self.cur):
+            self.cur.executemany(
+                "INSERT INTO post_waifu_scores(post_id, score) VALUES (?, ?) ON CONFLICT (post_id) DO UPDATE SET score = excluded.score",
+                pairs,
+            )
 
     # ─── Aesthetic scores (generic per-scorer table) ─────────────────
-    async def get_aesthetic_score(self, post_id: int, scorer: str) -> float | None:
-        def _impl() -> float | None:
-            self.cur.execute(
-                "SELECT score FROM post_aesthetic_scores WHERE post_id = ? AND scorer = ?",
-                [post_id, scorer],
-            )
-            row = self.cur.fetchone()
-            return float(row[0]) if row else None
+    @in_thread
+    def get_aesthetic_score(self, post_id: int, scorer: str) -> float | None:
+        self.cur.execute(
+            "SELECT score FROM post_aesthetic_scores WHERE post_id = ? AND scorer = ?",
+            [post_id, scorer],
+        )
+        row = self.cur.fetchone()
+        return float(row[0]) if row else None
 
-        return await asyncio.to_thread(_impl)
+    @in_thread
+    def upsert_aesthetic_score(self, post_id: int, scorer: str, score: float) -> None:
+        self.cur.execute(
+            "INSERT INTO post_aesthetic_scores(post_id, scorer, score) VALUES (?, ?, ?) ON CONFLICT (post_id, scorer) DO UPDATE SET score = excluded.score",
+            [post_id, scorer, score],
+        )
 
-    async def upsert_aesthetic_score(self, post_id: int, scorer: str, score: float) -> None:
-        def _impl() -> None:
-            self.cur.execute(
-                "INSERT INTO post_aesthetic_scores(post_id, scorer, score) VALUES (?, ?, ?) ON CONFLICT (post_id, scorer) DO UPDATE SET score = excluded.score",
-                [post_id, scorer, score],
-            )
-
-        await asyncio.to_thread(_impl)
-
-    async def upsert_aesthetic_scores_many(self, scorer: str, pairs: list[tuple[int, float]]) -> None:
+    @in_thread
+    def upsert_aesthetic_scores_many(self, scorer: str, pairs: list[tuple[int, float]]) -> None:
         """Batch counterpart of :meth:`upsert_aesthetic_score` for one scorer.
 
         One ``executemany``, wrapped in a transaction for the same atomic-and-
@@ -91,20 +81,15 @@ class ScoreRepo:
         """
         if not pairs:
             return
-
-        def _impl() -> None:
-            with transaction(self.cur):
-                self.cur.executemany(
-                    "INSERT INTO post_aesthetic_scores(post_id, scorer, score) "
-                    "VALUES (?, ?, ?) "
-                    "ON CONFLICT (post_id, scorer) DO UPDATE SET score = excluded.score",
-                    [(post_id, scorer, score) for post_id, score in pairs],
-                )
-
-        await asyncio.to_thread(_impl)
+        with transaction(self.cur):
+            self.cur.executemany(
+                "INSERT INTO post_aesthetic_scores(post_id, scorer, score) VALUES (?, ?, ?) ON CONFLICT (post_id, scorer) DO UPDATE SET score = excluded.score",
+                [(post_id, scorer, score) for post_id, score in pairs],
+            )
 
     # ─── Aggregates ──────────────────────────────────────────────────
-    async def waifu_score_distribution(self) -> list[tuple[int, int]]:
+    @in_thread
+    def waifu_score_distribution(self) -> list[tuple[int, int]]:
         """Return ``[(bucket_index, count), ...]`` for the waifu-score histogram.
 
         Buckets are integer-floor of the score, clamped to 9 so the closed-
@@ -113,24 +98,20 @@ class ScoreRepo:
         present in the result (zero-filled) so the chart layer can render
         all 10 bars without filling gaps itself.
         """
-
-        def _impl() -> list[tuple[int, int]]:
-            self.cur.execute(
-                """
-                SELECT
-                    CASE WHEN score >= 9 THEN 9 ELSE CAST(score AS INTEGER) END
-                        AS bucket,
-                    count(*) AS count
-                FROM post_waifu_scores
-                GROUP BY bucket
-                """,
-            )
-            counts = dict.fromkeys(range(10), 0)
-            for bucket, count in self.cur.fetchall():
-                counts[int(bucket)] = int(count)
-            return list(counts.items())
-
-        return await asyncio.to_thread(_impl)
+        self.cur.execute(
+            """
+            SELECT
+                CASE WHEN score >= 9 THEN 9 ELSE CAST(score AS INTEGER) END
+                    AS bucket,
+                count(*) AS count
+            FROM post_waifu_scores
+            GROUP BY bucket
+            """,
+        )
+        counts = dict.fromkeys(range(10), 0)
+        for bucket, count in self.cur.fetchall():
+            counts[int(bucket)] = int(count)
+        return list(counts.items())
 
     # ─── Batch fetch (sync; called inside the query layer's worker thread) ──
     def fetch_waifu_by_ids(self, ids: list[int]) -> dict[int, dict]:
