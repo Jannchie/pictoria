@@ -26,6 +26,7 @@ from shared import logger
 
 if TYPE_CHECKING:
     from collections.abc import Callable
+    from datetime import datetime
 
 
 @dataclass
@@ -45,7 +46,9 @@ class NormalizedPostRow:
     extension: str
     source: str
     rating: int
-    published_at: str | None
+    # danbooru hands sqlite3 a datetime (bound via the default adapter, as it
+    # always did); gallery-dl passes an already-formatted string.
+    published_at: str | datetime | None
     tags: dict[str, int] = field(default_factory=dict)
 
 

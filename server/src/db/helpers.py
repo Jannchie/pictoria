@@ -17,7 +17,7 @@ from pydantic import BaseModel
 
 if TYPE_CHECKING:
     import sqlite3
-    from collections.abc import Iterator
+    from collections.abc import Iterator, Sequence
 
 T = TypeVar("T", bound=BaseModel)
 
@@ -58,7 +58,7 @@ def decode_dominant_color(v: Any) -> list[float] | None:
     raise ValueError(msg)
 
 
-def sql_placeholders(items: tuple | list) -> str:
+def sql_placeholders(items: Sequence[object]) -> str:
     """Return a comma-separated ``?`` placeholder string for SQL ``IN (...)``."""
     return ",".join("?" * len(items))
 

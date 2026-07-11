@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import asyncio
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, cast
 
 from db.repositories.failures import WORKER_WAIFU, aesthetic_worker, not_failed_clause
 from db.repositories.scores import ScoreRepo
@@ -11,6 +11,9 @@ from processors.common import IMAGE_EXT_WHERE, build_image_items, record_pair_fa
 from shared import logger
 
 if TYPE_CHECKING:
+    from collections.abc import Callable, Sequence
+    from pathlib import Path
+
     from db.repositories.posts import PostRepo
     from db.repositories.vectors import VectorRepo
 
@@ -84,8 +87,11 @@ async def _process_waifu_batch(posts: PostRepo, post_ids: list[int]) -> None:
     if not items:
         return
 
+    # WaifuScorer.__call__ takes list[Image | Tensor | Path | str]; list
+    # invariance rejects passing it where list[Path] is expected, so cast.
+    score_batch = cast("Callable[[list[Path]], Sequence[float]]", scorer)
     raw, failures = await run_batch_with_fallback(
-        scorer,
+        score_batch,
         items,
         worker_label=WORKER_WAIFU,
     )
