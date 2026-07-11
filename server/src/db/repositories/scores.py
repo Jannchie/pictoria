@@ -37,8 +37,7 @@ class ScoreRepo:
     async def upsert_waifu_score(self, post_id: int, score: float) -> None:
         def _impl() -> None:
             self.cur.execute(
-                "INSERT INTO post_waifu_scores(post_id, score) VALUES (?, ?) "
-                "ON CONFLICT (post_id) DO UPDATE SET score = excluded.score",
+                "INSERT INTO post_waifu_scores(post_id, score) VALUES (?, ?) ON CONFLICT (post_id) DO UPDATE SET score = excluded.score",
                 [post_id, score],
             )
 
@@ -57,8 +56,7 @@ class ScoreRepo:
         def _impl() -> None:
             with transaction(self.cur):
                 self.cur.executemany(
-                    "INSERT INTO post_waifu_scores(post_id, score) VALUES (?, ?) "
-                    "ON CONFLICT (post_id) DO UPDATE SET score = excluded.score",
+                    "INSERT INTO post_waifu_scores(post_id, score) VALUES (?, ?) ON CONFLICT (post_id) DO UPDATE SET score = excluded.score",
                     pairs,
                 )
 
@@ -68,8 +66,7 @@ class ScoreRepo:
     async def get_aesthetic_score(self, post_id: int, scorer: str) -> float | None:
         def _impl() -> float | None:
             self.cur.execute(
-                "SELECT score FROM post_aesthetic_scores "
-                "WHERE post_id = ? AND scorer = ?",
+                "SELECT score FROM post_aesthetic_scores WHERE post_id = ? AND scorer = ?",
                 [post_id, scorer],
             )
             row = self.cur.fetchone()
@@ -80,9 +77,7 @@ class ScoreRepo:
     async def upsert_aesthetic_score(self, post_id: int, scorer: str, score: float) -> None:
         def _impl() -> None:
             self.cur.execute(
-                "INSERT INTO post_aesthetic_scores(post_id, scorer, score) "
-                "VALUES (?, ?, ?) "
-                "ON CONFLICT (post_id, scorer) DO UPDATE SET score = excluded.score",
+                "INSERT INTO post_aesthetic_scores(post_id, scorer, score) VALUES (?, ?, ?) ON CONFLICT (post_id, scorer) DO UPDATE SET score = excluded.score",
                 [post_id, scorer, score],
             )
 

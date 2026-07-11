@@ -55,10 +55,7 @@ class TagsController(Controller):
     ) -> list[TagWithCountPublic]:
         """List tags with post counts; cursor-paginated by tag name."""
         rows = await tag_repo.list_with_counts(prev=prev, limit=limit)
-        return [
-            TagWithCountPublic.model_validate({**r, "translated_name": translate_tag(r["name"], lang)})
-            for r in rows
-        ]
+        return [TagWithCountPublic.model_validate({**r, "translated_name": translate_tag(r["name"], lang)}) for r in rows]
 
     @litestar.put("/{name:str}")
     async def update_tag(self, tag_repo: TagRepo, tag_group_repo: TagGroupRepo, name: str, data: TagUpdate, lang: str = "zh-Hans") -> TagPublic:
@@ -74,14 +71,13 @@ class TagsController(Controller):
         if not updated:
             raise TagNameNotFoundError(name)
         group_obj = await tag_group_repo.get(updated.group_id) if updated.group_id else None
-        return TagPublic.model_validate({
-            "name": updated.name,
-            "translated_name": translate_tag(updated.name, lang),
-            "group": (
-                {"id": group_obj.id, "name": group_obj.name, "color": group_obj.color}
-                if group_obj else None
-            ),
-        })
+        return TagPublic.model_validate(
+            {
+                "name": updated.name,
+                "translated_name": translate_tag(updated.name, lang),
+                "group": ({"id": group_obj.id, "name": group_obj.name, "color": group_obj.color} if group_obj else None),
+            },
+        )
 
     @litestar.delete("/{name:str}")
     async def delete_tag(self, tag_repo: TagRepo, name: str) -> None:

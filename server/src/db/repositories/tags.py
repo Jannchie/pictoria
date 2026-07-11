@@ -63,11 +63,7 @@ class TagRepo:
             return [
                 {
                     "name": r["name"],
-                    "group": (
-                        {"id": r["g_id"], "name": r["g_name"], "color": r["g_color"]}
-                        if r["g_id"] is not None
-                        else None
-                    ),
+                    "group": ({"id": r["g_id"], "name": r["g_name"], "color": r["g_color"]} if r["g_id"] is not None else None),
                     "count": r["count"],
                 }
                 for r in rows
@@ -78,8 +74,7 @@ class TagRepo:
     async def create(self, name: str, group_id: int | None) -> Tag:
         def _impl() -> Tag:
             self.cur.execute(
-                "INSERT INTO tags(name, group_id) VALUES(?, ?) "
-                "ON CONFLICT(name) DO NOTHING",
+                "INSERT INTO tags(name, group_id) VALUES(?, ?) ON CONFLICT(name) DO NOTHING",
                 [name, group_id],
             )
             self.cur.execute(
@@ -142,8 +137,7 @@ class TagRepo:
                 [tag_name],
             )
             self.cur.execute(
-                "INSERT INTO post_has_tag(post_id, tag_name, is_auto) "
-                "VALUES(?, ?, 0) ON CONFLICT DO NOTHING RETURNING post_id",
+                "INSERT INTO post_has_tag(post_id, tag_name, is_auto) VALUES(?, ?, 0) ON CONFLICT DO NOTHING RETURNING post_id",
                 [post_id, tag_name],
             )
             return self.cur.fetchone() is not None
@@ -231,8 +225,7 @@ class TagGroupRepo:
     async def get(self, group_id: int) -> TagGroup | None:
         def _impl() -> TagGroup | None:
             self.cur.execute(
-                "SELECT id, name, parent_id, color, created_at, updated_at "
-                "FROM tag_groups WHERE id = ?",
+                "SELECT id, name, parent_id, color, created_at, updated_at FROM tag_groups WHERE id = ?",
                 [group_id],
             )
             return fetch_one_as(self.cur, TagGroup)
@@ -242,8 +235,7 @@ class TagGroupRepo:
     async def list_all(self) -> list[TagGroup]:
         def _impl() -> list[TagGroup]:
             self.cur.execute(
-                "SELECT id, name, parent_id, color, created_at, updated_at "
-                "FROM tag_groups ORDER BY id",
+                "SELECT id, name, parent_id, color, created_at, updated_at FROM tag_groups ORDER BY id",
             )
             return fetch_all_as(self.cur, TagGroup)
 
@@ -252,13 +244,11 @@ class TagGroupRepo:
     async def ensure(self, name: str, color: str = "#000000") -> TagGroup:
         def _impl() -> TagGroup:
             self.cur.execute(
-                "INSERT INTO tag_groups(name, color) VALUES (?, ?) "
-                "ON CONFLICT(name) DO NOTHING",
+                "INSERT INTO tag_groups(name, color) VALUES (?, ?) ON CONFLICT(name) DO NOTHING",
                 [name, color],
             )
             self.cur.execute(
-                "SELECT id, name, parent_id, color, created_at, updated_at "
-                "FROM tag_groups WHERE name = ?",
+                "SELECT id, name, parent_id, color, created_at, updated_at FROM tag_groups WHERE name = ?",
                 [name],
             )
             tg = fetch_one_as(self.cur, TagGroup)

@@ -107,14 +107,19 @@ class AnnotationQueueController(Controller):
     @litestar.post("/absolute", status_code=201, description="Create an absolute-annotation queue from an ordered post-id list.")
     async def create_absolute(self, annotation_queues: AnnotationQueueRepo, data: AbsoluteQueueCreate) -> QueueCreatedPublic:
         qid = await annotation_queues.create_absolute_queue(
-            name=data.name, dimensions=data.dimensions, scale=data.scale, post_ids=data.post_ids,
+            name=data.name,
+            dimensions=data.dimensions,
+            scale=data.scale,
+            post_ids=data.post_ids,
         )
         return QueueCreatedPublic(id=qid)
 
     @litestar.post("/pairwise", status_code=201, description="Create a pairwise queue from an ordered (post_a, post_b) list.")
     async def create_pairwise(self, annotation_queues: AnnotationQueueRepo, data: PairwiseQueueCreate) -> QueueCreatedPublic:
         qid = await annotation_queues.create_pairwise_queue(
-            name=data.name, dimensions=data.dimensions, pairs=[tuple(p) for p in data.pairs],
+            name=data.name,
+            dimensions=data.dimensions,
+            pairs=[tuple(p) for p in data.pairs],
         )
         return QueueCreatedPublic(id=qid)
 
@@ -165,8 +170,7 @@ class AnnotationQueueController(Controller):
     async def list_queues(self, annotation_queues: AnnotationQueueRepo) -> list[QueueSummaryPublic]:
         rows = await annotation_queues.list_queues()
         return [
-            QueueSummaryPublic(id=q.id, name=q.name, kind=q.kind, dimensions=q.dimensions, scale=q.scale, total=total, done=done)
-            for q, total, done in rows
+            QueueSummaryPublic(id=q.id, name=q.name, kind=q.kind, dimensions=q.dimensions, scale=q.scale, total=total, done=done) for q, total, done in rows
         ]
 
     @litestar.get("/{queue_id:int}/next-absolute", status_code=200, description="Next undone items of an absolute queue, with image info.")
@@ -177,7 +181,4 @@ class AnnotationQueueController(Controller):
     @litestar.get("/{queue_id:int}/next-pairwise", status_code=200, description="Next undone items of a pairwise queue, with image info for both posts.")
     async def next_pairwise(self, annotation_queues: AnnotationQueueRepo, queue_id: int, limit: int = 20) -> list[PairwiseQueueItemPublic]:
         items = await annotation_queues.next_pairwise_items(queue_id, limit=limit)
-        return [
-            PairwiseQueueItemPublic(position=r["position"], post_a=post_from_row(r, "a_"), post_b=post_from_row(r, "b_"))
-            for r in items
-        ]
+        return [PairwiseQueueItemPublic(position=r["position"], post_a=post_from_row(r, "a_"), post_b=post_from_row(r, "b_")) for r in items]

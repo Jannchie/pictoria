@@ -24,9 +24,9 @@ if TYPE_CHECKING:
     from db.repositories.tags import TagGroupRepo
 
 TAG_GROUP_COLORS: dict[str, str] = {
-    "general":   "#006192",
+    "general": "#006192",
     "character": "#8243ca",
-    "artist":    "#f30000",
+    "artist": "#f30000",
     "copyright": "#00b300",
 }
 
@@ -99,8 +99,7 @@ def _persist_wdtagger_results(
     _executemany_tag_upsert(cur, general_set, group_objs["general"])
     _executemany_tag_upsert(cur, character_set, group_objs["character"])
     cur.executemany(
-        "INSERT INTO post_has_tag(post_id, tag_name, is_auto) VALUES (?, ?, ?) "
-        "ON CONFLICT (post_id, tag_name) DO NOTHING",
+        "INSERT INTO post_has_tag(post_id, tag_name, is_auto) VALUES (?, ?, ?) ON CONFLICT (post_id, tag_name) DO NOTHING",
         [(post_id, name, is_auto) for name in all_names],
     )
 
@@ -128,8 +127,7 @@ def _persist_wdtagger_results_many(
     _executemany_tag_upsert(cur, general_seen, group_objs["general"])
     _executemany_tag_upsert(cur, character_seen, group_objs["character"])
     cur.executemany(
-        "INSERT INTO post_has_tag(post_id, tag_name, is_auto) VALUES (?, ?, ?) "
-        "ON CONFLICT (post_id, tag_name) DO NOTHING",
+        "INSERT INTO post_has_tag(post_id, tag_name, is_auto) VALUES (?, ?, ?) ON CONFLICT (post_id, tag_name) DO NOTHING",
         link_rows,
     )
 
@@ -148,6 +146,7 @@ def _executemany_tag_upsert(cur: sqlite3.Cursor, names: set[str], group_id: int)
 @cache
 def _get_tagger() -> wdtagger.Tagger:
     import wdtagger  # noqa: PLC0415  # lazy: defer ML stack load until first use
+
     return wdtagger.Tagger(model_repo="SmilingWolf/wd-vit-large-tagger-v3")
 
 

@@ -16,6 +16,7 @@ from shared import logger
 
 try:
     import torch
+
     _CUDA_AVAILABLE = torch.cuda.is_available()
 except Exception:
     torch = None  # type: ignore[assignment]

@@ -200,10 +200,7 @@ class VectorRepo:
             rows = self.knn_sync(post_id, fetch_limit)
             # The source row itself comes back first (distance ~= 0); drop it.
             filtered = [(pid, dist) for pid, dist in rows if pid != post_id]
-            return [
-                SimilarImageResult(post_id=pid, distance=dist)
-                for pid, dist in filtered[:limit]
-            ]
+            return [SimilarImageResult(post_id=pid, distance=dist) for pid, dist in filtered[:limit]]
 
         return await asyncio.to_thread(_impl)
 

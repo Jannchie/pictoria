@@ -28,14 +28,9 @@ def run_migrations(conn: sqlite3.Connection | sqlite3.Cursor, migrations_dir: Pa
         )
         """,
     )
-    applied: set[str] = {
-        row[0]
-        for row in conn.execute("SELECT version FROM _schema_versions").fetchall()
-    }
+    applied: set[str] = {row[0] for row in conn.execute("SELECT version FROM _schema_versions").fetchall()}
 
-    pending = sorted(
-        f for f in migrations_dir.glob("*.sql") if f.stem not in applied
-    )
+    pending = sorted(f for f in migrations_dir.glob("*.sql") if f.stem not in applied)
     if not pending:
         logger.info("No pending migrations")
         return 0
@@ -50,10 +45,7 @@ def run_migrations(conn: sqlite3.Connection | sqlite3.Cursor, migrations_dir: Pa
         sql_text = sql_file.read_text(encoding="utf-8")
         # Single-quote-escape the version string for safe inlining.
         version_sql = version.replace("'", "''")
-        script = (
-            f"{sql_text.rstrip().rstrip(';')};\n"
-            f"INSERT INTO _schema_versions(version) VALUES ('{version_sql}');"
-        )
+        script = f"{sql_text.rstrip().rstrip(';')};\nINSERT INTO _schema_versions(version) VALUES ('{version_sql}');"
         try:
             underlying.executescript(script)
         except Exception:

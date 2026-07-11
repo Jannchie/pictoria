@@ -116,13 +116,7 @@ class FoldersController(Controller):
         folder = folder_path.strip("/")
         base = shared.target_dir.resolve()
         target = (shared.target_dir / folder).resolve()
-        if (
-            not folder
-            or folder in {".", "@"}
-            or target == base
-            or not target.is_relative_to(base)
-            or target.is_relative_to(shared.pictoria_dir.resolve())
-        ):
+        if not folder or folder in {".", "@"} or target == base or not target.is_relative_to(base) or target.is_relative_to(shared.pictoria_dir.resolve()):
             msg = f"Refusing to delete: {folder!r} is not a library folder."
             raise PathNotADirectoryError(msg)
         if not target.exists():

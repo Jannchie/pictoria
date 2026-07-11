@@ -61,8 +61,7 @@ class FailureRepo:
 
         def _impl() -> None:
             self.cur.executemany(
-                "INSERT OR IGNORE INTO post_process_failures "
-                "(post_id, worker, error) VALUES (?, ?, ?)",
+                "INSERT OR IGNORE INTO post_process_failures (post_id, worker, error) VALUES (?, ?, ?)",
                 rows,
             )
 

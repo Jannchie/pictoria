@@ -138,7 +138,9 @@ async def rebuild_groups(
 
 
 async def _to_thread_find_pairs(
-    matrix: np.ndarray, threshold: float, chunk_size: int,
+    matrix: np.ndarray,
+    threshold: float,
+    chunk_size: int,
 ) -> dict[int, list[int]]:
     return await asyncio.to_thread(_find_near_pairs, matrix, threshold, chunk_size)
 

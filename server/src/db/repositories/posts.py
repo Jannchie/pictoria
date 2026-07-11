@@ -130,8 +130,7 @@ class PostRepo:
                 self.cur.execute(update_sql, [value, post_id])
                 matched = self.cur.rowcount > 0
                 self.cur.execute(
-                    "UPDATE posts SET score = ?, updated_at = CURRENT_TIMESTAMP "
-                    "WHERE canonical_post_id = ?",
+                    "UPDATE posts SET score = ?, updated_at = CURRENT_TIMESTAMP WHERE canonical_post_id = ?",
                     [value, post_id],
                 )
             return matched
@@ -292,8 +291,7 @@ class PostRepo:
             with transaction(self.cur):
                 # Old canonical + its other members all now point at post_id.
                 self.cur.execute(
-                    "UPDATE posts SET canonical_post_id = ?, updated_at = CURRENT_TIMESTAMP "
-                    "WHERE (id = ? OR canonical_post_id = ?) AND id != ?",
+                    "UPDATE posts SET canonical_post_id = ?, updated_at = CURRENT_TIMESTAMP WHERE (id = ? OR canonical_post_id = ?) AND id != ?",
                     [post_id, current, current, post_id],
                 )
                 # post_id itself becomes canonical (visible).

@@ -67,10 +67,7 @@ def calculate_image_features_batch(images: Sequence[ImageInput]) -> torch.Tensor
     """Encode a batch of images in a single GPU forward; returns ``(N, 1152)``."""
     if not images:
         return torch.empty(0, device=DEVICE)
-    pil_images = [
-        to_rgb(Image.open(img)) if isinstance(img, Path | str) else to_rgb(img)
-        for img in images
-    ]
+    pil_images = [to_rgb(Image.open(img)) if isinstance(img, Path | str) else to_rgb(img) for img in images]
     try:
         model = get_model()
         processor = get_processor()

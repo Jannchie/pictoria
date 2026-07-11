@@ -68,7 +68,7 @@ def find_files_in_directory(  # noqa: C901, PLR0915
     def _split_name(name: str) -> tuple[str, str]:
         dot = name.rfind(".")
         if dot > 0:
-            return name[:dot], name[dot + 1:]
+            return name[:dot], name[dot + 1 :]
         return name, ""
 
     def _walk(dir_path: str, rel_dir: str, *, is_top: bool = False) -> None:  # noqa: C901, PLR0912

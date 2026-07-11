@@ -36,6 +36,7 @@ if TYPE_CHECKING:
 # in multiple `tag_string_*` fields on a post, the first-listed group wins.
 CANONICAL_TAG_GROUPS: tuple[str, ...] = ("artist", "character", "copyright", "general", "meta")
 
+
 @dataclass
 class SnapshotResult:
     path: str
@@ -142,7 +143,11 @@ class CommandController(Controller):
 
     @litestar.get("/silva-scorer/{post_id:int}")
     async def get_silva_scorer_one(
-        self, posts: PostRepo, scores: ScoreRepo, vectors: VectorRepo, post_id: int,
+        self,
+        posts: PostRepo,
+        scores: ScoreRepo,
+        vectors: VectorRepo,
+        post_id: int,
     ) -> float:
         """Compute (and persist) the SILVA score for one post from its embedding.
 
@@ -342,8 +347,7 @@ def ensure_canonical_tag_groups_sync(cur: sqlite3.Cursor) -> dict[str, int]:
     for name in CANONICAL_TAG_GROUPS:
         color = TAG_GROUP_COLORS.get(name, "#000000")
         cur.execute(
-            "INSERT INTO tag_groups(name, color) VALUES (?, ?) "
-            "ON CONFLICT(name) DO NOTHING",
+            "INSERT INTO tag_groups(name, color) VALUES (?, ?) ON CONFLICT(name) DO NOTHING",
             [name, color],
         )
         cur.execute(
@@ -356,5 +360,3 @@ def ensure_canonical_tag_groups_sync(cur: sqlite3.Cursor) -> dict[str, int]:
             raise RuntimeError(msg)
         result[name] = tg.id
     return result
-
-

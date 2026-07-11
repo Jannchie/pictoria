@@ -25,10 +25,10 @@ _ITEM_TABLES = {"absolute": "absolute_queue_items", "pairwise": "pairwise_queue_
 _POST_COLS = ("id", "file_path", "file_name", "extension", "sha256", "width", "height")
 
 # Tunables for the ``similar`` pairwise strategy (see ``_sample_pairs_similar``).
-_SIMILAR_PAIRS_PER_CLUSTER = 8   # disjoint pairs harvested from one KNN neighbourhood
-_SIMILAR_KNN_K = 48              # neighbours fetched per seed (includes the seed itself)
-_SIMILAR_MIN_DISTANCE = 0.04     # drop near-duplicates: a near-identical pair is a foregone tie
-_SIMILAR_SCORE_BAND = 1          # |score_a - score_b| <= band -> same or adjacent score bucket
+_SIMILAR_PAIRS_PER_CLUSTER = 8  # disjoint pairs harvested from one KNN neighbourhood
+_SIMILAR_KNN_K = 48  # neighbours fetched per seed (includes the seed itself)
+_SIMILAR_MIN_DISTANCE = 0.04  # drop near-duplicates: a near-identical pair is a foregone tie
+_SIMILAR_SCORE_BAND = 1  # |score_a - score_b| <= band -> same or adjacent score bucket
 
 # Tunable for the ``close`` pairwise strategy (see ``_sample_pairs_close``): ceiling on the
 # SILVA head's |calibrated_score_a - calibrated_score_b|. <= 0.10 keeps only pairs the model
@@ -159,9 +159,7 @@ class AnnotationQueueRepo:
     # Pairwise eligibility: canonical (no hidden near-dups) and not already
     # sitting in an undone pairwise queue item. Shared by both strategies.
     _PAIRWISE_ELIGIBLE = (
-        "p.canonical_post_id IS NULL "
-        "AND NOT EXISTS (SELECT 1 FROM pairwise_queue_items i "
-        "WHERE (i.post_a = p.id OR i.post_b = p.id) AND i.done = 0)"
+        "p.canonical_post_id IS NULL AND NOT EXISTS (SELECT 1 FROM pairwise_queue_items i WHERE (i.post_a = p.id OR i.post_b = p.id) AND i.done = 0)"
     )
 
     def _with_embedding(self, ids: list[int]) -> list[int]:
@@ -285,11 +283,7 @@ class AnnotationQueueRepo:
         if not knn:
             return []
         member_ids = [seed]
-        member_ids += [
-            pid
-            for pid, dist in knn
-            if pid != seed and dist >= _SIMILAR_MIN_DISTANCE and pid not in used
-        ]
+        member_ids += [pid for pid, dist in knn if pid != seed and dist >= _SIMILAR_MIN_DISTANCE and pid not in used]
         ph = sql_placeholders(member_ids)
         self.cur.execute(
             f"SELECT p.id, p.score FROM posts p WHERE p.id IN ({ph}) AND {self._PAIRWISE_ELIGIBLE}",  # noqa: S608
