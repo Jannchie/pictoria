@@ -13,17 +13,21 @@ transaction/retry shape is load-bearing under concurrent imports.
 from __future__ import annotations
 
 import asyncio
-import contextlib
 import functools
-import sqlite3
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 
 import shared
+from services.import_persist import (
+    NormalizedPostRow,
+    _insert_posts_tx,
+    persist_posts_with_tags,
+)
 from shared import logger
 from utils import from_rating_to_int, resolve_source
 
 if TYPE_CHECKING:
+    import sqlite3
     from collections.abc import Callable
     from concurrent.futures import Executor
 
@@ -182,96 +186,39 @@ async def import_danbooru_posts(  # noqa: PLR0913
     )
 
 
+def _danbooru_row(
+    file_path_str: str,
+    d_post: DanbooruPost,
+    tag_map: dict[str, int],
+) -> NormalizedPostRow:
+    """Map one ``DanbooruPost`` (+ its precomputed tag→group map) to a post row.
+
+    The file name is the Danbooru post id; the source falls back to the post's
+    permalink when the upstream ``source`` is blank; the rating word is coerced
+    to our int, and ``created_at`` is the published timestamp.
+    """
+    return NormalizedPostRow(
+        file_path=file_path_str,
+        file_name=str(d_post.id),
+        extension=d_post.file_ext,
+        source=resolve_source(d_post.source, f"https://danbooru.donmai.us/posts/{d_post.id}"),
+        rating=from_rating_to_int(d_post.rating),
+        published_at=d_post.created_at,
+        tags=tag_map,
+    )
+
+
 def _persist_danbooru_batch(
     db: DB,
     file_path_str: str,
     to_persist: list[DanbooruPost],
     precomputed_tag_maps: list[dict[str, int]],
 ) -> None:
-    """Persist a batch of Danbooru posts + their tags in two transactions.
-
-    Called on a pool worker thread (via ``_in_executor``) — ``db.cursor()``
-    therefore returns a cursor on *this worker thread's* SQLite connection, not
-    the event-loop thread's. That isolation matters: transactions in sqlite3 are
-    connection-scoped, so if all concurrent requests shared one connection,
-    one worker's ``_safe_rollback`` could (and did) rip a sibling worker's
-    in-flight BEGIN out from under it — the ``cannot commit - no transaction
-    is active`` failure mode.
-
-    Split rationale: when concurrent /download-from-danbooru requests all
-    insert overlapping tags, the commit-time uniqueness check on `tags(name)`
-    aborts one of them. Running tag inserts in their own short transaction
-    keeps that retry surface tiny and prevents replay of the (much larger)
-    posts + post_has_tag work each time tags happen to conflict.
-
-    Each transaction uses ON CONFLICT for in-snapshot duplicates and a
-    bounded retry loop for commit-time conflicts that only show up against
-    rows committed by other transactions after our snapshot was taken.
-    """
+    """Persist a batch of Danbooru posts + their tags via the shared skeleton."""
     if not to_persist:
         return
-    cur = db.cursor()
-    try:
-        # Phase A: globally-deduped tag upsert in its own short transaction.
-        all_tags: dict[str, int] = {}
-        for tag_map in precomputed_tag_maps:
-            for name, gid in tag_map.items():
-                all_tags.setdefault(name, gid)
-        if all_tags:
-            _run_with_retry(cur, "tags", lambda: _insert_tags_tx(cur, all_tags))
-
-        # Phase B: posts + post_has_tag in their own transaction. The tags they
-        # reference are now committed by phase A, so concurrent writers can't
-        # make this transaction wait on them.
-        _run_with_retry(
-            cur,
-            "posts",
-            lambda: _insert_posts_and_links_tx(cur, file_path_str, to_persist, precomputed_tag_maps),
-        )
-    finally:
-        cur.close()
-
-
-def _run_with_retry(
-    cur: sqlite3.Cursor,
-    label: str,
-    fn: Callable[[], None],
-    *,
-    max_attempts: int = 5,
-) -> None:
-    """Retry on SQLite ``database is locked`` while another writer holds it.
-
-    With WAL mode and a single backend process the writer lock is short-lived,
-    but the startup backfill task can collide with download_from_danbooru
-    requests; retry a few times before giving up.
-    """
-    for attempt in range(1, max_attempts + 1):
-        try:
-            fn()
-        except sqlite3.OperationalError as exc:
-            _safe_rollback(cur)
-            msg = str(exc).lower()
-            if "locked" not in msg and "busy" not in msg:
-                raise
-            if attempt == max_attempts:
-                raise
-            logger.warning(
-                f"Danbooru {label} write contention (attempt {attempt}/{max_attempts}): {exc}; retrying",
-            )
-        except Exception:
-            _safe_rollback(cur)
-            raise
-        else:
-            return
-
-
-def _insert_tags_tx(cur: sqlite3.Cursor, all_tags: dict[str, int]) -> None:
-    cur.execute("BEGIN")
-    cur.executemany(
-        "INSERT INTO tags(name, group_id) VALUES (?, ?) ON CONFLICT(name) DO NOTHING",
-        list(all_tags.items()),
-    )
-    cur.execute("COMMIT")
+    rows = [_danbooru_row(file_path_str, d_post, tag_map) for d_post, tag_map in zip(to_persist, precomputed_tag_maps, strict=True)]
+    persist_posts_with_tags(db, rows)
 
 
 def _insert_posts_and_links_tx(
@@ -280,50 +227,13 @@ def _insert_posts_and_links_tx(
     to_persist: list[DanbooruPost],
     precomputed_tag_maps: list[dict[str, int]],
 ) -> None:
-    cur.execute("BEGIN")
-    post_tag_pairs: list[tuple[int, dict[str, int]]] = []
-    for d_post, tag_map in zip(to_persist, precomputed_tag_maps, strict=True):
-        cur.execute(
-            """
-            INSERT INTO posts(file_path, file_name, extension, source, rating, published_at)
-            VALUES (?, ?, ?, ?, ?, ?)
-            ON CONFLICT (file_path, file_name, extension)
-            DO UPDATE SET source = excluded.source,
-                          published_at = excluded.published_at,
-                          updated_at = CURRENT_TIMESTAMP
-            RETURNING id
-            """,
-            [
-                file_path_str,
-                str(d_post.id),
-                d_post.file_ext,
-                resolve_source(d_post.source, f"https://danbooru.donmai.us/posts/{d_post.id}"),
-                from_rating_to_int(d_post.rating),
-                d_post.created_at,
-            ],
-        )
-        # RETURNING fires for both INSERT (new post) and the DO UPDATE branch
-        # (a pre-existing tag-less row being backfilled), so we get the id
-        # either way and the post_has_tag upsert below attaches the tags.
-        row = cur.fetchone()
-        if row:
-            post_tag_pairs.append((int(row[0]), tag_map))
+    """Single-transaction posts + links insert for a batch of Danbooru posts.
 
-    # (post_id, tag_name) is unique within this batch — each post_id appears
-    # once and per-post names were deduped via dict in the pre-compute step.
-    post_tag_rows = [(post_id, name) for post_id, tag_map in post_tag_pairs for name in tag_map]
-    if post_tag_rows:
-        cur.executemany(
-            "INSERT INTO post_has_tag(post_id, tag_name, is_auto) VALUES (?, ?, 0) ON CONFLICT DO NOTHING",
-            post_tag_rows,
-        )
-    cur.execute("COMMIT")
-
-
-def _safe_rollback(cur: sqlite3.Cursor) -> None:
-    """ROLLBACK that swallows the 'no transaction is active' case."""
-    with contextlib.suppress(sqlite3.OperationalError):
-        cur.execute("ROLLBACK")
+    Retained (delegating to the shared core) because the characterization test
+    drives this exact signature directly on a cursor.
+    """
+    rows = [_danbooru_row(file_path_str, d_post, tag_map) for d_post, tag_map in zip(to_persist, precomputed_tag_maps, strict=True)]
+    _insert_posts_tx(cur, rows)
 
 
 def _build_tag_to_group(d_post: DanbooruPost, type_to_group_id: dict[str, int]) -> dict[str, int]:

@@ -19,11 +19,8 @@ from typing import TYPE_CHECKING, Any
 
 import httpx
 
-from services.danbooru_import import (
-    SUPPORTED_IMAGE_EXTS,
-    _insert_tags_tx,
-    _run_with_retry,
-)
+from services.danbooru_import import SUPPORTED_IMAGE_EXTS
+from services.import_persist import NormalizedPostRow, persist_posts_with_tags
 from shared import logger
 from utils import from_rating_to_int, resolve_source
 
@@ -99,11 +96,11 @@ def _rating_to_int(raw: Any) -> int:
 @dataclass
 class GalleryDLItem:
     download_url: str
-    file_name: str                                # posts.file_name (no extension)
-    extension: str                                # lowercase, no dot
-    source: str                                   # resolved (registered or fallback)
-    category: str                                 # gallery-dl category (e.g. yandere, kemono)
-    creator: str                                  # search tag / username -> directory
+    file_name: str  # posts.file_name (no extension)
+    extension: str  # lowercase, no dot
+    source: str  # resolved (registered or fallback)
+    category: str  # gallery-dl category (e.g. yandere, kemono)
+    creator: str  # search tag / username -> directory
     rating: int
     published_at: str | None
     tags_by_category: dict[str, list[str]] = field(default_factory=dict)
@@ -137,9 +134,12 @@ def parse_entry(download_url: str, meta: dict, *, fallback_url: str) -> GalleryD
         if flat:
             tags_by_category["general"] = str(flat).split()
 
-    creator = str(
-        meta.get("search_tags") or meta.get("username") or meta.get("user") or "misc",
-    ).strip() or "misc"
+    creator = (
+        str(
+            meta.get("search_tags") or meta.get("username") or meta.get("user") or "misc",
+        ).strip()
+        or "misc"
+    )
 
     return GalleryDLItem(
         download_url=download_url,
@@ -210,68 +210,46 @@ def download_items(
     return ok
 
 
+def _gallery_row(
+    file_path: str,
+    item: GalleryDLItem,
+    type_to_group_id: dict[str, int],
+) -> NormalizedPostRow:
+    """Map one already-normalised ``GalleryDLItem`` to a persistable post row.
+
+    Unlike Danbooru, the item's fields are pre-resolved by ``parse_entry`` (name,
+    extension, source, rating int, published_at), so the only work here is
+    flattening its per-category tags into a ``{tag_name: group_id}`` map.
+    """
+    return NormalizedPostRow(
+        file_path=file_path,
+        file_name=item.file_name,
+        extension=item.extension,
+        source=item.source,
+        rating=item.rating,
+        published_at=item.published_at,
+        tags=build_tag_to_group(item, type_to_group_id),
+    )
+
+
 def _persist_gallery_items(
     db: Any,
     file_path: str,
     items: Sequence[GalleryDLItem],
     type_to_group_id: dict[str, int],
 ) -> None:
-    """Persist items + tags in two transactions, mirroring danbooru_import."""
+    """Persist items + tags via the shared two-phase skeleton."""
     if not items:
         return
-    tag_maps = [build_tag_to_group(it, type_to_group_id) for it in items]
-    cur = db.cursor()
-    try:
-        all_tags: dict[str, int] = {}
-        for tm in tag_maps:
-            for name, gid in tm.items():
-                all_tags.setdefault(name, gid)
-        if all_tags:
-            _run_with_retry(cur, "tags", lambda: _insert_tags_tx(cur, all_tags))
-        _run_with_retry(cur, "posts", lambda: _insert_gallery_posts_tx(cur, file_path, items, tag_maps))
-    finally:
-        cur.close()
-
-
-def _insert_gallery_posts_tx(
-    cur: Any,
-    file_path: str,
-    items: Sequence[GalleryDLItem],
-    tag_maps: Sequence[dict[str, int]],
-) -> None:
-    cur.execute("BEGIN")
-    post_tag_pairs: list[tuple[int, dict[str, int]]] = []
-    for item, tag_map in zip(items, tag_maps, strict=True):
-        cur.execute(
-            """
-            INSERT INTO posts(file_path, file_name, extension, source, rating, published_at)
-            VALUES (?, ?, ?, ?, ?, ?)
-            ON CONFLICT (file_path, file_name, extension)
-            DO UPDATE SET source = excluded.source,
-                          published_at = excluded.published_at,
-                          updated_at = CURRENT_TIMESTAMP
-            RETURNING id
-            """,
-            [file_path, item.file_name, item.extension, item.source, item.rating, item.published_at],
-        )
-        row = cur.fetchone()
-        if row:
-            post_tag_pairs.append((int(row[0]), tag_map))
-    post_tag_rows = [(pid, name) for pid, tm in post_tag_pairs for name in tm]
-    if post_tag_rows:
-        cur.executemany(
-            "INSERT INTO post_has_tag(post_id, tag_name, is_auto) VALUES (?, ?, 0) "
-            "ON CONFLICT DO NOTHING",
-            post_tag_rows,
-        )
-    cur.execute("COMMIT")
+    rows = [_gallery_row(file_path, it, type_to_group_id) for it in items]
+    persist_posts_with_tags(db, rows)
 
 
 @dataclass
 class GalleryDLStats:
-    fetched: int = 0       # entries from -j
-    images: int = 0        # after image filter
-    new: int = 0           # after DB dedupe
+    fetched: int = 0  # entries from -j
+    images: int = 0  # after image filter
+    new: int = 0  # after DB dedupe
     downloaded: int = 0
     failed: int = 0
 
@@ -322,8 +300,4 @@ def import_from_url(
 
 def parse_creators_file(text: str) -> list[str]:
     """Return non-comment, non-blank, stripped URLs from a creators list."""
-    return [
-        s
-        for line in text.splitlines()
-        if (s := line.strip()) and not s.startswith("#")
-    ]
+    return [s for line in text.splitlines() if (s := line.strip()) and not s.startswith("#")]
