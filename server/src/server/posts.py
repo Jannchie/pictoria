@@ -284,10 +284,7 @@ class PostController(Controller):
             limit=data.limit,
             extra_names=search_tags_by_translation(data.query, data.lang),
         )
-        return [
-            TagCountItem(tag_name=r["tag_name"], count=r["count"], translated_name=translate_tag(r["tag_name"], data.lang))
-            for r in rows
-        ]
+        return [TagCountItem(tag_name=r["tag_name"], count=r["count"], translated_name=translate_tag(r["tag_name"], data.lang)) for r in rows]
 
     @litestar.post("/count/waifu", status_code=200, description="Count posts by waifu-score bucket (A/B/C/D/E/UNSCORED).")
     async def get_waifu_bucket_count(self, post_query: PostQueryService, data: PostFilter) -> list[WaifuBucketCountItem]:
@@ -333,7 +330,11 @@ class PostController(Controller):
 
     @staticmethod
     async def _update_and_return_detail(
-        posts: PostRepo, post_query: PostQueryService, post_id: int, field: str, value: object,
+        posts: PostRepo,
+        post_query: PostQueryService,
+        post_id: int,
+        field: str,
+        value: object,
     ) -> PostDetailPublic:
         if not await posts.update_field(post_id, field, value):
             raise PostNotFoundError(post_id)
@@ -377,7 +378,12 @@ class PostController(Controller):
 
     @litestar.put("/{post_id:int}/tags/{tag_name:str}")
     async def add_tag_to_post(
-        self, posts: PostRepo, tag_repo: TagRepo, post_query: PostQueryService, post_id: int, tag_name: str,
+        self,
+        posts: PostRepo,
+        tag_repo: TagRepo,
+        post_query: PostQueryService,
+        post_id: int,
+        tag_name: str,
     ) -> PostDetailPublic:
         post = await posts.get(post_id)
         if not post:
@@ -388,7 +394,12 @@ class PostController(Controller):
 
     @litestar.delete("/{post_id:int}/tags/{tag_name:str}", status_code=200)
     async def remove_tag_from_post(
-        self, posts: PostRepo, tag_repo: TagRepo, post_query: PostQueryService, post_id: int, tag_name: str,
+        self,
+        posts: PostRepo,
+        tag_repo: TagRepo,
+        post_query: PostQueryService,
+        post_id: int,
+        tag_name: str,
     ) -> PostDetailPublic:
         post = await posts.get(post_id)
         if not post:

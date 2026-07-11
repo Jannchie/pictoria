@@ -19,6 +19,11 @@ from typing import Annotated, Any, Literal
 from msgspec import Meta, Struct
 
 from db.helpers import sql_placeholders
+from db.scorers import SILVA
+
+# Re-exported (redundant alias) so the SILVA bucket edges stay importable from
+# this module; their single source of truth is now the scorer registry.
+from db.scorers import SILVA_SCORE_BUCKETS as SILVA_SCORE_BUCKETS  # noqa: PLC0414
 
 
 class PostFilter(Struct):
@@ -29,13 +34,11 @@ class PostFilter(Struct):
     folder: str | None = None
     lab: Annotated[
         tuple[float, float, float] | None,
-        Meta(description="LAB color filter.", examples=[(0.5, 0.5, 0.5)],
-             extra_json_schema={"min_length": 3, "max_length": 3}),
+        Meta(description="LAB color filter.", examples=[(0.5, 0.5, 0.5)], extra_json_schema={"min_length": 3, "max_length": 3}),
     ] = None
     waifu_score_range: Annotated[
         tuple[float, float] | None,
-        Meta(description="Waifu score range filter.", examples=[(0.0, 10.0)],
-             extra_json_schema={"min_length": 2, "max_length": 2}),
+        Meta(description="Waifu score range filter.", examples=[(0.0, 10.0)], extra_json_schema={"min_length": 2, "max_length": 2}),
     ] = None
     waifu_score_levels: Annotated[
         tuple[str, ...] | None,
@@ -75,19 +78,42 @@ class PostFilter(Struct):
 class PostFilterWithOrder(PostFilter):
     order_by: Annotated[
         Literal[
-            "id", "score", "rating", "created_at", "published_at", "file_name",
-            "last_accessed_at", "updated_at", "waifu_score", "silva_score", "discrepancy",
-        ] | None,
-        Meta(description="Order column.", examples=["id"],
-             extra_json_schema={"enum": [
-                 "id", "score", "rating", "created_at", "published_at", "file_name",
-                 "last_accessed_at", "updated_at", "waifu_score", "silva_score", "discrepancy",
-             ]}),
+            "id",
+            "score",
+            "rating",
+            "created_at",
+            "published_at",
+            "file_name",
+            "last_accessed_at",
+            "updated_at",
+            "waifu_score",
+            "silva_score",
+            "discrepancy",
+        ]
+        | None,
+        Meta(
+            description="Order column.",
+            examples=["id"],
+            extra_json_schema={
+                "enum": [
+                    "id",
+                    "score",
+                    "rating",
+                    "created_at",
+                    "published_at",
+                    "file_name",
+                    "last_accessed_at",
+                    "updated_at",
+                    "waifu_score",
+                    "silva_score",
+                    "discrepancy",
+                ],
+            },
+        ),
     ] = None
     order: Annotated[
         Literal["asc", "desc", "random"],
-        Meta(description="Order direction.", examples=["desc", "asc", "random"],
-             extra_json_schema={"enum": ["asc", "desc", "random"]}),
+        Meta(description="Order direction.", examples=["desc", "asc", "random"], extra_json_schema={"enum": ["asc", "desc", "random"]}),
     ] = "desc"
     order_seed: Annotated[
         int | None,
@@ -103,10 +129,7 @@ class PostFilterWithOrder(PostFilter):
     sort_direction: Annotated[
         Literal["asc", "desc"] | None,
         Meta(
-            description=(
-                "Sort direction for ``order_by`` when ``order='random'``. "
-                "Ignored unless both ``order='random'`` and ``order_by`` are set."
-            ),
+            description=("Sort direction for ``order_by`` when ``order='random'``. Ignored unless both ``order='random'`` and ``order_by`` are set."),
             examples=["desc"],
             extra_json_schema={"enum": ["asc", "desc"]},
         ),
@@ -118,14 +141,32 @@ class PostFilterWithOrder(PostFilter):
 # ``discrepancy`` are virtual: they resolve to joined-table expressions, handled
 # by the query layer. ``discrepancy`` ranks by |silva model score − manual score|
 # (both mapped to the 1-5 scale) to surface where model and human disagree most.
-ORDERABLE_COLUMNS: frozenset[str] = frozenset({
-    "id", "score", "rating", "created_at", "published_at", "file_name",
-    "last_accessed_at", "updated_at", "waifu_score", "silva_score", "discrepancy",
-})
+ORDERABLE_COLUMNS: frozenset[str] = frozenset(
+    {
+        "id",
+        "score",
+        "rating",
+        "created_at",
+        "published_at",
+        "file_name",
+        "last_accessed_at",
+        "updated_at",
+        "waifu_score",
+        "silva_score",
+        "discrepancy",
+    },
+)
 # Scalar columns a single-field update may target.
-UPDATABLE_FIELDS: frozenset[str] = frozenset({
-    "score", "rating", "caption", "source", "description", "meta",
-})
+UPDATABLE_FIELDS: frozenset[str] = frozenset(
+    {
+        "score",
+        "rating",
+        "caption",
+        "source",
+        "description",
+        "meta",
+    },
+)
 # Columns a bulk update may target.
 BULK_UPDATABLE_FIELDS: frozenset[str] = frozenset({"score", "rating"})
 # Columns ``count_by_column`` may GROUP BY.
@@ -142,14 +183,8 @@ WAIFU_SCORE_BUCKETS: dict[str, tuple[float, float]] = {
     "B": (6.0, 8.0),
     "A": (8.0, 10.001),
 }
-# SILVA aesthetic scores are [0, 1]; same five A-E grades on a /10 scale.
-SILVA_SCORE_BUCKETS: dict[str, tuple[float, float]] = {
-    "E": (0.0, 0.2),
-    "D": (0.2, 0.4),
-    "C": (0.4, 0.6),
-    "B": (0.6, 0.8),
-    "A": (0.8, 1.0001),
-}
+# SILVA aesthetic bucket edges live on the scorer registry (``SILVA_SCORE_BUCKETS``
+# is re-exported above); imported here for ``build_where``'s level filter.
 SCORE_BUCKET_UNSCORED = "UNSCORED"
 
 
@@ -169,13 +204,7 @@ def bucket_case_sql(
     ordered = sorted(buckets.items(), key=lambda kv: kv[1][0], reverse=True)
     *above, (lowest_label, _) = ordered
     whens = "\n".join(f"WHEN {score_col} >= {lo} THEN '{label}'" for label, (lo, _hi) in above)
-    return (
-        "CASE\n"
-        f"WHEN {null_col} IS NULL THEN '{SCORE_BUCKET_UNSCORED}'\n"
-        f"{whens}\n"
-        f"ELSE '{lowest_label}'\n"
-        "END"
-    )
+    return f"CASE\nWHEN {null_col} IS NULL THEN '{SCORE_BUCKET_UNSCORED}'\n{whens}\nELSE '{lowest_label}'\nEND"
 
 
 def _build_bucket_level_filter(
@@ -248,8 +277,7 @@ def build_where(f: PostFilter) -> tuple[list[str], list[Any], list[str]]:  # noq
         # post_has_tag PK (post_id, tag_name), so this stays index-friendly.
         for tag in f.tags:
             where.append(
-                "EXISTS (SELECT 1 FROM post_has_tag pht "
-                "WHERE pht.post_id = p.id AND pht.tag_name = ?)",
+                "EXISTS (SELECT 1 FROM post_has_tag pht WHERE pht.post_id = p.id AND pht.tag_name = ?)",
             )
             params.append(tag)
     if f.extension:
@@ -279,11 +307,13 @@ def build_where(f: PostFilter) -> tuple[list[str], list[Any], list[str]]:  # noq
             params.extend(bucket_params)
 
     if f.silva_score_levels:
-        joins.append(
-            "LEFT JOIN post_aesthetic_scores pas_silva "
-            "ON pas_silva.post_id = p.id AND pas_silva.scorer = 'silva'",
+        joins.append(SILVA.join_sql())
+        clause, bucket_params = _build_bucket_level_filter(
+            f.silva_score_levels,
+            SILVA.buckets,
+            SILVA.score_col(),
+            SILVA.null_col(),
         )
-        clause, bucket_params = _build_bucket_level_filter(f.silva_score_levels, SILVA_SCORE_BUCKETS, "pas_silva.score", "pas_silva.post_id")
         if clause:
             where.append(clause)
             params.extend(bucket_params)

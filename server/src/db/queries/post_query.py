@@ -1,4 +1,4 @@
-﻿"""PostQueryService 窶・the read/query side of the posts domain.
+"""PostQueryService 窶・the read/query side of the posts domain.
 
 This owns everything that turns a ``PostFilter`` (or a post id) into a
 read model: detail/list/search assembly and filtered counts/aggregates. It
@@ -25,7 +25,6 @@ from db.entities import POST_COLUMNS
 from db.filters import (
     GROUPABLE_COLUMNS,
     ORDERABLE_COLUMNS,
-    SILVA_SCORE_BUCKETS,
     WAIFU_SCORE_BUCKETS,
     PostFilter,
     PostFilterWithOrder,
@@ -37,6 +36,7 @@ from db.helpers import decode_dominant_color, fetch_all_dicts, fetch_one_dict, s
 from db.repositories.colors import ColorRepo
 from db.repositories.scores import ScoreRepo
 from db.repositories.tags import TagRepo
+from db.scorers import SILVA
 
 if TYPE_CHECKING:
     import sqlite3
@@ -45,10 +45,142 @@ if TYPE_CHECKING:
     import numpy as np
 
 
-SIMPLE_POST_COLUMNS = (
-    "id, file_path, file_name, extension, rating, score, size, width, height, "
-    "aspect_ratio, dominant_color, arthash, sha256, canonical_post_id"
+# Single source for the PostSimplePublic column set. ``search`` /
+# ``search_by_text_vector`` SELECT the same base columns with a ``p.`` prefix
+# (they leave ``canonical_post_id`` to its ``None`` default); the by-id / group
+# reads add ``canonical_post_id`` because they filter on grouping.
+_SIMPLE_BASE_COLUMNS: tuple[str, ...] = (
+    "id",
+    "file_path",
+    "file_name",
+    "extension",
+    "rating",
+    "score",
+    "size",
+    "width",
+    "height",
+    "aspect_ratio",
+    "dominant_color",
+    "arthash",
+    "sha256",
 )
+SIMPLE_POST_COLUMNS = ", ".join((*_SIMPLE_BASE_COLUMNS, "canonical_post_id"))
+# Prefixed SELECT list for the search paths (``p.id, p.file_path, ...``).
+_SIMPLE_BASE_SELECT = ", ".join(f"p.{c}" for c in _SIMPLE_BASE_COLUMNS)
+
+
+def _where_sql(where_clauses: list[str]) -> str:
+    """``WHERE a AND b`` from a clause list, or ``""`` when there are none."""
+    return ("WHERE " + " AND ".join(where_clauses)) if where_clauses else ""
+
+
+# Order columns that resolve to a joined-table expression rather than ``p.<col>``.
+_VIRTUAL_SORT_COLUMNS: frozenset[str] = frozenset({"waifu_score", "silva_score", "discrepancy"})
+
+
+def _resolve_virtual_sort(order_by: str, joins: list[str]) -> tuple[list[str], str, str]:
+    """Resolve a virtual sort column to ``(extra_joins, select_expr, order_expr)``.
+
+    ``select_expr`` is exposed in the SELECT list as ``_sort_col``; ``order_expr``
+    is what a plain (non-random) ORDER BY sorts on (the joined score directly, or
+    ``_sort_col`` for the computed discrepancy). ``extra_joins`` are the score
+    joins to append, deduped against the aliases already present in ``joins``.
+    """
+    extra: list[str] = []
+    if order_by == "waifu_score":
+        if not any("post_waifu_scores" in j for j in joins):
+            extra.append("LEFT JOIN post_waifu_scores pws ON pws.post_id = p.id")
+        return extra, "pws.score", "pws.score"
+    # silva_score and discrepancy both hang off the SILVA aesthetic join.
+    if not any(SILVA.alias in j for j in joins):
+        extra.append(SILVA.join_sql())
+    if order_by == "silva_score":
+        return extra, SILVA.score_col(), SILVA.score_col()
+    # discrepancy: |silva model score − manual score| on the 1-5 scale; NULL
+    # (sunk last) when the post has no manual score (0/NULL) or no silva score.
+    expr = f"CASE WHEN p.score >= 1 AND {SILVA.score_col()} IS NOT NULL THEN ABS({SILVA.score_expr()} - p.score) END"
+    return extra, expr, "_sort_col"
+
+
+def _build_search_query(
+    f: PostFilterWithOrder,
+    built: tuple[list[str], list[Any], list[str]],
+    limit: int,
+    offset: int,
+) -> tuple[str, list[Any]]:
+    """Assemble the ``search`` SQL and its bound params for one filter.
+
+    ``built`` is the ``build_where(f)`` result ``(where_clauses, params, joins)``.
+    Owns the three ordering modes so ``search`` itself stays a thin fetch +
+    stitch: ``lab`` distance ordering, ``random`` (a seed hash with an optional
+    outer resort on the requested column), and plain column / score ordering.
+    Score / discrepancy columns resolve their joins via ``_resolve_virtual_sort``.
+    """
+    where_clauses, params, joins = built
+    where_sql = _where_sql(where_clauses)
+    select_cols = f"SELECT {_SIMPLE_BASE_SELECT}"
+
+    if f.lab is not None:
+        from_clause = "FROM posts p" + ("\n" + "\n".join(joins) if joins else "")
+        lab_blob = sqlite_vec.serialize_float32(list(f.lab))
+        sql = (
+            f"{select_cols}, "
+            f"vec_distance_L2(p.dominant_color, ?) AS _dist "
+            f"{from_clause} "
+            f"{(where_sql + ' AND ') if where_sql else 'WHERE '}"
+            f"p.dominant_color IS NOT NULL "
+            "ORDER BY _dist "
+            "LIMIT ? OFFSET ?"
+        )
+        return sql, [lab_blob, *params, limit, offset]
+
+    # Score-based ordering joins the scorer table on demand and uses ``NULLS
+    # LAST`` so unscored posts sink to the bottom.
+    extra_joins: list[str] = []
+    order_sql = ""
+    order_params: list[Any] = []
+    resort_sql = ""
+    sortable = bool(f.order_by) and f.order_by in ORDERABLE_COLUMNS
+    if f.order == "random":
+        seed = (f.order_seed or 1) % 2147483647 or 1
+        order_sql = "ORDER BY ((p.id * ?) % 2147483647)"
+        order_params.append(seed)
+        if sortable:
+            # The seed hash drives the primary order; the requested column
+            # becomes an outer resort over the ``_sort_col`` every branch
+            # exposes (real columns included).
+            if f.order_by in _VIRTUAL_SORT_COLUMNS:
+                v_joins, select_expr, _ = _resolve_virtual_sort(f.order_by, joins)
+                extra_joins.extend(v_joins)
+            else:
+                select_expr = f"p.{f.order_by}"
+            select_cols += f", {select_expr} AS _sort_col"
+            resort_dir = "ASC" if f.sort_direction == "asc" else "DESC"
+            resort_sql = f"ORDER BY _sort_col {resort_dir} NULLS LAST"
+    elif sortable:
+        direction = "ASC" if f.order == "asc" else "DESC"
+        # Unique tie-breaker so offset pagination is stable: rows tied on the
+        # sort column (many share score/rating, NULLs galore) otherwise order
+        # arbitrarily and differ between page fetches.
+        tiebreak = "" if f.order_by == "id" else f", p.id {direction}"
+        if f.order_by in _VIRTUAL_SORT_COLUMNS:
+            v_joins, select_expr, order_expr = _resolve_virtual_sort(f.order_by, joins)
+            extra_joins.extend(v_joins)
+            select_cols += f", {select_expr} AS _sort_col"
+            order_sql = f"ORDER BY {order_expr} {direction} NULLS LAST{tiebreak}"
+        else:
+            if f.order_by != "id":
+                select_cols += f", p.{f.order_by} AS _sort_col"
+            order_sql = f"ORDER BY p.{f.order_by} {direction}{tiebreak}"
+
+    all_joins = joins + extra_joins
+    from_clause = "FROM posts p" + ("\n" + "\n".join(all_joins) if all_joins else "")
+    if resort_sql:
+        inner_sql = f"{select_cols} {from_clause} {where_sql} {order_sql} LIMIT ? OFFSET ?"
+        sql = f"SELECT * FROM ({inner_sql}) {resort_sql}"  # noqa: S608
+    else:
+        sql = f"{select_cols} {from_clause} {where_sql} {order_sql} LIMIT ? OFFSET ?"
+    return sql, [*params, *order_params, limit, offset]
 
 
 def _decode_dominant_colors_in(rows: list[dict]) -> None:
@@ -175,7 +307,7 @@ class PostQueryService:
 
         return await asyncio.to_thread(_impl)
 
-    #笏笏笏 Read many 笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏
+    # 笏笏笏 Read many 笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏
     async def list_paginated(self, start: int, limit: int, lang: str = "zh-Hans") -> tuple[list[dict], int | None]:
         """Return ``(items_as_detail_dicts, next_cursor)``.
 
@@ -219,7 +351,10 @@ class PostQueryService:
         return await asyncio.to_thread(_impl)
 
     async def list_simple_by_ids_preserving_order(
-        self, id_list: list[int], *, only_canonical: bool = False,
+        self,
+        id_list: list[int],
+        *,
+        only_canonical: bool = False,
     ) -> list[dict]:
         """Return PostSimplePublic-shape rows in the same order as ``id_list``.
 
@@ -251,7 +386,7 @@ class PostQueryService:
 
         return await asyncio.to_thread(_impl)
 
-    async def search(self, f: PostFilterWithOrder, *, limit: int = 100, offset: int = 0) -> list[dict]:  # noqa: C901, PLR0915
+    async def search(self, f: PostFilterWithOrder, *, limit: int = 100, offset: int = 0) -> list[dict]:
         """Search posts, returning rows ready for ``PostSimplePublic``.
 
         ``f.lab`` triggers brute-force L2 distance ordering over dominant_color
@@ -259,117 +394,9 @@ class PostQueryService:
         whitelisted columns; ``f.order`` is ``asc`` | ``desc`` | ``random``.
         """
 
-        def _impl() -> list[dict]:  # noqa: C901, PLR0912, PLR0915
-            where_clauses, params, joins = build_where(f)
-
-            select_cols = (
-                "SELECT p.id, p.file_path, p.file_name, p.extension, p.rating, "
-                "p.score, p.size, p.width, p.height, p.aspect_ratio, p.dominant_color, "
-                "p.arthash, p.sha256"
-            )
-            where_sql = ("WHERE " + " AND ".join(where_clauses)) if where_clauses else ""
-
-            if f.lab is not None:
-                from_clause = "FROM posts p" + ("\n" + "\n".join(joins) if joins else "")
-                lab_blob = sqlite_vec.serialize_float32(list(f.lab))
-                sql = (
-                    f"{select_cols}, "
-                    f"vec_distance_L2(p.dominant_color, ?) AS _dist "
-                    f"{from_clause} "
-                    f"{(where_sql + ' AND ') if where_sql else 'WHERE '}"
-                    f"p.dominant_color IS NOT NULL "
-                    "ORDER BY _dist "
-                    "LIMIT ? OFFSET ?"
-                )
-                self.cur.execute(sql, [lab_blob, *params, limit, offset])
-            else:
-                # Score-based ordering joins the scorer table on demand and uses
-                # ``NULLS LAST`` so unscored posts sink to the bottom.
-                extra_joins: list[str] = []
-                order_sql = ""
-                order_params: list[Any] = []
-                resort_sql = ""
-                if f.order == "random":
-                    seed = (f.order_seed or 1) % 2147483647 or 1
-                    order_sql = "ORDER BY ((p.id * ?) % 2147483647)"
-                    order_params.append(seed)
-                    if f.order_by and f.order_by in ORDERABLE_COLUMNS:
-                        if f.order_by == "waifu_score":
-                            if not any("post_waifu_scores" in j for j in joins):
-                                extra_joins.append(
-                                    "LEFT JOIN post_waifu_scores pws ON pws.post_id = p.id",
-                                )
-                            select_cols += ", pws.score AS _sort_col"
-                        elif f.order_by == "silva_score":
-                            if not any("pas_silva" in j for j in joins):
-                                extra_joins.append(
-                                    "LEFT JOIN post_aesthetic_scores pas_silva "
-                                    "ON pas_silva.post_id = p.id AND pas_silva.scorer = 'silva'",
-                                )
-                            select_cols += ", pas_silva.score AS _sort_col"
-                        elif f.order_by == "discrepancy":
-                            if not any("pas_silva" in j for j in joins):
-                                extra_joins.append(
-                                    "LEFT JOIN post_aesthetic_scores pas_silva "
-                                    "ON pas_silva.post_id = p.id AND pas_silva.scorer = 'silva'",
-                                )
-                            select_cols += (
-                                ", CASE WHEN p.score >= 1 AND pas_silva.score IS NOT NULL "
-                                "THEN ABS(pas_silva.score * 4.0 + 1.0 - p.score) END AS _sort_col"
-                            )
-                        else:
-                            select_cols += f", p.{f.order_by} AS _sort_col"
-                        resort_dir = "ASC" if f.sort_direction == "asc" else "DESC"
-                        resort_sql = f"ORDER BY _sort_col {resort_dir} NULLS LAST"
-                elif f.order_by and f.order_by in ORDERABLE_COLUMNS:
-                    direction = "ASC" if f.order == "asc" else "DESC"
-                    # Unique tie-breaker so offset pagination is stable: rows tied
-                    # on the sort column (many share score/rating, NULLs galore)
-                    # otherwise order arbitrarily and differ between page fetches.
-                    tiebreak = "" if f.order_by == "id" else f", p.id {direction}"
-                    if f.order_by == "waifu_score":
-                        if not any("post_waifu_scores" in j for j in joins):
-                            extra_joins.append(
-                                "LEFT JOIN post_waifu_scores pws ON pws.post_id = p.id",
-                            )
-                        select_cols += ", pws.score AS _sort_col"
-                        order_sql = f"ORDER BY pws.score {direction} NULLS LAST{tiebreak}"
-                    elif f.order_by == "silva_score":
-                        # build_where may already have joined pas_silva for a
-                        # silva_score_levels filter; don't double-join the alias.
-                        if not any("pas_silva" in j for j in joins):
-                            extra_joins.append(
-                                "LEFT JOIN post_aesthetic_scores pas_silva "
-                                "ON pas_silva.post_id = p.id AND pas_silva.scorer = 'silva'",
-                            )
-                        select_cols += ", pas_silva.score AS _sort_col"
-                        order_sql = f"ORDER BY pas_silva.score {direction} NULLS LAST{tiebreak}"
-                    elif f.order_by == "discrepancy":
-                        # |silva − manual| on the 1-5 scale; NULL (sunk last) for
-                        # posts without a manual score (0/NULL) or no silva score.
-                        if not any("pas_silva" in j for j in joins):
-                            extra_joins.append(
-                                "LEFT JOIN post_aesthetic_scores pas_silva "
-                                "ON pas_silva.post_id = p.id AND pas_silva.scorer = 'silva'",
-                            )
-                        select_cols += (
-                            ", CASE WHEN p.score >= 1 AND pas_silva.score IS NOT NULL "
-                            "THEN ABS(pas_silva.score * 4.0 + 1.0 - p.score) END AS _sort_col"
-                        )
-                        order_sql = f"ORDER BY _sort_col {direction} NULLS LAST{tiebreak}"
-                    else:
-                        if f.order_by != "id":
-                            select_cols += f", p.{f.order_by} AS _sort_col"
-                        order_sql = f"ORDER BY p.{f.order_by} {direction}{tiebreak}"
-
-                all_joins = joins + extra_joins
-                from_clause = "FROM posts p" + ("\n" + "\n".join(all_joins) if all_joins else "")
-                if resort_sql:
-                    inner_sql = f"{select_cols} {from_clause} {where_sql} {order_sql} LIMIT ? OFFSET ?"
-                    sql = f"SELECT * FROM ({inner_sql}) {resort_sql}"  # noqa: S608
-                else:
-                    sql = f"{select_cols} {from_clause} {where_sql} {order_sql} LIMIT ? OFFSET ?"
-                self.cur.execute(sql, [*params, *order_params, limit, offset])
+        def _impl() -> list[dict]:
+            sql, exec_params = _build_search_query(f, build_where(f), limit, offset)
+            self.cur.execute(sql, exec_params)
 
             rows = fetch_all_dicts(self.cur)
             for r in rows:
@@ -420,11 +447,9 @@ class PostQueryService:
             # enough candidates to fill `limit`.
             k = want if not where_clauses else max(want, 1000)
             joins_sql = "\n".join(joins)
-            where_sql = ("WHERE " + " AND ".join(where_clauses)) if where_clauses else ""
+            where_sql = _where_sql(where_clauses)
             sql = f"""
-                SELECT p.id, p.file_path, p.file_name, p.extension, p.rating,
-                       p.score, p.size, p.width, p.height, p.aspect_ratio,
-                       p.dominant_color, p.arthash, p.sha256,
+                SELECT {_SIMPLE_BASE_SELECT},
                        knn.distance AS _knn_distance
                 FROM (SELECT post_id, distance FROM post_vectors_siglip2
                       WHERE embedding MATCH ? AND k = ?) AS knn
@@ -450,7 +475,7 @@ class PostQueryService:
         def _impl() -> int:
             where_clauses, params, joins = build_where(f)
             joins_sql = "\n".join(joins)
-            where_sql = ("WHERE " + " AND ".join(where_clauses)) if where_clauses else ""
+            where_sql = _where_sql(where_clauses)
             self.cur.execute(
                 f"SELECT count(p.id) FROM posts p {joins_sql} {where_sql}",  # noqa: S608
                 params,
@@ -468,7 +493,7 @@ class PostQueryService:
         def _impl() -> list[dict]:
             where_clauses, params, joins = build_where(f)
             joins_sql = "\n".join(joins)
-            where_sql = ("WHERE " + " AND ".join(where_clauses)) if where_clauses else ""
+            where_sql = _where_sql(where_clauses)
             self.cur.execute(
                 f"SELECT p.{column} AS {column}, count(*) AS count "  # noqa: S608
                 f"FROM posts p {joins_sql} {where_sql} GROUP BY p.{column}",
@@ -490,7 +515,7 @@ class PostQueryService:
 
         def _impl() -> dict[str, FolderScoreAgg]:
             self.cur.execute(
-                """
+                f"""
                 SELECT
                     p.file_path                                          AS file_path,
                     count(*)                                             AS posts,
@@ -500,10 +525,9 @@ class PostQueryService:
                     sum(COALESCE(a.score, 0))                            AS silva_total,
                     sum(CASE WHEN a.score IS NOT NULL THEN 1 ELSE 0 END) AS silva_n
                 FROM posts p
-                LEFT JOIN post_aesthetic_scores a
-                       ON a.post_id = p.id AND a.scorer = 'silva'
+                {SILVA.join_sql(alias="a")}
                 GROUP BY p.file_path
-                """,
+                """,  # noqa: S608
             )
             return {
                 row[0]: FolderScoreAgg(
@@ -592,7 +616,7 @@ class PostQueryService:
                 params.extend(live_match[1])
             params.append(limit)  # bound LAST — matches the trailing ? in LIMIT
             joins_sql = "\n".join(joins)
-            where_sql = ("WHERE " + " AND ".join(where_clauses)) if where_clauses else ""
+            where_sql = _where_sql(where_clauses)
             self.cur.execute(
                 f"SELECT pt.tag_name AS tag_name, count(*) AS count "  # noqa: S608
                 f"FROM posts p JOIN post_has_tag pt ON pt.post_id = p.id "
@@ -620,7 +644,7 @@ class PostQueryService:
             if not any(join_marker in j for j in joins):
                 joins.append(join_sql)
             joins_str = "\n".join(joins)
-            where_str = ("WHERE " + " AND ".join(where_clauses)) if where_clauses else ""
+            where_str = _where_sql(where_clauses)
             self.cur.execute(
                 f"""
                 SELECT
@@ -640,7 +664,10 @@ class PostQueryService:
     async def count_by_waifu_bucket(self, f: PostFilter) -> list[dict]:
         """Group posts into the 5 waifu-score buckets (A/B/C/D/E) plus UNSCORED."""
         return await self._count_by_scorer_bucket(
-            f, WAIFU_SCORE_BUCKETS, "pws.score", "pws.post_id",
+            f,
+            WAIFU_SCORE_BUCKETS,
+            "pws.score",
+            "pws.post_id",
             "LEFT JOIN post_waifu_scores pws ON pws.post_id = p.id",
             "post_waifu_scores",
         )
@@ -648,10 +675,12 @@ class PostQueryService:
     async def count_by_silva_bucket(self, f: PostFilter) -> list[dict]:
         """Group posts into the 5 SILVA buckets (A/B/C/D/E) plus UNSCORED."""
         return await self._count_by_scorer_bucket(
-            f, SILVA_SCORE_BUCKETS, "pas_silva.score", "pas_silva.post_id",
-            "LEFT JOIN post_aesthetic_scores pas_silva "
-            "ON pas_silva.post_id = p.id AND pas_silva.scorer = 'silva'",
-            "pas_silva",
+            f,
+            SILVA.buckets,
+            SILVA.score_col(),
+            SILVA.null_col(),
+            SILVA.join_sql(),
+            SILVA.alias,
         )
 
     async def aggregate_stats(self, f: PostFilter) -> dict:
@@ -662,7 +691,7 @@ class PostQueryService:
             if not any("post_waifu_scores" in j for j in joins):
                 joins.append("LEFT JOIN post_waifu_scores pws ON pws.post_id = p.id")
             joins_sql = "\n".join(joins)
-            where_sql = ("WHERE " + " AND ".join(where_clauses)) if where_clauses else ""
+            where_sql = _where_sql(where_clauses)
             # Single pass over the filtered set: the per-rating GROUP BY carries
             # the score / waifu sums alongside the rating counts, and Python
             # recombines them into the overall weighted averages
@@ -694,10 +723,7 @@ class PostQueryService:
                 "scored_count": scored_count,
                 "avg_waifu_score": (waifu_sum / waifu_count) if waifu_count else None,
                 "waifu_count": waifu_count,
-                "rating_distribution": [
-                    {"rating": int(r["rating"] or 0), "count": int(r["count"])}
-                    for r in rows
-                ],
+                "rating_distribution": [{"rating": int(r["rating"] or 0), "count": int(r["count"])} for r in rows],
             }
 
         return await asyncio.to_thread(_impl)
