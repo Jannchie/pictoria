@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import type { PostSimplePublic } from '@/api'
 import type { PMenuItem } from '@/ui'
+import type { GridCell, GridDirection } from '@/utils/gridGeometry'
 import { useQuery, useQueryClient } from '@tanstack/vue-query'
 import { refDebounced } from '@vueuse/core'
 import { logicAnd } from '@vueuse/math'
@@ -11,6 +12,7 @@ import { clear as clearSelection, commitRotate, commitScore, currentPostList, de
 import { POverlay } from '@/ui'
 import PDialog from '@/ui/PDialog.vue'
 import { isImageExtension } from '@/utils'
+import { findGridNeighbor } from '@/utils/gridGeometry'
 
 const route = useRoute()
 const router = useRouter()
@@ -132,109 +134,44 @@ function scrollSelectedIntoView(postId: number) {
   })
 }
 
-type Direction = 'left' | 'right' | 'up' | 'down'
-
-function findNeighborByCoords(curIdx: number, direction: Direction): number {
-  const layout = layoutData.value
-  if (!layout || layout.length === 0) {
-    return -1
-  }
-  const cur = layout[curIdx]
-  if (!cur) {
-    return -1
-  }
-  const curCx = cur.x + cur.width / 2
-  const curCy = cur.y + cur.height / 2
-
-  if (direction === 'left' || direction === 'right') {
-    // Snap to the adjacent column: among candidates strictly on the
-    // requested side, find the smallest |dx| (that's the next column),
-    // then pick the one with the smallest vertical distance within it.
-    const tolerance = Math.max(2, cur.width / 2)
-    let minDx = Number.POSITIVE_INFINITY
-    for (const [i, el] of layout.entries()) {
-      if (i === curIdx) {
-        continue
-      }
-      const dx = (el.x + el.width / 2) - curCx
-      if (direction === 'left' ? dx < -1 : dx > 1) {
-        const abs = Math.abs(dx)
-        if (abs < minDx) {
-          minDx = abs
-        }
-      }
-    }
-    if (!Number.isFinite(minDx)) {
-      return -1
-    }
-    let best = -1
-    let bestDy = Number.POSITIVE_INFINITY
-    for (const [i, el] of layout.entries()) {
-      if (i === curIdx) {
-        continue
-      }
-      const dx = (el.x + el.width / 2) - curCx
-      const correctSide = direction === 'left' ? dx < -1 : dx > 1
-      if (!correctSide) {
-        continue
-      }
-      if (Math.abs(Math.abs(dx) - minDx) > tolerance) {
-        continue
-      }
-      const dy = Math.abs((el.y + el.height / 2) - curCy)
-      if (dy < bestDy) {
-        bestDy = dy
-        best = i
-      }
-    }
-    return best
-  }
-
-  // Up / down: prefer staying in the same column, but allow nearby columns
-  // when there's no overlapping candidate in the current column.
-  let best = -1
-  let bestScore = Number.POSITIVE_INFINITY
-  for (const [i, el] of layout.entries()) {
-    if (i === curIdx) {
-      continue
-    }
-    const dx = (el.x + el.width / 2) - curCx
-    const dy = (el.y + el.height / 2) - curCy
-    if (direction === 'up' ? dy >= -1 : dy <= 1) {
-      continue
-    }
-    const score = Math.abs(dy) + Math.abs(dx) * 2
-    if (score < bestScore) {
-      bestScore = score
-      best = i
-    }
-  }
-  return best
-}
+type Direction = GridDirection
 
 function moveSelection(direction: Direction) {
-  if (posts.value.length === 0) {
+  const layout = layoutData.value
+  if (posts.value.length === 0 || !layout || layout.length === 0) {
     return
   }
-  const ids = posts.value.map(p => p.id).filter((id): id is number => id !== undefined)
-  if (ids.length === 0) {
+  // Pair each laid-out rect with its post id, preserving visual/DOM order so
+  // the pure navigator's tie-breaking (array order) matches the grid.
+  const cells: GridCell[] = []
+  for (const [i, el] of layout.entries()) {
+    const id = posts.value[i]?.id
+    if (id === undefined) {
+      continue
+    }
+    cells.push({ id, rect: { x: el.x, y: el.y, width: el.width, height: el.height } })
+  }
+  if (cells.length === 0) {
     return
   }
+  // Resolve the id the move starts from: with no selection, start at the
+  // corner (first for right/down, last for left/up); otherwise the last-
+  // selected anchor, falling back to the first post if it's no longer present.
   const current = selectedIdList.value
-  let curIdx: number
+  let startIdx: number
   if (current.length === 0) {
-    curIdx = direction === 'right' || direction === 'down' ? 0 : posts.value.length - 1
+    startIdx = direction === 'right' || direction === 'down' ? 0 : posts.value.length - 1
   }
   else {
     const anchor = current.at(-1)!
     const idx = posts.value.findIndex(p => p.id === anchor)
-    curIdx = idx === -1 ? 0 : idx
+    startIdx = idx === -1 ? 0 : idx
   }
-  const nextIdx = findNeighborByCoords(curIdx, direction)
-  if (nextIdx === -1) {
+  const startId = posts.value[startIdx]?.id
+  if (startId === undefined) {
     return
   }
-  const nextId = posts.value[nextIdx]?.id
+  const nextId = findGridNeighbor(cells, startId, direction)
   if (nextId === undefined) {
     return
   }
