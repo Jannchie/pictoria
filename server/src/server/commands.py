@@ -124,7 +124,14 @@ class CommandController(Controller):
 
     @litestar.get("/waifu-scorer/{post_id:int}")
     async def get_waifu_scorer_one(self, posts: PostRepo, scores: ScoreRepo, post_id: int) -> float:
-        """Compute (and persist) the waifu score for a single post."""
+        """Compute (and persist) the waifu score for a single post.
+
+        Delegates the compute + persist to the backfill worker's batch function
+        (single-element id list), the same path ``process_post`` uses, instead
+        of re-inlining the lazy model load / upsert. The guards keep the HTTP
+        contract: missing post -> 404, non-image -> 400, already-scored ->
+        return the stored score without recomputing.
+        """
         post = await posts.get(post_id)
         if post is None:
             raise PostNotFoundError(post_id)
@@ -133,12 +140,15 @@ class CommandController(Controller):
         existing = await scores.get_waifu_score(post_id)
         if existing is not None:
             return existing
-        from ai.waifu_scorer import get_waifu_scorer  # noqa: PLC0415  # lazy: defer ML stack load until first use
+        from processors.scoring import _process_waifu_batch  # noqa: PLC0415  # lazy: defer ML stack load until first use
 
-        scorer = get_waifu_scorer()
-        result = await asyncio.to_thread(scorer, [post.absolute_path])
-        score = float(result[0]) if isinstance(result, (list, tuple)) else float(result)
-        await scores.upsert_waifu_score(post_id, score)
+        await _process_waifu_batch(posts, [post_id])
+        score = await scores.get_waifu_score(post_id)
+        if score is None:
+            # The worker filters non-retrieval extensions and blacklists an
+            # unreadable image instead of scoring it — treat "couldn't score
+            # it as an image" as a 400, mirroring the non-image guard above.
+            raise NotAnImageError(post_id)
         return score
 
     @litestar.get("/silva-scorer/{post_id:int}")
@@ -151,32 +161,32 @@ class CommandController(Controller):
     ) -> float:
         """Compute (and persist) the SILVA score for one post from its embedding.
 
-        Reuses the stored SigLIP2 embedding; if the post has none yet, computes
-        and stores the embedding first so the score is available immediately.
+        Reuses the stored SigLIP2 embedding; if the post has none yet, runs the
+        embedding worker's batch function first so the score is available
+        immediately — then the SILVA worker's batch function scores that stored
+        embedding. Guards keep the HTTP contract: missing post -> 404,
+        non-image -> 400, already-scored -> return the stored score.
         """
         post = await posts.get(post_id)
         if post is None:
             raise PostNotFoundError(post_id)
         if not is_image(post.absolute_path):
             raise NotAnImageError(post_id)
-        from ai.silva_scorer import SCORER_NAME, score_embeddings  # noqa: PLC0415  # lazy: defer ML stack load
+        from ai.silva_scorer import SCORER_NAME  # noqa: PLC0415  # lazy: defer ML stack load
+        from processors.embedding import _process_siglip_embedding_batch  # noqa: PLC0415
+        from processors.scoring import _process_silva_batch  # noqa: PLC0415
 
         existing = await scores.get_aesthetic_score(post_id, SCORER_NAME)
         if existing is not None:
             return existing
 
-        embedding = await vectors.get(post_id)
-        if embedding is None:
-            import numpy as np  # noqa: PLC0415
+        if await vectors.get(post_id) is None:
+            await _process_siglip_embedding_batch(posts, vectors, [post_id])
+        await _process_silva_batch(posts, vectors, [post_id])
 
-            from ai.siglip_embed import calculate_image_features  # noqa: PLC0415
-
-            features = await asyncio.to_thread(calculate_image_features, post.absolute_path)
-            embedding = features.cpu().numpy()[0].astype(np.float32)
-            await vectors.upsert(post_id, embedding)
-
-        score = float((await asyncio.to_thread(score_embeddings, [embedding]))[0])
-        await scores.upsert_aesthetic_score(post_id, SCORER_NAME, score)
+        score = await scores.get_aesthetic_score(post_id, SCORER_NAME)
+        if score is None:
+            raise NotAnImageError(post_id)
         return score
 
     @litestar.post("/download-from-danbooru", description="Download posts from Danbooru")

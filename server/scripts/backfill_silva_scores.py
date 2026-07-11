@@ -1,6 +1,6 @@
 """Backfill SILVA aesthetic scores across the whole library.
 
-Standalone CLI that runs the same ``run_silva_worker`` the server uses during
+Standalone CLI that runs the same SILVA worker the server uses during
 metadata sync, but without booting the HTTP app. The server now runs this
 worker on every sync, so an existing library backfills automatically on the
 next boot; reach for this script only to run the backfill on its own — e.g.
@@ -41,8 +41,10 @@ import shared
 from bootstrap import initialize
 from db import DB, run_migrations
 from db.repositories.posts import PostRepo
+from db.repositories.tags import TagGroupRepo
 from db.repositories.vectors import VectorRepo
-from processors import run_silva_worker
+from processors import WorkerContext, run_worker
+from processors.registry import SILVA_WORKER
 from progress import get_progress
 from shared import logger
 
@@ -55,11 +57,12 @@ async def _run(db: DB) -> None:
     conn = db.new_connection()
     try:
         with get_progress() as progress:
-            await run_silva_worker(
-                PostRepo(conn.cursor()),
-                VectorRepo(conn.cursor(), table="post_vectors_siglip2", dim=1152),
-                progress=progress,
+            ctx = WorkerContext(
+                posts=PostRepo(conn.cursor()),
+                vectors=VectorRepo(conn.cursor(), table="post_vectors_siglip2", dim=1152),
+                tag_groups=TagGroupRepo(conn.cursor()),
             )
+            await run_worker(SILVA_WORKER, ctx, progress=progress)
     finally:
         with contextlib.suppress(Exception):
             conn.close()

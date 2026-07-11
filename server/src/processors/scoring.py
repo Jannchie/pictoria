@@ -5,14 +5,12 @@ from __future__ import annotations
 import asyncio
 from typing import TYPE_CHECKING
 
-from db.repositories.failures import WORKER_WAIFU, FailureRepo, aesthetic_worker, not_failed_clause
+from db.repositories.failures import WORKER_WAIFU, aesthetic_worker, not_failed_clause
 from db.repositories.scores import ScoreRepo
-from processors.common import IMAGE_EXT_WHERE, build_image_items, drive, run_batch_with_fallback
+from processors.common import IMAGE_EXT_WHERE, build_image_items, record_pair_failures, run_batch_with_fallback
 from shared import logger
 
 if TYPE_CHECKING:
-    from rich.progress import Progress
-
     from db.repositories.posts import PostRepo
     from db.repositories.vectors import VectorRepo
 
@@ -20,49 +18,6 @@ WAIFU_BATCH_SIZE = 32
 # SILVA scores stored embeddings (no image decode / backbone) — a pure head
 # forward, so batches can be large and cheap.
 SILVA_BATCH_SIZE = 256
-
-
-async def run_waifu_worker(
-    posts: PostRepo,
-    *,
-    progress: Progress | None = None,
-) -> None:
-    """Backfill the waifu quality score into ``post_waifu_scores``."""
-    pending = await _list_waifu_pending(posts)
-
-    async def _process(batch_ids: list[int]) -> None:
-        await _process_waifu_batch(posts, batch_ids)
-
-    await drive(
-        progress,
-        "Waifu scorer",
-        pending,
-        WAIFU_BATCH_SIZE,
-        _process,
-        gpu_adaptive=True,
-    )
-
-
-async def run_silva_worker(
-    posts: PostRepo,
-    vectors: VectorRepo,
-    *,
-    progress: Progress | None = None,
-) -> None:
-    """Backfill the SILVA aesthetic score from stored SigLIP2 embeddings.
-
-    Pending = posts that already have a ``post_vectors_siglip2`` embedding but no
-    ``silva`` score yet. Scoring reuses that embedding (see ``ai.silva_scorer``),
-    so this worker never opens the image files or loads the SigLIP2 backbone.
-    """
-    from ai.silva_scorer import SCORER_NAME  # noqa: PLC0415  # lazy: defer ML stack load
-
-    pending = await _list_silva_pending(posts, vectors, SCORER_NAME)
-
-    async def _process(batch_ids: list[int]) -> None:
-        await _process_silva_batch(posts, vectors, batch_ids)
-
-    await drive(progress, "SILVA scorer", pending, SILVA_BATCH_SIZE, _process)
 
 
 # ─── Pending queries ────────────────────────────────────────────────────
@@ -136,8 +91,7 @@ async def _process_waifu_batch(posts: PostRepo, post_ids: list[int]) -> None:
     )
     if raw:
         await ScoreRepo(posts.cur).upsert_waifu_scores_many([(pid, float(score)) for pid, score in raw])
-    if failures:
-        await FailureRepo(posts.cur).record_failures([(pid, WORKER_WAIFU, err) for pid, err in failures])
+    await record_pair_failures(posts.cur, WORKER_WAIFU, failures)
 
 
 async def _process_silva_batch(posts: PostRepo, vectors: VectorRepo, post_ids: list[int]) -> None:

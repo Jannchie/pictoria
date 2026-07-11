@@ -8,9 +8,11 @@ from typing import TYPE_CHECKING, TypeVar
 from PIL import UnidentifiedImageError
 
 import shared
+from db.repositories.failures import FailureRepo
 from shared import logger
 
 if TYPE_CHECKING:
+    import sqlite3
     from collections.abc import Awaitable, Callable, Sequence
     from pathlib import Path
 
@@ -110,11 +112,67 @@ def build_image_items(
     return items
 
 
+def _classify_results(
+    chunk: Sequence[tuple[int, Path]],
+    results: Sequence[R],
+    reject_reason: Callable[[int, R], str | None] | None,
+) -> tuple[list[tuple[int, R]], list[tuple[int, str]]]:
+    """Split ``batch_fn``'s results into successes / rejections for one chunk.
+
+    A produced result is a success unless ``reject_reason`` returns a message
+    for it (e.g. the tagger rejecting an empty response); with no
+    ``reject_reason`` every result is a success.
+    """
+    succ: list[tuple[int, R]] = []
+    fail: list[tuple[int, str]] = []
+    for (pid, _), result in zip(chunk, results, strict=True):
+        reason = reject_reason(pid, result) if reject_reason is not None else None
+        if reason is None:
+            succ.append((pid, result))
+        else:
+            fail.append((pid, reason))
+    return succ, fail
+
+
+async def _retry_per_image(
+    batch_fn: Callable[[list[Path]], Sequence[R]],
+    chunk: Sequence[tuple[int, Path]],
+    *,
+    worker_label: str,
+    reject_reason: Callable[[int, R], str | None] | None,
+) -> tuple[list[tuple[int, R]], list[tuple[int, str]]]:
+    """Last-resort per-image retry for a mini-batch that failed as a group.
+
+    An unreadable image (``UnidentifiedImageError`` / ``OSError``) or any other
+    per-image error becomes a ``(post_id, message)`` failure; a produced result
+    is still subject to ``reject_reason``.
+    """
+    successes: list[tuple[int, R]] = []
+    failures: list[tuple[int, str]] = []
+    for pid, path in chunk:
+        try:
+            single = await asyncio.to_thread(batch_fn, [path])
+        except (UnidentifiedImageError, OSError) as exc:
+            logger.warning(f"[{worker_label}] unreadable {pid} ({path}): {exc}")
+            failures.append((pid, f"{type(exc).__name__}: {exc}"))
+        except Exception as exc:
+            logger.exception(f"[{worker_label}] post {pid} ({path})")
+            failures.append((pid, f"{type(exc).__name__}: {exc}"))
+        else:
+            reason = reject_reason(pid, single[0]) if reject_reason is not None else None
+            if reason is None:
+                successes.append((pid, single[0]))
+            else:
+                failures.append((pid, reason))
+    return successes, failures
+
+
 async def run_batch_with_fallback(
     batch_fn: Callable[[list[Path]], Sequence[R]],
     items: Sequence[tuple[int, Path]],
     *,
     worker_label: str,
+    reject_reason: Callable[[int, R], str | None] | None = None,
 ) -> tuple[list[tuple[int, R]], list[tuple[int, str]]]:
     """Run ``batch_fn`` on every item, shrinking the batch on failure.
 
@@ -123,6 +181,14 @@ async def run_batch_with_fallback(
     rest to single-image inference (which leaves the GPU ~80% idle between
     PIL decodes). Only the mini-batch that contains the bad image falls all
     the way to per-image retry.
+
+    ``reject_reason`` is an optional post-inference validator: called with
+    ``(post_id, result)`` for every result the model *did* produce, it returns
+    a failure message to reclassify that result as a failure (e.g. the tagger
+    rejecting an empty tag response), or ``None`` to keep it a success. It runs
+    at every degradation level, so an empty result is blacklisted the same way
+    whether it came back in the full batch or a per-image retry. Left ``None``
+    (waifu / embedding), every produced result is a success.
 
     Returns ``(successes, failures)`` where ``successes`` is a list of
     ``(post_id, result)`` and ``failures`` is ``(post_id, error_message)``.
@@ -138,7 +204,7 @@ async def run_batch_with_fallback(
             f"[{worker_label}] full batch failed ({exc!s}); retrying in mini-batches of {FALLBACK_MINI_BATCH_SIZE}",
         )
     else:
-        return list(zip((pid for pid, _ in items), results, strict=True)), []
+        return _classify_results(items, results, reject_reason)
 
     successes: list[tuple[int, R]] = []
     failures: list[tuple[int, str]] = []
@@ -151,16 +217,31 @@ async def run_batch_with_fallback(
             logger.warning(
                 f"[{worker_label}] mini-batch failed ({exc!s}); falling back per-image",
             )
-            for pid, path in chunk:
-                try:
-                    single = await asyncio.to_thread(batch_fn, [path])
-                    successes.append((pid, single[0]))
-                except (UnidentifiedImageError, OSError) as exc2:
-                    logger.warning(f"[{worker_label}] unreadable {pid} ({path}): {exc2}")
-                    failures.append((pid, f"{type(exc2).__name__}: {exc2}"))
-                except Exception as exc2:
-                    logger.exception(f"[{worker_label}] post {pid} ({path})")
-                    failures.append((pid, f"{type(exc2).__name__}: {exc2}"))
+            succ, fail = await _retry_per_image(
+                batch_fn,
+                chunk,
+                worker_label=worker_label,
+                reject_reason=reject_reason,
+            )
         else:
-            successes.extend(zip((pid for pid, _ in chunk), results, strict=True))
+            succ, fail = _classify_results(chunk, results, reject_reason)
+        successes.extend(succ)
+        failures.extend(fail)
     return successes, failures
+
+
+async def record_pair_failures(
+    cur: sqlite3.Cursor,
+    worker: str,
+    failures: Sequence[tuple[int, str]],
+) -> None:
+    """Blacklist ``(post_id, error_message)`` pairs under one worker bucket.
+
+    The shared write side of the ladder: every worker that produces
+    ``(post_id, error)`` pairs records them the same way, so the
+    ``FailureRepo`` round-trip lives in one place instead of a copy per
+    worker. No-op on an empty list.
+    """
+    if not failures:
+        return
+    await FailureRepo(cur).record_failures([(pid, worker, err) for pid, err in failures])

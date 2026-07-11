@@ -15,8 +15,8 @@ from skimage import color
 
 import shared
 from db.helpers import sql_placeholders
-from db.repositories.failures import WORKER_BASICS, FailureRepo, not_failed_clause
-from processors.common import IMAGE_EXT_WHERE, build_image_items, drive
+from db.repositories.failures import WORKER_BASICS, not_failed_clause
+from processors.common import IMAGE_EXT_WHERE, build_image_items, record_pair_failures
 from shared import logger
 from tools.colors import get_palette, rgb2int
 from utils import (
@@ -28,26 +28,10 @@ from utils import (
 if TYPE_CHECKING:
     from pathlib import Path
 
-    from rich.progress import Progress
-
     from db.entities import Post
     from db.repositories.posts import PostRepo
 
 BASICS_BATCH_SIZE = 32
-
-
-async def run_basics_worker(
-    posts: PostRepo,
-    *,
-    progress: Progress | None = None,
-) -> None:
-    """Backfill sha256 / arthash / dimensions / palette / dominant_color."""
-    pending = await _list_basics_pending(posts)
-
-    async def _process(batch_ids: list[int]) -> None:
-        await _process_basics_batch(posts, batch_ids)
-
-    await drive(progress, "Basics", pending, BASICS_BATCH_SIZE, _process)
 
 
 async def _list_basics_pending(posts: PostRepo) -> list[int]:
@@ -87,11 +71,11 @@ async def _process_basics_batch(posts: PostRepo, post_ids: list[int]) -> None:
         return_exceptions=True,
     )
     valid: list[tuple[Post, Path, dict]] = []
-    failed: list[tuple[int, str, str]] = []
+    failed: list[tuple[int, str]] = []
     for (post, path), b in zip(items, raw_results, strict=True):
         if isinstance(b, BaseException):
             logger.warning(f"[basics] compute failed for {path}: {b}")
-            failed.append((post.id, WORKER_BASICS, f"compute failed: {b}"))
+            failed.append((post.id, f"compute failed: {b}"))
             continue
         if b is None:
             continue
@@ -100,12 +84,30 @@ async def _process_basics_batch(posts: PostRepo, post_ids: list[int]) -> None:
         # NULL. Without a failure row, the post would be re-selected on
         # every sync forever; the blacklist makes it one-shot.
         if b.get("color_error"):
-            failed.append((post.id, WORKER_BASICS, f"color: {b['color_error']}"))
+            failed.append((post.id, f"color: {b['color_error']}"))
         valid.append((post, path, b))
     if valid:
         await asyncio.to_thread(_persist_basics_batch, posts, valid)
-    if failed:
-        await FailureRepo(posts.cur).record_failures(failed)
+    await record_pair_failures(posts.cur, WORKER_BASICS, failed)
+
+
+async def persist_single_basics(
+    posts: PostRepo,
+    post: Post,
+    file_abs_path: Path,
+    basics: dict,
+) -> None:
+    """Persist one freshly-uploaded post's basics; one-shot blacklist a palette failure.
+
+    The single-post twin of the persist + ``color_error`` tail of
+    :func:`_process_basics_batch`, so ``process_post`` doesn't re-inline the
+    ``one_shot`` blacklist policy. A successful decode whose colorthief step
+    failed leaves ``dominant_color`` NULL, which would re-select the post on
+    every sync — the blacklist makes it one-shot.
+    """
+    await asyncio.to_thread(_persist_basics_batch, posts, [(post, file_abs_path, basics)])
+    if basics.get("color_error"):
+        await record_pair_failures(posts.cur, WORKER_BASICS, [(post.id, f"color: {basics['color_error']}")])
 
 
 # ─── Compute / persist helpers ───────────────────────────────────────────

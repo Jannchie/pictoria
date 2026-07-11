@@ -8,15 +8,11 @@ import time
 from typing import TYPE_CHECKING, Any
 
 import shared
-from db.repositories.failures import WORKER_BASICS, FailureRepo
 from db.repositories.posts import PostRepo
-from db.repositories.tags import TagGroupRepo
 from db.repositories.vectors import VectorRepo
-from processors.basics import _compute_basics_for, _persist_basics_batch, run_basics_worker
+from processors.basics import _compute_basics_for, persist_single_basics
 from processors.common import IMAGE_EXTS
-from processors.embedding import _process_siglip_embedding_batch, run_siglip_embedding_worker
-from processors.scoring import _process_silva_batch, _process_waifu_batch, run_silva_worker, run_waifu_worker
-from processors.tagger import _process_tagger_batch, run_tagger_worker
+from processors.registry import BASICS_WORKER, WORKERS, WorkerContext, context_from_connection, run_worker
 from progress import get_progress
 from services.file_management import add_new_files, remove_deleted_files
 from shared import logger
@@ -26,6 +22,7 @@ if TYPE_CHECKING:
     from pathlib import Path
 
     from db import DB
+    from db.repositories.tags import TagGroupRepo
 
 # Process-wide cache for find_files_in_directory: each entry maps an absolute
 # directory path to (mtime_ns, [direct files]). Survives across sync_metadata
@@ -94,53 +91,24 @@ async def run_all_backfill(db: DB) -> None:
         connections.append(conn)
         return conn
 
-    basics_conn = _checkout()
-    tagger_conn = _checkout()
-    waifu_conn = _checkout()
-    # SILVA aesthetic backfill: scores stored SigLIP2 embeddings (no image
-    # decode / backbone), so it scoops up every post that has an embedding but
-    # no silva score yet — including the existing library.
-    silva_conn = _checkout()
-    # SigLIP 2 retrieval-embedding backfill — the sole search/retrieval
-    # embedding worker now that CLIP retrieval has been removed.
-    siglip_embed_conn = _checkout()
+    # One connection + worker context per spec so the workers run concurrently
+    # without sharing per-statement cursor state (see docstring above). Order,
+    # batch sizes, and GPU-pressure flags all come from the WORKERS registry.
+    specs_ctx = [(spec, context_from_connection(_checkout())) for spec in WORKERS]
 
     try:
         with get_progress() as progress:
-            workers = [
-                run_basics_worker(
-                    PostRepo(basics_conn.cursor()),
-                    progress=progress,
-                ),
-                run_siglip_embedding_worker(
-                    PostRepo(siglip_embed_conn.cursor()),
-                    VectorRepo(siglip_embed_conn.cursor()),
-                    progress=progress,
-                ),
-                run_tagger_worker(
-                    PostRepo(tagger_conn.cursor()),
-                    TagGroupRepo(tagger_conn.cursor()),
-                    progress=progress,
-                ),
-                run_waifu_worker(
-                    PostRepo(waifu_conn.cursor()),
-                    progress=progress,
-                ),
-                run_silva_worker(
-                    PostRepo(silva_conn.cursor()),
-                    VectorRepo(silva_conn.cursor()),
-                    progress=progress,
-                ),
-            ]
-            results = await asyncio.gather(*workers)
-        # Only run_siglip_embedding_worker returns an int (posts embedded this
-        # run). If it added any, rebuild near-duplicate groups now that the
-        # embeddings exist — one GPU matrix-multiply pass, idempotent. On a cold
-        # first backfill this auto-groups the whole existing library; on a sync
-        # that added a few posts it re-groups from the (now slightly larger) set.
-        # An idle poll embeds nothing, so this is skipped — no wasted GPU.
-        if any(isinstance(r, int) and r > 0 for r in results):
-            await _group_near_duplicates(db)
+            counts = await asyncio.gather(
+                *(run_worker(spec, ctx, progress=progress) for spec, ctx in specs_ctx),
+            )
+        # Fire each worker's optional post-backfill hook with how many posts it
+        # processed. Only the embedding worker sets one: it rebuilds near-
+        # duplicate groups when new embeddings were written (skipped on an idle
+        # poll, so no wasted GPU). Replaces the former hand-rolled
+        # ``if any(isinstance(r, int) and r > 0 ...)`` special case.
+        for (spec, _), count in zip(specs_ctx, counts, strict=True):
+            if spec.on_backfill_complete is not None:
+                await spec.on_backfill_complete(db, count)
     finally:
         for conn in connections:
             # discard (not plain close): keeps DB._all_conns from accumulating
@@ -148,13 +116,14 @@ async def run_all_backfill(db: DB) -> None:
             db.discard_connection(conn)
 
 
-async def _group_near_duplicates(db: DB) -> None:
+async def group_near_duplicates(db: DB) -> None:
     """Rebuild near-duplicate groups on a fresh connection (logs, never raises).
 
     Takes ``services.dedup.rebuild_lock`` so it can't race a manual
     /v2/cmd/group-duplicates rebuild — waiting (rather than skipping) is fine
     here because the embeddings that triggered this call still deserve a
-    regroup once the in-flight rebuild finishes.
+    regroup once the in-flight rebuild finishes. Called by the embedding
+    worker's ``on_backfill_complete`` hook (see ``processors.registry``).
     """
     from services.dedup import rebuild_groups, rebuild_lock  # noqa: PLC0415
 
@@ -199,7 +168,10 @@ async def process_post(
 
     logger.info(f"Processing post: {file_abs_path}")
 
-    # Basics first — and on decode failure, drop the (likely garbage) upload.
+    # Basics first, and specially: on decode failure drop the (likely garbage)
+    # upload — a bespoke twist the batch worker doesn't have, so it stays inline
+    # rather than going through the registry. persist_single_basics owns the
+    # one_shot palette-failure blacklist (formerly mirrored here by hand).
     try:
         basics = await asyncio.to_thread(_compute_basics_for, post, file_abs_path)
     except Exception as exc:
@@ -210,18 +182,15 @@ async def process_post(
         return
 
     if basics is not None:
-        await asyncio.to_thread(_persist_basics_batch, posts, [(post, file_abs_path, basics)])
-        # Mirror the basics-batch path: a successful decode whose colorthief
-        # step failed leaves dominant_color NULL, which would re-select the
-        # post on the next sync. One-shot black-list it instead.
-        if basics.get("color_error"):
-            await FailureRepo(posts.cur).record_failures([(post.id, WORKER_BASICS, f"color: {basics['color_error']}")])
+        await persist_single_basics(posts, post, file_abs_path, basics)
 
+    # Every other worker runs from the registry with a single-element id list,
+    # so this path shares all compute / persist code with the bulk backfill.
     # ``vectors`` is the SigLIP 2 retrieval repo (provide_vector_repo binds
-    # post_vectors_siglip2), so encode the upload straight into it.
-    await _process_siglip_embedding_batch(posts, vectors, [post.id])
-    await _process_tagger_batch(posts, tag_groups, [post.id])
-    await _process_waifu_batch(posts, [post.id])
-    # Scores the embedding just written above (read back from the vec0 table),
-    # so this never touches the image or the SigLIP2 backbone.
-    await _process_silva_batch(posts, vectors, [post.id])
+    # post_vectors_siglip2), so the embedding worker encodes straight into it,
+    # and the silva worker scores that embedding back out of the vec0 table.
+    ctx = WorkerContext(posts=posts, vectors=vectors, tag_groups=tag_groups)
+    for spec in WORKERS:
+        if spec is BASICS_WORKER:
+            continue
+        await spec.process_batch(ctx, [post.id])

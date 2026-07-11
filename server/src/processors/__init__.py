@@ -28,21 +28,17 @@ Design notes
   payload to the global ``asyncio.to_thread`` executor as before.
 """
 
-from processors.basics import run_basics_worker
 from processors.common import IMAGE_EXTS
-from processors.embedding import run_siglip_embedding_worker
 from processors.pipeline import process_post, run_all_backfill, sync_metadata
-from processors.scoring import run_silva_worker, run_waifu_worker
-from processors.tagger import run_tagger_worker
+from processors.registry import WORKERS, WorkerContext, WorkerSpec, run_worker
 
 __all__ = [
     "IMAGE_EXTS",
+    "WORKERS",
+    "WorkerContext",
+    "WorkerSpec",
     "process_post",
     "run_all_backfill",
-    "run_basics_worker",
-    "run_siglip_embedding_worker",
-    "run_silva_worker",
-    "run_tagger_worker",
-    "run_waifu_worker",
+    "run_worker",
     "sync_metadata",
 ]
