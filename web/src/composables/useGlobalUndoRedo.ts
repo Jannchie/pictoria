@@ -1,5 +1,5 @@
-import { onKeyStroke, useActiveElement } from '@vueuse/core'
-import { computed } from 'vue'
+import { onKeyStroke } from '@vueuse/core'
+import { notUsingInput } from '@/composables/useKeyScope'
 import { performRedo, performUndo } from '@/shared/undoSnackbar'
 
 /**
@@ -8,12 +8,6 @@ import { performRedo, performUndo } from '@/shared/undoSnackbar'
  * 按钮共用 performUndo/performRedo，统一走底部 snackbar。
  */
 export function useGlobalUndoRedo() {
-  const activeElement = useActiveElement()
-  const notUsingInput = computed(() =>
-    activeElement.value?.tagName !== 'INPUT'
-    && activeElement.value?.tagName !== 'TEXTAREA',
-  )
-
   onKeyStroke(['z', 'Z', 'y', 'Y'], async (e) => {
     if (!notUsingInput.value) {
       return

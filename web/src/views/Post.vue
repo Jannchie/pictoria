@@ -5,7 +5,8 @@ import { useRoute, useRouter } from 'vue-router'
 import { v2TouchPost } from '@/api'
 import ArthashPlaceholder from '@/components/ArthashPlaceholder.vue'
 import PostDetail from '@/components/PostDetail.vue'
-import { bottomBarInfo, clear as clearSelection, currentPostList, deletePosts, enableArthash, enableFancyPlaceholder, focusedTreeFolder, isAnyDialogOpen, isCommittedSelected, selectedIdList, selectOnly, showPostDetail, similarPostList } from '@/shared'
+import { useKeyScope } from '@/composables/useKeyScope'
+import { bottomBarInfo, clear as clearSelection, currentPostList, deletePosts, enableArthash, enableFancyPlaceholder, isCommittedSelected, selectedIdList, selectOnly, showPostDetail, similarPostList } from '@/shared'
 import { POverlay } from '@/ui'
 import PDialog from '@/ui/PDialog.vue'
 import { getPostImageURL } from '@/utils'
@@ -128,15 +129,10 @@ watchEffect(() => {
   }
 })
 
-const activeElement = useActiveElement()
-const notUsingInput = computed(() =>
-  activeElement.value?.tagName !== 'INPUT'
-  && activeElement.value?.tagName !== 'TEXTAREA')
-
 // 确认弹窗打开时，页面级快捷键全部让位：Enter/Escape 归 Dialog（确认/
 // 取消），否则 Enter 会顺手打开大图、Escape 会退回上一页。侧边栏目录树
-// 行获得焦点时同样让位（Delete 归树，删除目录而不是选中的相似图）。
-const canHandlePageKeys = computed(() => notUsingInput.value && !showPostDetail.value && !isAnyDialogOpen.value && !focusedTreeFolder.value)
+// 行获得焦点、或全屏覆盖层打开时同样让位——全部收敛进共享的作用域判定。
+const activeKeyScope = useKeyScope()
 
 function openOverlay() {
   const p = post.value
@@ -166,7 +162,7 @@ function navigatePost(delta: -1 | 1) {
 }
 
 onKeyStroke('Escape', (e) => {
-  if (!canHandlePageKeys.value) {
+  if (activeKeyScope.value !== 'postPage') {
     return
   }
   e.preventDefault()
@@ -174,7 +170,7 @@ onKeyStroke('Escape', (e) => {
 })
 
 onKeyStroke(['ArrowLeft', 'ArrowRight'], (e) => {
-  if (!canHandlePageKeys.value) {
+  if (activeKeyScope.value !== 'postPage') {
     return
   }
   e.preventDefault()
@@ -182,7 +178,7 @@ onKeyStroke(['ArrowLeft', 'ArrowRight'], (e) => {
 })
 
 onKeyStroke([' ', 'Enter'], (e) => {
-  if (!canHandlePageKeys.value) {
+  if (activeKeyScope.value !== 'postPage') {
     return
   }
   e.preventDefault()
@@ -197,7 +193,7 @@ const isDeleting = ref(false)
 const pendingDeleteIds = selectedIdList
 
 onKeyStroke('Delete', (e) => {
-  if (!canHandlePageKeys.value || pendingDeleteIds.value.length === 0) {
+  if (activeKeyScope.value !== 'postPage' || pendingDeleteIds.value.length === 0) {
     return
   }
   e.preventDefault()

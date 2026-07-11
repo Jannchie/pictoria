@@ -8,7 +8,8 @@ import { logicAnd } from '@vueuse/math'
 import { onBeforeRouteLeave, useRoute, useRouter } from 'vue-router'
 import { Waterfall } from 'vue-wf'
 import { v2SearchPostsByText } from '@/api'
-import { clear as clearSelection, commitRotate, commitScore, currentPostList, deletePosts, focusedTreeFolder, galleryScrollPositions, isAnyDialogOpen, postFilter, queryKeys, selectAll, selectedCount, selectedIdList, selectOnly, showPostDetail, textSearchQuery, useInfinityPostsQuery, waterfallRowCount } from '@/shared'
+import { notUsingInput, useKeyScope, useScoreHotkeys } from '@/composables/useKeyScope'
+import { clear as clearSelection, commitRotate, commitScore, currentPostList, deletePosts, galleryScrollPositions, postFilter, queryKeys, selectAll, selectedCount, selectedIdList, selectOnly, textSearchQuery, useInfinityPostsQuery, waterfallRowCount } from '@/shared'
 import { POverlay } from '@/ui'
 import PDialog from '@/ui/PDialog.vue'
 import { isImageExtension } from '@/utils'
@@ -109,10 +110,6 @@ function emptyPointerDown(e: PointerEvent) {
 }
 
 const { Ctrl_A } = useMagicKeys()
-const activeElement = useActiveElement()
-const notUsingInput = computed(() =>
-  activeElement.value?.tagName !== 'INPUT'
-  && activeElement.value?.tagName !== 'TEXTAREA')
 
 // Keep the shared list in sync so PostDetail / Post.vue can navigate prev/next
 watchEffect(() => {
@@ -120,9 +117,10 @@ watchEffect(() => {
 })
 
 // Grid hotkeys stand down while a confirm dialog is open (Enter would
-// otherwise open the post detail instead of confirming the delete) and while
-// a folder-tree row has focus (Delete targets that folder, not the selection).
-const canHandleGridKeys = computed(() => notUsingInput.value && !showPostDetail.value && !isAnyDialogOpen.value && !focusedTreeFolder.value)
+// otherwise open the post detail instead of confirming the delete), while a
+// folder-tree row has focus (Delete targets that folder, not the selection),
+// and while the fullscreen overlay is up — all folded into the shared scope.
+const activeKeyScope = useKeyScope()
 
 function scrollSelectedIntoView(postId: number) {
   // Defer to next tick so the DOM has the selection update committed.
@@ -186,7 +184,7 @@ function moveSelection(direction: Direction) {
 }
 
 onKeyStroke(['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown'], (e) => {
-  if (!canHandleGridKeys.value) {
+  if (activeKeyScope.value !== 'grid') {
     return
   }
   let direction: Direction | null = null
@@ -208,7 +206,7 @@ onKeyStroke(['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown'], (e) => {
 })
 
 onKeyStroke('Enter', (e) => {
-  if (!canHandleGridKeys.value) {
+  if (activeKeyScope.value !== 'grid') {
     return
   }
   const ids = selectedIdList.value
@@ -220,7 +218,7 @@ onKeyStroke('Enter', (e) => {
 })
 
 onKeyStroke('Escape', () => {
-  if (!canHandleGridKeys.value) {
+  if (activeKeyScope.value !== 'grid') {
     return
   }
   if (selectedCount.value > 0) {
@@ -228,8 +226,8 @@ onKeyStroke('Escape', () => {
   }
 })
 
-// Add keyboard shortcuts for batch rating
-const { 1: one, 2: two, 3: three, 4: four, 5: five } = useMagicKeys()
+// Batch rating via 1–5, registered through the shared score-hotkey scope so it
+// stays mutually exclusive with the detail page's per-post scoring.
 const queryClient = useQueryClient()
 
 async function applyScoreToSelection(score: number) {
@@ -240,11 +238,7 @@ async function applyScoreToSelection(score: number) {
   await commitScore(queryClient, posts.value, ids, score)
 }
 
-whenever(logicAnd(one, notUsingInput), () => applyScoreToSelection(1))
-whenever(logicAnd(two, notUsingInput), () => applyScoreToSelection(2))
-whenever(logicAnd(three, notUsingInput), () => applyScoreToSelection(3))
-whenever(logicAnd(four, notUsingInput), () => applyScoreToSelection(4))
-whenever(logicAnd(five, notUsingInput), () => applyScoreToSelection(5))
+useScoreHotkeys('grid', applyScoreToSelection)
 
 whenever(logicAnd(Ctrl_A, notUsingInput), () => {
   selectAll(posts.value.map(post => post.id))
@@ -368,7 +362,7 @@ function cancelDelete() {
 }
 
 onKeyStroke('Delete', (e) => {
-  if (!canHandleGridKeys.value) {
+  if (activeKeyScope.value !== 'grid') {
     return
   }
   e.preventDefault()

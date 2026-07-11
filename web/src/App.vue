@@ -233,7 +233,7 @@ function onMenuDeleteFolder() {
 }
 
 // 点击树行会聚焦它的 RouterLink（data-tree-value）；此时 Delete 针对该目录，
-// 画廊的"删除选中图片"热键经 canHandleGridKeys 让位（见 shared/state.ts）。
+// 画廊的"删除选中图片"热键经共享的 useKeyScope 作用域让位（见 composables/useKeyScope.ts）。
 onKeyStroke('Delete', (e) => {
   if (!focusedTreeFolder.value || isAnyDialogOpen.value) {
     return

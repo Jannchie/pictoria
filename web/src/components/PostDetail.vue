@@ -3,6 +3,7 @@ import type { PostSimplePublic } from '@/api'
 import { useElementBounding, useMouse } from '@vueuse/core'
 import { computed, ref, watchEffect } from 'vue'
 import { useRouter } from 'vue-router'
+import { useKeyScope } from '@/composables/useKeyScope'
 import { currentPostList, showPostDetail } from '@/shared'
 import { getPostImageURL } from '@/utils'
 
@@ -231,13 +232,13 @@ function zoomBy(factor: number) {
   scale.value = rounded
 }
 
-const activeElementInDetail = useActiveElement()
-const notUsingInputDetail = computed(() =>
-  activeElementInDetail.value?.tagName !== 'INPUT'
-  && activeElementInDetail.value?.tagName !== 'TEXTAREA')
+// While the overlay is mounted (showPostDetail is set), 'detailOverlay' is the
+// active scope exactly when focus isn't in a text field — matching the old
+// notUsingInputDetail guard, and standing the grid/page hotkeys down.
+const activeKeyScope = useKeyScope()
 
 onKeyStroke(['ArrowLeft', 'ArrowRight'], (e) => {
-  if (!notUsingInputDetail.value) {
+  if (activeKeyScope.value !== 'detailOverlay') {
     return
   }
   e.preventDefault()
@@ -245,7 +246,7 @@ onKeyStroke(['ArrowLeft', 'ArrowRight'], (e) => {
 })
 
 onKeyStroke(['+', '='], (e) => {
-  if (!notUsingInputDetail.value) {
+  if (activeKeyScope.value !== 'detailOverlay') {
     return
   }
   e.preventDefault()
@@ -253,7 +254,7 @@ onKeyStroke(['+', '='], (e) => {
 })
 
 onKeyStroke('-', (e) => {
-  if (!notUsingInputDetail.value) {
+  if (activeKeyScope.value !== 'detailOverlay') {
     return
   }
   e.preventDefault()
@@ -261,7 +262,7 @@ onKeyStroke('-', (e) => {
 })
 
 onKeyStroke('0', (e) => {
-  if (!notUsingInputDetail.value) {
+  if (activeKeyScope.value !== 'detailOverlay') {
     return
   }
   e.preventDefault()
@@ -269,7 +270,7 @@ onKeyStroke('0', (e) => {
 })
 
 onKeyStroke('\\', (e) => {
-  if (!notUsingInputDetail.value) {
+  if (activeKeyScope.value !== 'detailOverlay') {
     return
   }
   e.preventDefault()
@@ -277,7 +278,7 @@ onKeyStroke('\\', (e) => {
 })
 
 onKeyStroke(['f', 'F'], (e) => {
-  if (!notUsingInputDetail.value) {
+  if (activeKeyScope.value !== 'detailOverlay') {
     return
   }
   e.preventDefault()

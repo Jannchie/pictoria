@@ -3,9 +3,10 @@ import type { PostDetailPublic, PostHasTagPublic } from '@/api'
 import { useQueryClient } from '@tanstack/vue-query'
 import { filesize } from 'filesize'
 import { useI18n } from 'vue-i18n'
-import { useRoute, useRouter } from 'vue-router'
+import { useRouter } from 'vue-router'
 import { v2GetSilvaScorerOne, v2GetWaifuScorerOne } from '@/api'
 import { useAPIError } from '@/composables/useAPIError'
+import { useScoreHotkeys } from '@/composables/useKeyScope'
 import { usePostGroupQuery } from '@/composables/usePostGroupQuery'
 import { formatDateTime } from '@/locale'
 import { commitCaption, commitRating, commitScore, commitSource, hideNSFW, makePostCanonical, openTagSelectorWindow, queryKeys, RATING_LEVEL_COLORS, RATING_LEVEL_ICONS, showPostDetail, ungroupPost } from '@/shared'
@@ -23,7 +24,6 @@ async function onSelectScore(post_id: number, score: number = 0) {
   await commitScore(queryClient, [props.post], [post_id], score)
 }
 const post = computed(() => props.post)
-const route = useRoute()
 const router = useRouter()
 
 // Near-duplicate group: the hidden members this (canonical) post collapses.
@@ -42,37 +42,12 @@ async function onUngroupMember(memberId: number) {
 async function onUngroupSelf() {
   await ungroupPost(queryClient, post.value.id)
 }
-const { 1: one, 2: two, 3: three, 4: four, 5: five } = useMagicKeys()
-const activeElement = useActiveElement()
-const notUsingInput = computed(() =>
-  activeElement.value?.tagName !== 'INPUT'
-  && activeElement.value?.tagName !== 'TEXTAREA')
-
-// Number-key scoring is owned by MainSection on gallery routes (the gallery
-// and this side panel are mounted together when a single post is selected, so
-// without this guard one keypress would fire twice → two undo entries). Only
-// handle digits here on the dedicated /post/:postId detail page, where
-// MainSection is unmounted.
-watchEffect(async () => {
-  if (!notUsingInput.value || route.name !== 'post') {
-    return
-  }
-  if (one.value) {
-    await onSelectScore(post.value.id, 1)
-  }
-  if (two.value) {
-    await onSelectScore(post.value.id, 2)
-  }
-  if (three.value) {
-    await onSelectScore(post.value.id, 3)
-  }
-  if (four.value) {
-    await onSelectScore(post.value.id, 4)
-  }
-  if (five.value) {
-    await onSelectScore(post.value.id, 5)
-  }
-})
+// Number-key scoring is owned by MainSection on gallery routes (the gallery and
+// this side panel are mounted together when a single post is selected, so
+// without a guard one keypress would fire twice → two undo entries). The shared
+// 'postPage' scope is mutually exclusive with MainSection's 'grid', so digits
+// only score here on the dedicated /post/:postId detail page — no route check.
+useScoreHotkeys('postPage', score => onSelectScore(post.value.id, score))
 
 function isImage(extension: string) {
   return ['jpg', 'jpeg', 'png', 'gif', 'webp', 'bmp', 'svg'].includes(extension)
