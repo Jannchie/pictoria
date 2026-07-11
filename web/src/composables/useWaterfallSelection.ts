@@ -4,30 +4,23 @@ import type { PostSimplePublic } from '@/api'
 import type { Area } from '@/ui/PSelectArea.vue'
 import { computed } from 'vue'
 import { useElementOffset } from '@/composables/useElementOffset'
-import { selectedPostIdSet, selectingPostIdSet, unselectedPostIdSet } from '@/shared'
+import { commitPendingSelection, updatePendingSelection } from '@/shared'
 
 interface SelectModifiers {
   shift: boolean
   ctrl: boolean
 }
 
-// 松手提交：把临时集合（selecting / unselected）应用到 selectedPostIdSet 后清空。
-// 只读写全局共享集合，不依赖某个瀑布流实例，故放在模块作用域。
+// 松手提交：把临时集合折叠进选中集。集合运算全在 selection.ts，这里只负责在
+// SelectArea 的全局 pointerup 时触发。不依赖某个瀑布流实例，故放在模块作用域。
 function onSelectEnd() {
-  selectedPostIdSet.value = new Set(
-    [...selectedPostIdSet.value, ...selectingPostIdSet.value].filter(
-      id => !unselectedPostIdSet.value.has(id),
-    ),
-  )
-  selectingPostIdSet.value = new Set()
-  unselectedPostIdSet.value = new Set()
+  commitPendingSelection()
 }
 
-// 瀑布流框选的共享选择逻辑。拖拽过程中（onSelectChange）把命中的 id 写入临时
-// 集合（selecting / unselected），松手时（onSelectEnd，由 SelectArea 的全局
-// pointerup 触发）把临时集合提交进 selectedPostIdSet。瀑布流 (MainSection) 与
-// 相似图 (Post.vue + SimilarPosts) 共用同一份，保证 Shift / Ctrl / 拖拽框选行为
-// 完全一致。
+// 瀑布流框选的共享选择逻辑。拖拽过程中（onSelectChange）计算命中的 id，把它们
+// 连同修饰键交给 selection.ts 的临时层；松手时（onSelectEnd，由 SelectArea 的
+// 全局 pointerup 触发）提交。瀑布流 (MainSection) 与相似图 (Post.vue +
+// SimilarPosts) 共用同一份，保证 Shift / Ctrl / 拖拽框选行为完全一致。
 export function useWaterfallSelection(
   waterfallRef: Ref<InstanceType<typeof Waterfall> | null>,
   posts: Ref<PostSimplePublic[]>,
@@ -65,24 +58,7 @@ export function useWaterfallSelection(
       }
     }
 
-    if (shift) {
-      // 追加选择
-      selectingPostIdSet.value = new Set([...selectingPostIdSet.value, ...currentSelectingId])
-    }
-    else if (ctrl) {
-      // 补集选择：已选中的取消，未选中的追加
-      for (const postId of currentSelectingId) {
-        if (selectedPostIdSet.value.has(postId)) {
-          unselectedPostIdSet.value.add(postId)
-        }
-        else {
-          selectingPostIdSet.value.add(postId)
-        }
-      }
-    }
-    else {
-      selectingPostIdSet.value = currentSelectingId
-    }
+    updatePendingSelection(currentSelectingId, { shift, ctrl })
   }
 
   return { onSelectChange, onSelectEnd }

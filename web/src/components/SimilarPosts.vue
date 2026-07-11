@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { Waterfall } from 'vue-wf'
-import { selectedPostIdSet } from '@/shared'
+import { clear as clearSelection } from '@/shared'
 
 const props = defineProps<{
   postId: number
@@ -26,7 +26,7 @@ defineExpose({ waterfall: waterfallRef })
 // so this only fires for the gaps between items, not the items themselves.
 function emptyPointerDown(e: PointerEvent) {
   if (!e.ctrlKey && !e.shiftKey) {
-    selectedPostIdSet.value = new Set()
+    clearSelection()
   }
 }
 </script>

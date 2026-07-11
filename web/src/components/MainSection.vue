@@ -7,7 +7,7 @@ import { logicAnd } from '@vueuse/math'
 import { onBeforeRouteLeave, useRoute, useRouter } from 'vue-router'
 import { Waterfall } from 'vue-wf'
 import { v2SearchPostsByText } from '@/api'
-import { commitRotate, commitScore, currentPostList, deletePosts, focusedTreeFolder, galleryScrollPositions, isAnyDialogOpen, postFilter, queryKeys, selectedPostIdSet, showPostDetail, textSearchQuery, useInfinityPostsQuery, waterfallRowCount } from '@/shared'
+import { clear as clearSelection, commitRotate, commitScore, currentPostList, deletePosts, focusedTreeFolder, galleryScrollPositions, isAnyDialogOpen, postFilter, queryKeys, selectAll, selectedCount, selectedIdList, selectOnly, showPostDetail, textSearchQuery, useInfinityPostsQuery, waterfallRowCount } from '@/shared'
 import { POverlay } from '@/ui'
 import PDialog from '@/ui/PDialog.vue'
 import { isImageExtension } from '@/utils'
@@ -98,7 +98,7 @@ const { onSelectChange, onSelectEnd } = useWaterfallSelection(waterfallRef, post
 function emptyPointerDown(e: PointerEvent) {
   // 如果是右键，且没有按 ctrl 或者 shift
   if (!e.ctrlKey && !e.shiftKey) {
-    selectedPostIdSet.value = new Set()
+    clearSelection()
     // 保留现有的查询参数，只清除 post_id
     const currentQuery = { ...route.query }
     delete currentQuery.post_id
@@ -220,7 +220,7 @@ function moveSelection(direction: Direction) {
   if (ids.length === 0) {
     return
   }
-  const current = [...selectedPostIdSet.value].filter((id): id is number => id !== undefined)
+  const current = selectedIdList.value
   let curIdx: number
   if (current.length === 0) {
     curIdx = direction === 'right' || direction === 'down' ? 0 : posts.value.length - 1
@@ -238,7 +238,7 @@ function moveSelection(direction: Direction) {
   if (nextId === undefined) {
     return
   }
-  selectedPostIdSet.value = new Set([nextId])
+  selectOnly(nextId)
   // Drop stale post_id from the URL so the watch effect does not fight us.
   if (route.query.post_id !== undefined) {
     const currentQuery = { ...route.query }
@@ -274,7 +274,7 @@ onKeyStroke('Enter', (e) => {
   if (!canHandleGridKeys.value) {
     return
   }
-  const ids = [...selectedPostIdSet.value].filter((id): id is number => id !== undefined)
+  const ids = selectedIdList.value
   if (ids.length !== 1) {
     return
   }
@@ -286,8 +286,8 @@ onKeyStroke('Escape', () => {
   if (!canHandleGridKeys.value) {
     return
   }
-  if (selectedPostIdSet.value.size > 0) {
-    selectedPostIdSet.value = new Set()
+  if (selectedCount.value > 0) {
+    clearSelection()
   }
 })
 
@@ -296,7 +296,7 @@ const { 1: one, 2: two, 3: three, 4: four, 5: five } = useMagicKeys()
 const queryClient = useQueryClient()
 
 async function applyScoreToSelection(score: number) {
-  const ids = [...selectedPostIdSet.value].filter((id): id is number => typeof id === 'number')
+  const ids = selectedIdList.value
   if (ids.length === 0) {
     return
   }
@@ -310,7 +310,7 @@ whenever(logicAnd(four, notUsingInput), () => applyScoreToSelection(4))
 whenever(logicAnd(five, notUsingInput), () => applyScoreToSelection(5))
 
 whenever(logicAnd(Ctrl_A, notUsingInput), () => {
-  selectedPostIdSet.value = new Set(posts.value.map(post => post.id))
+  selectAll(posts.value.map(post => post.id))
 })
 
 const shouldScroll = ref(true)
@@ -340,7 +340,7 @@ watchEffect(async () => {
           })
         }
         shouldScroll.value = false
-        selectedPostIdSet.value = new Set([postId])
+        selectOnly(postId)
       }
     }
   }
@@ -358,7 +358,7 @@ watchEffect(async () => {
 // })
 
 const menuData = computed<PMenuItem[]>(() => {
-  if (selectedPostIdSet.value.size > 0) {
+  if (selectedCount.value > 0) {
     return [
       {
         role: 'label',
@@ -398,7 +398,7 @@ const pendingDeleteIds = ref<number[]>([])
 const isDeleting = ref(false)
 
 function requestDelete() {
-  const ids = [...selectedPostIdSet.value].filter((id): id is number => typeof id === 'number')
+  const ids = selectedIdList.value
   if (ids.length === 0) {
     return
   }
@@ -418,7 +418,7 @@ async function confirmDelete() {
   isDeleting.value = true
   try {
     await deletePosts(queryClient, ids)
-    selectedPostIdSet.value = new Set()
+    clearSelection()
   }
   finally {
     isDeleting.value = false
@@ -439,7 +439,7 @@ onKeyStroke('Delete', (e) => {
 })
 
 async function onMenuSelect(value: string | number | symbol) {
-  const ids = [...selectedPostIdSet.value].filter((id): id is number => typeof id === 'number')
+  const ids = selectedIdList.value
   switch (value) {
     case 'rotate-clockwise': {
       await commitRotate(queryClient, ids, true)

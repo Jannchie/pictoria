@@ -8,16 +8,21 @@ import { useRoute } from 'vue-router'
 import { useSelectedPostStats } from '@/composables/useSelectedPostStats'
 import { formatNumber } from '@/locale'
 import {
+  clear,
   commitRating,
   commitScore,
   currentPostList,
   deletePosts,
+  isCommittedSelected,
   RATING_LEVEL_COLORS,
   RATING_LEVEL_ICONS,
   RATING_LEVEL_SHORT,
   RATING_UNRATED_LABEL_KEY,
   SCORE_LEVEL_COLORS,
-  selectedPostIdSet,
+  selectAll,
+  selectedCount,
+  selectedIdList,
+  selectOnly,
   showPostDetail,
   similarPostList,
 } from '@/shared'
@@ -39,11 +44,10 @@ const visibleList = computed(() =>
 // If the user is on a non-gallery route the list may be empty, in which case
 // aggregations show zeros — UI degrades gracefully rather than mass-fetching.
 const selectedPosts = computed(() => {
-  const ids = selectedPostIdSet.value
-  return visibleList.value.filter(p => ids.has(p.id))
+  return visibleList.value.filter(p => isCommittedSelected(p.id))
 })
 
-const count = computed(() => selectedPostIdSet.value.size)
+const count = selectedCount
 const knownCount = computed(() => selectedPosts.value.length)
 const missingCount = computed(() => Math.max(0, count.value - knownCount.value))
 
@@ -214,26 +218,24 @@ onUnmounted(() => {
 })
 
 function clearSelection() {
-  selectedPostIdSet.value = new Set()
+  clear()
 }
 
 function selectAllInList() {
-  selectedPostIdSet.value = new Set(visibleList.value.map(p => p.id))
+  selectAll(visibleList.value.map(p => p.id))
 }
 
 function focusOne(id: number) {
   showPostDetail.value = null
-  selectedPostIdSet.value = new Set([id])
+  selectOnly(id)
 }
 
 async function applyRating(rating: number) {
-  const ids = [...selectedPostIdSet.value].filter((id): id is number => typeof id === 'number')
-  await commitRating(queryClient, selectedPosts.value, ids, rating)
+  await commitRating(queryClient, selectedPosts.value, selectedIdList.value, rating)
 }
 
 async function applyScore(score: number) {
-  const ids = [...selectedPostIdSet.value].filter((id): id is number => typeof id === 'number')
-  await commitScore(queryClient, selectedPosts.value, ids, score)
+  await commitScore(queryClient, selectedPosts.value, selectedIdList.value, score)
 }
 
 async function copyPaths() {
@@ -252,13 +254,13 @@ async function deleteSelected() {
     confirmingDelete.value = true
     return
   }
-  const ids = [...selectedPostIdSet.value].filter((id): id is number => typeof id === 'number')
+  const ids = selectedIdList.value
   if (ids.length === 0) {
     confirmingDelete.value = false
     return
   }
   await deletePosts(queryClient, ids)
-  selectedPostIdSet.value = new Set()
+  clear()
   confirmingDelete.value = false
 }
 

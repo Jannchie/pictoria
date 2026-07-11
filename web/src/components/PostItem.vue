@@ -4,7 +4,7 @@ import { computed, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import ArthashPlaceholder from '@/components/ArthashPlaceholder.vue'
 import { formatDate } from '@/locale'
-import { enableArthash, enableFancyPlaceholder, hideNSFW, postSort, RATING_LEVEL_COLORS, RATING_LEVEL_ICONS, SCORE_LEVEL_COLORS, selectedPostIdSet, selectingPostIdSet, unselectedPostIdSet, waifuLevelRgb } from '@/shared'
+import { addToSelection, collapseSelectionTo, enableArthash, enableFancyPlaceholder, hideNSFW, isCommittedSelected, isSelected, postSort, RATING_LEVEL_COLORS, RATING_LEVEL_ICONS, SCORE_LEVEL_COLORS, selectOnly, toggle, togglePendingAt, waifuLevelRgb } from '@/shared'
 import { getPostThumbnailURL, isImageExtension } from '@/utils'
 import { colorNumToHex, labToRgbaString } from '@/utils/color'
 
@@ -16,37 +16,10 @@ function onPointerUp(e: PointerEvent) {
   if (e.button !== 0) {
     return
   }
-  // 如果是右键，且没有按 ctrl 或者 shift，点击的是已经选中的文件，则只选中这个文件
-  if (e.button === 0 && !e.ctrlKey && !e.shiftKey && selectedPostIdSet.value.has(post.value.id)) {
-    // 如果当前节点在 selectingPostIdSet 中，则不操作
-    if (selectingPostIdSet.value.has(post.value.id)) {
-      return
-    }
-    selectedPostIdSet.value = new Set([post.value.id])
+  // 左键、没有 ctrl / shift：若点在已选中项上，则收拢为只选它（拖框刚结束的项除外）。
+  if (!e.ctrlKey && !e.shiftKey) {
+    collapseSelectionTo(post.value.id)
   }
-}
-
-function toggleInSet(target: Set<number | undefined>, id: number) {
-  // Clone-then-mutate keeps the watcher chain firing (Vue ref change detection
-  // is identity-based for Set), while avoiding the per-element copy that
-  // `new Set([...src].filter(...))` does.
-  const next = new Set(target)
-  if (next.has(id)) {
-    next.delete(id)
-  }
-  else {
-    next.add(id)
-  }
-  return next
-}
-
-function addToSet(target: Set<number | undefined>, id: number) {
-  if (target.has(id)) {
-    return target
-  }
-  const next = new Set(target)
-  next.add(id)
-  return next
 }
 
 function onPointerDown(e: PointerEvent) {
@@ -55,23 +28,16 @@ function onPointerDown(e: PointerEvent) {
   }
   const id = post.value.id
   if (e.shiftKey) {
-    if (!selectingPostIdSet.value.has(id) && !selectedPostIdSet.value.has(id)) {
-      selectingPostIdSet.value = addToSet(selectingPostIdSet.value, id)
-    }
-    else {
-      unselectedPostIdSet.value = addToSet(unselectedPostIdSet.value, id)
-    }
+    togglePendingAt(id)
   }
   else if (e.ctrlKey) {
-    selectedPostIdSet.value = toggleInSet(selectedPostIdSet.value, id)
+    toggle(id)
   }
-  else if (!selectedPostIdSet.value.has(id)) {
-    selectedPostIdSet.value = new Set([id])
+  else if (!isCommittedSelected(id)) {
+    selectOnly(id)
   }
 }
-const selected = computed(() => {
-  return (selectedPostIdSet.value.has(post.value.id) || selectingPostIdSet.value.has(post.value.id)) && !unselectedPostIdSet.value.has(post.value.id)
-})
+const selected = computed(() => isSelected(post.value.id))
 
 const isImage = computed(() => isImageExtension(post.value.extension))
 const aspectRatio = computed(() => {
@@ -166,7 +132,12 @@ const placeholderStyle = computed(() => {
 function onContextmenu(e: MouseEvent) {
   e.preventDefault()
   // if shift key is pressed, select or unselect this post
-  selectedPostIdSet.value = e.shiftKey || e.ctrlKey ? new Set([...selectedPostIdSet.value, post.value.id]) : new Set([post.value.id])
+  if (e.shiftKey || e.ctrlKey) {
+    addToSelection(post.value.id)
+  }
+  else {
+    selectOnly(post.value.id)
+  }
 }
 
 // Top-right value badge: when the gallery is sorted by a value-bearing
@@ -247,7 +218,12 @@ function onKeyDown(e: KeyboardEvent) {
   }
   else if (e.key === ' ') {
     e.preventDefault()
-    selectedPostIdSet.value = e.ctrlKey ? toggleInSet(selectedPostIdSet.value, post.value.id) : new Set([post.value.id])
+    if (e.ctrlKey) {
+      toggle(post.value.id)
+    }
+    else {
+      selectOnly(post.value.id)
+    }
   }
 }
 </script>

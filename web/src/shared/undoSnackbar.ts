@@ -1,7 +1,7 @@
 import { ref } from 'vue'
 import { i18n } from '@/locale'
 import { redo, undo } from './history'
-import { selectedPostIdSet } from './state'
+import { selectAll } from './selection'
 
 // Non-component module: go through the global composer.
 const t = i18n.global.t
@@ -35,7 +35,7 @@ export function notifyDid(label: string): void {
 function highlight(postIds: number[]): void {
   // 把受影响的 post 设为当前选中，便于看到变化（选择不进历史栈）。
   if (postIds.length > 0) {
-    selectedPostIdSet.value = new Set(postIds)
+    selectAll(postIds)
   }
 }
 

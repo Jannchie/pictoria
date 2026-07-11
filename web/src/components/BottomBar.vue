@@ -4,7 +4,7 @@ import { computed } from 'vue'
 import { useRoute } from 'vue-router'
 import { v2GetPostsStats } from '@/api'
 import { formatNumber } from '@/locale'
-import { bottomBarInfo, postFilter, queryKeys, RATING_LEVEL_LABEL_KEYS, RATING_LEVEL_SHORT, selectedPostIdSet, usePosts } from '@/shared'
+import { bottomBarInfo, postFilter, queryKeys, RATING_LEVEL_LABEL_KEYS, RATING_LEVEL_SHORT, selectedCount, usePosts } from '@/shared'
 
 const posts = usePosts()
 const route = useRoute()
@@ -52,11 +52,11 @@ function fmtAvg(value: number | null | undefined, fractionDigits = 2): string {
         <span class="text-fg-subtle">{{ $t('bottomBar.displayed') }}</span>
       </span>
       <span
-        v-if="selectedPostIdSet.size > 0"
+        v-if="selectedCount > 0"
         class="text-primary flex gap-1 items-center"
       >
         <i class="i-tabler-checks" aria-hidden="true" />
-        <span class="font-mono tabular-nums">{{ formatNumber(selectedPostIdSet.size) }}</span>
+        <span class="font-mono tabular-nums">{{ formatNumber(selectedCount) }}</span>
         <span>{{ $t('bottomBar.selected') }}</span>
       </span>
       <template v-if="statsQuery.data.value">

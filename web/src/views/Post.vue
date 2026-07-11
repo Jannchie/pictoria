@@ -5,7 +5,7 @@ import { useRoute, useRouter } from 'vue-router'
 import { v2TouchPost } from '@/api'
 import ArthashPlaceholder from '@/components/ArthashPlaceholder.vue'
 import PostDetail from '@/components/PostDetail.vue'
-import { bottomBarInfo, currentPostList, deletePosts, enableArthash, enableFancyPlaceholder, focusedTreeFolder, isAnyDialogOpen, selectedPostIdSet, showPostDetail, similarPostList } from '@/shared'
+import { bottomBarInfo, clear as clearSelection, currentPostList, deletePosts, enableArthash, enableFancyPlaceholder, focusedTreeFolder, isAnyDialogOpen, isCommittedSelected, selectedIdList, selectOnly, showPostDetail, similarPostList } from '@/shared'
 import { POverlay } from '@/ui'
 import PDialog from '@/ui/PDialog.vue'
 import { getPostImageURL } from '@/utils'
@@ -109,7 +109,7 @@ watch(postId, (id) => {
     // 侧边栏照样跟随主图（进入页面、键盘 ←→ 切换）。这样用户框选/Ctrl/Shift 点选
     // 相似图时，选区从空开始累积，只含相似图——与列表瀑布流的多选行为完全一致，
     // 不会再有主图残留导致侧边栏出现 “N/M in view” 的差异。
-    selectedPostIdSet.value = new Set()
+    clearSelection()
     v2TouchPost({ path: { post_id: id } }).catch(() => {})
   }
 }, { immediate: true })
@@ -194,9 +194,7 @@ onKeyStroke([' ', 'Enter'], (e) => {
 const queryClient = useQueryClient()
 const showDeleteConfirm = ref(false)
 const isDeleting = ref(false)
-const pendingDeleteIds = computed(() =>
-  [...selectedPostIdSet.value].filter((id): id is number => typeof id === 'number'),
-)
+const pendingDeleteIds = selectedIdList
 
 onKeyStroke('Delete', (e) => {
   if (!canHandlePageKeys.value || pendingDeleteIds.value.length === 0) {
@@ -221,7 +219,7 @@ async function confirmDelete() {
     // 上一页。只删相似图时留在原地，列表由 deletePosts 自动刷新。
     const removingCurrent = ids.includes(postId.value)
     await deletePosts(queryClient, ids)
-    selectedPostIdSet.value = new Set()
+    clearSelection()
     if (removingCurrent) {
       router.back()
     }
@@ -273,9 +271,9 @@ async function confirmDelete() {
       <div class="px-2 pt-3 flex justify-center">
         <div
           class="main-post-image rounded-lg cursor-pointer relative overflow-hidden"
-          :class="{ 'main-post-selected': selectedPostIdSet.has(postId) }"
+          :class="{ 'main-post-selected': isCommittedSelected(postId) }"
           :style="containerStyle"
-          @click="selectedPostIdSet = new Set([postId])"
+          @click="selectOnly(postId)"
           @dblclick="showPostDetail = { ...post, width: post.width ?? 0, height: post.height ?? 0 }"
         >
           <img
