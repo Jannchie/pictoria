@@ -11,10 +11,10 @@ function isValidId(value: number | undefined): value is number {
 export function usePostQuery(id: MaybeRef<number | undefined>) {
   return useQuery(
     {
-      // Locale appended: tag display names are translated server-side, so a
-      // language switch refetches. invalidateQueries(queryKeys.post(id))
-      // still matches by prefix.
-      queryKey: [...queryKeys.post(id), resolvedLocale],
+      // Locale lives in the key (folded into queryKeys.post) so a language
+      // switch refetches the server-side translated tag names.
+      // invalidateQueries(queryKeys.postRoot(id)) still matches by prefix.
+      queryKey: queryKeys.post(id),
       queryFn: async () => {
         const post_id = unref(id)
         if (!isValidId(post_id)) {

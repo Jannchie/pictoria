@@ -66,7 +66,7 @@ const countQuery = useQuery({
 // unlike the other facets — the counts don't sum to the post total; dividing by
 // it makes the '%' read as "share of these posts that carry this tag".
 const postTotalQuery = useQuery({
-  queryKey: computed(() => ['count', 'tags-total', filterWithoutSelf.value]),
+  queryKey: computed(() => queryKeys.tagsTotalCount(filterWithoutSelf.value)),
   queryFn: async () => {
     const resp = await v2GetPostsCount({ body: filterWithoutSelf.value })
     return resp.data?.count ?? 0

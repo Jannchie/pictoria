@@ -7,6 +7,7 @@ import { v2GenerateAbsolute, v2GeneratePairwise, v2ListQueues } from '@/api'
 import AbsoluteAnnotationSession from '@/components/annotate/AbsoluteAnnotationSession.vue'
 import PairwiseAnnotationSession from '@/components/annotate/PairwiseAnnotationSession.vue'
 import { useAPIError } from '@/composables/useAPIError'
+import { queryKeys } from '@/shared/queryKeys'
 
 const { handle: handleAPIError } = useAPIError()
 
@@ -18,7 +19,7 @@ type Session
 const session = ref<Session | null>(null)
 
 const { data: queues, refetch } = useQuery({
-  queryKey: ['annotation-queues'],
+  queryKey: queryKeys.annotationQueues,
   queryFn: async () => {
     const resp = await v2ListQueues()
     return resp.data ?? []

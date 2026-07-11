@@ -66,6 +66,7 @@ declare global {
   const markRaw: typeof import('vue').markRaw
   const nextRovingIndex: typeof import('./composables/useRovingIndex').nextRovingIndex
   const nextTick: typeof import('vue').nextTick
+  const notUsingInput: typeof import('./composables/useKeyScope').notUsingInput
   const onActivated: typeof import('vue').onActivated
   const onBeforeMount: typeof import('vue').onBeforeMount
   const onBeforeUnmount: typeof import('vue').onBeforeUnmount
@@ -104,7 +105,9 @@ declare global {
   const refThrottled: typeof import('@vueuse/core').refThrottled
   const refWithControl: typeof import('@vueuse/core').refWithControl
   const resolveComponent: typeof import('vue').resolveComponent
+  const resolveKeyScope: typeof import('./composables/useKeyScope').resolveKeyScope
   const resolveRef: typeof import('@vueuse/core').resolveRef
+  const resolveScoreScope: typeof import('./composables/useKeyScope').resolveScoreScope
   const resolveUnref: typeof import('@vueuse/core')['resolveUnref']
   const resolvedLocale: typeof import('./locale/index').resolvedLocale
   const shallowReactive: typeof import('vue').shallowReactive
@@ -212,6 +215,7 @@ declare global {
   const useInterval: typeof import('@vueuse/core').useInterval
   const useIntervalFn: typeof import('@vueuse/core').useIntervalFn
   const useKeyModifier: typeof import('@vueuse/core').useKeyModifier
+  const useKeyScope: typeof import('./composables/useKeyScope').useKeyScope
   const useLastChanged: typeof import('@vueuse/core').useLastChanged
   const useLocalStorage: typeof import('@vueuse/core').useLocalStorage
   const useMagicKeys: typeof import('@vueuse/core').useMagicKeys
@@ -254,6 +258,7 @@ declare global {
   const useResizeObserver: typeof import('@vueuse/core').useResizeObserver
   const useRovingIndex: typeof import('./composables/useRovingIndex').useRovingIndex
   const useSSRWidth: typeof import('@vueuse/core').useSSRWidth
+  const useScoreHotkeys: typeof import('./composables/useKeyScope').useScoreHotkeys
   const useScreenOrientation: typeof import('@vueuse/core').useScreenOrientation
   const useScreenSafeArea: typeof import('@vueuse/core').useScreenSafeArea
   const useScriptTag: typeof import('@vueuse/core').useScriptTag
@@ -342,6 +347,9 @@ declare global {
   // @ts-ignore
   export type { FocusMode } from './composables/useFocusedPost'
   import('./composables/useFocusedPost')
+  // @ts-ignore
+  export type { KeyScope, KeyScopeInputs, ScoreScope } from './composables/useKeyScope'
+  import('./composables/useKeyScope')
   // @ts-ignore
   export type { UseRovingIndexOptions } from './composables/useRovingIndex'
   import('./composables/useRovingIndex')

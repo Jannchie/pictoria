@@ -269,6 +269,7 @@ const en = {
   error: {
     unknown: 'Unknown error',
     requestFailed: 'Request failed',
+    uploadFailed: 'Failed to upload file',
     waifuComputeFailed: 'Failed to calculate waifu score',
     silvaComputeFailed: 'Failed to calculate SILVA score',
   },

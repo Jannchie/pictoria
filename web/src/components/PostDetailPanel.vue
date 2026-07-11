@@ -118,7 +118,7 @@ async function calculateWaifuScore() {
         post_id: post.value.id,
       },
     })
-    queryClient.invalidateQueries({ queryKey: queryKeys.post(post.value.id) })
+    queryClient.invalidateQueries({ queryKey: queryKeys.postRoot(post.value.id) })
   }
   catch (error) {
     handleAPIError(error, t('error.waifuComputeFailed'))
@@ -146,7 +146,7 @@ async function calculateSilvaScore() {
         post_id: post.value.id,
       },
     })
-    queryClient.invalidateQueries({ queryKey: queryKeys.post(post.value.id) })
+    queryClient.invalidateQueries({ queryKey: queryKeys.postRoot(post.value.id) })
   }
   catch (error) {
     handleAPIError(error, t('error.silvaComputeFailed'))

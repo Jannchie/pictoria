@@ -266,6 +266,7 @@ const zhHans: MessageSchema = {
   error: {
     unknown: '未知错误',
     requestFailed: '请求失败',
+    uploadFailed: '上传文件失败',
     waifuComputeFailed: '计算 Waifu 评分失败',
     silvaComputeFailed: '计算 SILVA 评分失败',
   },

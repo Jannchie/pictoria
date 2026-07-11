@@ -17,7 +17,7 @@ const mutation = useMutation({
   },
   onSuccess: () => {
     queryClient.invalidateQueries({
-      queryKey: queryKeys.post(id),
+      queryKey: queryKeys.postRoot(id),
     })
   },
 })

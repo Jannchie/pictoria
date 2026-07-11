@@ -6,10 +6,10 @@ import { resolvedLocale } from '@/locale'
 import { queryKeys } from '@/shared/queryKeys'
 
 const tagQuery = useQuery({
-  // Locale appended: translated tag names come from the server, so a
-  // language switch refetches. invalidateQueries(queryKeys.tags) still
-  // matches by prefix.
-  queryKey: [...queryKeys.tags, resolvedLocale],
+  // Locale lives in the key (folded into queryKeys.tags) so a language switch
+  // refetches the server-side translated names. invalidateQueries(
+  // queryKeys.tagsRoot) still matches by prefix.
+  queryKey: queryKeys.tags(),
   queryFn: async () => {
     const resp = await v2ListTags({ query: { lang: resolvedLocale.value } })
     if (resp.error) {

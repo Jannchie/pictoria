@@ -1,8 +1,13 @@
 <script setup lang="ts">
 import { useQueryClient } from '@tanstack/vue-query'
+import { useI18n } from 'vue-i18n'
 import { useRoute } from 'vue-router'
 import { v2UploadFile } from '@/api'
+import { useAPIError } from '@/composables/useAPIError'
 import { queryKeys } from '@/shared/queryKeys'
+
+const { t } = useI18n()
+const { handle: handleAPIError } = useAPIError()
 
 const isDraggingFiles = ref(false)
 const dragEnterCount = ref(0)
@@ -20,7 +25,7 @@ async function onUploadFile(file: File, path: string | null, source?: string) {
     queryClient.invalidateQueries({ queryKey: queryKeys.postsRoot })
   }
   catch (error) {
-    console.error(error)
+    handleAPIError(error, t('error.uploadFailed'))
   }
 }
 
@@ -100,7 +105,7 @@ useEventListener(globalThis, 'drop', async (event: DragEvent) => {
         }
       }
       catch (error) {
-        console.error(error)
+        handleAPIError(error, t('error.uploadFailed'))
       }
     }
   }

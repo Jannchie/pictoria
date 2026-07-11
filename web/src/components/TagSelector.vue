@@ -32,9 +32,9 @@ const tagGroups = computed(() => {
 })
 
 const tagsQuery = useQuery({
-  // Shares the Tags page cache; locale in the key so a language switch
-  // refetches the server-side translated names.
-  queryKey: [...queryKeys.tags, resolvedLocale],
+  // Shares the Tags page cache; locale folded into queryKeys.tags so a
+  // language switch refetches the server-side translated names.
+  queryKey: queryKeys.tags(),
   queryFn: async () => {
     const resp = await v2ListTags({ query: { lang: resolvedLocale.value } })
     return resp.data ?? []
