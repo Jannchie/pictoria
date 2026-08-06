@@ -11,6 +11,8 @@ from __future__ import annotations
 
 import asyncio
 import json
+from collections import Counter
+from itertools import pairwise
 from typing import TYPE_CHECKING, Any
 
 from db.asyncbridge import in_thread
@@ -36,6 +38,62 @@ _SIMILAR_SCORE_BAND = 1  # |score_a - score_b| <= band -> same or adjacent score
 # itself can't separate (directional accuracy ~0.51-0.64 there) — the boundary pairs that
 # carry the preference signal absolute labels can't teach. ~36% of random pairs fall under it.
 _CLOSE_PAIR_MAX_SILVA_DIFF = 0.10
+
+# How many comparisons each picture should take part in. A preference model infers a
+# global order from CHAINS — a>b, b>c ⇒ a>c — so a picture judged once contributes an
+# isolated edge and no chain. Measured on the first 2726 ``overall`` annotations, which
+# were collected while pairing was strictly disjoint: 5260 pictures, 96.5% of them
+# compared exactly once, and the resulting training signal was "mildly positive but not
+# significant". 3 is the practical floor for a graph that both connects and tolerates a
+# noisy verdict; the cost is that a round of N comparisons now covers ~2N/3 pictures
+# instead of 2N, which is the trade that makes those comparisons rankable at all.
+_CLOSE_PAIR_DEGREE = 3
+
+# Share of a ``close`` round spent on BRIDGES between KNN neighbourhoods. Degree alone
+# only connects a neighbourhood internally: each seed's cluster becomes its own chain, and
+# on the real 108k library random seeds almost never share members, so a 200-pair round
+# came out as 9 separate islands holding 12% of the pictures each. A ranking can only be
+# inferred inside a component, so a handful of cross-cluster edges is not decoration — it
+# is what makes the round one rankable graph instead of nine. Bridges are picked between
+# the SILVA-closest representatives of adjacent clusters, so they stay as informative as
+# the band allows while doing the connecting.
+# Edges harvested per KNN neighbourhood. A brute-force vec0 KNN is ~1.5s on the 108k
+# library and dominates the whole call, so the cap should let one neighbourhood pay for
+# itself: with k=48 members at degree 3 the topology admits up to 72 edges, and 48 leaves
+# headroom for the band rejecting members. The earlier value (PAIRS_PER_CLUSTER * DEGREE
+# = 24) forced twice as many KNN scans for the same round.
+_CLOSE_PAIRS_PER_CLUSTER = 48
+
+
+class _PairGraph:
+    """Edge bookkeeping for one sampling round: what has been asked, and how often each
+    picture has been used.
+
+    Exists so the pairing passes and the bridging pass share one notion of "spent" instead
+    of each carrying ``out`` / ``emitted`` / ``degrees`` / ``cap`` as loose arguments.
+    ``saturated`` is maintained incrementally rather than rebuilt from ``degrees`` per seed.
+    """
+
+    def __init__(self, degree: int) -> None:
+        self.degree = degree
+        self.degrees: Counter[int] = Counter()
+        self.emitted: set[frozenset[int]] = set()
+        self.saturated: set[int] = set()
+
+    def spent(self, pid: int) -> bool:
+        return self.degrees[pid] >= self.degree
+
+    def claim(self, a: int, b: int) -> tuple[int, int] | None:
+        """Record the comparison, or ``None`` if it is a self-pair or already asked."""
+        key = frozenset((a, b))
+        if a == b or key in self.emitted:
+            return None
+        self.emitted.add(key)
+        for pid in (a, b):
+            self.degrees[pid] += 1
+            if self.spent(pid):
+                self.saturated.add(pid)
+        return (a, b)
 
 
 def _aliased_post_cols(table_alias: str, out_prefix: str) -> str:
@@ -249,26 +307,31 @@ class AnnotationQueueRepo:
                 continue
             # _pair_by_score_band tolerates a lone-seed cluster (returns []),
             # so no member-count guard is needed here.
-            members = self._similar_cluster(seed, used)
+            members = self._similar_cluster(seed, used)  # `similar` stays strictly disjoint
             cap = min(_SIMILAR_PAIRS_PER_CLUSTER, count - len(pairs))
             pairs.extend(self._pair_by_score_band(members, used, cap))
             used.add(seed)  # consumed as a centre — don't re-draw or re-pair it
         return pairs[:count]
 
-    def _similar_cluster(self, seed: int, used: set[int]) -> list[tuple[int, int | None]]:
+    def _similar_cluster(self, seed: int, exclude: set[int]) -> list[tuple[int, int | None]]:
         """``(id, score)`` of eligible posts in ``seed``'s KNN neighbourhood.
 
         Includes ``seed`` itself; drops near-duplicates (a near-identical pair
-        is a foregone tie), already-used ids, and ids failing pairwise
+        is a foregone tie), ids in ``exclude``, and ids failing pairwise
         eligibility. Returns ``[]`` when ``seed`` has no embedding —
         ``knn_sync`` short-circuits then (vec0's MATCH rejects a NULL query
         vector with a hard error).
+
+        ``exclude`` is what each strategy considers spent: ``similar`` passes the
+        already-paired ids (strictly disjoint), ``close`` passes only the ids that have
+        reached :data:`_CLOSE_PAIR_DEGREE`, so a picture can recur across neighbourhoods
+        and stitch them into one comparison graph.
         """
         knn = self._vectors.knn_sync(seed, _SIMILAR_KNN_K)
         if not knn:
             return []
         member_ids = [seed]
-        member_ids += [pid for pid, dist in knn if pid != seed and dist >= _SIMILAR_MIN_DISTANCE and pid not in used]
+        member_ids += [pid for pid, dist in knn if pid != seed and dist >= _SIMILAR_MIN_DISTANCE and pid not in exclude]
         ph = sql_placeholders(member_ids)
         self.cur.execute(
             f"SELECT p.id, p.score FROM posts p WHERE p.id IN ({ph}) AND {self._PAIRWISE_ELIGIBLE}",  # noqa: S608
@@ -326,57 +389,129 @@ class AnnotationQueueRepo:
         )
         return dict(self.cur.fetchall())
 
-    def _pair_by_silva_band(self, member_ids: list[int], used: set[int], cap: int) -> list[tuple[int, int]]:
-        """Greedily pair cluster members the SILVA head scores CLOSE into disjoint pairs.
+    def _pair_by_silva_band(
+        self, member_ids: list[int], graph: _PairGraph, cap: int,
+    ) -> tuple[list[tuple[int, int]], tuple[int, float] | None]:
+        """Chain cluster members the SILVA head scores CLOSE into a connected sub-graph.
 
-        Members sort by SILVA score and pair with their nearest-in-score neighbour
-        (consecutive-in-sorted is the smallest gap); a pair is kept only when that gap is
-        within ``_CLOSE_PAIR_MAX_SILVA_DIFF``, so every emitted pair is one the model can't
-        confidently separate — the opposite of a foregone high-confidence comparison. A
-        score-isolated member is stranded rather than forced into a wide pair. Members
-        without a SILVA score are skipped; ``used`` is mutated to keep the batch disjoint.
+        Returns the edges plus the cluster's ``(representative, score)`` — its median
+        member — which :meth:`_sample_pairs_close` uses to bridge this cluster to the next.
+        Returning it here avoids re-reading and re-sorting the same scores later.
+
+        Members sort by SILVA score and are linked in two passes:
+
+        1. **Spine** — consecutive members (i, i+1). This alone is a path through the whole
+           cluster, so the cluster is connected before any other edge is considered.
+        2. **Thicken** — further in-band edges until each picture carries ``graph.degree``
+           comparisons, giving the redundancy a noisy verdict needs.
+
+        The order matters. Thickening greedily from the first member instead builds a
+        *clique* out of the earliest few and leaves the rest untouched: with degree 3 the
+        first four members saturate each other and a 12-member cluster comes out as three
+        disconnected blocks of four. Connectivity has to be laid down first and decorated
+        second, never inferred from a degree target.
+
+        Every edge stays inside ``_CLOSE_PAIR_MAX_SILVA_DIFF`` — degree is not bought by
+        relaxing difficulty. Members without a SILVA score are skipped.
         """
-        silva = self._load_silva_scores([pid for pid in member_ids if pid not in used])
-        scored = sorted(((pid, silva[pid]) for pid in member_ids if pid in silva and pid not in used), key=lambda t: t[1])
+        silva = self._load_silva_scores(member_ids)
+        scored = sorted(((pid, silva[pid]) for pid in member_ids if pid in silva), key=lambda t: t[1])
+        if not scored:
+            return [], None
+
         out: list[tuple[int, int]] = []
-        i = 0
-        while i + 1 < len(scored) and len(out) < cap:
-            (a, sa), (b, sb) = scored[i], scored[i + 1]
-            if abs(sa - sb) <= _CLOSE_PAIR_MAX_SILVA_DIFF:
-                out.append((a, b))
-                used.update((a, b))
-                i += 2
-            else:
-                i += 1  # `a` has no close-enough partner among the higher SILVA scores
-        return out
+
+        def take(a: int, b: int) -> None:
+            if len(out) < cap and (edge := graph.claim(a, b)):
+                out.append(edge)
+
+        for (a, sa), (b, sb) in pairwise(scored):  # pass 1: the spine
+            if sb - sa <= _CLOSE_PAIR_MAX_SILVA_DIFF:
+                take(a, b)
+
+        for i, (a, sa) in enumerate(scored):  # pass 2: thicken to the degree target
+            for j in range(i + 2, len(scored)):  # i+1 is already a spine edge
+                b, sb = scored[j]
+                if sb - sa > _CLOSE_PAIR_MAX_SILVA_DIFF or graph.spent(a):
+                    break  # sorted: every later member is further still
+                if not graph.spent(b):
+                    take(a, b)
+        return out, scored[len(scored) // 2]
 
     def _sample_pairs_close(self, count: int) -> list[tuple[int, int]]:
         """Visually-similar (KNN) pairs the SILVA head scores close — the boundary pairs.
 
         Same per-seed neighbourhood harvesting as ``_sample_pairs_similar``, but pairs via
-        :meth:`_pair_by_silva_band` (model score gap) instead of the human old-score band.
-        Seeds are oversampled more heavily than ``similar`` because the close-score
-        constraint rejects more cluster members.
+        :meth:`_pair_by_silva_band` (model score gap) instead of the human old-score band,
+        with two changes that decide whether the round is rankable at all:
+
+        * each picture is compared :data:`_CLOSE_PAIR_DEGREE` times rather than once, so a
+          neighbourhood yields a chain instead of a matching;
+        * the neighbourhoods are then linked to each other — chains that never meet still
+          cannot be ranked against one another. On the real library random seeds share
+          almost no members, so without this a round comes back as one island per seed.
         """
-        clusters = max(1, -(-count // _SIMILAR_PAIRS_PER_CLUSTER))  # ceil(count / PPC)
+        clusters = max(1, -(-count // _CLOSE_PAIRS_PER_CLUSTER))
         self.cur.execute(
             f"SELECT p.id FROM posts p WHERE {self._PAIRWISE_ELIGIBLE} ORDER BY RANDOM() LIMIT ?",  # noqa: S608
             [clusters * 6],
         )
         seeds = [row[0] for row in self.cur.fetchall()]
-        used: set[int] = set()
-        pairs: list[tuple[int, int]] = []
+        graph = _PairGraph(_CLOSE_PAIR_DEGREE)
+        blocks: list[tuple[list[tuple[int, int]], tuple[int, float]]] = []
+        harvested = 0
+
         for seed in seeds:
-            if len(pairs) >= count:
+            if harvested >= count:
                 break
-            if seed in used:
+            if seed in graph.saturated:
                 continue
-            members = self._similar_cluster(seed, used)  # [(id, old_score)] in seed's KNN nbhd
-            member_ids = [pid for pid, _ in members]
-            cap = min(_SIMILAR_PAIRS_PER_CLUSTER, count - len(pairs))
-            pairs.extend(self._pair_by_silva_band(member_ids, used, cap))
-            used.add(seed)  # consumed as a centre — don't re-draw or re-pair it
-        return pairs[:count]
+            members = self._similar_cluster(seed, graph.saturated)
+            cap = min(_CLOSE_PAIRS_PER_CLUSTER, count - harvested)
+            edges, rep = self._pair_by_silva_band([pid for pid, _ in members], graph, cap)
+            if edges and rep:
+                blocks.append((edges, rep))
+                harvested += len(edges)
+
+        return self._interleave_with_bridges(blocks, graph, count)
+
+    @staticmethod
+    def _interleave_with_bridges(
+        blocks: list[tuple[list[tuple[int, int]], tuple[int, float]]], graph: _PairGraph, count: int,
+    ) -> list[tuple[int, int]]:
+        """Lay the clusters out in SILVA order, each followed by a bridge to the next.
+
+        Two properties this ordering buys, neither of which a trailing bridge block has:
+
+        * **Every prefix is connected.** The queue is served in position order and the
+          annotator stops whenever they like, so bridges appended at the end are precisely
+          the edges never reached — a half-finished round would come back as one island per
+          cluster, which is the pathology the degree work exists to prevent.
+        * **Bridges join the most alike neighbourhoods.** Sorting the clusters by score
+          first means each bridge spans the smallest available gap, so it is a comparison
+          the rater can still make rather than an arbitrary cross-link.
+
+        Bridges are not a fixed share of the budget: connecting ``k`` clusters needs
+        ``k - 1`` edges and no fewer. A cap that silently dropped them would return a
+        disconnected round indistinguishable from a connected one.
+        """
+        blocks.sort(key=lambda blk: blk[1][1])
+        out: list[tuple[int, int]] = []
+        for i, (edges, (rep, _)) in enumerate(blocks):
+            out.extend(edges)
+            if i + 1 < len(blocks) and (edge := graph.claim(rep, blocks[i + 1][1][0])):
+                out.append(edge)
+        return out[:count]
+
+
+    @in_thread
+    def mark_done(self, queue_id: int, *, kind: str, position: int) -> bool:
+        table = _ITEM_TABLES[kind]
+        self.cur.execute(
+            f"UPDATE {table} SET done = 1 WHERE queue_id = ? AND position = ?",  # noqa: S608
+            [queue_id, position],
+        )
+        return self.cur.rowcount > 0
 
     async def sample_absolute_items(self, *, count: int, strategy: str, dimensions: list[str]) -> list[dict[str, Any]]:
         """Sample candidates with image fields — queue-less streaming annotation."""
@@ -412,12 +547,3 @@ class AnnotationQueueRepo:
             return out
 
         return await asyncio.to_thread(_impl)
-
-    @in_thread
-    def mark_done(self, queue_id: int, *, kind: str, position: int) -> bool:
-        table = _ITEM_TABLES[kind]
-        self.cur.execute(
-            f"UPDATE {table} SET done = 1 WHERE queue_id = ? AND position = ?",  # noqa: S608
-            [queue_id, position],
-        )
-        return self.cur.rowcount > 0

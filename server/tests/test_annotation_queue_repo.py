@@ -2,12 +2,13 @@
 
 from __future__ import annotations
 
+from collections import Counter
 from typing import TYPE_CHECKING
 
 import pytest
 import sqlite_vec
 
-from db.repositories.annotation_queues import AnnotationQueueRepo
+from db.repositories.annotation_queues import _CLOSE_PAIR_MAX_SILVA_DIFF, AnnotationQueueRepo
 from db.repositories.annotations import AnnotationRepo
 
 if TYPE_CHECKING:
@@ -156,15 +157,18 @@ def _seed_silva(db: DB, scores: dict[int, float]) -> None:
 async def test_sample_pairs_close_pairs_by_silva_band(db: DB, queues: AnnotationQueueRepo) -> None:
     # All five are mutual neighbours (orthogonal embeddings), so pairing is driven by
     # the SILVA score gap, not the human band: 1/2/3 cluster near 0.5 and 4/5 near 0.9.
-    # Sorted by silva [1:.50, 3:.51, 2:.52, 4:.90, 5:.91] greedy-adjacent yields (1,3)
-    # and (4,5); 2 is stranded (its only remaining neighbour 4 is 0.38 away > 0.10).
+    # 排序后 [1:.50, 3:.51, 2:.52, 4:.90, 5:.91]，spine 连出 (1,3)(3,2)(4,5)——
+    # (2,4) 相距 0.38 超出 band 所以断开，两个团各自成链。
+    #
+    # 注意 close 已**不再** disjoint：一张图参与 _CLOSE_PAIR_DEGREE 次比较是有意为之，
+    # 否则比较图退化成孤立边、推不出全局序（见下方 connected/degree 两个测试）。
+    # 保持不变的契约是：同一对不问两次，且每条边都在 band 内。
     _seed_distinct_embeddings(db, [1, 2, 3, 4, 5])
     silva = {1: 0.50, 2: 0.52, 3: 0.51, 4: 0.90, 5: 0.91}
     _seed_silva(db, silva)
-    pairs = await queues.sample_pairs(count=2, strategy="close")
-    assert len(pairs) == 2
-    flat = [p for pair in pairs for p in pair]
-    assert len(flat) == len(set(flat))  # disjoint
+    pairs = await queues.sample_pairs(count=3, strategy="close")
+    assert len(pairs) == 3
+    assert len({frozenset(p) for p in pairs}) == 3  # 同一对不重复
     for a, b in pairs:
         assert a != b
         assert abs(silva[a] - silva[b]) <= 0.10  # only model-close (boundary) pairs emitted
@@ -192,3 +196,99 @@ async def test_sample_pairwise_items_carry_image_fields(db: DB, queues: Annotati
     assert len(items) == 2
     assert "a_post_id" in items[0]
     assert "b_file_name" in items[0]
+
+
+# ─── close strategy: a rankable comparison graph ──────────────────
+#
+# 首轮 2726 条 overall 标注里 96.5% 的图只被比较过一次，比较图是一堆孤立边。
+# Bradley-Terry 靠 A>B、B>C ⇒ A>C 的链条推全局序，孤立边给不出任何链——这才是
+# 那批数据「温和正向但不显著」的真正原因（不是量不够，也不是 loss 不对）。
+
+def _seed_close_cluster(db: DB, n: int = 12) -> dict[int, float]:
+    """n mutual neighbours whose SILVA scores are evenly spread, adjacent gap << band."""
+    cur = db.cursor()
+    silva = {}
+    for i in range(1, n + 1):
+        cur.execute("INSERT OR IGNORE INTO posts (id, file_path, file_name, extension, score) VALUES (?, ?, ?, 'png', 0)",
+                    [i, f"/p{i}", f"p{i}"])
+        vec = [0.0] * 1152
+        vec[i % 1152] = 1.0
+        cur.execute("INSERT OR REPLACE INTO post_vectors_siglip2 (post_id, embedding) VALUES (?, ?)",
+                    [i, sqlite_vec.serialize_float32(vec)])
+        silva[i] = 0.40 + i * 0.01  # 相邻差 0.01，远小于 _CLOSE_PAIR_MAX_SILVA_DIFF
+    cur.execute("DELETE FROM post_aesthetic_scores")
+    for pid, s in silva.items():
+        cur.execute("INSERT INTO post_aesthetic_scores (post_id, scorer, score) VALUES (?, 'silva', ?)", [pid, s])
+    return silva
+
+
+async def test_close_pairs_give_each_post_several_comparisons(db: DB, queues: AnnotationQueueRepo) -> None:
+    """One comparison per picture degenerates into isolated edges; degree builds the chains."""
+    _seed_close_cluster(db, n=12)
+    pairs = await queues.sample_pairs(count=18, strategy="close")
+    assert len(pairs) >= 12
+    counts = Counter(p for pair in pairs for p in pair)
+    assert max(counts.values()) > 1, "每张图仍然只被比较一次——比较图还是孤立边"
+    assert sum(1 for c in counts.values() if c == 1) / len(counts) < 0.5
+
+
+async def test_close_pairs_form_one_connected_comparison_graph(db: DB, queues: AnnotationQueueRepo) -> None:
+    """A ranking can only be inferred inside a connected component."""
+    _seed_close_cluster(db, n=12)
+    pairs = await queues.sample_pairs(count=18, strategy="close")
+
+    parent = {p: p for pair in pairs for p in pair}
+
+    def find(x: int) -> int:
+        while parent[x] != x:
+            parent[x] = parent[parent[x]]
+            x = parent[x]
+        return x
+
+    for a, b in pairs:
+        parent[find(a)] = find(b)
+    assert len({find(p) for p in parent}) == 1, "比较图分裂成多个互不连通的孤岛"
+
+
+async def test_close_pairs_never_repeat_the_same_question(db: DB, queues: AnnotationQueueRepo) -> None:
+    """A picture may recur across comparisons; the same pair must never be asked twice."""
+    _seed_close_cluster(db, n=12)
+    pairs = await queues.sample_pairs(count=20, strategy="close")
+    assert len({frozenset(p) for p in pairs}) == len(pairs)
+    for a, b in pairs:
+        assert a != b
+
+
+async def test_close_pairs_still_respect_the_silva_band(db: DB, queues: AnnotationQueueRepo) -> None:
+    """Degree must not be bought by relaxing difficulty: local edges stay inside the band."""
+    silva = _seed_close_cluster(db, n=12)
+    pairs = await queues.sample_pairs(count=18, strategy="close")
+    local = [p for p in pairs if abs(silva[p[0]] - silva[p[1]]) <= _CLOSE_PAIR_MAX_SILVA_DIFF]
+    assert len(local) / len(pairs) >= 0.85
+
+
+async def test_close_pairs_are_connected_at_every_prefix(db: DB, queues: AnnotationQueueRepo) -> None:
+    """Bridges must be interleaved, not appended, because a queue is served in position
+    order and the annotator stops whenever they like.
+
+    Appended bridges are exactly the edges a half-finished round never reaches, so it would
+    come back as one island per cluster - the pathology the degree work exists to prevent.
+    Hence the assertion is that EVERY prefix is connected, not just the whole round.
+    """
+    _seed_close_cluster(db, n=12)
+    pairs = await queues.sample_pairs(count=18, strategy="close")
+    assert len(pairs) >= 6
+
+    for cut in range(2, len(pairs) + 1):
+        prefix = pairs[:cut]
+        parent = {p: p for pair in prefix for p in pair}
+
+        def find(x: int, parent: dict[int, int] = parent) -> int:
+            while parent[x] != x:
+                parent[x] = parent[parent[x]]
+                x = parent[x]
+            return x
+
+        for a, b in prefix:
+            parent[find(a)] = find(b)
+        assert len({find(p) for p in parent}) == 1, f"前 {cut} 条边就已经分裂成孤岛"
