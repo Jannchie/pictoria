@@ -2,6 +2,7 @@
 import { useQuery } from '@tanstack/vue-query'
 import { computed } from 'vue'
 import { v2PostHistory } from '@/api'
+import { flagGlyph, winnerLabel } from '@/shared'
 import { queryKeys } from '@/shared/queryKeys'
 
 const props = defineProps<{ postId: number }>()
@@ -36,14 +37,14 @@ const sectionTitleClass
     </div>
     <div class="text-xs flex flex-col gap-1">
       <div v-if="data?.contentFlag">
-        {{ data.contentFlag === 'love' ? '❤️' : '💢' }} {{ data.contentFlag }}
+        {{ flagGlyph(data.contentFlag) }} {{ data.contentFlag }}
       </div>
       <div v-for="a in data?.absolute" :key="`abs-${a.id}`" class="text-fg-muted flex justify-between">
         <span>{{ a.dimension }} = {{ a.value }}/{{ a.scale }}</span>
         <span>{{ a.createdAt.slice(0, 10) }}</span>
       </div>
       <div v-for="p in data?.pairwise" :key="`pw-${p.id}`" class="text-fg-muted flex justify-between">
-        <span>{{ p.dimension }}: #{{ p.postA }} vs #{{ p.postB }} → {{ p.winner }}</span>
+        <span>{{ p.dimension }}: #{{ p.postA }} vs #{{ p.postB }} → {{ winnerLabel(p.winner) }}</span>
         <span>{{ p.createdAt.slice(0, 10) }}</span>
       </div>
     </div>

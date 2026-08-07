@@ -39,6 +39,11 @@ _ALLOWED_TABLES: dict[str, int] = {
     SIGLIP2_TABLE: SIGLIP2_DIM,
 }
 
+# Ids per ``IN (...)`` batch. SQLite's SQLITE_MAX_VARIABLE_NUMBER is 32766 on
+# modern builds but 999 on older ones; 900 stays under both without making the
+# chunk count matter.
+_IN_CHUNK = 900
+
 
 def _decode_vec_blob(value: bytes | bytearray | memoryview) -> list[float]:
     raw = bytes(value)
@@ -144,6 +149,52 @@ class VectorRepo:
             [post_id],
         )
         return self.cur.fetchone() is not None
+
+    def existing_sync(self, post_ids: list[int]) -> set[int]:
+        """Which of ``post_ids`` have an embedding — one ``IN (...)`` per chunk.
+
+        Batch counterpart of :meth:`exists_sync`, for callers filtering a whole
+        candidate list. A vec0 point lookup is a virtual-table probe, not a
+        B-tree probe: measured on the 214k-row library it costs ~1.5ms, so a
+        per-id loop over an oversampled draw (800 ids for a 200-pair round) burns
+        over a second before any real work starts. One ``IN (...)`` covers the
+        same ids at ~0.6ms each.
+
+        Unlike :meth:`get_many` this never decodes the embedding blobs — the
+        caller only wants to know which ids are present.
+        """
+        found: set[int] = set()
+        for start in range(0, len(post_ids), _IN_CHUNK):
+            chunk = post_ids[start : start + _IN_CHUNK]
+            self.cur.execute(
+                f"SELECT post_id FROM {self.table} WHERE post_id IN ({sql_placeholders(chunk)})",  # noqa: S608
+                chunk,
+            )
+            found.update(row[0] for row in self.cur.fetchall())
+        return found
+
+    def unit_vectors_sync(self, post_ids: list[int]) -> dict[int, np.ndarray]:
+        """L2-normalised embeddings for ``post_ids``, so a dot product IS the cosine.
+
+        For callers comparing candidates to EACH OTHER rather than to a query vector —
+        vec0's KNN only ever answers "how far from the seed", which says nothing about how
+        far two of its neighbours are from one another.
+        """
+        import numpy as np  # noqa: PLC0415
+
+        if not post_ids:
+            return {}
+        self.cur.execute(
+            f"SELECT post_id, embedding FROM {self.table} WHERE post_id IN ({sql_placeholders(post_ids)})",  # noqa: S608
+            post_ids,
+        )
+        out: dict[int, np.ndarray] = {}
+        for pid, blob in self.cur.fetchall():
+            vec = np.frombuffer(bytes(blob), dtype=np.float32)
+            norm = float(np.linalg.norm(vec))
+            if norm:
+                out[pid] = vec / norm
+        return out
 
     def knn_sync(self, seed_post_id: int, k: int) -> list[tuple[int, float]]:
         """Raw KNN rows ``(post_id, distance)`` around ``seed_post_id``, nearest first.

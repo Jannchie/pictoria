@@ -194,11 +194,6 @@ function fmtAvg(value: number | null | undefined): string {
           </span>
         </div>
       </section>
-
-      <!-- Hint stays last: informative, not the headline. -->
-      <div class="text-fg-subtle py-3 text-balance">
-        {{ $t('rightPanel.emptyHint') }}
-      </div>
     </div>
   </PScrollArea>
 </template>

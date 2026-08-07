@@ -3,6 +3,8 @@
 // mutations, query-key identity, rating bounds) can be reasoned about on its
 // own; everything is re-exported here so `@/shared` stays the single import.
 
+export * from './annotationReview'
+export * from './annotationTimeline'
 export * from './commandPalette'
 export * from './history'
 export * from './mutations'

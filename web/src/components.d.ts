@@ -14,6 +14,8 @@ declare module 'vue' {
   export interface GlobalComponents {
     AbsoluteAnnotationSession: typeof import('./components/annotate/AbsoluteAnnotationSession.vue')['default']
     AnnotationHistory: typeof import('./components/AnnotationHistory.vue')['default']
+    AnnotationReviewBanner: typeof import('./components/annotate/AnnotationReviewBanner.vue')['default']
+    AnnotationTimeline: typeof import('./components/annotate/AnnotationTimeline.vue')['default']
     ArthashPlaceholder: typeof import('./components/ArthashPlaceholder.vue')['default']
     AutoGenerateCaptionBtn: typeof import('./components/AutoGenerateCaptionBtn.vue')['default']
     AutoGenerateTagBtn: typeof import('./components/AutoGenerateTagBtn.vue')['default']
@@ -86,6 +88,8 @@ declare module 'vue' {
 declare global {
   const AbsoluteAnnotationSession: typeof import('./components/annotate/AbsoluteAnnotationSession.vue')['default']
   const AnnotationHistory: typeof import('./components/AnnotationHistory.vue')['default']
+  const AnnotationReviewBanner: typeof import('./components/annotate/AnnotationReviewBanner.vue')['default']
+  const AnnotationTimeline: typeof import('./components/annotate/AnnotationTimeline.vue')['default']
   const ArthashPlaceholder: typeof import('./components/ArthashPlaceholder.vue')['default']
   const AutoGenerateCaptionBtn: typeof import('./components/AutoGenerateCaptionBtn.vue')['default']
   const AutoGenerateTagBtn: typeof import('./components/AutoGenerateTagBtn.vue')['default']

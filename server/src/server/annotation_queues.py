@@ -158,7 +158,7 @@ class AnnotationQueueController(Controller):
         if data.strategy not in VALID_PAIRWISE_STRATEGIES:
             msg = f"invalid strategy: {data.strategy!r}"
             raise ValidationException(msg)
-        pairs = await annotation_queues.sample_pairs(count=data.count, strategy=data.strategy)
+        pairs = await annotation_queues.sample_pairs(count=data.count, strategy=data.strategy, dimension=data.dimension)
         if not pairs:
             msg = "no eligible candidates (need posts with embeddings, not already queued)"
             raise ValidationException(msg)

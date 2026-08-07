@@ -65,10 +65,39 @@ export function formatNumber(n: number): string {
   return numberFormat.value.format(n)
 }
 
+// Memoised like numberFormat: `toLocaleString`/`toLocaleDateString` construct a fresh
+// Intl formatter per call, which shows up when a list formats a date per row — the
+// annotation history re-renders every row on every judgement.
+const dateTimeFormat = computed(() => new Intl.DateTimeFormat(resolvedLocale.value, { dateStyle: 'medium', timeStyle: 'medium' }))
+const dateFormat = computed(() => new Intl.DateTimeFormat(resolvedLocale.value, { dateStyle: 'medium' }))
+
 export function formatDateTime(input: string | number | Date): string {
-  return new Date(input).toLocaleString(resolvedLocale.value)
+  return dateTimeFormat.value.format(new Date(input))
 }
 
 export function formatDate(input: string | number | Date): string {
-  return new Date(input).toLocaleDateString(resolvedLocale.value)
+  return dateFormat.value.format(new Date(input))
+}
+
+const relativeFormat = computed(() => new Intl.RelativeTimeFormat(resolvedLocale.value, { numeric: 'auto' }))
+
+// Largest unit first: pick the coarsest one the gap fills, so 90 minutes reads
+// "1 hour ago" rather than "90 minutes ago".
+// SECOND is also the fallback: a sub-second gap matches nothing and reads as "now".
+const SECOND: [Intl.RelativeTimeFormatUnit, number] = ['second', 1]
+const RELATIVE_UNITS: Array<[Intl.RelativeTimeFormatUnit, number]> = [
+  ['year', 365 * 24 * 3600],
+  ['month', 30 * 24 * 3600],
+  ['day', 24 * 3600],
+  ['hour', 3600],
+  ['minute', 60],
+  SECOND,
+]
+
+/** "2 minutes ago" / "2 分钟前", in the active locale. Past-only in practice. */
+export function formatRelativeTime(input: string | number | Date, now: number = Date.now()): string {
+  const seconds = (new Date(input).getTime() - now) / 1000
+  const magnitude = Math.abs(seconds)
+  const [unit, size] = RELATIVE_UNITS.find(([, s]) => magnitude >= s) ?? SECOND
+  return relativeFormat.value.format(Math.round(seconds / size), unit)
 }

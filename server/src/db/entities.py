@@ -104,6 +104,10 @@ class AbsoluteAnnotation(_Entity):
     rubric_version: str
     session_id: str
     elapsed_ms: int | None = None
+    # Set when the verdict was corrected after the fact; see migration 0014.
+    # elapsed_ms describes the original glance, not the correction, so any
+    # latency analysis has to drop the rows where this is non-NULL.
+    edited_at: datetime | None = None
 
 
 class PairwiseAnnotation(_Entity):
@@ -116,6 +120,7 @@ class PairwiseAnnotation(_Entity):
     rubric_version: str
     session_id: str
     elapsed_ms: int | None = None
+    edited_at: datetime | None = None  # see AbsoluteAnnotation.edited_at
 
 
 class ContentFlagEvent(_Entity):

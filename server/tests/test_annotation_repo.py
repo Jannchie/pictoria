@@ -26,7 +26,8 @@ def test_annotation_tables_exist(db: DB) -> None:
     assert "annotation_queues" in names
     assert "absolute_queue_items" in names
     assert "pairwise_queue_items" in names
-    assert "annotation_timeline" in names  # view
+    # annotation_timeline 视图在 0014 里被删掉了：合并事件流的定义只留 AnnotationRepo._TIMELINE_SQL 一份
+    assert "annotation_timeline" not in names
 
 
 @pytest.fixture

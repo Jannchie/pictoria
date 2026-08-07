@@ -69,4 +69,11 @@ export const queryKeys = {
   annotationQueues: ['annotation-queues'] as const,
   /** Per-post annotation history (ref-keyed for reactive per-post caching). */
   annotations: (postId: MaybeRef<number | undefined>) => ['annotations', postId] as const,
+  /**
+   * The global annotation stream behind the session history sidebar. One key,
+   * no parameters: it is always "everything, newest first", and the session
+   * prepends its own submissions into this cache rather than refetching (a
+   * refetch of an infinite query re-runs every loaded page, once per judgement).
+   */
+  annotationTimeline: ['annotation-timeline'] as const,
 }

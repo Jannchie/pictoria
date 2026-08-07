@@ -17,6 +17,7 @@ export type AbsoluteAnnotationPublic = {
     rubricVersion: string;
     sessionId: string;
     elapsedMs?: number | null;
+    editedAt?: string | null;
 };
 
 /**
@@ -106,6 +107,13 @@ export type DanbooruDownloadStats = {
 };
 
 /**
+ * DeletedPublic
+ */
+export type DeletedPublic = {
+    deleted: number;
+};
+
+/**
  * DirectorySummary
  */
 export type DirectorySummary = {
@@ -118,6 +126,13 @@ export type DirectorySummary = {
     rating_avg?: number | null;
     scored_ratio?: number | null;
     children?: Array<DirectorySummary>;
+};
+
+/**
+ * EditIn
+ */
+export type EditIn = {
+    verdict: number | string;
 };
 
 /**
@@ -165,6 +180,7 @@ export type GeneratePairwiseIn = {
  */
 export type InsertedPublic = {
     inserted: number;
+    ids: Array<number>;
 };
 
 /**
@@ -180,6 +196,7 @@ export type PairwiseAnnotationPublic = {
     rubricVersion: string;
     sessionId: string;
     elapsedMs?: number | null;
+    editedAt?: string | null;
 };
 
 /**
@@ -722,6 +739,49 @@ export type TextSearchRequest = {
      * Natural-language search prompt.
      */
     query?: string;
+};
+
+/**
+ * TimelineEntryPublic
+ */
+export type TimelineEntryPublic = {
+    kind: string;
+    id: number;
+    createdAt: string;
+    post: QueueItemPostPublic;
+    postB?: QueueItemPostPublic | null;
+    dimension?: string | null;
+    winner?: string | null;
+    scale?: number | null;
+    value?: number | null;
+    flag?: string | null;
+    editedAt?: string | null;
+};
+
+/**
+ * TimelinePagePublic
+ */
+export type TimelinePagePublic = {
+    items: Array<TimelineEntryPublic>;
+    nextCursor?: string | null;
+};
+
+/**
+ * UndoIn
+ */
+export type UndoIn = {
+    kind: string;
+    ids: Array<number>;
+    session_id: string;
+    queue_id?: number | null;
+    queue_position?: number | null;
+};
+
+/**
+ * UpdatedPublic
+ */
+export type UpdatedPublic = {
+    updated: number;
 };
 
 /**
@@ -2334,6 +2394,40 @@ export type V2GetWaifuScorerStatisticsResponses = {
 
 export type V2GetWaifuScorerStatisticsResponse = V2GetWaifuScorerStatisticsResponses[keyof V2GetWaifuScorerStatisticsResponses];
 
+export type V2AnnotationTimelineData = {
+    body?: never;
+    path?: never;
+    query?: {
+        limit?: number;
+        before?: string | null;
+    };
+    url: '/v2/annotations/timeline';
+};
+
+export type V2AnnotationTimelineErrors = {
+    /**
+     * Validation Exception
+     */
+    400: {
+        status_code: number;
+        detail: string;
+        extra?: null | {
+            [key: string]: unknown;
+        } | Array<unknown>;
+    };
+};
+
+export type V2AnnotationTimelineError = V2AnnotationTimelineErrors[keyof V2AnnotationTimelineErrors];
+
+export type V2AnnotationTimelineResponses = {
+    /**
+     * Request fulfilled, document follows
+     */
+    200: TimelinePagePublic;
+};
+
+export type V2AnnotationTimelineResponse = V2AnnotationTimelineResponses[keyof V2AnnotationTimelineResponses];
+
 export type V2CountPairwiseData = {
     body?: never;
     path?: never;
@@ -2366,6 +2460,40 @@ export type V2CountPairwiseResponses = {
 };
 
 export type V2CountPairwiseResponse = V2CountPairwiseResponses[keyof V2CountPairwiseResponses];
+
+export type V2EditAnnotationData = {
+    body: EditIn;
+    path: {
+        kind: string;
+        annotation_id: number;
+    };
+    query?: never;
+    url: '/v2/annotations/{kind}/{annotation_id}';
+};
+
+export type V2EditAnnotationErrors = {
+    /**
+     * Validation Exception
+     */
+    400: {
+        status_code: number;
+        detail: string;
+        extra?: null | {
+            [key: string]: unknown;
+        } | Array<unknown>;
+    };
+};
+
+export type V2EditAnnotationError = V2EditAnnotationErrors[keyof V2EditAnnotationErrors];
+
+export type V2EditAnnotationResponses = {
+    /**
+     * Request fulfilled, document follows
+     */
+    200: UpdatedPublic;
+};
+
+export type V2EditAnnotationResponse = V2EditAnnotationResponses[keyof V2EditAnnotationResponses];
 
 export type V2PostHistoryData = {
     body?: never;
@@ -2441,6 +2569,7 @@ export type V2SamplePairwiseData = {
     query?: {
         limit?: number;
         strategy?: string;
+        dimension?: string;
     };
     url: '/v2/annotations/sample-pairwise';
 };
@@ -2561,6 +2690,37 @@ export type V2SubmitPairwiseResponses = {
 };
 
 export type V2SubmitPairwiseResponse = V2SubmitPairwiseResponses[keyof V2SubmitPairwiseResponses];
+
+export type V2UndoAnnotationsData = {
+    body: UndoIn;
+    path?: never;
+    query?: never;
+    url: '/v2/annotations/undo';
+};
+
+export type V2UndoAnnotationsErrors = {
+    /**
+     * Validation Exception
+     */
+    400: {
+        status_code: number;
+        detail: string;
+        extra?: null | {
+            [key: string]: unknown;
+        } | Array<unknown>;
+    };
+};
+
+export type V2UndoAnnotationsError = V2UndoAnnotationsErrors[keyof V2UndoAnnotationsErrors];
+
+export type V2UndoAnnotationsResponses = {
+    /**
+     * Request fulfilled, document follows
+     */
+    200: DeletedPublic;
+};
+
+export type V2UndoAnnotationsResponse = V2UndoAnnotationsResponses[keyof V2UndoAnnotationsResponses];
 
 export type V2CreateAbsoluteData = {
     body: AbsoluteQueueCreate;
