@@ -14,16 +14,6 @@ const { data: postData } = usePostQuery(focusedPostId)
   <PostMultiSelectPanel
     v-else-if="mode === 'multi'"
   />
-  <div
-    v-else
-    class="text-xs text-fg-subtle px-6 text-center flex flex-col gap-2 h-full items-center justify-center"
-  >
-    <i class="i-tabler-photo-search text-3xl op50" aria-hidden="true" />
-    <div class="text-sm text-fg-muted">
-      {{ $t('rightPanel.empty') }}
-    </div>
-    <div class="text-balance">
-      {{ $t('rightPanel.emptyHint') }}
-    </div>
-  </div>
+  <!-- Nothing selected: read the current view instead of asking for a click. -->
+  <GalleryOverviewPanel v-else />
 </template>

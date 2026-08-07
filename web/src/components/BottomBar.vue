@@ -4,7 +4,7 @@ import { computed } from 'vue'
 import { useRoute } from 'vue-router'
 import { v2GetPostsStats } from '@/api'
 import { formatNumber } from '@/locale'
-import { bottomBarInfo, postFilter, queryKeys, RATING_LEVEL_LABEL_KEYS, RATING_LEVEL_SHORT, selectedCount, usePosts } from '@/shared'
+import { bottomBarInfo, leftPaneCollapsed, postFilter, queryKeys, RATING_LEVEL_LABEL_KEYS, RATING_LEVEL_SHORT, rightPaneCollapsed, selectedCount, usePosts } from '@/shared'
 
 const posts = usePosts()
 const route = useRoute()
@@ -43,8 +43,24 @@ function fmtAvg(value: number | null | undefined, fractionDigits = 2): string {
 
 <template>
   <div
-    class="text-xs text-fg-muted px-3 border-t border-border-default bg-bg flex shrink-0 gap-4 h-24px items-center"
+    class="text-xs text-fg-muted px-2 border-t border-border-default bg-bg flex shrink-0 gap-4 h-24px items-center"
   >
+    <!-- Pane toggles live here rather than in the panes themselves: a pane's
+         own header disappears with it, this one never does. -->
+    <button
+      type="button"
+      class="text-fg-subtle rounded flex shrink-0 h-4.5 w-4.5 transition-colors items-center justify-center hover:text-fg hover:bg-surface-1"
+      :aria-pressed="!leftPaneCollapsed"
+      :title="`${$t('pane.toggleLeft')} (Ctrl+B)`"
+      :aria-label="$t('pane.toggleLeft')"
+      @click="leftPaneCollapsed = !leftPaneCollapsed"
+    >
+      <i
+        class="h-3.5 w-3.5"
+        :class="leftPaneCollapsed ? 'i-tabler-layout-sidebar-left-expand' : 'i-tabler-layout-sidebar-left-collapse'"
+        aria-hidden="true"
+      />
+    </button>
     <template v-if="inGalleryView">
       <span class="flex gap-1 items-center">
         <i class="i-tabler-photo text-fg-subtle" aria-hidden="true" />
@@ -96,5 +112,20 @@ function fmtAvg(value: number | null | undefined, fractionDigits = 2): string {
     <template v-else>
       {{ bottomBarInfo }}
     </template>
+    <span class="flex-grow" />
+    <button
+      type="button"
+      class="text-fg-subtle rounded flex shrink-0 h-4.5 w-4.5 transition-colors items-center justify-center hover:text-fg hover:bg-surface-1"
+      :aria-pressed="!rightPaneCollapsed"
+      :title="`${$t('pane.toggleRight')} (Ctrl+Shift+B)`"
+      :aria-label="$t('pane.toggleRight')"
+      @click="rightPaneCollapsed = !rightPaneCollapsed"
+    >
+      <i
+        class="h-3.5 w-3.5"
+        :class="rightPaneCollapsed ? 'i-tabler-layout-sidebar-right-expand' : 'i-tabler-layout-sidebar-right-collapse'"
+        aria-hidden="true"
+      />
+    </button>
   </div>
 </template>

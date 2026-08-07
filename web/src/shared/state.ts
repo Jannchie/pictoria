@@ -184,6 +184,13 @@ export function useSyncFilterWithUrl() {
 
 export const waterfallRowCount = useStorage('pictoria.waterfallRowCount', 4)
 export const hideNSFW = useStorage('pictoria.hideNSFW', false)
+
+// Side-pane visibility. Both panes are secondary to the grid — the folder tree
+// only matters while browsing by location, and the detail panel is empty with
+// no selection — so together they can hand ~24% of the viewport back to the
+// gallery. Persisted, toggled from the bottom bar or Ctrl+B / Ctrl+Shift+B.
+export const leftPaneCollapsed = useStorage('pictoria.pane.leftCollapsed', false)
+export const rightPaneCollapsed = useStorage('pictoria.pane.rightCollapsed', false)
 // When off, image placeholders fall back to a plain opacity fade-in instead
 // of the per-shape arthash dissolve. Useful on low-end GPUs or when the
 // animation feels distracting.

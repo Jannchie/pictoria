@@ -5,6 +5,7 @@ import type { GridCell, GridDirection } from '@/utils/gridGeometry'
 import { useQuery, useQueryClient } from '@tanstack/vue-query'
 import { refDebounced } from '@vueuse/core'
 import { logicAnd } from '@vueuse/math'
+import { useI18n } from 'vue-i18n'
 import { onBeforeRouteLeave, useRoute, useRouter } from 'vue-router'
 import { Waterfall } from 'vue-wf'
 import { v2SearchPostsByText } from '@/api'
@@ -15,6 +16,7 @@ import PDialog from '@/ui/PDialog.vue'
 import { isImageExtension } from '@/utils'
 import { findGridNeighbor } from '@/utils/gridGeometry'
 
+const { t } = useI18n()
 const route = useRoute()
 const router = useRouter()
 const infinityPostsQuery = useInfinityPostsQuery()
@@ -288,27 +290,29 @@ watchEffect(async () => {
 //   }
 // })
 
+// Titles resolved through t() inside the computed so a locale switch rebuilds
+// the menu — PMenu takes plain strings, not message keys.
 const menuData = computed<PMenuItem[]>(() => {
   if (selectedCount.value > 0) {
     return [
       {
         role: 'label',
-        title: 'Post Actions',
+        title: t('gallery.menuActions'),
       },
       {
         value: 'rotate-clockwise',
-        title: 'Rotate Clockwise',
+        title: t('gallery.menuRotateCw'),
         icon: 'i-fluent-arrow-rotate-clockwise-24-regular',
       },
       {
         value: 'rotate-counterclockwise',
-        title: 'Rotate Counterclockwise',
+        title: t('gallery.menuRotateCcw'),
         icon: 'i-fluent-arrow-rotate-counterclockwise-24-regular',
       },
       { role: 'divider' },
       {
         value: 'delete',
-        title: 'Delete',
+        title: t('gallery.menuDelete'),
         icon: 'i-tabler-trash',
       },
     ]
@@ -316,7 +320,7 @@ const menuData = computed<PMenuItem[]>(() => {
   return [
     {
       role: 'label',
-      title: 'No Post Selected',
+      title: t('gallery.menuNoSelection'),
     },
   ]
 })
@@ -387,12 +391,43 @@ async function onMenuSelect(value: string | number | symbol) {
   }
 }
 const mainSectionRef = ref<HTMLElement>()
+// PScrollArea exposes its inner scroller as `$el`; both the scroll-position
+// cache below and the infinite-scroll observer need it as their root.
+const galleryScrollEl = computed<HTMLElement | undefined>(() => (mainSectionRef.value as unknown as { $el?: HTMLElement } | undefined)?.$el)
+
+// ── 无限滚动 ────────────────────────────────────────────────────────────
+// Text search returns one fixed result set (no paging), so the sentinel only
+// exists on the regular list.
+const canLoadMore = computed(() =>
+  !isTextSearchActive.value
+  && posts.value.length > 0
+  && infinityPostsQuery.hasNextPage.value,
+)
+const loadMoreSentinel = ref<HTMLElement>()
+
+useIntersectionObserver(
+  loadMoreSentinel,
+  ([entry]) => {
+    if (!entry?.isIntersecting) {
+      return
+    }
+    // hasNextPage/isFetchingNextPage guard against re-entry: the observer can
+    // fire again before the in-flight page resolves and grows the list.
+    if (infinityPostsQuery.hasNextPage.value && !infinityPostsQuery.isFetchingNextPage.value) {
+      infinityPostsQuery.fetchNextPage()
+    }
+  },
+  {
+    // Root is the PScrollArea's inner scroller, not the viewport.
+    root: galleryScrollEl,
+    // Start fetching while the sentinel is still ~a screen below the fold.
+    rootMargin: '600px',
+  },
+)
 
 // Persist gallery scrollTop across navigations to /post/:id and back. Home.vue
 // has no <keep-alive>, so MainSection unmounts on entry to a post detail and
 // remounts on Esc/back — without this, scrollTop resets to 0.
-const galleryScrollEl = computed<HTMLElement | undefined>(() => (mainSectionRef.value as unknown as { $el?: HTMLElement } | undefined)?.$el)
-
 useEventListener(galleryScrollEl, 'scroll', () => {
   const el = galleryScrollEl.value
   if (el) {
@@ -456,7 +491,7 @@ onMounted(() => {
         <div class="p-16 op-50 flex flex-col gap-2 items-center">
           <i class="i-tabler-loader text-2xl animate-spin" />
           <div class="text-sm">
-            Searching for “{{ textSearchPrompt }}”
+            {{ $t('gallery.searching', { query: textSearchPrompt }) }}
           </div>
         </div>
       </div>
@@ -464,7 +499,7 @@ onMounted(() => {
         <div class="text-danger p-16 text-center op-50 flex flex-col gap-2 items-center">
           <i class="i-tabler-alert-circle text-2xl" />
           <div class="text-sm">
-            Failed to run text search. Please try again.
+            {{ $t('gallery.searchFailed') }}
           </div>
         </div>
       </div>
@@ -475,14 +510,13 @@ onMounted(() => {
       >
         {{ $t('gallery.noTextMatch', { query: textSearchPrompt }) }}
       </PEmpty>
-      <div v-else-if="!isTextSearchActive && infinityPostsQuery.isLoading.value && posts.length === 0">
-        <div class="p-16 text-center op-50 flex flex-col gap-2 items-center">
-          <i class="i-tabler-loader text-2xl animate-spin" />
-          <div class="text-sm">
-            Loading posts…
-          </div>
-        </div>
-      </div>
+      <!-- First page in flight: draw the masonry skeleton at the real column
+           geometry so the grid doesn't jump when the data lands. -->
+      <GallerySkeleton
+        v-else-if="!isTextSearchActive && infinityPostsQuery.isLoading.value && posts.length === 0"
+        :cols="cols"
+        :item-width="waterfallItemWidth"
+      />
       <PEmpty
         v-else-if="posts.length === 0"
         icon="i-tabler-photo-off"
@@ -511,15 +545,27 @@ onMounted(() => {
           :post="post"
         />
       </Waterfall>
+      <!-- Infinite-scroll sentinel. The observer (see script) fires while this
+           is still 600px below the fold, so the next page is usually already in
+           by the time the user reaches here. The button stays as a manual
+           fallback for when the observer never fires (or the fetch failed). -->
       <div
-        v-if="!isTextSearchActive && posts.length > 0 && infinityPostsQuery.hasNextPage.value"
+        v-if="canLoadMore"
+        ref="loadMoreSentinel"
         class="p-4 flex justify-center"
       >
+        <div
+          v-if="infinityPostsQuery.isFetchingNextPage.value"
+          class="text-sm text-fg-subtle flex gap-2 items-center"
+        >
+          <i class="i-tabler-loader animate-spin" aria-hidden="true" />
+          {{ $t('gallery.loadingPosts') }}
+        </div>
         <PButton
-          :loading="infinityPostsQuery.isLoading.value"
+          v-else
           @click="infinityPostsQuery.fetchNextPage()"
         >
-          Load More
+          {{ $t('gallery.loadMore') }}
         </PButton>
       </div>
     </PMenu>
@@ -528,19 +574,20 @@ onMounted(() => {
       class="flex items-center justify-center"
       @click.self="cancelDelete"
     >
+      <!-- Same dialog copy as the /post/:id page — reuses the post.deleteDialog* keys. -->
       <PDialog
-        title="Delete selected posts?"
-        :confirm-label="isDeleting ? 'Deleting…' : `Delete ${pendingDeleteIds.length}`"
-        cancel-label="Cancel"
+        :title="$t('post.deleteDialogTitle')"
+        :confirm-label="isDeleting ? $t('post.deleteDialogDeleting') : $t('post.deleteDialogConfirm', { n: pendingDeleteIds.length })"
+        :cancel-label="$t('common.cancel')"
         variant="danger"
         @confirm="confirmDelete"
         @cancel="cancelDelete"
       >
-        <p>
-          This will permanently delete
-          <span class="text-fg font-medium tabular-nums">{{ pendingDeleteIds.length }}</span>
-          post<span v-if="pendingDeleteIds.length !== 1">s</span>. This cannot be undone.
-        </p>
+        <i18n-t keypath="post.deleteDialogBody" tag="p" scope="global" :plural="pendingDeleteIds.length">
+          <template #n>
+            <span class="text-fg font-medium tabular-nums">{{ pendingDeleteIds.length }}</span>
+          </template>
+        </i18n-t>
       </PDialog>
     </POverlay>
   </PScrollArea>

@@ -2,7 +2,7 @@
 import type { QueueSummaryPublic } from '@/api'
 import type { StreamConfig } from '@/components/annotate/AbsoluteAnnotationSession.vue'
 import { useQuery } from '@tanstack/vue-query'
-import { computed, ref, watch } from 'vue'
+import { computed, ref } from 'vue'
 import { v2GenerateAbsolute, v2GeneratePairwise, v2ListQueues } from '@/api'
 import AbsoluteAnnotationSession from '@/components/annotate/AbsoluteAnnotationSession.vue'
 import PairwiseAnnotationSession from '@/components/annotate/PairwiseAnnotationSession.vue'
@@ -32,6 +32,12 @@ function exitSession() {
 }
 
 // ── 标注配置（流式为默认路径，队列仅用于固定批次实验）────────────
+//
+// 双图对比只问总分。四个维度（颜色/完成度/构图）在 2026-06 试过：overall 累计 2900+ 条，
+// 三个分维度加起来 88 条就停了——分维度判断慢、自己跟自己也不一致，而 SILVA 主线用的
+// 一直是 overall。所以对比模式不再提供维度选择；维度只留给单图评分的实验路径。
+const PAIRWISE_DIMENSION = 'overall'
+
 interface DimensionMeta {
   key: string
   label: string
@@ -39,37 +45,27 @@ interface DimensionMeta {
   icon: string
 }
 const DIMENSIONS: DimensionMeta[] = [
-  { key: 'overall', label: '总分', hint: '哪张更好 / 总体喜欢吗', icon: 'i-tabler-star' },
+  { key: 'overall', label: '总分', hint: '总体喜欢吗', icon: 'i-tabler-star' },
   { key: 'color', label: '颜色', hint: '配色运用得好吗', icon: 'i-tabler-palette' },
   { key: 'finish', label: '完成度', hint: '精修 / 装饰精致吗', icon: 'i-tabler-brush' },
   { key: 'composition', label: '构图', hint: '姿势·角度·布景有想法吗', icon: 'i-tabler-layout-collage' },
 ]
 
-// 默认 = 双图对比选总分：比较判断绕开绝对分的天花板/通胀/漂移，
-// 也符合"整体优先"的自然判断方式；维度仅供实验。
+// 默认 = 双图对比 + 难分对：比较判断绕开绝对分的天花板/通胀/漂移，
+// 难分对把标注花在模型自己分不开的边界上。
 const form = ref({
   kind: 'pairwise' as 'absolute' | 'pairwise',
-  dimensions: ['overall'] as string[],
+  dimensions: ['overall'] as string[], // 仅单图评分使用
   scale: 2,
   strategy: 'stratified' as 'random' | 'stratified', // 单图评分采样
-  pairwiseStrategy: 'close' as 'random' | 'similar' | 'close', // 双图对比配对：默认难分对（量产边界燃料）
+  pairwiseStrategy: 'close' as 'random' | 'similar' | 'close',
 })
-const canStart = computed(() => form.value.dimensions.length > 0)
+const canStart = computed(() => form.value.kind === 'pairwise' || form.value.dimensions.length > 0)
 
 function toggleDimension(d: string) {
-  if (form.value.kind === 'pairwise') {
-    form.value.dimensions = [d] // 对比模式一次一个维度
-    return
-  }
   const dims = form.value.dimensions
   form.value.dimensions = dims.includes(d) ? dims.filter(x => x !== d) : [...dims, d]
 }
-
-watch(() => form.value.kind, (kind) => {
-  if (kind === 'pairwise' && form.value.dimensions.length > 1) {
-    form.value.dimensions = form.value.dimensions.slice(0, 1)
-  }
-})
 
 const SCALES = [
   { value: 2, label: '二元', hint: '好 / 不好' },
@@ -81,8 +77,8 @@ const STRATEGIES = [
   { value: 'random' as const, label: '随机', hint: '全库均匀' },
 ]
 const PAIRWISE_STRATEGIES = [
-  { value: 'close' as const, label: '难分对', hint: '同题材 + 模型分相近：聚焦模型拿不准的边界对（量产训练燃料，主推）' },
-  { value: 'similar' as const, label: '相似配对', hint: '中立配对——留作评估/重测，不受模型偏置' },
+  { value: 'close' as const, label: '难分对', hint: '视觉相近 + 模型分不开的边界对，并自动接上你已标过的比较图（推荐）' },
+  { value: 'similar' as const, label: '相似配对', hint: '只看内容相似 + 旧分相近，不参考模型——留作评估 / 重测' },
   { value: 'random' as const, label: '随机', hint: '全库随机两两组合' },
 ]
 
@@ -99,7 +95,7 @@ function startStream() {
           strategy: form.value.strategy,
         },
       }
-    : { mode: 'stream-pairwise', dimension: form.value.dimensions[0] ?? 'color', strategy: form.value.pairwiseStrategy }
+    : { mode: 'stream-pairwise', dimension: PAIRWISE_DIMENSION, strategy: form.value.pairwiseStrategy }
 }
 
 // ── 队列（固定批次：形态对比实验 / intra-rater 复测用）──────────
@@ -123,7 +119,7 @@ async function generateQueue() {
           },
         })
       : v2GeneratePairwise({
-          body: { dimension: form.value.dimensions[0] ?? 'color', count: queueCount.value, strategy: form.value.pairwiseStrategy },
+          body: { dimension: PAIRWISE_DIMENSION, count: queueCount.value, strategy: form.value.pairwiseStrategy },
         }))
     await refetch()
   }
@@ -167,7 +163,7 @@ async function generateQueue() {
           标注
         </h1>
         <p class="text-sm text-fg-muted leading-relaxed mt-1.5">
-          打开即标——默认双图对比选总分：比较判断比绝对打分更稳，标完一组自动出下一组。
+          打开即标——默认双图对比选总分：比较判断比绝对打分更稳。每批新对子都会接上你已经标过的比较图，随时停、随时继续。
         </p>
       </header>
 
@@ -203,19 +199,41 @@ async function generateQueue() {
                 双图对比
               </div>
               <div class="text-xs text-fg-muted mt-0.5">
-                两张图选更好的一边，抗光环效应
+                两张图选更好的一边 · 只问总分
               </div>
             </div>
           </button>
         </div>
       </section>
 
-      <!-- 维度 chips -->
-      <section class="mb-7">
+      <!-- 配对方式（对比模式）：segmented -->
+      <section v-if="form.kind === 'pairwise'" class="mb-7">
+        <div class="annotate-section-title">
+          配对
+          <span class="annotate-section-note">只问总分</span>
+        </div>
+        <div class="annotate-segment">
+          <button
+            v-for="s in PAIRWISE_STRATEGIES"
+            :key="s.value"
+            class="annotate-segment__item"
+            :class="{ 'annotate-segment__item--active': form.pairwiseStrategy === s.value }"
+            :title="s.hint"
+            @click="form.pairwiseStrategy = s.value"
+          >
+            {{ s.label }}
+          </button>
+        </div>
+        <p class="text-xs text-fg-subtle leading-relaxed mt-2">
+          {{ PAIRWISE_STRATEGIES.find(s => s.value === form.pairwiseStrategy)?.hint }}
+        </p>
+      </section>
+
+      <!-- 维度 chips（仅单图评分） -->
+      <section v-if="form.kind === 'absolute'" class="mb-7">
         <div class="annotate-section-title">
           维度
-          <span v-if="form.kind === 'pairwise'" class="annotate-section-note">对比模式一次只问一个维度</span>
-          <span v-else class="annotate-section-note">建议单维轮标，判断更纯更快</span>
+          <span class="annotate-section-note">建议单维轮标，判断更纯更快</span>
         </div>
         <div class="flex flex-wrap gap-2">
           <button
@@ -228,26 +246,6 @@ async function generateQueue() {
             <i :class="d.icon" class="text-base shrink-0" />
             <span class="font-medium">{{ d.label }}</span>
             <span class="annotate-dim-chip__hint">{{ d.hint }}</span>
-          </button>
-        </div>
-      </section>
-
-      <!-- 配对方式（对比模式）：segmented -->
-      <section v-if="form.kind === 'pairwise'" class="mb-7">
-        <div class="annotate-section-title">
-          配对
-          <span class="annotate-section-note">相似配对：同题材且旧分相近，比较更公平也更有信息量</span>
-        </div>
-        <div class="annotate-segment">
-          <button
-            v-for="s in PAIRWISE_STRATEGIES"
-            :key="s.value"
-            class="annotate-segment__item"
-            :class="{ 'annotate-segment__item--active': form.pairwiseStrategy === s.value }"
-            :title="s.hint"
-            @click="form.pairwiseStrategy = s.value"
-          >
-            {{ s.label }}
           </button>
         </div>
       </section>

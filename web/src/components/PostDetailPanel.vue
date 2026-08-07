@@ -169,37 +169,115 @@ const sectionTitleClass
     <!-- px-3: the pane has no padding of its own (the scrollbar hugs its
          edge), so the scrolled content owns the 12px gutter. -->
     <div class="px-3 flex flex-col">
-      <!-- Hero: thumbnail + dominant/palette colour band -->
-      <div class="pb-4 pt-3 p-divider flex flex-col gap-3">
+      <!-- Ratings first, always expanded, never below the fold: scoring is the
+           core loop (manual 1–5 vs the model's SILVA/waifu), so it must be
+           reachable with zero scrolling and zero clicks. Everything below is
+           reference material and collapses. -->
+      <section class="pb-3 pt-3 p-divider">
         <div
-          v-if="isImage(post.extension)"
-          class="flex justify-center"
+          :class="sectionTitleClass"
+          class="mb-2"
         >
-          <img
-            :src="getPostThumbnailURL(post)"
-            class="rounded-lg h-40 max-w-full ring-1 ring-border-default shadow-sm object-contain"
-            :class="{
-              blur: (post?.rating ?? 0) >= 3 && hideNSFW,
-            }"
+          <i class="i-tabler-star" />
+          <span>{{ $t('post.ratings') }}</span>
+        </div>
+        <div
+          class="gap-x-3 gap-y-1 grid grid-cols-[auto_1fr] items-center children:break-words odd:children:text-fg-muted"
+        >
+          <div>{{ $t('post.ratingLabel') }}</div>
+          <div>
+            <PRating
+              :model-value="post.rating"
+              highlight-selected-only
+              :count="4"
+              :colors="RATING_LEVEL_COLORS"
+              :icons="RATING_LEVEL_ICONS"
+              @select="(d) => commitRating(queryClient, [post], [post.id], d)"
+            />
+          </div>
+          <div>{{ $t('post.scoreLabel') }}</div>
+          <div>
+            <PRating
+              :model-value="post.score"
+              :count="5"
+              @select="(d) => onSelectScore(post.id, d)"
+            />
+          </div>
+          <div>{{ $t('post.waifuLabel') }}</div>
+          <div>
+            <template v-if="post.waifuScore">
+              <WaifuScoreLevel :score="post.waifuScore.score" />
+            </template>
+            <template v-else>
+              <PButton
+                size="sm"
+                variant="subtle"
+                :loading="isCalculatingWaifuScore"
+                @click="calculateWaifuScore"
+              >
+                {{ isCalculatingWaifuScore ? $t('common.computing') : $t('common.compute') }}
+              </PButton>
+            </template>
+          </div>
+          <div>{{ $t('post.silvaLabel') }}</div>
+          <div>
+            <template v-if="silvaScore !== undefined">
+              <WaifuScoreLevel :score="silvaScore * 10" />
+            </template>
+            <template v-else>
+              <PButton
+                size="sm"
+                variant="subtle"
+                :loading="isCalculatingSilvaScore"
+                @click="calculateSilvaScore"
+              >
+                {{ isCalculatingSilvaScore ? $t('common.computing') : $t('common.compute') }}
+              </PButton>
+            </template>
+          </div>
+        </div>
+      </section>
+
+      <!-- Preview: thumbnail + dominant/palette colour band. Collapsed by
+           default — the same image is already the subject of the main view. -->
+      <PDisclosure
+        v-if="isImage(post.extension) || post.dominantColor || (post.colors && post.colors.length > 0)"
+        storage-key="post.preview"
+        icon="i-tabler-photo"
+        :title="$t('post.preview')"
+        :default-open="false"
+      >
+        <div class="flex flex-col gap-3">
+          <div
+            v-if="isImage(post.extension)"
+            class="flex justify-center"
           >
+            <img
+              :src="getPostThumbnailURL(post)"
+              class="rounded-lg h-40 max-w-full ring-1 ring-border-default shadow-sm object-contain"
+              :class="{
+                blur: (post?.rating ?? 0) >= 3 && hideNSFW,
+              }"
+            >
+          </div>
+          <div
+            v-if="post.dominantColor || (post.colors && post.colors.length > 0)"
+            class="flex flex-wrap gap-1 items-center justify-center"
+          >
+            <PColorSwatch
+              v-if="post.dominantColor"
+              :size="28"
+              bordered
+              :color="labToRgbaString(post.dominantColor[0], post.dominantColor[1], post.dominantColor[2]) ?? '#000000'"
+            />
+            <PColorSwatch
+              v-for="color in post.colors"
+              :key="color.color"
+              :color="colorNumToHex(color.color)"
+            />
+          </div>
         </div>
-        <div
-          v-if="post.dominantColor || (post.colors && post.colors.length > 0)"
-          class="flex flex-wrap gap-1 items-center justify-center"
-        >
-          <PColorSwatch
-            v-if="post.dominantColor"
-            :size="28"
-            bordered
-            :color="labToRgbaString(post.dominantColor[0], post.dominantColor[1], post.dominantColor[2]) ?? '#000000'"
-          />
-          <PColorSwatch
-            v-for="color in post.colors"
-            :key="color.color"
-            :color="colorNumToHex(color.color)"
-          />
-        </div>
-      </div>
+      </PDisclosure>
 
       <!-- Near-duplicate group: members hidden behind this canonical post -->
       <section
@@ -285,84 +363,17 @@ const sectionTitleClass
         </div>
       </section>
 
-      <!-- Ratings: every quality signal grouped together -->
-      <section class="py-3 p-divider">
-        <div
-          :class="sectionTitleClass"
-          class="mb-2"
-        >
-          <i class="i-tabler-star" />
-          <span>{{ $t('post.ratings') }}</span>
-        </div>
-        <div
-          class="gap-x-3 gap-y-1 grid grid-cols-[auto_1fr] items-center children:break-words odd:children:text-fg-muted"
-        >
-          <div>{{ $t('post.ratingLabel') }}</div>
-          <div>
-            <PRating
-              :model-value="post.rating"
-              highlight-selected-only
-              :count="4"
-              :colors="RATING_LEVEL_COLORS"
-              :icons="RATING_LEVEL_ICONS"
-              @select="(d) => commitRating(queryClient, [post], [post.id], d)"
-            />
-          </div>
-          <div>{{ $t('post.scoreLabel') }}</div>
-          <div>
-            <PRating
-              :model-value="post.score"
-              :count="5"
-              @select="(d) => onSelectScore(post.id, d)"
-            />
-          </div>
-          <div>{{ $t('post.waifuLabel') }}</div>
-          <div>
-            <template v-if="post.waifuScore">
-              <WaifuScoreLevel :score="post.waifuScore.score" />
-            </template>
-            <template v-else>
-              <PButton
-                size="sm"
-                variant="subtle"
-                :loading="isCalculatingWaifuScore"
-                @click="calculateWaifuScore"
-              >
-                {{ isCalculatingWaifuScore ? $t('common.computing') : $t('common.compute') }}
-              </PButton>
-            </template>
-          </div>
-          <div>{{ $t('post.silvaLabel') }}</div>
-          <div>
-            <template v-if="silvaScore !== undefined">
-              <WaifuScoreLevel :score="silvaScore * 10" />
-            </template>
-            <template v-else>
-              <PButton
-                size="sm"
-                variant="subtle"
-                :loading="isCalculatingSilvaScore"
-                @click="calculateSilvaScore"
-              >
-                {{ isCalculatingSilvaScore ? $t('common.computing') : $t('common.compute') }}
-              </PButton>
-            </template>
-          </div>
-        </div>
-      </section>
-
       <!-- Annotation history: SILVA multi-dimension events (hidden when empty) -->
       <AnnotationHistory :post-id="post.id" />
 
-      <!-- File info: pure metadata, numbers tabular-aligned -->
-      <section class="py-3 p-divider">
-        <div
-          :class="sectionTitleClass"
-          class="mb-2"
-        >
-          <i class="i-tabler-file-info" />
-          <span>{{ $t('post.fileInfo') }}</span>
-        </div>
+      <!-- File info: pure metadata, numbers tabular-aligned. Reference data —
+           collapsed by default. -->
+      <PDisclosure
+        storage-key="post.fileInfo"
+        icon="i-tabler-file-info"
+        :title="$t('post.fileInfo')"
+        :default-open="false"
+      >
         <div
           class="gap-x-3 gap-y-1 grid grid-cols-[auto_1fr] children:break-words odd:children:text-fg-muted"
         >
@@ -397,17 +408,15 @@ const sectionTitleClass
             </div>
           </template>
         </div>
-      </section>
+      </PDisclosure>
 
       <!-- Folder breadcrumb -->
-      <section class="py-3 p-divider">
-        <div
-          :class="sectionTitleClass"
-          class="mb-2"
-        >
-          <i class="i-tabler-folder" />
-          <span>{{ $t('post.folder') }}</span>
-        </div>
+      <PDisclosure
+        storage-key="post.folder"
+        icon="i-tabler-folder"
+        :title="$t('post.folder')"
+        :default-open="false"
+      >
         <div class="flex flex-wrap gap-2">
           <div
             v-if="folders.length === 0"
@@ -429,9 +438,9 @@ const sectionTitleClass
             {{ folder.name }}
           </PButton>
         </div>
-      </section>
+      </PDisclosure>
 
-      <!-- Tags -->
+      <!-- Tags: stays a plain always-open section — tagging is high-frequency. -->
       <section class="py-3 p-divider">
         <div class="mb-2 flex items-center justify-between">
           <div :class="sectionTitleClass">
@@ -496,17 +505,14 @@ const sectionTitleClass
       </section>
 
       <!-- Auto tags -->
-      <section
+      <PDisclosure
         v-if="autoTags.length > 0"
-        class="py-3 p-divider"
+        storage-key="post.autoTags"
+        icon="i-tabler-sparkles"
+        :title="$t('post.autoTags')"
+        :summary="autoTags.length"
+        :default-open="false"
       >
-        <div
-          :class="sectionTitleClass"
-          class="mb-2"
-        >
-          <i class="i-tabler-sparkles" />
-          <span>{{ $t('post.autoTags') }}</span>
-        </div>
         <div class="flex flex-wrap gap-2">
           <PostTag
             v-for="tag of autoTags"
@@ -518,56 +524,50 @@ const sectionTitleClass
             @pointerup="openTagSelectorWindow()"
           />
         </div>
-      </section>
+      </PDisclosure>
 
       <!-- Caption -->
-      <section class="py-3 p-divider">
-        <div
-          :class="sectionTitleClass"
-          class="mb-2"
-        >
-          <i class="i-tabler-blockquote" />
-          <span>{{ $t('post.caption') }}</span>
-        </div>
+      <PDisclosure
+        storage-key="post.caption"
+        icon="i-tabler-blockquote"
+        :title="$t('post.caption')"
+        :default-open="false"
+      >
         <PInput
           :model-value="post.caption ?? ''"
           size="sm"
           block
           @update:model-value="updateCaption"
         />
-      </section>
+      </PDisclosure>
 
       <!-- Source -->
-      <section class="py-3 p-divider">
-        <div
-          :class="sectionTitleClass"
-          class="mb-2"
-        >
-          <i class="i-tabler-link" />
-          <span>{{ $t('post.source') }}</span>
-        </div>
+      <PDisclosure
+        storage-key="post.source"
+        icon="i-tabler-link"
+        :title="$t('post.source')"
+        :default-open="false"
+      >
         <PInput
           :model-value="post.source ?? ''"
           size="sm"
           block
           @update:model-value="updateSource"
         />
-      </section>
+      </PDisclosure>
 
       <!-- Commands -->
-      <section class="pb-4 pt-3">
-        <div
-          :class="sectionTitleClass"
-          class="mb-2"
-        >
-          <i class="i-tabler-wand" />
-          <span>{{ $t('post.command') }}</span>
-        </div>
+      <PDisclosure
+        storage-key="post.command"
+        icon="i-tabler-wand"
+        :title="$t('post.command')"
+        :default-open="false"
+      >
         <div class="flex flex-col gap-2">
           <AutoGenerateTagBtn :post-id="post.id" />
           <AutoGenerateCaptionBtn :post-id="post.id" />
         </div>
-      </section>
+      </PDisclosure>
     </div>
   </PScrollArea>
 </template>

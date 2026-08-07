@@ -7,11 +7,12 @@ import { computed, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { RouterLink, useRoute, useRouter } from 'vue-router'
 import { useAPIError } from '@/composables/useAPIError'
+import { notUsingInput } from '@/composables/useKeyScope'
 import { formatNumber } from '@/locale'
 import PTreeList, { CHEVRON_SLOT, LEVEL_INDENT } from '@/ui/PTreeList.vue'
 import FolderStatsLine from './components/FolderStatsLine.vue'
 import { useGlobalUndoRedo, useWatchRoute } from './composables'
-import { deleteFolder, focusedTreeFolder, isAnyDialogOpen, menuData, showMenu, useCurrentFolder, useFoldersQuery, useSyncFilterWithUrl } from './shared'
+import { commandPaletteOpen, deleteFolder, focusedTreeFolder, isAnyDialogOpen, leftPaneCollapsed, menuData, rightPaneCollapsed, shortcutHelpOpen, showMenu, useCurrentFolder, useFoldersQuery, useSyncFilterWithUrl } from './shared'
 import 'splitpanes/dist/splitpanes.css'
 
 const { t } = useI18n()
@@ -269,6 +270,42 @@ function clearFilter() {
   folderFilter.value = ''
 }
 
+// ⌘K / Ctrl+K opens the palette from anywhere, including from inside an input
+// (that's the point — it's the one key that always works).
+onKeyStroke('k', (e) => {
+  if (!e.ctrlKey && !e.metaKey) {
+    return
+  }
+  e.preventDefault()
+  commandPaletteOpen.value = !commandPaletteOpen.value
+})
+
+// '?' opens the shortcut sheet, but only when not typing — otherwise it would
+// swallow the character in the folder filter or a caption field.
+onKeyStroke('?', (e) => {
+  if (!notUsingInput.value || isAnyDialogOpen.value) {
+    return
+  }
+  e.preventDefault()
+  shortcutHelpOpen.value = true
+})
+
+// Pane toggles. Ctrl+B / Ctrl+Shift+B mirror the editor convention; the same
+// state is driven by the bottom bar's buttons, which stay reachable once a
+// pane is gone (the pane's own header would collapse with it).
+onKeyStroke('b', (e) => {
+  if (!e.ctrlKey || isAnyDialogOpen.value) {
+    return
+  }
+  e.preventDefault()
+  if (e.shiftKey) {
+    rightPaneCollapsed.value = !rightPaneCollapsed.value
+  }
+  else {
+    leftPaneCollapsed.value = !leftPaneCollapsed.value
+  }
+})
+
 interface HighlightPart { text: string, match: boolean }
 function splitHighlight(text: string, filter: string): HighlightPart[] {
   const f = filter.trim().toLowerCase()
@@ -339,6 +376,7 @@ function splitHighlight(text: string, filter: string): HighlightPart[] {
     <TagSelectorWindow />
     <Splitpanes class="max-h-[calc(100vh-24px)]">
       <Pane
+        v-if="!leftPaneCollapsed"
         :min-size="8"
         :size="12"
         :max-size="36"
@@ -598,6 +636,7 @@ function splitHighlight(text: string, filter: string): HighlightPart[] {
         </main>
       </Pane>
       <Pane
+        v-if="!rightPaneCollapsed"
         :min-size="12"
         :size="12"
         :max-size="36"
@@ -634,6 +673,9 @@ function splitHighlight(text: string, filter: string): HighlightPart[] {
     </POverlay>
     <!-- Global toast outlet — useToast()/useAPIError() push here. -->
     <ToastSystem />
+    <!-- ⌘K palette + its shortcut sheet; both are global singletons. -->
+    <CommandPalette />
+    <ShortcutHelp />
   </div>
 </template>
 

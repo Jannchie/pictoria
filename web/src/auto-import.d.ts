@@ -44,6 +44,7 @@ declare global {
   const formatDateTime: typeof import('./locale/index').formatDateTime
   const formatNumber: typeof import('./locale/index').formatNumber
   const formatPct: typeof import('./composables/useFacetFilter').formatPct
+  const formatRelativeTime: typeof import('./locale/index').formatRelativeTime
   const getCurrentInstance: typeof import('vue').getCurrentInstance
   const getCurrentScope: typeof import('vue').getCurrentScope
   const getCurrentWatcher: typeof import('vue').getCurrentWatcher
@@ -134,8 +135,10 @@ declare global {
   const until: typeof import('@vueuse/core').until
   const useAPIError: typeof import('./composables/useAPIError').useAPIError
   const useActiveElement: typeof import('@vueuse/core').useActiveElement
+  const useActiveFilters: typeof import('./composables/useActiveFilters').useActiveFilters
   const useAdjacentImagePreload: typeof import('./composables/useAdjacentImagePreload').useAdjacentImagePreload
   const useAnimate: typeof import('@vueuse/core').useAnimate
+  const useAnnotationReview: typeof import('./composables/useAnnotationReview').useAnnotationReview
   const useArrayDifference: typeof import('@vueuse/core').useArrayDifference
   const useArrayEvery: typeof import('@vueuse/core').useArrayEvery
   const useArrayFilter: typeof import('@vueuse/core').useArrayFilter
@@ -335,6 +338,9 @@ declare global {
   // @ts-ignore
   export type { Component, Slot, Slots, ComponentPublicInstance, ComputedRef, DirectiveBinding, ExtractDefaultPropTypes, ExtractPropTypes, ExtractPublicPropTypes, InjectionKey, PropType, Ref, ShallowRef, MaybeRef, MaybeRefOrGetter, VNode, WritableComputedRef } from 'vue'
   import('vue')
+  // @ts-ignore
+  export type { FilterChip } from './composables/useActiveFilters'
+  import('./composables/useActiveFilters')
   // @ts-ignore
   export type { KeyChoice } from './composables/useAnnotationKeymap'
   import('./composables/useAnnotationKeymap')
