@@ -20,7 +20,7 @@ logger = getLogger("danbooru")
 # `gainoob`. Connect stays tight; reads get the long budget.
 _HTTP_TIMEOUT = httpx.Timeout(connect=10.0, read=60.0, write=30.0, pool=10.0)
 
-# Backoff schedule (seconds) for CDN throttling. Caps so a single bad batch
+# Backoff schedule (seconds) for throttling. Caps so a single bad batch
 # can't park the whole pool for hours.
 _THROTTLE_BACKOFF_SECONDS: tuple[float, ...] = (5.0, 15.0, 45.0, 120.0)
 
@@ -31,9 +31,34 @@ _THROTTLE_BACKOFF_SECONDS: tuple[float, ...] = (5.0, 15.0, 45.0, 120.0)
 _INTERVAL_MIN = 0.5
 _INTERVAL_MAX = 1.5
 
+# Listing spacing. /posts.json is the metered API (~10 req/s for a logged-in
+# user), not the CDN, so it gets its own gate: ≈5 req/s still leaves 2x
+# headroom while pacing the bursts a multi-page walk under concurrent tag
+# imports produces. The gate only sleeps when requests actually arrive faster
+# than this — at the script's default concurrency they don't, so it costs
+# nothing there and only starts shaping traffic further up.
+_API_INTERVAL_MIN = 0.15
+_API_INTERVAL_MAX = 0.25
+
+# How long one call may spend being turned away by a rate limiter before it
+# gives up. Kept separate from the content-retry budget — being throttled says
+# nothing about whether *this* request is satisfiable, so charging it to the
+# same budget lets one bad wave permanently fail a perfectly good file.
+#
+# Bounded by wall clock rather than by a count on purpose: the cool-down steps
+# escalate 5→15→45→120, so "6 waits" is anywhere from 30s to 425s depending on
+# where the escalation already stood. The number that matters to everything
+# upstream — a Litestar request under the script's --read-timeout — is seconds,
+# so that is what we bound. It lives next to the schedule it has to be tuned
+# against, and both are constructor parameters of the gate that owns them.
+_MAX_THROTTLE_SECONDS = 120.0
+
+# The two statuses donmai.us uses to turn us away, on both the API and the CDN.
+_RATE_LIMITED = (httpx.codes.FORBIDDEN, httpx.codes.TOO_MANY_REQUESTS)
+
 
 class _Throttle:
-    """Shared rate-limit + cool-down gate for all CDN workers on one client.
+    """Shared rate-limit + cool-down gate for the workers sharing one endpoint.
 
     Two mechanisms in one:
     * Jittered min-interval (leaky bucket): every `wait()` reserves the next
@@ -52,13 +77,31 @@ class _Throttle:
         self,
         interval_min: float = _INTERVAL_MIN,
         interval_max: float = _INTERVAL_MAX,
+        backoff_seconds: tuple[float, ...] = _THROTTLE_BACKOFF_SECONDS,
+        max_wait_seconds: float = _MAX_THROTTLE_SECONDS,
     ) -> None:
         self._lock = threading.Lock()
         self._interval_min = interval_min
         self._interval_max = interval_max
+        self._backoff_seconds = backoff_seconds
+        self._max_wait_seconds = max_wait_seconds
         self._next_slot = 0.0
         self._paused_until = 0.0
         self._consecutive_blocks = 0
+
+    def patience_deadline(self) -> float:
+        """When one call should stop waiting this gate out (monotonic clock).
+
+        A deadline rather than a spend-down budget because ``report_blocked``
+        piggybacks concurrent blocks onto a live cooldown and returns its
+        *remaining* time — summing those returns undercounts badly (a wave of
+        piggybacked calls each charge ~0 while still costing a round trip).
+        Elapsed wall clock is the thing being bounded, so measure it directly.
+        """
+        return time.monotonic() + self._max_wait_seconds
+
+    def out_of_patience(self, deadline: float) -> bool:
+        return time.monotonic() >= deadline
 
     def wait(self) -> None:
         with self._lock:
@@ -76,8 +119,8 @@ class _Throttle:
             # piggyback on its delay instead of escalating prematurely.
             if self._paused_until > now:
                 return self._paused_until - now
-            idx = min(self._consecutive_blocks, len(_THROTTLE_BACKOFF_SECONDS) - 1)
-            delay = _THROTTLE_BACKOFF_SECONDS[idx]
+            idx = min(self._consecutive_blocks, len(self._backoff_seconds) - 1)
+            delay = self._backoff_seconds[idx]
             self._consecutive_blocks += 1
             self._paused_until = now + delay
             # Push the slot past the cooldown so already-queued workers
@@ -165,6 +208,15 @@ class DanbooruPost(BaseModel):
 
 
 class DanbooruClient:
+    """Danbooru API + CDN access, each behind its own rate-limit gate.
+
+    The two endpoints are metered separately upstream — /posts.json is the
+    documented ~10 req/s API, the file host is an unmetered CDN that 403s on
+    sustained hammering — so they get one ``_Throttle`` each. Sharing a single
+    gate coupled them in both directions; the tests named after that coupling
+    pin why they must stay apart.
+    """
+
     def __init__(self, api_key: str, user_id: str, base_url: str = "https://danbooru.donmai.us") -> None:
         self.api_key: str = api_key
         self.user_id: str = user_id
@@ -174,7 +226,8 @@ class DanbooruClient:
             headers={"User-Agent": "curl/8.5.0"},
             timeout=_HTTP_TIMEOUT,
         )
-        self._throttle = _Throttle()
+        self._cdn_throttle = _Throttle()
+        self._api_throttle = _Throttle(_API_INTERVAL_MIN, _API_INTERVAL_MAX)
 
     def _get_with_retry(
         self,
@@ -184,11 +237,17 @@ class DanbooruClient:
         retries: int = 3,
         backoff: float = 1.5,
     ) -> httpx.Response:
-        for attempt in range(1, retries + 1):
+        deadline = self._api_throttle.patience_deadline()
+        attempt = 0
+        while attempt < retries:
+            # Pace listings too. Concurrent tag imports each walk their own
+            # pages, so without a gate the API sees an unbounded burst.
+            self._api_throttle.wait()
             try:
                 resp = self.client.get(url, params=params)
             except (httpx.TimeoutException, httpx.TransportError) as exc:
-                if attempt == retries:
+                attempt += 1
+                if attempt >= retries:
                     raise
                 sleep_s = backoff**attempt
                 logger.warning(
@@ -201,25 +260,23 @@ class DanbooruClient:
                 )
                 time.sleep(sleep_s)
                 continue
-            # 403/429 = donmai.us rate-limit. Listing hits the same host as the
-            # CDN download path, so reuse the shared throttle's cool-down and
-            # retry instead of letting raise_for_status turn a transient
-            # throttle into a hard tag failure.
-            if resp.status_code in (httpx.codes.FORBIDDEN, httpx.codes.TOO_MANY_REQUESTS):
-                delay = self._throttle.report_blocked()
+            # Rate-limited: cool down on the API's own gate and retry, instead
+            # of letting raise_for_status turn a transient throttle into a hard
+            # tag failure. Bounded by the deadline, not by `attempt` — see
+            # _MAX_THROTTLE_SECONDS. The sleep happens in the next iteration's
+            # wait(), which report_blocked has already parked past the cooldown.
+            if resp.status_code in _RATE_LIMITED:
+                delay = self._api_throttle.report_blocked()
                 logger.warning(
-                    "Danbooru GET %s rate-limited (HTTP %d); cooling down %.1fs (attempt %d/%d)",
+                    "Danbooru GET %s rate-limited (HTTP %d); cooling down %.1fs",
                     url,
                     resp.status_code,
                     delay,
-                    attempt,
-                    retries,
                 )
-                if attempt == retries:
+                if self._api_throttle.out_of_patience(deadline):
                     return resp  # let the caller's raise_for_status surface it
-                time.sleep(delay)
                 continue
-            self._throttle.report_ok()
+            self._api_throttle.report_ok()
             return resp
         # Unreachable: the loop either returns or raises.
         msg = "retry loop exited without returning"
@@ -302,19 +359,38 @@ class DanbooruClient:
         # file at the final path — which the exists() check above would treat
         # as done forever (the source of permanently-truncated library images).
         part_path = file_path.with_name(file_path.name + ".part")
-        for attempt in range(retries):
-            self._throttle.wait()
+        # Two budgets, not one. `attempt` counts attempts that actually told us
+        # something about this file (a truncated body, a 5xx, a dropped
+        # connection); the deadline covers the times the CDN turned us away
+        # before we learned anything — see _MAX_THROTTLE_SECONDS.
+        started = time.monotonic()
+        deadline = self._cdn_throttle.patience_deadline()
+        attempt = 0
+        while attempt < retries:
+            self._cdn_throttle.wait()
             outcome = self._download_attempt(post, url, part_path, attempt, retries)
+            if outcome == "throttled":
+                delay = self._cdn_throttle.report_blocked()
+                logger.warning("Post %s rate-limited; cooling down %.1fs", post_id, delay)
+                if self._cdn_throttle.out_of_patience(deadline):
+                    break
+                continue
+            attempt += 1
             if outcome == "retry":
                 continue
             if outcome == "failed":
-                return "failed"
+                break
             part_path.replace(file_path)  # atomic publish of a verified file
-            self._throttle.report_ok()
+            self._cdn_throttle.report_ok()
             logger.info("Successfully downloaded post %s", post_id)
             return "downloaded"
         part_path.unlink(missing_ok=True)  # don't leave a stale temp file behind
-        logger.warning("All %d attempts to download post %s failed", retries, post_id)
+        logger.warning(
+            "Gave up on post %s after %d content attempts and %.0fs elapsed",
+            post_id,
+            attempt,
+            time.monotonic() - started,
+        )
         return "failed"
 
     def _download_attempt(
@@ -324,26 +400,23 @@ class DanbooruClient:
         part_path: Path,
         attempt: int,
         retries: int,
-    ) -> Literal["ok", "retry", "failed"]:
-        """One streaming GET into ``part_path``, verified against ``post.file_size``."""
+    ) -> Literal["ok", "retry", "throttled", "failed"]:
+        """One streaming GET into ``part_path``, verified against ``post.file_size``.
+
+        Reports what happened; the caller owns the cool-down bookkeeping.
+        ``throttled`` is distinct from ``retry`` — see ``_MAX_THROTTLE_SECONDS``.
+        ``attempt`` is the content-attempt counter, so it deliberately does not
+        move while we're only being turned away.
+        """
         post_id = post.id
         try:
             logger.debug("Downloading post %s, attempt %d/%d", post_id, attempt + 1, retries)
             with self.client.stream("GET", url) as response:
                 status = response.status_code
                 # 403/429 = CDN rate-limit. Park the whole pool, retry.
-                if status in (403, 429):
+                if status in _RATE_LIMITED:
                     response.read()
-                    delay = self._throttle.report_blocked()
-                    logger.warning(
-                        "Post %s rate-limited (HTTP %d); cooling down %.1fs (attempt %d/%d)",
-                        post_id,
-                        status,
-                        delay,
-                        attempt + 1,
-                        retries,
-                    )
-                    return "retry"
+                    return "throttled"
                 # Other 4xx (404/410/...) = permanent, don't waste retries.
                 if httpx.codes.BAD_REQUEST <= status < httpx.codes.INTERNAL_SERVER_ERROR:
                     logger.warning("Post %s HTTP %d; not retryable", post_id, status)
