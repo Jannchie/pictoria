@@ -17,6 +17,7 @@ const { chips, isFiltered, clearAll } = useActiveFilters()
         <TagFilter />
         <WaifuScoreFilter />
         <SilvaScoreFilter />
+        <SilvaLunaScoreFilter />
       </div>
       <div class="flex gap-2 items-center">
         <!-- Search is no longer a box in the corner: it's the palette, which is

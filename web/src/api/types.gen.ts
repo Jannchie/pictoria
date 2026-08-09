@@ -122,6 +122,7 @@ export type DirectorySummary = {
     file_count: number;
     post_count?: number;
     silva_avg?: number | null;
+    silva_luna_avg?: number | null;
     score_avg?: number | null;
     rating_avg?: number | null;
     scored_ratio?: number | null;
@@ -342,6 +343,10 @@ export type PostFilter = {
      */
     silva_score_levels?: Array<string> | null;
     /**
+     * SILVA-Luna aesthetic bucket filter. Same A-E edges over the [0, 1] domain as ``silva_score_levels`` (a second distilled judge, not a second tier), or 'UNSCORED'. OR together.
+     */
+    silva_luna_score_levels?: Array<string> | null;
+    /**
      * When true (default), hide near-duplicate group *members* and return only canonical (representative) posts — those with canonical_post_id NULL. Set false to include members.
      */
     only_canonical?: boolean;
@@ -392,13 +397,17 @@ export type PostFilterWithOrder = {
      */
     silva_score_levels?: Array<string> | null;
     /**
+     * SILVA-Luna aesthetic bucket filter. Same A-E edges over the [0, 1] domain as ``silva_score_levels`` (a second distilled judge, not a second tier), or 'UNSCORED'. OR together.
+     */
+    silva_luna_score_levels?: Array<string> | null;
+    /**
      * When true (default), hide near-duplicate group *members* and return only canonical (representative) posts — those with canonical_post_id NULL. Set false to include members.
      */
     only_canonical?: boolean;
     /**
      * Order column.
      */
-    order_by?: 'id' | 'score' | 'rating' | 'created_at' | 'published_at' | 'file_name' | 'last_accessed_at' | 'updated_at' | 'waifu_score' | 'silva_score' | 'discrepancy' | null;
+    order_by?: 'id' | 'score' | 'rating' | 'created_at' | 'published_at' | 'file_name' | 'last_accessed_at' | 'updated_at' | 'waifu_score' | 'silva_score' | 'silva_luna_score' | 'discrepancy' | null;
     /**
      * Order direction.
      */
@@ -548,6 +557,14 @@ export type SilvaBucketCountItem = {
 };
 
 /**
+ * SilvaLunaBucketCountItem
+ */
+export type SilvaLunaBucketCountItem = {
+    bucket: string;
+    count: number;
+};
+
+/**
  * SnapshotResult
  */
 export type SnapshotResult = {
@@ -615,6 +632,10 @@ export type TagCountRequest = {
      * SILVA aesthetic bucket filter. Each value is one of 'A' (0.8-1.0), 'B' (0.6-0.8), 'C' (0.4-0.6), 'D' (0.2-0.4), 'E' (0-0.2), or 'UNSCORED' (no SILVA score yet). OR together.
      */
     silva_score_levels?: Array<string> | null;
+    /**
+     * SILVA-Luna aesthetic bucket filter. Same A-E edges over the [0, 1] domain as ``silva_score_levels`` (a second distilled judge, not a second tier), or 'UNSCORED'. OR together.
+     */
+    silva_luna_score_levels?: Array<string> | null;
     /**
      * When true (default), hide near-duplicate group *members* and return only canonical (representative) posts — those with canonical_post_id NULL. Set false to include members.
      */
@@ -731,6 +752,10 @@ export type TextSearchRequest = {
      * SILVA aesthetic bucket filter. Each value is one of 'A' (0.8-1.0), 'B' (0.6-0.8), 'C' (0.4-0.6), 'D' (0.2-0.4), 'E' (0-0.2), or 'UNSCORED' (no SILVA score yet). OR together.
      */
     silva_score_levels?: Array<string> | null;
+    /**
+     * SILVA-Luna aesthetic bucket filter. Same A-E edges over the [0, 1] domain as ``silva_score_levels`` (a second distilled judge, not a second tier), or 'UNSCORED'. OR together.
+     */
+    silva_luna_score_levels?: Array<string> | null;
     /**
      * When true (default), hide near-duplicate group *members* and return only canonical (representative) posts — those with canonical_post_id NULL. Set false to include members.
      */
@@ -1238,6 +1263,37 @@ export type V2GetSilvaBucketCountResponses = {
 };
 
 export type V2GetSilvaBucketCountResponse = V2GetSilvaBucketCountResponses[keyof V2GetSilvaBucketCountResponses];
+
+export type V2GetSilvaLunaBucketCountData = {
+    body: PostFilter;
+    path?: never;
+    query?: never;
+    url: '/v2/posts/count/silva-luna';
+};
+
+export type V2GetSilvaLunaBucketCountErrors = {
+    /**
+     * Validation Exception
+     */
+    400: {
+        status_code: number;
+        detail: string;
+        extra?: null | {
+            [key: string]: unknown;
+        } | Array<unknown>;
+    };
+};
+
+export type V2GetSilvaLunaBucketCountError = V2GetSilvaLunaBucketCountErrors[keyof V2GetSilvaLunaBucketCountErrors];
+
+export type V2GetSilvaLunaBucketCountResponses = {
+    /**
+     * Request fulfilled, document follows
+     */
+    200: Array<SilvaLunaBucketCountItem>;
+};
+
+export type V2GetSilvaLunaBucketCountResponse = V2GetSilvaLunaBucketCountResponses[keyof V2GetSilvaLunaBucketCountResponses];
 
 export type V2GetSimilarPostsData = {
     body?: never;
@@ -1853,6 +1909,39 @@ export type V2DownloadFromDanbooruResponses = {
 };
 
 export type V2DownloadFromDanbooruResponse = V2DownloadFromDanbooruResponses[keyof V2DownloadFromDanbooruResponses];
+
+export type V2GetSilvaLunaScorerOneData = {
+    body?: never;
+    path: {
+        post_id: number;
+    };
+    query?: never;
+    url: '/v2/cmd/silva-luna-scorer/{post_id}';
+};
+
+export type V2GetSilvaLunaScorerOneErrors = {
+    /**
+     * Validation Exception
+     */
+    400: {
+        status_code: number;
+        detail: string;
+        extra?: null | {
+            [key: string]: unknown;
+        } | Array<unknown>;
+    };
+};
+
+export type V2GetSilvaLunaScorerOneError = V2GetSilvaLunaScorerOneErrors[keyof V2GetSilvaLunaScorerOneErrors];
+
+export type V2GetSilvaLunaScorerOneResponses = {
+    /**
+     * Request fulfilled, document follows
+     */
+    200: number;
+};
+
+export type V2GetSilvaLunaScorerOneResponse = V2GetSilvaLunaScorerOneResponses[keyof V2GetSilvaLunaScorerOneResponses];
 
 export type V2GetSilvaScorerOneData = {
     body?: never;

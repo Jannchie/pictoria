@@ -169,9 +169,10 @@ function formatSortValue(v: number | string): SortBadge | undefined {
       const n = Number(v)
       return { text: n.toFixed(2), color: `rgb(${waifuLevelRgb(n)})` }
     }
-    // SILVA is stored 0–1; surface it on the same 0–10 scale (and bucket
-    // colour ramp) as the detail panel's WaifuScoreLevel chip.
-    case 'silva_score': {
+    // The SILVA heads store 0–1; surface them on the same 0–10 scale (and
+    // bucket colour ramp) as the detail panel's WaifuScoreLevel chip.
+    case 'silva_score':
+    case 'silva_luna_score': {
       const n = Number(v) * 10
       return { text: n.toFixed(2), color: `rgb(${waifuLevelRgb(n)})` }
     }

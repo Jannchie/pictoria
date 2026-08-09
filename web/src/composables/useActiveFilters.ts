@@ -38,7 +38,7 @@ const BUCKET_LABEL_KEYS: Record<string, string> = {
   worst: 'filter.bucketWorst',
 }
 
-type ArrayFacet = 'rating' | 'score' | 'extension' | 'tags' | 'waifu_score_levels' | 'silva_score_levels'
+type ArrayFacet = 'rating' | 'score' | 'extension' | 'tags' | 'waifu_score_levels' | 'silva_score_levels' | 'silva_luna_score_levels'
 
 /** Drops one value from an array facet, leaving the rest of the filter alone. */
 function removeFrom<T>(field: ArrayFacet, value: T) {
@@ -56,6 +56,7 @@ function clearAll() {
     extension: [],
     waifu_score_levels: [],
     silva_score_levels: [],
+    silva_luna_score_levels: [],
     waifu_score_range: undefined,
   }
   textSearchQuery.value = ''
@@ -112,6 +113,9 @@ export function useActiveFilters() {
     }
     for (const lvl of f.silva_score_levels) {
       out.push({ id: `silva:${lvl}`, icon: 'i-tabler-rosette', label: `SILVA ${bucketLabel(lvl)}`, remove: () => removeFrom('silva_score_levels', lvl) })
+    }
+    for (const lvl of f.silva_luna_score_levels) {
+      out.push({ id: `luna:${lvl}`, icon: 'i-tabler-moon', label: `Luna ${bucketLabel(lvl)}`, remove: () => removeFrom('silva_luna_score_levels', lvl) })
     }
     if (f.waifu_score_range) {
       const [lo, hi] = f.waifu_score_range

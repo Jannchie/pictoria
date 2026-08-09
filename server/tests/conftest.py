@@ -124,13 +124,17 @@ def _seed(cur: sqlite3.Cursor) -> None:
         """,
     )
 
-    # ── aesthetic scores (silva), only on a subset ────────────────────
-    # silva (raw [0,1] scale) on posts 4/5; posts 1/2/3 have none.
+    # ── aesthetic scores, only on a subset ────────────────────────────
+    # Two heads on the same raw [0,1] scale, deliberately covering *different*
+    # posts: silva on 4/5, silva_luna on 1/4. Only post 4 has both, so a query
+    # that mixes the two scorers cannot pass by accident.
     cur.executescript(
         """
         INSERT INTO post_aesthetic_scores(post_id, scorer, score) VALUES
             (4, 'silva', 0.4),
-            (5, 'silva', 0.9);
+            (5, 'silva', 0.9),
+            (1, 'silva_luna', 0.85),
+            (4, 'silva_luna', 0.1);
         """,
     )
 

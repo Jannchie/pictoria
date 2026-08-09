@@ -4,7 +4,7 @@ import { useQueryClient } from '@tanstack/vue-query'
 import { filesize } from 'filesize'
 import { useI18n } from 'vue-i18n'
 import { useRouter } from 'vue-router'
-import { v2GetSilvaScorerOne, v2GetWaifuScorerOne } from '@/api'
+import { v2GetSilvaLunaScorerOne, v2GetSilvaScorerOne, v2GetWaifuScorerOne } from '@/api'
 import { useAPIError } from '@/composables/useAPIError'
 import { useScoreHotkeys } from '@/composables/useKeyScope'
 import { usePostGroupQuery } from '@/composables/usePostGroupQuery'
@@ -129,10 +129,15 @@ async function calculateWaifuScore() {
 }
 
 const SILVA_SCORER = 'silva'
+const SILVA_LUNA_SCORER = 'silva_luna'
 const silvaScore = computed(
   () => post.value.aestheticScores?.find(s => s.scorer === SILVA_SCORER)?.score,
 )
+const silvaLunaScore = computed(
+  () => post.value.aestheticScores?.find(s => s.scorer === SILVA_LUNA_SCORER)?.score,
+)
 const isCalculatingSilvaScore = ref(false)
+const isCalculatingSilvaLunaScore = ref(false)
 
 async function calculateSilvaScore() {
   if (isCalculatingSilvaScore.value) {
@@ -153,6 +158,28 @@ async function calculateSilvaScore() {
   }
   finally {
     isCalculatingSilvaScore.value = false
+  }
+}
+
+async function calculateSilvaLunaScore() {
+  if (isCalculatingSilvaLunaScore.value) {
+    return
+  }
+
+  isCalculatingSilvaLunaScore.value = true
+  try {
+    await v2GetSilvaLunaScorerOne({
+      path: {
+        post_id: post.value.id,
+      },
+    })
+    queryClient.invalidateQueries({ queryKey: queryKeys.postRoot(post.value.id) })
+  }
+  catch (error) {
+    handleAPIError(error, t('error.silvaLunaComputeFailed'))
+  }
+  finally {
+    isCalculatingSilvaLunaScore.value = false
   }
 }
 
@@ -232,6 +259,22 @@ const sectionTitleClass
                 @click="calculateSilvaScore"
               >
                 {{ isCalculatingSilvaScore ? $t('common.computing') : $t('common.compute') }}
+              </PButton>
+            </template>
+          </div>
+          <div>{{ $t('post.silvaLunaLabel') }}</div>
+          <div>
+            <template v-if="silvaLunaScore !== undefined">
+              <WaifuScoreLevel :score="silvaLunaScore * 10" />
+            </template>
+            <template v-else>
+              <PButton
+                size="sm"
+                variant="subtle"
+                :loading="isCalculatingSilvaLunaScore"
+                @click="calculateSilvaLunaScore"
+              >
+                {{ isCalculatingSilvaLunaScore ? $t('common.computing') : $t('common.compute') }}
               </PButton>
             </template>
           </div>

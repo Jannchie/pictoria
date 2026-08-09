@@ -18,6 +18,7 @@ from db.repositories.posts import PostRepo
 from db.repositories.scores import ScoreRepo
 from db.repositories.tags import TagGroupRepo
 from db.repositories.vectors import VectorRepo
+from db.scorers import SILVA, SILVA_LUNA
 from scheme import PostDetailPublic, Result, UrlImportStatus
 from server.exceptions import MissingConfigError, NotAnImageError, PostNotFoundError
 from server.utils import is_image
@@ -82,6 +83,44 @@ def _find_gallery_dl_conf() -> str | None:
     """Optional gallery-dl.conf (kemono cookies / UA) at <target_dir>/.pictoria/."""
     conf = shared.target_dir / ".pictoria" / "gallery-dl.conf"
     return str(conf) if conf.is_file() else None
+
+
+async def _score_one_from_embedding(
+    posts: PostRepo,
+    scores: ScoreRepo,
+    vectors: VectorRepo,
+    post_id: int,
+    scorer: str,
+) -> float:
+    """Compute (and persist) one SILVA-family score for one post, on demand.
+
+    Shared by the ``silva`` and ``silva_luna`` endpoints — the two heads differ
+    only in the registry name threaded through. Reuses the stored SigLIP2
+    embedding; if the post has none yet, runs the embedding worker's batch
+    function first so the score is available immediately. Guards keep the HTTP
+    contract: missing post -> 404, non-image -> 400, already-scored -> the
+    stored score.
+    """
+    post = await posts.get(post_id)
+    if post is None:
+        raise PostNotFoundError(post_id)
+    if not is_image(post.absolute_path):
+        raise NotAnImageError(post_id)
+    from processors.embedding import _process_siglip_embedding_batch  # noqa: PLC0415  # lazy: defer ML stack load
+    from processors.scoring import _process_silva_batch  # noqa: PLC0415
+
+    existing = await scores.get_aesthetic_score(post_id, scorer)
+    if existing is not None:
+        return existing
+
+    if await vectors.get(post_id) is None:
+        await _process_siglip_embedding_batch(posts, vectors, [post_id])
+    await _process_silva_batch(posts, vectors, [post_id], scorer)
+
+    score = await scores.get_aesthetic_score(post_id, scorer)
+    if score is None:
+        raise NotAnImageError(post_id)
+    return score
 
 
 class CommandController(Controller):
@@ -159,35 +198,19 @@ class CommandController(Controller):
         vectors: VectorRepo,
         post_id: int,
     ) -> float:
-        """Compute (and persist) the SILVA score for one post from its embedding.
+        """Compute (and persist) the SILVA score for one post from its embedding."""
+        return await _score_one_from_embedding(posts, scores, vectors, post_id, SILVA.name)
 
-        Reuses the stored SigLIP2 embedding; if the post has none yet, runs the
-        embedding worker's batch function first so the score is available
-        immediately — then the SILVA worker's batch function scores that stored
-        embedding. Guards keep the HTTP contract: missing post -> 404,
-        non-image -> 400, already-scored -> return the stored score.
-        """
-        post = await posts.get(post_id)
-        if post is None:
-            raise PostNotFoundError(post_id)
-        if not is_image(post.absolute_path):
-            raise NotAnImageError(post_id)
-        from ai.silva_scorer import SCORER_NAME  # noqa: PLC0415  # lazy: defer ML stack load
-        from processors.embedding import _process_siglip_embedding_batch  # noqa: PLC0415
-        from processors.scoring import _process_silva_batch  # noqa: PLC0415
-
-        existing = await scores.get_aesthetic_score(post_id, SCORER_NAME)
-        if existing is not None:
-            return existing
-
-        if await vectors.get(post_id) is None:
-            await _process_siglip_embedding_batch(posts, vectors, [post_id])
-        await _process_silva_batch(posts, vectors, [post_id])
-
-        score = await scores.get_aesthetic_score(post_id, SCORER_NAME)
-        if score is None:
-            raise NotAnImageError(post_id)
-        return score
+    @litestar.get("/silva-luna-scorer/{post_id:int}")
+    async def get_silva_luna_scorer_one(
+        self,
+        posts: PostRepo,
+        scores: ScoreRepo,
+        vectors: VectorRepo,
+        post_id: int,
+    ) -> float:
+        """Compute (and persist) the SILVA-Luna score for one post from its embedding."""
+        return await _score_one_from_embedding(posts, scores, vectors, post_id, SILVA_LUNA.name)
 
     @litestar.post("/download-from-danbooru", description="Download posts from Danbooru")
     async def download_from_danbooru(

@@ -75,6 +75,7 @@ const commands = computed<Command[]>(() => {
     { id: 'sort-score', label: t('command.sortBy', { label: t('sort.score') }), icon: 'i-tabler-star', run: sortBy('score') },
     { id: 'sort-rating', label: t('command.sortBy', { label: t('sort.rating') }), icon: 'i-tabler-thumb-up', run: sortBy('rating') },
     { id: 'sort-silva', label: t('command.sortBy', { label: t('sort.silvaScore') }), icon: 'i-tabler-rosette', run: sortBy('silva_score') },
+    { id: 'sort-silva-luna', label: t('command.sortBy', { label: t('sort.silvaLunaScore') }), icon: 'i-tabler-moon', run: sortBy('silva_luna_score') },
     { id: 'sort-waifu', label: t('command.sortBy', { label: t('sort.waifuScore') }), icon: 'i-tabler-heart', run: sortBy('waifu_score') },
     { id: 'sort-discrepancy', label: t('command.sortBy', { label: t('sort.discrepancy') }), icon: 'i-tabler-git-compare', keywords: 'model vs me disagree', run: sortBy('discrepancy') },
     { id: 'sort-created', label: t('command.sortBy', { label: t('sort.created') }), icon: 'i-tabler-calendar-event', run: sortBy('created_at') },
@@ -148,6 +149,7 @@ function applyQuery() {
       extension: p.extension,
       waifu_score_levels: p.waifu_score_levels,
       silva_score_levels: p.silva_score_levels,
+      silva_luna_score_levels: p.silva_luna_score_levels,
     }
   }
   textSearchQuery.value = p.text
@@ -307,6 +309,7 @@ watch(commandPaletteOpen, (open) => {
         <span class="font-mono whitespace-nowrap">tag:1girl</span>
         <span class="font-mono whitespace-nowrap">ext:png</span>
         <span class="font-mono whitespace-nowrap">silva:best</span>
+        <span class="font-mono whitespace-nowrap">luna:best</span>
       </div>
     </div>
   </POverlay>

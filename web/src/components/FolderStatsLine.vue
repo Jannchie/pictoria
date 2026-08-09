@@ -4,9 +4,11 @@ import { useI18n } from 'vue-i18n'
 import { waifuLevelRgb } from '@/shared'
 
 // Per-directory aggregate stats, shown as the second line of a folder tree row.
-// SILVA is stored raw 0~1; ×10 here to match how the score is shown elsewhere.
+// The SILVA heads store raw 0~1; ×10 here to match how the scores are shown
+// elsewhere.
 const props = defineProps<{
   silvaAvg?: number | null
+  silvaLunaAvg?: number | null
   scoreAvg?: number | null
   ratingAvg?: number | null
   scoredRatio?: number | null
@@ -26,6 +28,7 @@ function gradeColor(ratio: number): string {
 const metrics = computed<{ key: string, label: string, value: string, color: string | null }[]>(() =>
   [
     { key: 'silva', label: 'SILVA', raw: props.silvaAvg, max: 1, value: props.silvaAvg == null ? '—' : (props.silvaAvg * 10).toFixed(1) },
+    { key: 'luna', label: 'LUNA', raw: props.silvaLunaAvg, max: 1, value: props.silvaLunaAvg == null ? '—' : (props.silvaLunaAvg * 10).toFixed(1) },
     { key: 'score', label: t('filter.score'), raw: props.scoreAvg, max: 5, value: props.scoreAvg == null ? '—' : props.scoreAvg.toFixed(1) },
     { key: 'rating', label: 'R', raw: props.ratingAvg, max: 4, value: props.ratingAvg == null ? '—' : props.ratingAvg.toFixed(1) },
     { key: 'scored', label: '', raw: null as number | null, max: 1, value: props.scoredRatio == null ? '—' : `${Math.round(props.scoredRatio * 100)}%` },

@@ -36,13 +36,15 @@ from db.helpers import decode_dominant_color, fetch_all_dicts, fetch_one_dict, s
 from db.repositories.colors import ColorRepo
 from db.repositories.scores import ScoreRepo
 from db.repositories.tags import TagRepo
-from db.scorers import SILVA
+from db.scorers import SILVA, SILVA_LUNA
 
 if TYPE_CHECKING:
     import sqlite3
-    from collections.abc import Sequence
+    from collections.abc import Callable, Sequence
 
     import numpy as np
+
+    from db.scorers import ScorerSpec
 
 
 # Single source for the PostSimplePublic column set. ``search`` /
@@ -75,7 +77,7 @@ def _where_sql(where_clauses: list[str]) -> str:
 
 
 # Order columns that resolve to a joined-table expression rather than ``p.<col>``.
-_VIRTUAL_SORT_COLUMNS: frozenset[str] = frozenset({"waifu_score", "silva_score", "discrepancy"})
+_VIRTUAL_SORT_COLUMNS: frozenset[str] = frozenset({"waifu_score", "silva_score", "silva_luna_score", "discrepancy"})
 
 
 def _resolve_virtual_sort(order_by: str, joins: list[str]) -> tuple[list[str], str, str]:
@@ -91,8 +93,12 @@ def _resolve_virtual_sort(order_by: str, joins: list[str]) -> tuple[list[str], s
         if not any("post_waifu_scores" in j for j in joins):
             extra.append("LEFT JOIN post_waifu_scores pws ON pws.post_id = p.id")
         return extra, "pws.score", "pws.score"
+    if order_by == "silva_luna_score":
+        if not SILVA_LUNA.is_joined(joins):
+            extra.append(SILVA_LUNA.join_sql())
+        return extra, SILVA_LUNA.score_col(), SILVA_LUNA.score_col()
     # silva_score and discrepancy both hang off the SILVA aesthetic join.
-    if not any(SILVA.alias in j for j in joins):
+    if not SILVA.is_joined(joins):
         extra.append(SILVA.join_sql())
     if order_by == "silva_score":
         return extra, SILVA.score_col(), SILVA.score_col()
@@ -205,6 +211,8 @@ class FolderScoreAgg:
     rating_total: float = 0.0  # sum of rating over all posts
     silva_total: float = 0.0  # sum of raw silva score (0~1)
     silva_n: int = 0  # posts that have a silva score
+    silva_luna_total: float = 0.0  # sum of raw silva-luna score (0~1)
+    silva_luna_n: int = 0  # posts that have a silva-luna score
 
     def add(self, other: FolderScoreAgg) -> None:
         self.posts += other.posts
@@ -213,6 +221,8 @@ class FolderScoreAgg:
         self.rating_total += other.rating_total
         self.silva_total += other.silva_total
         self.silva_n += other.silva_n
+        self.silva_luna_total += other.silva_luna_total
+        self.silva_luna_n += other.silva_luna_n
 
 
 class PostQueryService:
@@ -482,7 +492,7 @@ class PostQueryService:
 
     @in_thread
     def folder_score_aggregates(self) -> dict[str, FolderScoreAgg]:
-        """Sum score / rating / silva per ``file_path`` directory in one GROUP BY.
+        """Sum score / rating / aesthetic scores per ``file_path`` directory in one GROUP BY.
 
         Keyed by ``posts.file_path`` (the directory a post lives in, e.g.
         ``'danbooru/wlop'``; root posts use ``'.'``). The folder controller
@@ -499,9 +509,12 @@ class PostQueryService:
                 sum(CASE WHEN p.score > 0 THEN p.score ELSE 0 END)   AS score_total,
                 sum(p.rating)                                        AS rating_total,
                 sum(COALESCE(a.score, 0))                            AS silva_total,
-                sum(CASE WHEN a.score IS NOT NULL THEN 1 ELSE 0 END) AS silva_n
+                sum(CASE WHEN a.score IS NOT NULL THEN 1 ELSE 0 END) AS silva_n,
+                sum(COALESCE(l.score, 0))                            AS silva_luna_total,
+                sum(CASE WHEN l.score IS NOT NULL THEN 1 ELSE 0 END) AS silva_luna_n
             FROM posts p
             {SILVA.join_sql(alias="a")}
+            {SILVA_LUNA.join_sql(alias="l")}
             GROUP BY p.file_path
             """,  # noqa: S608
         )
@@ -513,6 +526,8 @@ class PostQueryService:
                 rating_total=float(row[4]),
                 silva_total=float(row[5]),
                 silva_n=int(row[6]),
+                silva_luna_total=float(row[7]),
+                silva_luna_n=int(row[8]),
             )
             for row in self.cur.fetchall()
         }
@@ -609,10 +624,10 @@ class PostQueryService:
         score_col: str,
         null_col: str,
         join_sql: str,
-        join_marker: str,
+        already_joined: Callable[[list[str]], bool],
     ) -> list[dict]:
         where_clauses, params, joins = build_where(f)
-        if not any(join_marker in j for j in joins):
+        if not already_joined(joins):
             joins.append(join_sql)
         joins_str = "\n".join(joins)
         where_str = _where_sql(where_clauses)
@@ -638,18 +653,26 @@ class PostQueryService:
             "pws.score",
             "pws.post_id",
             "LEFT JOIN post_waifu_scores pws ON pws.post_id = p.id",
-            "post_waifu_scores",
+            lambda joins: any("post_waifu_scores" in j for j in joins),
         )
 
     async def count_by_silva_bucket(self, f: PostFilter) -> list[dict]:
         """Group posts into the 5 SILVA buckets (A/B/C/D/E) plus UNSCORED."""
+        return await self._count_by_aesthetic_bucket(f, SILVA)
+
+    async def count_by_silva_luna_bucket(self, f: PostFilter) -> list[dict]:
+        """Group posts into the 5 SILVA-Luna buckets (A/B/C/D/E) plus UNSCORED."""
+        return await self._count_by_aesthetic_bucket(f, SILVA_LUNA)
+
+    async def _count_by_aesthetic_bucket(self, f: PostFilter, spec: ScorerSpec) -> list[dict]:
+        """Bucket facet for any scorer in ``post_aesthetic_scores``."""
         return await self._count_by_scorer_bucket(
             f,
-            SILVA.buckets,
-            SILVA.score_col(),
-            SILVA.null_col(),
-            SILVA.join_sql(),
-            SILVA.alias,
+            spec.buckets,
+            spec.score_col(),
+            spec.null_col(),
+            spec.join_sql(),
+            spec.is_joined,
         )
 
     @in_thread

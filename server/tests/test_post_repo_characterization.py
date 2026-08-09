@@ -55,7 +55,8 @@ class TestGetDetail:
             {"order": 1, "color": 65280},
         ]
         assert d["waifu_score"] == {"score": 8.5}
-        assert d["aesthetic_scores"] == []
+        # Every scorer's row for this post, not just one head's.
+        assert d["aesthetic_scores"] == [{"scorer": "silva_luna", "score": 0.85}]
 
     async def test_tag_ordering_by_canonical_group(self, query: PostQueryService) -> None:
         # artist group (rank 0) sorts before general group (rank 3).
@@ -98,7 +99,10 @@ class TestListPaginated:
         by_id = {p["id"]: p for p in items}
         assert by_id[1]["waifu_score"] == {"score": 8.5}
         assert by_id[2]["waifu_score"] is None
-        assert by_id[4]["aesthetic_scores"] == [{"scorer": "silva", "score": 0.4}]
+        assert sorted(by_id[4]["aesthetic_scores"], key=lambda s: s["scorer"]) == [
+            {"scorer": "silva", "score": 0.4},
+            {"scorer": "silva_luna", "score": 0.1},
+        ]
         assert by_id[3]["colors"] == [{"order": 0, "color": 255}]
 
     async def test_tag_order_matches_get_detail(self, query: PostQueryService) -> None:
@@ -139,6 +143,12 @@ class TestCounts:
             ({"silva_score_levels": ("C",)}, 1),
             ({"silva_score_levels": ("UNSCORED",)}, 3),
             ({"silva_score_levels": ("A", "C")}, 2),
+            ({"silva_luna_score_levels": ("A",)}, 1),
+            ({"silva_luna_score_levels": ("E",)}, 1),
+            ({"silva_luna_score_levels": ("UNSCORED",)}, 3),
+            # Two scorers at once: only post 4 carries a silva C *and* a luna E.
+            ({"silva_score_levels": ("C",), "silva_luna_score_levels": ("E",)}, 1),
+            ({"silva_score_levels": ("A",), "silva_luna_score_levels": ("A",)}, 0),
         ],
     )
     async def test_count_filtered(self, query: PostQueryService, filters: dict, expected: int) -> None:
@@ -267,6 +277,28 @@ class TestSearch:
         rows = await query.search(PostFilterWithOrder(order_by="silva_score", order="desc"))
         # silva scores: post 5 (0.9) > post 4 (0.4); the rest (NULL) sink last.
         assert [r["id"] for r in rows][:2] == [5, 4]
+
+    async def test_order_by_silva_luna_score_nulls_last(self, query: PostQueryService) -> None:
+        rows = await query.search(PostFilterWithOrder(order_by="silva_luna_score", order="desc"))
+        # luna scores: post 1 (0.85) > post 4 (0.1); the rest (NULL) sink last.
+        assert [r["id"] for r in rows][:2] == [1, 4]
+
+    async def test_filter_by_one_scorer_and_order_by_the_other(self, query: PostQueryService) -> None:
+        # Regression: the join dedup used a bare alias substring test, and
+        # ``pas_silva`` is a prefix of ``pas_silva_luna`` — so a luna filter made
+        # the silva sort believe its join was already there, and the query blew
+        # up on an unbound ``pas_silva.score``.
+        rows = await query.search(
+            PostFilterWithOrder(silva_luna_score_levels=("A", "E"), order_by="silva_score", order="desc"),
+        )
+        # posts 1 (luna A) and 4 (luna E) match; only 4 has a silva score, so it
+        # leads and post 1 (NULL silva) sinks.
+        assert [r["id"] for r in rows] == [4, 1]
+
+        rows = await query.search(
+            PostFilterWithOrder(silva_score_levels=("A", "C"), order_by="silva_luna_score", order="desc"),
+        )
+        assert [r["id"] for r in rows] == [4, 5]
 
     async def test_order_by_updated_at_surfaces_recent_edit(
         self, post_repo: PostRepo, query: PostQueryService,

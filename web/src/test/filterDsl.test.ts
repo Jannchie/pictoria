@@ -81,9 +81,10 @@ describe('parsefilterquery — tags, extensions, buckets', () => {
   })
 
   it('accepts known quality buckets', () => {
-    const parsed = parseFilterQuery('waifu:best silva:worst')
+    const parsed = parseFilterQuery('waifu:best silva:worst luna:good')
     expect(parsed.waifu_score_levels).toEqual(['best'])
     expect(parsed.silva_score_levels).toEqual(['worst'])
+    expect(parsed.silva_luna_score_levels).toEqual(['good'])
   })
 
   it('rejects an unknown bucket', () => {
@@ -134,6 +135,7 @@ describe('stringifyfilterquery', () => {
     extension: [],
     waifu_score_levels: [],
     silva_score_levels: [],
+    silva_luna_score_levels: [],
   }
 
   it('renders an empty filter as an empty string', () => {
@@ -161,6 +163,7 @@ describe('stringifyfilterquery', () => {
       extension: ['png'],
       waifu_score_levels: ['best'],
       silva_score_levels: ['good'],
+      silva_luna_score_levels: ['normal'],
     }
     const parsed = parseFilterQuery(stringifyFilterQuery(source, 'sunset'))
     expect(parsed.rating).toEqual(source.rating)
@@ -169,6 +172,7 @@ describe('stringifyfilterquery', () => {
     expect(parsed.extension).toEqual(source.extension)
     expect(parsed.waifu_score_levels).toEqual(source.waifu_score_levels)
     expect(parsed.silva_score_levels).toEqual(source.silva_score_levels)
+    expect(parsed.silva_luna_score_levels).toEqual(source.silva_luna_score_levels)
     expect(parsed.text).toBe('sunset')
   })
 })

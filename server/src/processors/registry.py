@@ -23,6 +23,7 @@ from db.repositories.failures import WORKER_EMBEDDING_SIGLIP2
 from db.repositories.posts import PostRepo
 from db.repositories.tags import TagGroupRepo
 from db.repositories.vectors import VectorRepo
+from db.scorers import SILVA, SILVA_LUNA
 from processors.basics import BASICS_BATCH_SIZE, _list_basics_pending, _process_basics_batch
 from processors.common import IMAGE_EXTS, drive
 from processors.embedding import SIGLIP_EMBED_BATCH_SIZE, _process_siglip_embedding_batch
@@ -158,13 +159,19 @@ async def _waifu_process(ctx: WorkerContext, ids: list[int]) -> None:
 
 
 async def _silva_pending(ctx: WorkerContext) -> list[int]:
-    from ai.silva_scorer import SCORER_NAME  # noqa: PLC0415  # lazy: defer ML stack load
-
-    return await _list_silva_pending(ctx.posts, ctx.vectors, SCORER_NAME)
+    return await _list_silva_pending(ctx.posts, ctx.vectors, SILVA.name)
 
 
 async def _silva_process(ctx: WorkerContext, ids: list[int]) -> None:
-    await _process_silva_batch(ctx.posts, ctx.vectors, ids)
+    await _process_silva_batch(ctx.posts, ctx.vectors, ids, SILVA.name)
+
+
+async def _silva_luna_pending(ctx: WorkerContext) -> list[int]:
+    return await _list_silva_pending(ctx.posts, ctx.vectors, SILVA_LUNA.name)
+
+
+async def _silva_luna_process(ctx: WorkerContext, ids: list[int]) -> None:
+    await _process_silva_batch(ctx.posts, ctx.vectors, ids, SILVA_LUNA.name)
 
 
 async def _regroup_after_embedding(db: DB, pending_count: int) -> None:
@@ -230,10 +237,20 @@ SILVA_WORKER = WorkerSpec(
     process_batch=_silva_process,
 )
 
+SILVA_LUNA_WORKER = WorkerSpec(
+    name="SILVA-Luna scorer",
+    batch_size=SILVA_BATCH_SIZE,
+    gpu_adaptive=False,
+    blacklist_policy="never",
+    list_pending=_silva_luna_pending,
+    process_batch=_silva_luna_process,
+)
+
 WORKERS: tuple[WorkerSpec, ...] = (
     BASICS_WORKER,
     EMBEDDING_WORKER,
     TAGGER_WORKER,
     WAIFU_WORKER,
     SILVA_WORKER,
+    SILVA_LUNA_WORKER,
 )

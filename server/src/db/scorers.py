@@ -16,6 +16,10 @@ own join shape and 0-10 native scale; it is deliberately NOT in this registry.
 from __future__ import annotations
 
 from dataclasses import dataclass
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from collections.abc import Iterable
 
 AESTHETIC_SCORES_TABLE = "post_aesthetic_scores"
 
@@ -50,6 +54,18 @@ class ScorerSpec:
         a = alias or self.alias
         return f"LEFT JOIN {AESTHETIC_SCORES_TABLE} {a} ON {a}.post_id = {table_alias}.id AND {a}.scorer = '{self.name}'"
 
+    def is_joined(self, joins: Iterable[str]) -> bool:
+        """True if ``joins`` already carries this scorer's join.
+
+        Matches the alias as a *whole token* (space-delimited). A bare
+        substring test would be wrong the moment two scorer names share a
+        prefix: ``pas_silva`` occurs inside ``pas_silva_luna``, so a filter on
+        one scorer would be mistaken for a join on the other and the real join
+        would be dropped — leaving the SQL referencing an unbound alias.
+        """
+        token = f" {self.alias} "
+        return any(token in j for j in joins)
+
     def score_col(self, alias: str | None = None) -> str:
         """The score column reference (``pas_silva.score``)."""
         return f"{alias or self.alias}.score"
@@ -77,5 +93,12 @@ SILVA_SCORE_BUCKETS: dict[str, tuple[float, float]] = {
 
 SILVA = ScorerSpec(name="silva", buckets=SILVA_SCORE_BUCKETS)
 
+# ─── SILVA-Luna aesthetic scorer ─────────────────────────────────────────────
+# A second distilled judge (``Jannchie/silva-luna``) with the same architecture
+# and the same [0, 1] output domain as SILVA, so it reuses the bucket edges. It
+# is a *different taste*, not a better one — both are stored side by side so a
+# post can be sorted / filtered by either.
+SILVA_LUNA = ScorerSpec(name="silva_luna", buckets=SILVA_SCORE_BUCKETS)
+
 # All aesthetic scorers, keyed by their DB ``scorer`` name.
-SCORERS: dict[str, ScorerSpec] = {SILVA.name: SILVA}
+SCORERS: dict[str, ScorerSpec] = {SILVA.name: SILVA, SILVA_LUNA.name: SILVA_LUNA}

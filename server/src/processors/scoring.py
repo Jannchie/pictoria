@@ -1,4 +1,9 @@
-"""Quality-score workers: waifu (image-based) and SILVA (embedding-based)."""
+"""Quality-score workers: waifu (image-based) and the SILVA heads (embedding-based).
+
+The SILVA path is scorer-parameterised: every head registered in ``db.scorers``
+(``silva``, ``silva_luna``) shares one pending query and one batch processor,
+differing only in the registry name threaded through them.
+"""
 
 from __future__ import annotations
 
@@ -7,6 +12,7 @@ from typing import TYPE_CHECKING, cast
 
 from db.repositories.failures import WORKER_WAIFU, aesthetic_worker, not_failed_clause
 from db.repositories.scores import ScoreRepo
+from db.scorers import SILVA
 from processors.common import IMAGE_EXT_WHERE, build_image_items, record_pair_failures, run_batch_with_fallback
 from shared import logger
 
@@ -100,8 +106,17 @@ async def _process_waifu_batch(posts: PostRepo, post_ids: list[int]) -> None:
     await record_pair_failures(posts.cur, WORKER_WAIFU, failures)
 
 
-async def _process_silva_batch(posts: PostRepo, vectors: VectorRepo, post_ids: list[int]) -> None:
+async def _process_silva_batch(
+    posts: PostRepo,
+    vectors: VectorRepo,
+    post_ids: list[int],
+    scorer: str = SILVA.name,
+) -> None:
     """Score a batch from stored SigLIP2 embeddings (no image decode / backbone).
+
+    ``scorer`` selects which registered head runs and which ``scorer`` column the
+    rows land under (``silva`` / ``silva_luna``); both heads share this one path
+    because they differ only in learnt weights.
 
     Posts without a stored embedding are silently skipped — they get scored on a
     later pass, once the embedding worker has filled them in. A head-forward
@@ -109,7 +124,7 @@ async def _process_silva_batch(posts: PostRepo, vectors: VectorRepo, post_ids: l
     be scoreable, so a failure is a transient/code problem worth retrying, not
     bad data to permanently skip.
     """
-    from ai.silva_scorer import SCORER_NAME, score_embeddings  # noqa: PLC0415  # lazy: defer ML stack load
+    from ai.silva_scorer import score_embeddings  # noqa: PLC0415  # lazy: defer ML stack load
 
     emb_map = await vectors.get_many(post_ids)
     items = [(pid, emb_map[pid]) for pid in post_ids if pid in emb_map]
@@ -119,12 +134,12 @@ async def _process_silva_batch(posts: PostRepo, vectors: VectorRepo, post_ids: l
     pids = [pid for pid, _ in items]
     embeddings = [emb for _, emb in items]
     try:
-        scores = await asyncio.to_thread(score_embeddings, embeddings)
+        scores = await asyncio.to_thread(score_embeddings, embeddings, scorer)
     except Exception:
-        logger.exception(f"[silva] head forward failed for {len(pids)} posts starting at id {pids[0]}")
+        logger.exception(f"[{scorer}] head forward failed for {len(pids)} posts starting at id {pids[0]}")
         return
 
     await ScoreRepo(posts.cur).upsert_aesthetic_scores_many(
-        SCORER_NAME,
+        scorer,
         [(pid, float(score)) for pid, score in zip(pids, scores, strict=True)],
     )

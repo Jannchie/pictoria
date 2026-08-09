@@ -44,14 +44,17 @@ from db.repositories.posts import PostRepo
 from db.repositories.tags import TagGroupRepo
 from db.repositories.vectors import VectorRepo
 from processors import WorkerContext, run_worker
-from processors.registry import SILVA_WORKER
+from processors.registry import SILVA_LUNA_WORKER, SILVA_WORKER
 from progress import get_progress
 from shared import logger
 
 MIGRATIONS_DIR = SERVER_ROOT / "migrations"
 
 
-async def _run(db: DB) -> None:
+WORKERS_BY_SCORER = {"silva": SILVA_WORKER, "silva_luna": SILVA_LUNA_WORKER}
+
+
+async def _run(db: DB, scorer: str) -> None:
     # A dedicated connection (its own cursor/row state) mirrors how
     # run_all_backfill hands each worker its own connection.
     conn = db.new_connection()
@@ -62,7 +65,7 @@ async def _run(db: DB) -> None:
                 vectors=VectorRepo(conn.cursor(), table="post_vectors_siglip2", dim=1152),
                 tag_groups=TagGroupRepo(conn.cursor()),
             )
-            await run_worker(SILVA_WORKER, ctx, progress=progress)
+            await run_worker(WORKERS_BY_SCORER[scorer], ctx, progress=progress)
     finally:
         with contextlib.suppress(Exception):
             conn.close()
@@ -72,6 +75,12 @@ def main() -> int:
     load_dotenv()
     parser = argparse.ArgumentParser(
         description="Backfill SILVA aesthetic scores for every unscored post.",
+    )
+    parser.add_argument(
+        "--scorer",
+        choices=sorted(WORKERS_BY_SCORER),
+        default="silva",
+        help="Which SILVA head to backfill (default: silva).",
     )
     parser.add_argument(
         "--target_dir",
@@ -94,8 +103,8 @@ def main() -> int:
     # Idempotent — guarantees post_aesthetic_scores exists on an old DB.
     run_migrations(db.cursor(), MIGRATIONS_DIR)
 
-    asyncio.run(_run(db))
-    logger.info("SILVA backfill complete.")
+    asyncio.run(_run(db, args.scorer))
+    logger.info(f"{args.scorer} backfill complete.")
     return 0
 
 

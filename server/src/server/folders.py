@@ -22,6 +22,7 @@ class DirectorySummary(BaseModel):
     # Aggregates over the posts (DB) under this dir, recursive. None = no data.
     post_count: int = 0
     silva_avg: float | None = None  # raw 0~1 mean; frontend ×10 for display
+    silva_luna_avg: float | None = None  # same, for the silva-luna judge
     score_avg: float | None = None  # manual star mean over scored posts only
     rating_avg: float | None = None  # G/S/Q/E (1~4) mean over all posts
     scored_ratio: float | None = None  # scored posts / total posts
@@ -49,6 +50,7 @@ def attach_folder_stats(summary: DirectorySummary, aggregates: dict[str, FolderS
 
     summary.post_count = total.posts
     summary.silva_avg = total.silva_total / total.silva_n if total.silva_n else None
+    summary.silva_luna_avg = total.silva_luna_total / total.silva_luna_n if total.silva_luna_n else None
     summary.score_avg = total.score_total / total.scored if total.scored else None
     summary.rating_avg = total.rating_total / total.posts if total.posts else None
     summary.scored_ratio = total.scored / total.posts if total.posts else None

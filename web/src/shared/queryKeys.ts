@@ -12,7 +12,7 @@
 import type { MaybeRef } from 'vue'
 import { resolvedLocale } from '@/locale'
 
-export type CountKind = 'rating' | 'score' | 'extension' | 'waifu' | 'silva' | 'tags'
+export type CountKind = 'rating' | 'score' | 'extension' | 'waifu' | 'silva' | 'silvaLuna' | 'tags'
 
 export const queryKeys = {
   /** Infinite gallery list, keyed by the full request body. */

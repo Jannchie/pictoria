@@ -14,6 +14,7 @@ interface PostFilter {
   waifu_score_range?: [number, number]
   waifu_score_levels: string[]
   silva_score_levels: string[]
+  silva_luna_score_levels: string[]
 }
 export const postFilter = ref<PostFilter>({
   rating: [],
@@ -22,10 +23,11 @@ export const postFilter = ref<PostFilter>({
   extension: [],
   waifu_score_levels: [],
   silva_score_levels: [],
+  silva_luna_score_levels: [],
 })
 export const textSearchQuery = ref('')
 
-export const postSort = useLocalStorage<'id' | 'score' | 'rating' | 'created_at' | 'updated_at' | 'file_name' | 'published_at' | 'waifu_score' | 'silva_score' | 'discrepancy'>('pictoria.posts.sort', 'id')
+export const postSort = useLocalStorage<'id' | 'score' | 'rating' | 'created_at' | 'updated_at' | 'file_name' | 'published_at' | 'waifu_score' | 'silva_score' | 'silva_luna_score' | 'discrepancy'>('pictoria.posts.sort', 'id')
 export const postSortColor = useLocalStorage<string | undefined>('pictoria.posts.color', undefined)
 export const postSortOrder = useLocalStorage<'asc' | 'desc'>('pictoria.posts.sortOrder', 'desc')
 
@@ -46,6 +48,7 @@ const ARRAY_FILTERS: { key: keyof PostFilter & string, numeric?: boolean, encode
   { key: 'tags', encode: true },
   { key: 'waifu_score_levels' },
   { key: 'silva_score_levels' },
+  { key: 'silva_luna_score_levels' },
 ]
 
 // vue-router query values are `string | null | (string | null)[]`: a valueless

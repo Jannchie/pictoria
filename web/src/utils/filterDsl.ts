@@ -12,6 +12,7 @@
  *   ext:png
  *   waifu:best|good|normal|bad|worst
  *   silva:best|good|normal|bad|worst
+ *   luna:best|good|normal|bad|worst
  *
  * Everything is additive within a facet (`rating:g rating:s` = both), matching
  * how the popovers behave. There is deliberately no negation syntax: the
@@ -26,6 +27,7 @@ export interface ParsedFilter {
   extension: string[]
   waifu_score_levels: string[]
   silva_score_levels: string[]
+  silva_luna_score_levels: string[]
   /** Leftover free text — the semantic-search prompt. */
   text: string
   /** Terms that looked like `key:value` but weren't understood. */
@@ -138,6 +140,7 @@ export function parseFilterQuery(input: string): ParsedFilter {
     extension: [],
     waifu_score_levels: [],
     silva_score_levels: [],
+    silva_luna_score_levels: [],
     text: '',
     unknown: [],
   }
@@ -209,6 +212,16 @@ export function parseFilterQuery(input: string): ParsedFilter {
         }
         break
       }
+      case 'luna': {
+        const v = value.toLowerCase()
+        if ((BUCKET_IDS as readonly string[]).includes(v)) {
+          addUnique(result.silva_luna_score_levels, [v])
+        }
+        else {
+          result.unknown.push(token)
+        }
+        break
+      }
       default: {
         result.unknown.push(token)
         // An unrecognised key is still words the user typed — keep it
@@ -232,6 +245,7 @@ export function stringifyFilterQuery(filter: {
   extension: string[]
   waifu_score_levels: string[]
   silva_score_levels: string[]
+  silva_luna_score_levels: string[]
 }, text = ''): string {
   const parts: string[] = []
   const ratingName = ['unrated', 'general', 'sensitive', 'questionable', 'explicit']
@@ -254,6 +268,9 @@ export function stringifyFilterQuery(filter: {
   for (const lvl of filter.silva_score_levels) {
     parts.push(`silva:${lvl}`)
   }
+  for (const lvl of filter.silva_luna_score_levels) {
+    parts.push(`luna:${lvl}`)
+  }
   const trimmed = text.trim()
   if (trimmed) {
     parts.push(trimmed)
@@ -269,4 +286,5 @@ export function hasFilterTerms(parsed: ParsedFilter): boolean {
     || parsed.extension.length > 0
     || parsed.waifu_score_levels.length > 0
     || parsed.silva_score_levels.length > 0
+    || parsed.silva_luna_score_levels.length > 0
 }

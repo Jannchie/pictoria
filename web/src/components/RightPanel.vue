@@ -1,8 +1,8 @@
 <script setup lang="ts">
 import { computed } from 'vue'
 import { useRoute } from 'vue-router'
-import { usePostQuery } from '@/composables'
 import { useFocusedPost } from '@/composables/useFocusedPost'
+import { usePostQuery } from '@/composables/usePostQuery'
 
 const route = useRoute()
 const { focusedPostId, mode } = useFocusedPost()

@@ -7,12 +7,13 @@ deliberate, visible edit.
 
 from __future__ import annotations
 
-from db.scorers import SCORERS, SILVA, SILVA_SCORE_BUCKETS, ScorerSpec
+from db.scorers import SCORERS, SILVA, SILVA_LUNA, SILVA_SCORE_BUCKETS, ScorerSpec
 
 
 class TestSilvaSpec:
     def test_registered_under_its_name(self) -> None:
         assert SCORERS["silva"] is SILVA
+        assert SCORERS["silva_luna"] is SILVA_LUNA
         assert SILVA.name == "silva"
 
     def test_alias_is_derived_from_name(self) -> None:
@@ -27,6 +28,22 @@ class TestSilvaSpec:
         assert SILVA.buckets is SILVA_SCORE_BUCKETS
         assert SILVA.buckets["A"] == (0.8, 1.0001)
         assert SILVA.buckets["E"] == (0.0, 0.2)
+
+
+class TestSilvaLunaSpec:
+    """The second head: same [0, 1] domain and edges, its own scorer column."""
+
+    def test_name_and_alias(self) -> None:
+        assert SILVA_LUNA.name == "silva_luna"
+        assert SILVA_LUNA.alias == "pas_silva_luna"
+
+    def test_shares_the_silva_bucket_edges(self) -> None:
+        assert SILVA_LUNA.buckets is SILVA_SCORE_BUCKETS
+
+    def test_joins_on_its_own_scorer_rows(self) -> None:
+        assert SILVA_LUNA.join_sql() == (
+            "LEFT JOIN post_aesthetic_scores pas_silva_luna ON pas_silva_luna.post_id = p.id AND pas_silva_luna.scorer = 'silva_luna'"
+        )
 
 
 class TestSqlFragments:

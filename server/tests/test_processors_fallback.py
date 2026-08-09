@@ -19,6 +19,7 @@ from processors.common import FALLBACK_MINI_BATCH_SIZE, run_batch_with_fallback
 from processors.registry import (
     BASICS_WORKER,
     EMBEDDING_WORKER,
+    SILVA_LUNA_WORKER,
     SILVA_WORKER,
     TAGGER_WORKER,
     WAIFU_WORKER,
@@ -176,7 +177,7 @@ async def test_no_reject_reason_keeps_every_produced_result() -> None:
 
 
 def test_worker_registry_order_and_policies() -> None:
-    assert WORKERS == (BASICS_WORKER, EMBEDDING_WORKER, TAGGER_WORKER, WAIFU_WORKER, SILVA_WORKER)
+    assert WORKERS == (BASICS_WORKER, EMBEDDING_WORKER, TAGGER_WORKER, WAIFU_WORKER, SILVA_WORKER, SILVA_LUNA_WORKER)
 
     by_name = {w.name: w for w in WORKERS}
     # (name -> blacklist_policy, gpu_adaptive) — the strategy, surfaced as data.
@@ -190,6 +191,8 @@ def test_worker_registry_order_and_policies() -> None:
     assert by_name["Waifu scorer"].gpu_adaptive is True
     assert by_name["SILVA scorer"].blacklist_policy == "never"
     assert by_name["SILVA scorer"].gpu_adaptive is False
+    assert by_name["SILVA-Luna scorer"].blacklist_policy == "never"
+    assert by_name["SILVA-Luna scorer"].gpu_adaptive is False
 
 
 def test_only_embedding_worker_has_a_post_backfill_hook() -> None:

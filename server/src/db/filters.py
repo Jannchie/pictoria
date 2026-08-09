@@ -19,7 +19,7 @@ from typing import Annotated, Any, Literal
 from msgspec import Meta, Struct
 
 from db.helpers import sql_placeholders
-from db.scorers import SILVA
+from db.scorers import SILVA, SILVA_LUNA
 
 # Re-exported (redundant alias) so the SILVA bucket edges stay importable from
 # this module; their single source of truth is now the scorer registry.
@@ -62,6 +62,17 @@ class PostFilter(Struct):
             examples=[("A", "B")],
         ),
     ] = ()
+    silva_luna_score_levels: Annotated[
+        tuple[str, ...] | None,
+        Meta(
+            description=(
+                "SILVA-Luna aesthetic bucket filter. Same A-E edges over the "
+                "[0, 1] domain as ``silva_score_levels`` (a second distilled "
+                "judge, not a second tier), or 'UNSCORED'. OR together."
+            ),
+            examples=[("A", "B")],
+        ),
+    ] = ()
     only_canonical: Annotated[
         bool,
         Meta(
@@ -88,6 +99,7 @@ class PostFilterWithOrder(PostFilter):
             "updated_at",
             "waifu_score",
             "silva_score",
+            "silva_luna_score",
             "discrepancy",
         ]
         | None,
@@ -106,6 +118,7 @@ class PostFilterWithOrder(PostFilter):
                     "updated_at",
                     "waifu_score",
                     "silva_score",
+                    "silva_luna_score",
                     "discrepancy",
                 ],
             },
@@ -138,7 +151,7 @@ class PostFilterWithOrder(PostFilter):
 
 # ─── Column allowlists (centralized; previously scattered across PostRepo) ───
 # Columns the search layer may ORDER BY. ``waifu_score`` / ``silva_score`` /
-# ``discrepancy`` are virtual: they resolve to joined-table expressions, handled
+# ``silva_luna_score`` / ``discrepancy`` are virtual: they resolve to joined-table expressions, handled
 # by the query layer. ``discrepancy`` ranks by |silva model score − manual score|
 # (both mapped to the 1-5 scale) to surface where model and human disagree most.
 ORDERABLE_COLUMNS: frozenset[str] = frozenset(
@@ -153,6 +166,7 @@ ORDERABLE_COLUMNS: frozenset[str] = frozenset(
         "updated_at",
         "waifu_score",
         "silva_score",
+        "silva_luna_score",
         "discrepancy",
     },
 )
@@ -248,7 +262,8 @@ def has_active_filters(f: PostFilter) -> bool:
         or f.lab
         or f.waifu_score_range
         or f.waifu_score_levels
-        or f.silva_score_levels,
+        or f.silva_score_levels
+        or f.silva_luna_score_levels,
     )
 
 
@@ -306,13 +321,17 @@ def build_where(f: PostFilter) -> tuple[list[str], list[Any], list[str]]:  # noq
             where.append(clause)
             params.extend(bucket_params)
 
-    if f.silva_score_levels:
-        joins.append(SILVA.join_sql())
+    # Each aesthetic scorer contributes its own LEFT JOIN + bucket clause; the
+    # loop keeps a new scorer from being another copy of this block.
+    for levels, spec in ((f.silva_score_levels, SILVA), (f.silva_luna_score_levels, SILVA_LUNA)):
+        if not levels:
+            continue
+        joins.append(spec.join_sql())
         clause, bucket_params = _build_bucket_level_filter(
-            f.silva_score_levels,
-            SILVA.buckets,
-            SILVA.score_col(),
-            SILVA.null_col(),
+            levels,
+            spec.buckets,
+            spec.score_col(),
+            spec.null_col(),
         )
         if clause:
             where.append(clause)

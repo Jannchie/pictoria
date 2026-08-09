@@ -7,11 +7,12 @@ import { computed, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { RouterLink, useRoute, useRouter } from 'vue-router'
 import { useAPIError } from '@/composables/useAPIError'
+import { useGlobalUndoRedo } from '@/composables/useGlobalUndoRedo'
 import { notUsingInput } from '@/composables/useKeyScope'
+import { useWatchRoute } from '@/composables/useWatchRoute'
 import { formatNumber } from '@/locale'
 import PTreeList, { CHEVRON_SLOT, LEVEL_INDENT } from '@/ui/PTreeList.vue'
 import FolderStatsLine from './components/FolderStatsLine.vue'
-import { useGlobalUndoRedo, useWatchRoute } from './composables'
 import { commandPaletteOpen, deleteFolder, focusedTreeFolder, isAnyDialogOpen, leftPaneCollapsed, menuData, rightPaneCollapsed, shortcutHelpOpen, showMenu, useCurrentFolder, useFoldersQuery, useSyncFilterWithUrl } from './shared'
 import 'splitpanes/dist/splitpanes.css'
 
@@ -31,7 +32,7 @@ const foldersQuery = useFoldersQuery()
 
 const folderFilter = ref('')
 
-type FolderSortKey = 'name' | 'count' | 'silva' | 'score' | 'rating'
+type FolderSortKey = 'name' | 'count' | 'silva' | 'luna' | 'score' | 'rating'
 // Persisted to localStorage so the chosen folder-tree sort survives reloads.
 const folderSortKey = useLocalStorage<FolderSortKey>('pictoria.folderSort.key', 'name')
 const folderSortOrder = useLocalStorage<'asc' | 'desc'>('pictoria.folderSort.order', 'asc')
@@ -42,6 +43,7 @@ const sortOptions: { key: FolderSortKey, labelKey: string, icon: string }[] = [
   { key: 'name', labelKey: 'sidebar.sortName', icon: 'i-tabler-abc' },
   { key: 'count', labelKey: 'sidebar.sortCount', icon: 'i-tabler-files' },
   { key: 'silva', labelKey: 'sidebar.sortSilva', icon: 'i-tabler-rosette' },
+  { key: 'luna', labelKey: 'sidebar.sortSilvaLuna', icon: 'i-tabler-moon' },
   { key: 'score', labelKey: 'sidebar.sortScore', icon: 'i-tabler-star' },
   { key: 'rating', labelKey: 'sidebar.sortRating', icon: 'i-tabler-thumb-up' },
 ]
@@ -63,6 +65,8 @@ function sortNodes(nodes: DirectorySummary[]): DirectorySummary[] {
       case 'count': { return d.file_count ?? 0
       }
       case 'silva': { return d.silva_avg ?? -1
+      }
+      case 'luna': { return d.silva_luna_avg ?? -1
       }
       case 'score': { return d.score_avg ?? -1
       }
@@ -87,6 +91,7 @@ function sortNodes(nodes: DirectorySummary[]): DirectorySummary[] {
 function statsOf(d: DirectorySummary) {
   return {
     silvaAvg: d.silva_avg,
+    silvaLunaAvg: d.silva_luna_avg,
     scoreAvg: d.score_avg,
     ratingAvg: d.rating_avg,
     scoredRatio: d.scored_ratio,

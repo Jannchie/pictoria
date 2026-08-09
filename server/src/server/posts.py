@@ -90,6 +90,12 @@ class SilvaBucketCountItem:
     count: int
 
 
+@dataclass
+class SilvaLunaBucketCountItem:
+    bucket: str  # one of 'A', 'B', 'C', 'D', 'E', 'UNSCORED'
+    count: int
+
+
 class PostStatsResponse(DTOBaseModel):
     total: int
     avg_score: float | None
@@ -295,6 +301,11 @@ class PostController(Controller):
     async def get_silva_bucket_count(self, post_query: PostQueryService, data: PostFilter) -> list[SilvaBucketCountItem]:
         rows = await post_query.count_by_silva_bucket(data)
         return [SilvaBucketCountItem(bucket=r["bucket"], count=r["count"]) for r in rows]
+
+    @litestar.post("/count/silva-luna", status_code=200, description="Count posts by SILVA-Luna aesthetic bucket (A/B/C/D/E/UNSCORED).")
+    async def get_silva_luna_bucket_count(self, post_query: PostQueryService, data: PostFilter) -> list[SilvaLunaBucketCountItem]:
+        rows = await post_query.count_by_silva_luna_bucket(data)
+        return [SilvaLunaBucketCountItem(bucket=r["bucket"], count=r["count"]) for r in rows]
 
     @litestar.post("/stats", status_code=200, description="Aggregate quality stats (avg score, avg waifu, rating distribution) for posts matching filter.")
     async def get_posts_stats(self, post_query: PostQueryService, data: PostFilter) -> PostStatsResponse:

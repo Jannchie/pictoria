@@ -13,8 +13,8 @@ interface BucketDef {
 
 const props = defineProps<{
   /** The `postFilter` array facet this filter drives. */
-  field: 'waifu_score_levels' | 'silva_score_levels'
-  countKind: 'waifu' | 'silva'
+  field: 'waifu_score_levels' | 'silva_score_levels' | 'silva_luna_score_levels'
+  countKind: 'waifu' | 'silva' | 'silvaLuna'
   fetchCounts: (filter: PostFilterValue) => Promise<{ bucket: string, count: number }[] | undefined>
   /** Bucket rows in popover order (top → bottom). */
   buckets: BucketDef[]

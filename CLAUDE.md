@@ -116,7 +116,7 @@ uv run python scripts/inspect_db.py
 - **tags** & **tag_groups**: Hierarchical tagging system; `tags.post_count` is a denormalised per-tag count maintained by AFTER INSERT/DELETE triggers on `post_has_tag` (migration `0008`), backing the tag-filter facet counts
 - **post_has_tag**: Many-to-many relationship (FK `ON DELETE CASCADE` to `posts.id` / `tags.name`)
 - **post_vectors_siglip2**: 1152-dim SigLIP 2 image embeddings (`vec0` virtual table, `FLOAT[1152]`, cosine); the sole search/retrieval embedding (image-to-image + text-to-image). CLIP retrieval and its `post_vectors` table were removed (see migration `0007_drop_post_vectors.sql`). CLIP ViT-L/14 survives only as the waifu-scorer backbone (`ai/clip.py` → `ai/waifu_scorer.py`)
-- **post_waifu_scores**: legacy single-scorer quality scores; **post_aesthetic_scores**: generic per-(post, scorer) scores (e.g. `silva`, the SILVA aesthetic scorer in `ai/silva_scorer.py`)
+- **post_waifu_scores**: legacy single-scorer quality scores; **post_aesthetic_scores**: generic per-(post, scorer) scores. Every scorer living in it is declared once as a `ScorerSpec` in `src/db/scorers.py` (`silva`, `silva_luna` — two distilled judges sharing `ai/silva_scorer.py`, the same [0,1] domain and the same A–E bucket edges); adding one is a registry entry plus a worker, never a migration
 - **post_has_color**: Dominant color palette (per-post `INT` colors with order)
 - **post_process_failures**: per-(post, worker) one-shot failure blacklist
 - **_schema_versions**: internal table used by `db.migrator` to track applied migrations

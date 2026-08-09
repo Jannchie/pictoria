@@ -13,7 +13,7 @@ import { postFilter, queryKeys } from '@/shared'
  */
 
 export type PostFilterValue = typeof postFilter.value
-type ArrayFilterField = 'rating' | 'score' | 'extension' | 'waifu_score_levels' | 'silva_score_levels'
+type ArrayFilterField = 'rating' | 'score' | 'extension' | 'waifu_score_levels' | 'silva_score_levels' | 'silva_luna_score_levels'
 
 /**
  * Percentage share of `count` in `total`, formatted to one decimal ('0.0' when
