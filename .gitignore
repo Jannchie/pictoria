@@ -2,3 +2,5 @@ tags.txt
 .env
 __pycache__/
 *.pyc
+# run_get_artist_data.py 的 tag 冷却状态（本地运行痕迹）
+scripts/.run_get_artist_data_state.json

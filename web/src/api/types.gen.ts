@@ -104,6 +104,7 @@ export type DanbooruDownloadStats = {
     downloaded: number;
     skipped: number;
     failed: number;
+    early_stopped: boolean;
 };
 
 /**
@@ -1882,6 +1883,7 @@ export type V2DownloadFromDanbooruData = {
     path?: never;
     query: {
         tags: string;
+        full_scan?: boolean;
     };
     url: '/v2/cmd/download-from-danbooru';
 };

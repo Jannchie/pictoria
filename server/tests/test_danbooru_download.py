@@ -5,6 +5,10 @@ against the API-reported ``file_size``, and only then atomically renames to
 the final path. These tests pin the three behaviours that keep truncated
 files out of the library: short bodies are retried, exhausted retries leave
 nothing behind, and a retry that succeeds publishes the complete file.
+
+The pagination tests pin the ``stop_paging`` hook by counting round trips —
+that hook is what keeps a re-run over an unchanged tag at one request instead
+of the whole page budget.
 """
 
 from __future__ import annotations
@@ -96,6 +100,40 @@ def _paging_client(page_size: int = 200) -> tuple[DanbooruClient, dict]:
         return httpx.Response(200, json=[{"id": i} for i in range(page_size)])
 
     return _make_client(handler), calls
+
+
+def test_stop_paging_ends_pagination_after_one_page() -> None:
+    client, calls = _paging_client()
+
+    client.get_posts(tags="artist", limit=1000, stop_paging=lambda _page: True)
+
+    assert calls["n"] == 1
+
+
+def test_without_stop_paging_every_page_is_fetched() -> None:
+    client, calls = _paging_client()
+
+    client.get_posts(tags="artist", limit=1000)
+
+    # 1000 / 200 — the whole budget, which is what a re-run used to cost.
+    assert calls["n"] == 5
+
+
+def test_stop_paging_is_consulted_once_per_page() -> None:
+    client, calls = _paging_client(page_size=200)
+    seen: list[list] = []
+
+    def stop(page: list) -> bool:
+        seen.append(page)
+        return len(seen) == 2  # noqa: PLR2004 — stop on the second page
+
+    client.get_posts(tags="artist", limit=1000, stop_paging=stop)
+
+    assert calls["n"] == 2  # one call per page, then stopped
+    # These rows fail validation, so the parsed pages are empty — which is the
+    # contract: the stopper judges what we could actually import, while
+    # pagination still advances off the raw ids.
+    assert seen == [[], []]
 
 
 def test_truncated_then_complete_download_recovers(tmp_path: Path) -> None:

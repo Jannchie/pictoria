@@ -9,7 +9,16 @@ from __future__ import annotations
 
 from types import SimpleNamespace
 
-from services.danbooru_import import _build_tag_to_group, _safe_dir_name
+from services.danbooru_import import (
+    _build_tag_to_group,
+    _safe_dir_name,
+    _settled_page_stopper,
+)
+
+
+def _post(post_id: int, *, ext: str = "jpg", url: str | None = "https://cdn/x") -> SimpleNamespace:
+    """The three fields ``_is_importable`` and the stopper actually read."""
+    return SimpleNamespace(id=post_id, file_ext=ext, file_url=url)
 
 
 def test_build_tag_to_group_keeps_highest_priority_group() -> None:
@@ -39,3 +48,40 @@ def test_safe_dir_name_sanitises_filesystem_illegal_chars() -> None:
 def test_safe_dir_name_never_returns_empty() -> None:
     assert _safe_dir_name("...") == "_"
     assert _safe_dir_name("") == "_"
+
+
+def test_settled_pages_stop_paging_after_the_streak() -> None:
+    stop = _settled_page_stopper({"1", "2"}, streak=2)
+
+    assert stop([_post(1), _post(2)]) is False  # settled, but streak of 1
+    assert stop([_post(1), _post(2)]) is True
+
+
+def test_a_pending_post_resets_the_streak() -> None:
+    # Post 9 is importable and untagged — a gap from a failed download, or a
+    # bare row still awaiting its tags. Paging must walk past it, not stop.
+    stop = _settled_page_stopper({"1"}, streak=2)
+
+    assert stop([_post(1)]) is False
+    assert stop([_post(1), _post(9)]) is False
+    assert stop([_post(1)]) is False  # streak restarted from zero
+    assert stop([_post(1)]) is True
+
+
+def test_unimportable_posts_neither_block_nor_advance_the_streak() -> None:
+    # Videos and deleted posts can never be imported, so they must not keep a
+    # settled page looking pending — but a page made only of them proves
+    # nothing about having caught up either.
+    stop = _settled_page_stopper({"1"}, streak=2)
+
+    assert stop([_post(7, ext="mp4"), _post(8, url=None)]) is False  # no evidence
+    assert stop([_post(1), _post(7, ext="mp4")]) is False  # settled: streak 1
+    assert stop([_post(1)]) is True
+
+
+def test_an_empty_import_history_never_settles_a_page() -> None:
+    # A first-ever import has nothing to recognise, so it must walk to the tail
+    # even at streak=1.
+    stop = _settled_page_stopper(set(), streak=1)
+
+    assert stop([_post(1), _post(2)]) is False

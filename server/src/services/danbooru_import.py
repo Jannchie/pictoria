@@ -42,6 +42,13 @@ if TYPE_CHECKING:
 # bounded.
 _DEFAULT_LISTING_LIMIT = 5000
 
+# How many consecutive listing pages must hold nothing left to import before
+# pagination gives up. Pages arrive newest-id-first, so one such page already
+# means we're in history; two is cheap insurance against a page that only
+# looks settled (e.g. a batch whose files failed to download last run and were
+# since deleted upstream).
+_SETTLED_PAGE_STREAK = 2
+
 
 async def _in_executor(executor: Executor | None, fn: Callable[..., Any], /, *args: Any, **kwargs: Any) -> Any:
     """Run blocking ``fn`` on ``executor`` (``None`` = asyncio's default pool).
@@ -68,14 +75,120 @@ def _safe_dir_name(name: str) -> str:
     return sanitized.rstrip(". ") or "_"
 
 
+def _imported_danbooru_ids(db: DB, file_path_str: str) -> set[str]:
+    """Danbooru post ids already imported *with tags* under ``file_path_str``.
+
+    The ids come out of ``posts.file_name`` because that column *is* the
+    Danbooru post id for this importer — see ``_danbooru_row``, which writes
+    ``file_name=str(d_post.id)``. Both the dedup filter and the pagination
+    stopper compare raw post ids against this set, so that equivalence is
+    load-bearing in two places now.
+
+    Deliberately raw SQL here rather than a ``PostQueryService`` read: this has
+    to run on the Danbooru executor's worker thread (see below), while the query
+    service's methods are ``async`` over ``asyncio.to_thread`` and would land on
+    the default pool, losing exactly the thread affinity this depends on.
+
+    Worker-thread-local cursor: ``db.cursor()`` returns a cursor on *this*
+    thread's connection. The event-loop-thread connection is shared by every
+    concurrent request, so doing BEGIN/COMMIT on it makes concurrent imports
+    trample each other's transactions.
+
+    Dedup on "already has a manual (is_auto=0) tag", NOT merely "the post row
+    exists": a file can land in the DB tag-less first — folder-sync
+    reconciliation (``PostRepo.create_paths``) inserts a bare row for any file
+    already on disk, and a DB reset / snapshot rollback can leave files behind
+    without their ``post_has_tag`` links. Keying on post-existence would skip
+    those bare rows forever (their file_name is "present"), so the Danbooru
+    tags never get written. Keying on manual-tag presence lets a re-run
+    backfill them.
+    """
+    cur = db.cursor()
+    try:
+        cur.execute(
+            """
+            SELECT p.file_name
+            FROM posts p
+            JOIN post_has_tag pht
+              ON pht.post_id = p.id AND pht.is_auto = 0
+            WHERE p.file_path = ?
+            """,
+            [file_path_str],
+        )
+        return {row[0] for row in cur.fetchall()}
+    finally:
+        cur.close()
+
+
+def _is_importable(post: DanbooruPost) -> bool:
+    """Would this listing entry ever produce a file we keep?
+
+    The single definition of what this importer accepts — the ``filtered``
+    narrowing and the pagination stopper both go through it. Entries that fail
+    it (deleted/banned posts with no ``file_url``, videos, zips) can never be
+    imported, so the stopper must not count them as "still pending", or a
+    single upstream video would keep a settled page looking unfinished and
+    defeat early termination forever.
+    """
+    return bool(post.file_url) and bool(post.file_ext) and post.file_ext.lower() in SUPPORTED_IMAGE_EXTS
+
+
+def _is_pending(post: DanbooruPost, imported_ids: set[str]) -> bool:
+    """Is this post one we still have to fetch?
+
+    The whole dedup rule in one place. The stopper and the ``to_persist``
+    filter must agree on it exactly: a stopper that counts a still-wanted post
+    as settled stops paging over posts the importer would have taken.
+    """
+    return _is_importable(post) and str(post.id) not in imported_ids
+
+
+def _settled_page_stopper(
+    imported_ids: set[str],
+    streak: int = _SETTLED_PAGE_STREAK,
+) -> Callable[[list[DanbooruPost]], bool]:
+    """Build the ``stop_paging`` predicate for ``DanbooruClient.get_posts``.
+
+    A page is *settled* when it holds at least one post we've already imported
+    with tags and none that still need importing. ``streak`` settled pages in a
+    row ends pagination. Requiring a positive already-imported hit is what
+    separates "we've caught up with history" from "this page happens to be all
+    videos" — the latter neither advances nor resets the streak.
+
+    Any pending post resets the streak, so gaps (a download that failed last
+    run, a bare row awaiting its tags) still get walked past and retried.
+    """
+    settled_run = 0
+
+    def _stop(page: list[DanbooruPost]) -> bool:
+        nonlocal settled_run
+        if any(_is_pending(p, imported_ids) for p in page):
+            settled_run = 0
+            return False
+        if any(str(p.id) in imported_ids for p in page):
+            settled_run += 1
+        return settled_run >= streak
+
+    return _stop
+
+
 @dataclass
 class DanbooruDownloadStats:
+    """Outcome of one tag import.
+
+    ``total``/``with_url``/``filtered`` count what we *scanned*, which is not
+    the tag's size once ``early_stopped`` is true — a second run over an
+    unchanged tag reports a few hundred where the first reported thousands.
+    ``early_stopped`` is what tells those two cases apart.
+    """
+
     total: int
     with_url: int
     filtered: int
     downloaded: int
     skipped: int
     failed: int
+    early_stopped: bool
 
 
 async def import_danbooru_posts(  # noqa: PLR0913
@@ -86,6 +199,7 @@ async def import_danbooru_posts(  # noqa: PLR0913
     tags: str,
     limit: int = _DEFAULT_LISTING_LIMIT,
     executor: Executor | None = None,
+    full_scan: bool = False,
 ) -> DanbooruDownloadStats:
     """Download posts for ``tags`` from Danbooru and persist the new ones.
 
@@ -94,49 +208,40 @@ async def import_danbooru_posts(  # noqa: PLR0913
     download threadpool is the ``to_persist`` filter below. ``executor`` is the
     dedicated Danbooru thread pool — passing ``None`` falls back to asyncio's
     default pool (kept so the test suite can call this without app state).
+
+    The same DB pre-check is fed to the listing as ``stop_paging`` so a re-run
+    over an unchanged tag stops after one page instead of walking every page up
+    to ``limit``. ``full_scan=True`` disables that: pagination runs to the tail,
+    which is how a post that Danbooru tagged with this artist *after* we last
+    imported its id-neighbours gets picked up. Early stop is the default because
+    that case is rare and a periodic ``full_scan`` re-run covers it.
     """
     danbooru_dir = shared.target_dir / "danbooru"
     save_dir = danbooru_dir / _safe_dir_name(tags)
-    posts_orig = await _in_executor(executor, client.get_posts, tags=tags, limit=limit)
-    posts_with_url = [p for p in posts_orig if p.file_url]
-    logger.info(f"Fetched {len(posts_with_url)} available posts ({len(posts_orig)} total)")
-
-    filtered = [p for p in posts_with_url if p.file_url and p.file_ext and p.file_ext.lower() in SUPPORTED_IMAGE_EXTS]
     await _in_executor(executor, save_dir.mkdir, parents=True, exist_ok=True)
     file_path_str = save_dir.relative_to(shared.target_dir).as_posix()
 
-    def _names_with_manual_tags() -> set[str]:
-        # Worker-thread-local cursor: ``db.cursor()`` returns a cursor on
-        # *this* thread's connection. The event-loop-thread connection is
-        # shared by every concurrent request, so doing BEGIN/COMMIT on it
-        # makes concurrent imports trample each other's transactions.
-        #
-        # Dedup on "already has a manual (is_auto=0) tag", NOT merely "the post
-        # row exists": a file can land in the DB tag-less first — folder-sync
-        # reconciliation (``PostRepo.create_paths``) inserts a bare row for any
-        # file already on disk, and a DB reset / snapshot rollback can leave
-        # files behind without their ``post_has_tag`` links. Keying on
-        # post-existence would skip those bare rows forever (their file_name is
-        # "present"), so the Danbooru tags never get written. Keying on
-        # manual-tag presence lets a re-run backfill them.
-        cur = db.cursor()
-        try:
-            cur.execute(
-                """
-                SELECT p.file_name
-                FROM posts p
-                JOIN post_has_tag pht
-                  ON pht.post_id = p.id AND pht.is_auto = 0
-                WHERE p.file_path = ?
-                """,
-                [file_path_str],
-            )
-            return {row[0] for row in cur.fetchall()}
-        finally:
-            cur.close()
+    imported_ids = await _in_executor(executor, _imported_danbooru_ids, db, file_path_str)
+    stopper = None if full_scan else _settled_page_stopper(imported_ids)
+    early_stopped = False
 
-    tagged_names = await _in_executor(executor, _names_with_manual_tags)
-    to_persist = [p for p in filtered if str(p.id) not in tagged_names]
+    def _stop_paging(page: list[DanbooruPost]) -> bool:
+        # The last verdict is the answer: paging only ends on a True.
+        nonlocal early_stopped
+        early_stopped = stopper is not None and stopper(page)
+        return early_stopped
+
+    posts_orig = await _in_executor(
+        executor,
+        client.get_posts,
+        tags=tags,
+        limit=limit,
+        stop_paging=None if stopper is None else _stop_paging,
+    )
+    filtered = [p for p in posts_orig if _is_importable(p)]
+    logger.info(f"Fetched {len(filtered)} importable posts ({len(posts_orig)} scanned)")
+
+    to_persist = [p for p in filtered if _is_pending(p, imported_ids)]
     # `filtered \ to_persist` was already imported *with tags*; its files are on
     # disk. `to_persist` may include tag-backfill posts whose file is already
     # present — ``download_image`` short-circuits those on its exists() check.
@@ -178,11 +283,12 @@ async def import_danbooru_posts(  # noqa: PLR0913
 
     return DanbooruDownloadStats(
         total=len(posts_orig),
-        with_url=len(posts_with_url),
+        with_url=sum(1 for p in posts_orig if p.file_url),
         filtered=len(filtered),
         downloaded=dl_stats.get("downloaded", 0),
         skipped=(len(filtered) - len(to_persist)) + dl_stats.get("skipped", 0),
         failed=dl_stats.get("failed", 0),
+        early_stopped=early_stopped,
     )
 
 

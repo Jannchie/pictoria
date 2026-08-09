@@ -3,6 +3,7 @@ import os
 import random
 import threading
 import time
+from collections.abc import Callable
 from datetime import datetime
 from logging import getLogger
 from pathlib import Path
@@ -207,6 +208,28 @@ class DanbooruPost(BaseModel):
     preview_file_url: HttpUrl | None = None
 
 
+def _parse_posts(raw: list[dict]) -> list[DanbooruPost]:
+    """Validate one listing page, dropping (and logging) rows that don't fit.
+
+    Danbooru occasionally serves rows our model rejects; one of them must not
+    take down the whole tag import. Only the first failure of a page carries a
+    traceback — when the upstream schema drifts, every row of every page fails,
+    and formatting 200 tracebacks per page costs more than parsing the page.
+    """
+    parsed: list[DanbooruPost] = []
+    dropped = 0
+    for row in raw:
+        try:
+            parsed.append(DanbooruPost(**row))
+        except Exception:
+            if not dropped:
+                logger.exception("Failed to parse post: %s", row)
+            dropped += 1
+    if dropped > 1:
+        logger.warning("Dropped %d of %d rows on this page", dropped, len(raw))
+    return parsed
+
+
 class DanbooruClient:
     """Danbooru API + CDN access, each behind its own rate-limit gate.
 
@@ -296,15 +319,32 @@ class DanbooruClient:
         limit: int = 10,
         before_id: int | None = None,
         only: str | list[str] | None = None,
+        stop_paging: Callable[[list[DanbooruPost]], bool] | None = None,
     ) -> list[DanbooruPost]:
+        """Page through /posts.json, newest id first, until ``limit`` or the tail.
+
+        ``stop_paging`` is consulted with each parsed page right after it's
+        kept. Returning True ends pagination early — pages come back in
+        strictly descending id order (``page=b{min_id}``), so a caller that
+        recognises the page as already-processed history knows every later page
+        is too. That turns a re-run over an unchanged tag from ~25 serial
+        requests into one.
+
+        The callback sees ``DanbooruPost``, not the raw dicts: every kept page
+        gets parsed anyway, so there is nothing to save by exposing them, and a
+        model keeps the caller's predicate honest under ``only=`` (which can
+        drop the very fields such a predicate reads).
+        """
         url: str = "/posts.json"
         only_str: str | None = ",".join(only) if isinstance(only, list) else only
-        all_posts: list[dict] = []
+        all_posts: list[DanbooruPost] = []
+        # Counted in raw rows, not parsed ones: a row we failed to validate
+        # still used up a slot upstream, so it has to consume the budget too or
+        # a page of bad rows would let us walk past `limit`.
+        remaining = limit
 
-        while True:
-            current_limit: int = min(limit - len(all_posts), 200)
-            if current_limit <= 0:
-                break
+        while remaining > 0:
+            current_limit: int = min(remaining, 200)
 
             params: dict = {
                 f"{key}": value if key else None,
@@ -325,23 +365,21 @@ class DanbooruClient:
             if not posts:
                 break
 
-            all_posts.extend(posts)
+            remaining -= len(posts)
+            page = _parse_posts(posts)
+            all_posts.extend(page)
+            if stop_paging is not None and stop_paging(page):
+                logger.debug("stop_paging ended pagination at %d posts", len(all_posts))
+                break
             # A short page means we've reached the tail of the result set —
             # any further `before_id` query is guaranteed to return 0 rows,
             # so skip the wasted round trip.
             if len(posts) < current_limit:
                 break
+            # From the raw rows: a row that failed to parse still has to move
+            # the cursor, or pagination stalls on it forever.
             before_id = min(post["id"] for post in posts)
-            if len(all_posts) >= limit:
-                break
-        res = []
-        for post in all_posts:
-            try:
-                res.append(DanbooruPost(**post))
-            except Exception:
-                logger.exception(post)
-                logger.exception("Failed to parse posts")
-        return res
+        return all_posts
 
     def download_image(self, post: DanbooruPost, target_dir: str, retries: int = 3) -> DownloadStatus:
         if post.file_url is None:

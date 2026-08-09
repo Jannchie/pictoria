@@ -217,14 +217,22 @@ class CommandController(Controller):
         self,
         state: State,
         tags: str,
+        *,
+        full_scan: bool = False,
     ) -> DanbooruDownloadStats:
-        """Download posts from Danbooru and persist them (see ``import_danbooru_posts``)."""
+        """Download posts from Danbooru and persist them (see ``import_danbooru_posts``).
+
+        ``full_scan`` walks every listing page instead of stopping once the
+        pages are all already-imported history — slower, but catches posts
+        Danbooru tagged after we imported their id-neighbours.
+        """
         return await import_danbooru_posts(
             client=state.danbooru_client,
             type_to_group_id=shared.canonical_tag_groups,
             db=state.db,
             tags=tags,
             executor=getattr(state, "io_executor", None),
+            full_scan=full_scan,
         )
 
     @litestar.post(
