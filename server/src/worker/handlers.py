@@ -313,3 +313,37 @@ async def handle_thumbnail(payload: dict[str, Any]) -> dict[str, Any]:
     except (UnidentifiedImageError, OSError) as exc:
         return {"ok": False, "error": str(exc)}
     return {"ok": True}
+
+
+async def handle_rotate(payload: dict[str, Any]) -> dict[str, Any]:
+    """Rotate an image in place and describe the result.
+
+    Rewrites the original, rebuilds its thumbnail, and returns the columns that
+    change with it. ``sha256`` hashes the *encoded bytes on disk* — the same
+    domain every other writer uses (``processors/basics.py``) — rather than the
+    decoded pixel buffer; mixing the two would quietly break dedup.
+    """
+    from PIL import Image  # noqa: PLC0415  # lazy: PIL is not free to import
+
+    from utils import calculate_arthash, calculate_sha256, create_thumbnail_by_image  # noqa: PLC0415
+
+    original = _resolve_inside(payload["originalPath"])
+    thumbnail = _resolve_inside(payload["thumbnailPath"])
+    clockwise = bool(payload["clockwise"])
+
+    def _rotate() -> dict[str, Any]:
+        image = Image.open(original)
+        image = image.rotate(-90 if clockwise else 90, expand=True)
+        image.save(original)
+        thumbnail.parent.mkdir(parents=True, exist_ok=True)
+        create_thumbnail_by_image(image, thumbnail)
+        file_bytes = original.read_bytes()
+        return {
+            "sha256": calculate_sha256(file_bytes),
+            "size": len(file_bytes),
+            "width": image.size[0],
+            "height": image.size[1],
+            "arthash": calculate_arthash(image),
+        }
+
+    return await asyncio.to_thread(_rotate)

@@ -32,6 +32,7 @@ from cairnq import SQLiteStore, Worker
 from worker.handlers import (
     handle_dedup,
     handle_embedding,
+    handle_rotate,
     handle_silva,
     handle_tagger,
     handle_text_embed,
@@ -112,9 +113,10 @@ async def main() -> None:
     worker.task("dedup")(lambda _ctx, payload: handle_dedup(payload))
     interactive.task("text-embed")(lambda _ctx, payload: handle_text_embed(payload))
     io_worker.task("thumbnail")(lambda _ctx, payload: handle_thumbnail(payload))
+    io_worker.task("rotate")(lambda _ctx, payload: handle_rotate(payload))
 
     log.info(
-        "worker up: silva, waifu, tagger, embedding, dedup on %s; text-embed on %s; thumbnail on %s  db=%s",
+        "worker up: silva, waifu, tagger, embedding, dedup on %s; text-embed on %s; thumbnail + rotate on %s  db=%s",
         GPU_QUEUE,
         INTERACTIVE_QUEUE,
         IO_QUEUE,

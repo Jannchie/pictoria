@@ -1,15 +1,21 @@
 /**
- * posts 的标量字段写入：score / rating / caption / source / touch / 批量。
+ * posts 的写：标量字段（score / rating / caption / source / touch / 批量）加上三个
+ * 碰文件系统的（delete / rotate）。
  *
- * 还留在代理上的写端点：`upload`（multipart + 落盘）、`rotate`（要重编码图片）、
- * `delete`（连带删文件和缩略图）。它们都碰文件系统，值得单独一趟。
+ * 还留在代理上的只剩 `upload` —— 它要 multipart 落盘之后跑一整轮 process_post，
+ * 而 process_post 依赖 basics worker。
  */
 import { createRoute, OpenAPIHono, z } from '@hono/zod-openapi'
-import { bulkUpdateField, clearCanonical, getDetail, makeCanonical, postExists, touchAccessed, updateField } from '@pictoria/db'
+import fs from 'node:fs'
+import path from 'node:path'
+import { IO_QUEUE, rotateTask } from '@pictoria/contracts'
+import { bulkUpdateField, clearCanonical, deleteManyReturningPaths, getDetail, getPostPath, makeCanonical, postExists, touchAccessed, updateField, updateForRotate } from '@pictoria/db'
 import { getDb } from '../db.js'
 import { OK, RESP_400, zodErrorHook } from '../openapi.js'
 import { PostDetailPublic, toPostDetail } from '../schemas.js'
+import { targetDir } from '../scheduler.js'
 import { translateTag } from '../tag-i18n.js'
+import { getTasks } from '../tasks.js'
 
 const MAX_POST_SCORE = 5
 const MAX_POST_RATING = 4
@@ -221,3 +227,88 @@ for (const op of groupOps) {
     },
   )
 }
+
+/**
+ * 删 post：DB 行 + 原图 + 缩略图。
+ *
+ * `ids` 在 query 上（重复的 `?ids=1&ids=2`），不是请求体 —— 照抄 Litestar。
+ * 成功是 204 无响应体。
+ */
+postWritesRoutes.openapi(
+  createRoute({
+    method: 'delete',
+    path: '/v2/posts/delete',
+    operationId: 'v2DeletePosts',
+    summary: 'DeletePosts',
+    request: {
+      query: z.object({
+        ids: z.union([z.coerce.number().int(), z.array(z.coerce.number().int())])
+          .openapi({ param: { name: 'ids', in: 'query', required: true }, type: 'array', items: { type: 'integer' } }),
+      }),
+    },
+    responses: {
+      204: { description: 'Request fulfilled, nothing follows', headers: {} },
+      ...RESP_400,
+    },
+  }),
+  (c) => {
+    const raw = c.req.queries('ids') ?? []
+    const ids = raw.map(Number).filter(n => Number.isInteger(n))
+    const { sqlite } = getDb()
+    const base = targetDir()
+    for (const rel of deleteManyReturningPaths(sqlite, ids)) {
+      fs.rmSync(path.resolve(base, rel), { force: true })
+      fs.rmSync(path.resolve(base, '.pictoria/thumbnails', rel), { force: true })
+    }
+    return c.body(null, 204)
+  },
+)
+
+/**
+ * 就地旋转一张图，回读详情。
+ *
+ * 解码 / 旋转 / 重编码在 worker 的 io 队列上（同缩略图）；改哪几列由这一侧决定。
+ */
+postWritesRoutes.openapi(
+  createRoute({
+    method: 'put',
+    path: '/v2/posts/{post_id}/rotate',
+    operationId: 'v2RotatePostImage',
+    summary: 'RotatePostImage',
+    description: 'Rotate post image by id; updates sha256/width/height/arthash.',
+    request: {
+      params: z.object({ post_id: postIdParam }),
+      query: z.object({
+        clockwise: z.coerce.boolean().default(true)
+          .openapi({ param: { name: 'clockwise', in: 'query', required: false }, type: 'boolean', default: true }),
+      }),
+    },
+    responses: detailResponse,
+  }),
+  async (c) => {
+    const { post_id: postId } = c.req.valid('param')
+    // `?clockwise=false` 必须是 false。z.coerce.boolean() 把任何非空串当成 true
+    // （包括 "false"），所以这里自己解析。
+    const rawClockwise = c.req.query('clockwise')
+    const clockwise = rawClockwise === undefined ? true : !/^(?:false|0)$/i.test(rawClockwise)
+
+    const { sqlite } = getDb()
+    const post = getPostPath(sqlite, postId)
+    if (!post)
+      return domainError(`Post with id ${postId} not found.`, 'PostNotFoundError', 404) as never
+
+    const base = targetDir()
+    const tasks = await getTasks()
+    const result = await tasks.call(rotateTask, {
+      originalPath: path.resolve(base, post.fullPath),
+      thumbnailPath: path.resolve(base, '.pictoria/thumbnails', post.fullPath),
+      clockwise,
+    }, { queue: IO_QUEUE, waitTimeoutMs: 120_000, pollMs: 20, maxAttempts: 1 })
+
+    updateForRotate(sqlite, postId, result)
+    const detail = getDetail(sqlite, postId, n => translateTag(n))
+    if (!detail)
+      return domainError(`Post with id ${postId} not found.`, 'PostNotFoundError', 404) as never
+    return c.json(toPostDetail(detail)) as never
+  },
+)

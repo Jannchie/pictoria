@@ -1,16 +1,14 @@
 /**
- * `/v2/folders` —— 只搬了读端点。
- *
- * `DELETE /v2/folders/{folder_path}` 会连带删磁盘文件、缩略图和 DB 行，仍然透传
- * 给 Litestar：破坏性写操作留到读路径全部稳定之后再搬（文档 §5 的"由读到写"）。
+ * `/v2/folders` —— 目录树的读取与删除。
  */
 import fs from 'node:fs'
 import path from 'node:path'
 import process from 'node:process'
 import { createRoute, OpenAPIHono, z } from '@hono/zod-openapi'
-import { addAgg, emptyAgg, folderScoreAggregates, type FolderScoreAgg } from '@pictoria/db'
+import { addAgg, deleteManyReturningPaths, emptyAgg, folderScoreAggregates, listIdsInFolder, type FolderScoreAgg } from '@pictoria/db'
 import { getDb, repoRoot } from '../db.js'
-import { OK, zodErrorHook } from '../openapi.js'
+import { OK, RESP_400, zodErrorHook } from '../openapi.js'
+import { Result } from '../schemas.js'
 
 interface DirectorySummary {
   name: string
@@ -101,6 +99,14 @@ function attachStats(
   return total
 }
 
+/** `server/exceptions.py` 里 `DomainError` 统一的响应形状。 */
+function domainError(detail: string, error: string, status: 400 | 404) {
+  return new Response(JSON.stringify({ detail, error }), {
+    status,
+    headers: { 'content-type': 'application/json' },
+  })
+}
+
 export const foldersRoutes = new OpenAPIHono({ defaultHook: zodErrorHook })
 
 foldersRoutes.openapi(
@@ -122,3 +128,61 @@ foldersRoutes.openapi(
     return c.json(summary)
   },
 )
+
+/**
+ * 删一个库目录：它的 post（DB + 文件 + 缩略图）以及整棵目录树。
+ *
+ * 拒绝库根、拒绝解析后落在库外的、拒绝 `.pictoria`。DB 行走
+ * `deleteManyReturningPaths`，于是外键级联、手工的 vec0 级联和逐文件 unlink 都照常；
+ * 剩下的树（非图片文件、空目录）再从磁盘上删掉。磁盘那一步部分失败也不要紧 ——
+ * 下一次 sync 会把幸存下来的重新导入，两种情况下都不会留下孤儿 DB 行。
+ *
+ * 路由用 `:folder_path{.+}` 而不是 `createRoute` 生成的 `:folder_path` —— 目录名
+ * 里有斜杠，普通参数不吃斜杠（和 images 那两条同一个理由）。
+ */
+foldersRoutes.openAPIRegistry.registerPath({
+  method: 'delete',
+  path: '/v2/folders/{folder_path}',
+  tags: ['Commands', 'Folder'],
+  operationId: 'v2DeleteFolder',
+  summary: 'DeleteFolder',
+  description: 'Delete a library folder: its posts (DB + files + thumbnails) and the dir tree.\n\nRefuses the library root and anything resolving outside the library\n(or into ``.pictoria``). DB rows go through ``PostRepo.delete_many`` so\nthe FK cascade, the manual vec0 cascade and the per-file unlink all\napply; the remaining tree (non-image files, empty dirs) is then removed\nfrom disk. If the disk removal partially fails, the next sync re-imports\nwhatever survived — no orphaned DB rows either way.',
+  request: {
+    params: z.object({
+      folder_path: z.string().openapi({ param: { name: 'folder_path', in: 'path', required: true } }),
+    }),
+  },
+  responses: {
+    200: { description: OK, content: { 'application/json': { schema: Result } } },
+    ...RESP_400,
+  },
+})
+
+foldersRoutes.delete('/v2/folders/:folder_path{.+}', (c) => {
+  const folder = (c.req.param('folder_path') ?? '').replace(/^\/+|\/+$/g, '')
+  const base = path.resolve(targetDir())
+  const target = path.resolve(base, folder)
+  const pictoria = path.resolve(base, '.pictoria')
+  const inside = (p: string, root: string) => p === root || p.startsWith(root + path.sep)
+
+  if (!folder || folder === '.' || folder === '@' || target === base || !inside(target, base) || inside(target, pictoria))
+    return domainError(`Refusing to delete: '${folder}' is not a library folder.`, 'PathNotADirectoryError', 400)
+  if (!fs.existsSync(target))
+    return domainError(`Directory not found: ${folder}`, 'DirectoryNotFoundError', 404)
+  if (!fs.statSync(target).isDirectory())
+    return domainError(`Not a directory: ${folder}`, 'PathNotADirectoryError', 400)
+
+  const { sqlite } = getDb()
+  const ids = listIdsInFolder(sqlite, folder)
+  const removed = deleteManyReturningPaths(sqlite, ids)
+  for (const rel of removed) {
+    fs.rmSync(path.resolve(base, rel), { force: true })
+    fs.rmSync(path.resolve(base, '.pictoria/thumbnails', rel), { force: true })
+  }
+
+  // 缩略图是尽力而为；主树失败要抛出去，好让一个被锁住的文件显示成 500 而不是
+  // 悄悄活下来。
+  fs.rmSync(path.resolve(base, '.pictoria/thumbnails', folder), { recursive: true, force: true })
+  fs.rmSync(target, { recursive: true })
+  return c.json({ msg: `Deleted folder ${folder} (${ids.length} posts)` })
+})

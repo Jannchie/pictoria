@@ -270,3 +270,29 @@ export interface ThumbnailResult {
  * 和 dedup 的矩阵文件是同一类东西 —— 也就是说，不是例外。
  */
 export const thumbnailTask = defineTask<ThumbnailPayload, ThumbnailResult>('thumbnail')
+
+export interface RotatePayload {
+  /** 原图绝对路径。**会被就地覆写**。 */
+  originalPath: string
+  /** 旋转之后要重建的缩略图路径。 */
+  thumbnailPath: string
+  /** true 顺时针，false 逆时针。 */
+  clockwise: boolean
+}
+
+export interface RotateResult {
+  sha256: string
+  size: number
+  width: number
+  height: number
+  arthash: string | null
+}
+
+/**
+ * 就地旋转一张图，并回报旋转后的那几个描述性字段。
+ *
+ * 和缩略图一样走 IO 队列：解码、旋转、重编码是 CPU 活。回传的 sha256 是**磁盘上
+ * 那串编码后的字节**的哈希（和 `processors/basics.py` 同一个域），不是解码后的
+ * 像素缓冲 —— 两者不同，混用会让重复检测悄悄失效。
+ */
+export const rotateTask = defineTask<RotatePayload, RotateResult>('rotate')

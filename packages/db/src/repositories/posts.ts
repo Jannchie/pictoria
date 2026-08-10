@@ -136,3 +136,75 @@ export function makeCanonical(sqlite: BetterSqlite3.Database, postId: number): b
   })()
   return true
 }
+
+/**
+ * 删除 post 及其全部从属行，返回被删掉的相对文件路径。
+ *
+ * `ON DELETE CASCADE`（0001_initial.sql 里声明的）负责 `post_has_color` /
+ * `post_waifu_scores`。`post_vectors_siglip2` 是 vec0 虚表，不参与外键级联，
+ * 必须显式清。`post_has_tag` 也显式删、而且**排在 posts 行前面** —— 这样
+ * canonical 感知的 `tags.post_count` 触发器（migration 0009）看到的是每个 post
+ * 真实的 canonical 状态，而不是和外键级联抢跑。
+ *
+ * 分块，于是调用方可以传任意多个 id 而不撞上 SQLite 的绑定参数上限；每块的三条
+ * DELETE 在一个事务里，被中断也不会留下一个活着但被剥了标签和向量的 post。
+ *
+ * 文件不在这里删 —— 返回路径由调用方处理，因为 target_dir 是 API 层的知识。
+ */
+export function deleteManyReturningPaths(
+  sqlite: BetterSqlite3.Database,
+  ids: number[],
+): string[] {
+  if (!ids.length)
+    return []
+  const CHUNK = 500
+  const fullPaths: string[] = []
+
+  for (let i = 0; i < ids.length; i += CHUNK) {
+    const chunk = ids.slice(i, i + CHUNK)
+    const ph = placeholders(chunk.length)
+    sqlite.transaction(() => {
+      // 删行之前先把文件路径收集起来
+      for (const row of sqlite
+        .prepare<unknown[], { full_path: string }>(`SELECT full_path FROM posts WHERE id IN (${ph})`)
+        .all(...chunk))
+        fullPaths.push(row.full_path)
+      // 显式且排在 posts 之前，好让 trg_post_has_tag_count_ad 在 post 行还在时触发
+      sqlite.prepare(`DELETE FROM post_has_tag WHERE post_id IN (${ph})`).run(...chunk)
+      // vec0 虚表 —— 没有外键级联
+      sqlite.prepare(`DELETE FROM post_vectors_siglip2 WHERE post_id IN (${ph})`).run(...chunk)
+      sqlite.prepare(`DELETE FROM posts WHERE id IN (${ph})`).run(...chunk)
+    })()
+  }
+  return fullPaths
+}
+
+/**
+ * 直接存在 `folder` 或其任意子目录下的 post id。
+ *
+ * 精确前缀语义（`folder` 或 `folder/...`）：范围比较恰好抓住以 `folder/` 开头的
+ * 路径（'0' 是 '/' 的下一个码位），永远不会捎上只是共享名字前缀的兄弟目录
+ * （`art` vs `art2`），而且 —— 不像 GLOB —— 对目录名里的 `[ ] * ?` 免疫。
+ */
+export function listIdsInFolder(sqlite: BetterSqlite3.Database, folder: string): number[] {
+  return sqlite
+    .prepare<[string, string, string], { id: number }>(
+      'SELECT id FROM posts WHERE file_path = ? OR (file_path >= ? AND file_path < ?) ORDER BY id',
+    )
+    .all(folder, `${folder}/`, `${folder}0`)
+    .map(r => r.id)
+}
+
+/** 旋转之后要一起改的那几列。 */
+export function updateForRotate(
+  sqlite: BetterSqlite3.Database,
+  postId: number,
+  v: { sha256: string, size: number, width: number, height: number, arthash: string | null },
+): void {
+  sqlite
+    .prepare(
+      'UPDATE posts SET sha256 = ?, size = ?, width = ?, height = ?, arthash = ?, '
+      + 'updated_at = CURRENT_TIMESTAMP WHERE id = ?',
+    )
+    .run(v.sha256, v.size, v.width, v.height, v.arthash, postId)
+}
