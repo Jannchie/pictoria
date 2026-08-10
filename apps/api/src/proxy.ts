@@ -94,10 +94,17 @@ export function createProxy({ upstream }: ProxyOptions) {
 
     // 直接把上游的可读流交出去 —— 不缓冲。原图动辄几十 MB，缓冲会让内存
     // 随并发线性上涨，也会让首字节时间变差。
+    // 迁移期间唯一可靠的"这个请求走了哪条路"判据。Hono 自己实现的路由不会经过
+    // 这里，所以头在 ⇒ 还在 Litestar 上；头不在 ⇒ 已经搬完了。数源码里的
+    // `createRoute` 数不准（有几处是循环生成的），而这个是事实。
+    // 最后一个端点搬完、代理删掉时，它跟着一起消失。
+    const headers = forwardResponseHeaders(upstreamResponse.headers)
+    headers.set('x-pictoria-upstream', 'litestar')
+
     return new Response(upstreamResponse.body, {
       status: upstreamResponse.status,
       statusText: upstreamResponse.statusText,
-      headers: forwardResponseHeaders(upstreamResponse.headers),
+      headers,
     })
   }
 }

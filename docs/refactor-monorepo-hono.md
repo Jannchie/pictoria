@@ -312,26 +312,33 @@ Hono 占用 4777，Litestar 挪到 4779（`PICTORIA_PORT` 环境变量，缺省�
 
 每搬完一组：删对应 proxy 规则 → 跑 §4.2 的 schema diff → 跑 web vitest。
 
-**已搬 49/70**：
+**已搬 48/70**（数字来自 `pnpm migration:status` 的运行时探测，不是数源码）：
 
 | 组 | 端点 |
 |---|---|
 | statistics | `GET /v2/statistics` |
 | folders | `GET /v2/folders` |
 | tags | 读 2 个 + 写 4 个（create / update / delete / batch delete） |
-| posts 计数 | 8 个（count / count/{rating,score,extension,waifu,silva,silva-luna} / stats） |
+| posts 计数 | 7 个（count / count/{rating,score,extension,waifu,silva,silva-luna}）。**`count/tags` 不在其中** |
 | posts 读 | `GET /v2/posts`、`GET /v2/posts/{id}`、`{id}/group`、`POST /v2/posts/search` |
 | posts 写 | `score`、`rating`、`caption`、`source`、`touch`、`bulk/score`、`bulk/rating`、`ungroup`、`make-canonical`、tag 增删 2 个 |
 | annotations | 10 个（提交 3 + undo + edit + timeline + count + post 历史 + `sample-absolute` / `sample-pairwise`） |
 | annotation-queues | 7 个（建队列 2 + 列表 + 取下一批 2 + `generate-absolute` / `generate-pairwise`） |
 
-**剩下 21 个，全部在等 cairnq 或文件系统**：
+**剩下 22 个**：
 
 | 阻塞 | 端点 | 何时能解 |
 |---|---|---|
 | Phase 5/6 的 cairnq worker | `commands` 11 个 | Phase 5 接通 cairnq 之后 |
 | ML / 向量链路 | `posts/search/text`、`posts/{id}/similar` | 同上（§4.6 的文本编码走 cairnq） |
+| 漏网的一个 | `POST /v2/posts/count/tags` | 无阻塞 —— 只是一直没搬，直到运行时探测把它抓出来 |
 | 文件系统 | `posts/upload`、`posts/{id}/rotate`、`posts/delete`、`DELETE /v2/folders/{path}`、`images` 4 个 | 缩略图归属定了之后一起（§D3） |
+
+> **进度数字只信 `pnpm migration:status`。** 它把 70 个端点逐个问一遍，凭代理加的
+> `x-pictoria-upstream` 响应头判断归属 —— 那个头只在请求真被转发时出现。数源码里的
+> `createRoute` 会漏（有几组路由是循环生成的），我就漏了 `count/tags` 并把 48 报成了 49。
+> 探测请求全部无副作用：只读端点直接问，写端点用不存在的 id 或空列表，三个真会干活的
+> command 不发请求、靠源码判断。
 
 **七个对拍套件**（`pnpm parity:all` 一次跑全部 + 契约 diff）：
 
