@@ -1,14 +1,15 @@
-"""Score posts through the OLD in-process path, for the worker parity harness.
+"""Run a worker through the OLD in-process path, for the parity harness.
 
-Reads ``{"scorer": ..., "postIds": [...]}`` on stdin and writes
-``{"scores": [{"postId":, "score":}]}`` on stdout. It opens ``pictoria.sqlite``
+Reads ``{"scorer": ..., "postIds": [...]}`` on stdin and writes that worker's
+result on stdout — ``{"scores": [...]}`` for the scorers, ``{"results": [...]}``
+for the tagger. It opens ``pictoria.sqlite``
 directly and calls the scorer the way ``processors/scoring.py`` does — that is
 the whole point: it is the *reference* implementation the cairnq path is checked
 against.
 
-``scorer`` is ``silva`` / ``silva_luna`` (embedding input) or ``waifu`` (image
-input). Both read from the same database this script opens, which is exactly
-what the new path is not allowed to do.
+``scorer`` is ``silva`` / ``silva_luna`` (embedding input), ``waifu`` (image
+input) or ``tagger``. All of them read from the same database this script opens,
+which is exactly what the new path is not allowed to do.
 
 Nothing else may import this. It exists to be the thing the new path has to
 match, and it dies with the old path in Phase 7.
@@ -65,9 +66,7 @@ def _score_embeddings(scorer: str, post_ids: list[int]) -> list[tuple[int, float
     return list(zip(ordered, scores, strict=True))
 
 
-def _score_images(post_ids: list[int]) -> list[tuple[int, float]]:
-    from ai.waifu_scorer import get_waifu_scorer  # noqa: PLC0415  # lazy: same
-
+def _paths_for(post_ids: list[int]) -> dict[int, Path]:
     conn = _connect()
     cur = conn.cursor()
     placeholders = ",".join("?" * len(post_ids))
@@ -77,7 +76,13 @@ def _score_images(post_ids: list[int]) -> list[tuple[int, float]]:
     )
     paths = {pid: TARGET_DIR / rel for pid, rel in cur.fetchall()}
     conn.close()
+    return paths
 
+
+def _score_images(post_ids: list[int]) -> list[tuple[int, float]]:
+    from ai.waifu_scorer import get_waifu_scorer  # noqa: PLC0415  # lazy: same
+
+    paths = _paths_for(post_ids)
     ordered = [pid for pid in post_ids if pid in paths and paths[pid].exists()]
     if not ordered:
         return []
@@ -85,10 +90,35 @@ def _score_images(post_ids: list[int]) -> list[tuple[int, float]]:
     return list(zip(ordered, [float(s) for s in scores], strict=True))
 
 
+def _tag_images(post_ids: list[int]) -> list[dict[str, object]]:
+    from services.wd_tagging import get_tagger  # noqa: PLC0415  # lazy: same
+
+    paths = _paths_for(post_ids)
+    ordered = [pid for pid in post_ids if pid in paths and paths[pid].exists()]
+    if not ordered:
+        return []
+    results = get_tagger().tag([paths[pid] for pid in ordered])
+    if not isinstance(results, list):
+        results = [results]
+    return [
+        {
+            "postId": pid,
+            "generalTags": list(r.general_tags),
+            "characterTags": list(r.character_tags),
+            "rating": r.rating or "",
+        }
+        for pid, r in zip(ordered, results, strict=True)
+    ]
+
+
 def main() -> None:
     req = json.load(sys.stdin)
     scorer: str = req["scorer"]
     post_ids: list[int] = req["postIds"]
+
+    if scorer == "tagger":
+        json.dump({"results": _tag_images(post_ids)}, _RESULT_STREAM)
+        return
 
     pairs = _score_images(post_ids) if scorer == "waifu" else _score_embeddings(scorer, post_ids)
     json.dump({"scores": [{"postId": pid, "score": s} for pid, s in pairs]}, _RESULT_STREAM)

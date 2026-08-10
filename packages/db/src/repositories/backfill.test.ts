@@ -17,7 +17,11 @@ import {
   aestheticWorkerKey,
   fetchEmbeddingBlobs,
   listSilvaPending,
+  ensureCanonicalTagGroups,
+  listTaggerPending,
   listWaifuPending,
+  persistTaggerResults,
+  ratingToInt,
   recordFailures,
   upsertAestheticScores,
   upsertWaifuScores,
@@ -231,5 +235,115 @@ describe('waifu 待办查询', () => {
     upsertWaifuScores(sqlite, [{ postId: 1, score: 2.5 }])
     const rows = sqlite.prepare<[], { score: number }>('SELECT score FROM post_waifu_scores WHERE post_id = 1').all()
     expect(rows).toEqual([{ score: 2.5 }])
+  })
+})
+
+describe('tagger 落库', () => {
+  beforeEach(() => {
+    for (const t of ['post_has_tag', 'tags', 'tag_groups']) sqlite.exec(`DELETE FROM ${t}`)
+  })
+
+  function groups() {
+    return ensureCanonicalTagGroups(sqlite)
+  }
+
+  it('四个规范组是幂等创建的', () => {
+    const first = groups()
+    const second = groups()
+    expect(second).toEqual(first)
+    expect(Object.keys(first).sort()).toEqual(['artist', 'character', 'copyright', 'general'])
+    expect(sqlite.prepare<[], { n: number }>('SELECT COUNT(*) AS n FROM tag_groups').get()!.n).toBe(4)
+  })
+
+  it('general 与 character 落到各自的组', () => {
+    insertPost(1)
+    const g = groups()
+    persistTaggerResults(sqlite, [
+      { postId: 1, generalTags: ['1girl'], characterTags: ['hatsune_miku'], rating: 'general' },
+    ], g)
+
+    const rows = sqlite
+      .prepare<[], { name: string, group_id: number }>('SELECT name, group_id FROM tags ORDER BY name')
+      .all()
+    expect(rows).toEqual([
+      { name: '1girl', group_id: g.general },
+      { name: 'hatsune_miku', group_id: g.character },
+    ])
+  })
+
+  it('已经归过组的标签不被模型的猜测改组', () => {
+    insertPost(1)
+    const g = groups()
+    // 手工把 1girl 归进 artist 组（人为的，但足以说明规则）
+    sqlite.prepare('INSERT INTO tags(name, group_id) VALUES (?, ?)').run('1girl', g.artist)
+    persistTaggerResults(sqlite, [{ postId: 1, generalTags: ['1girl'], characterTags: [], rating: '' }], g)
+
+    const row = sqlite.prepare<[], { group_id: number }>("SELECT group_id FROM tags WHERE name = '1girl'").get()!
+    expect(row.group_id).toBe(g.artist)
+  })
+
+  it('rating 只在原值为 0 时写', () => {
+    insertPost(1)
+    insertPost(2)
+    sqlite.prepare('UPDATE posts SET rating = 4 WHERE id = 2').run()
+    const g = groups()
+    persistTaggerResults(sqlite, [
+      { postId: 1, generalTags: ['a'], characterTags: [], rating: 'sensitive' },
+      { postId: 2, generalTags: ['a'], characterTags: [], rating: 'general' },
+    ], g)
+
+    const rows = sqlite.prepare<[], { id: number, rating: number }>('SELECT id, rating FROM posts ORDER BY id').all()
+    // 1 从未评级 → 写入 2；2 是人工评的 4 → 不动
+    expect(rows).toEqual([{ id: 1, rating: 2 }, { id: 2, rating: 4 }])
+  })
+
+  it('rating 字符串认不出来时不写', () => {
+    insertPost(1)
+    persistTaggerResults(sqlite, [{ postId: 1, generalTags: ['a'], characterTags: [], rating: '' }], groups())
+    expect(sqlite.prepare<[], { rating: number }>('SELECT rating FROM posts WHERE id = 1').get()!.rating).toBe(0)
+    expect(ratingToInt('bogus')).toBe(0)
+  })
+
+  it('标签全部被手工标签遮住的 post 被报回来', () => {
+    insertPost(1)
+    insertPost(2)
+    const g = groups()
+    // post 1 已经手工打了同一个标签 → 自动行插不进去
+    sqlite.prepare('INSERT INTO tags(name) VALUES (?)').run('1girl')
+    sqlite.prepare("INSERT INTO post_has_tag(post_id, tag_name, is_auto) VALUES (1, '1girl', 0)").run()
+
+    const shadowed = persistTaggerResults(sqlite, [
+      { postId: 1, generalTags: ['1girl'], characterTags: [], rating: '' },
+      { postId: 2, generalTags: ['1girl'], characterTags: [], rating: '' },
+    ], g)
+    expect(shadowed).toEqual([1])
+    // post 2 正常拿到自动标签，只剩 1 还在待办里
+    expect(listTaggerPending(sqlite, '/lib').map(p => p.postId)).toEqual([1])
+  })
+
+  it('待办查询只看 is_auto = 1', () => {
+    insertPost(1)
+    sqlite.prepare('INSERT INTO tags(name) VALUES (?)').run('manual')
+    sqlite.prepare("INSERT INTO post_has_tag(post_id, tag_name, is_auto) VALUES (1, 'manual', 0)").run()
+    // 只有手工标签 → 仍然是待办
+    expect(listTaggerPending(sqlite, '/lib').map(p => p.postId)).toEqual([1])
+
+    persistTaggerResults(sqlite, [{ postId: 1, generalTags: ['auto'], characterTags: [], rating: '' }], groups())
+    expect(listTaggerPending(sqlite, '/lib')).toEqual([])
+  })
+
+  it('整批的标签只 upsert 一次，共享的标签不重复', () => {
+    insertPost(1)
+    insertPost(2)
+    persistTaggerResults(sqlite, [
+      { postId: 1, generalTags: ['shared', 'a'], characterTags: [], rating: '' },
+      { postId: 2, generalTags: ['shared', 'b'], characterTags: [], rating: '' },
+    ], groups())
+    expect(sqlite.prepare<[], { n: number }>('SELECT COUNT(*) AS n FROM tags').get()!.n).toBe(3)
+    expect(sqlite.prepare<[], { n: number }>('SELECT COUNT(*) AS n FROM post_has_tag').get()!.n).toBe(4)
+  })
+
+  it('空列表是空操作', () => {
+    expect(persistTaggerResults(sqlite, [], groups())).toEqual([])
   })
 })

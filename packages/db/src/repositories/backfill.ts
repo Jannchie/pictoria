@@ -178,3 +178,131 @@ export function recordFailures(
     for (const r of rows) stmt.run(r.postId, worker, r.error)
   })()
 }
+
+// ─── tagger ───────────────────────────────────────────────────────────
+
+/** `post_process_failures.worker` 里 tagger 用的桶名。 */
+const TAGGER_WORKER = 'tagger'
+
+/**
+ * 四个规范 tag 组及其颜色。与 Python 侧 `services/wd_tagging.py` 的
+ * `TAG_GROUP_COLORS` 逐字相同 —— 颜色会显示在前端的 tag 徽章上。
+ */
+export const TAG_GROUP_COLORS: Record<string, string> = {
+  general: '#006192',
+  character: '#8243ca',
+  artist: '#f30000',
+  copyright: '#00b300',
+}
+
+/** 还没有任何自动标签、且没被拉黑的图片，按 id 升序。 */
+export function listTaggerPending(
+  sqlite: BetterSqlite3.Database,
+  targetDir: string,
+  limit?: number,
+): PendingImage[] {
+  const sql
+    = `SELECT p.id, p.full_path FROM posts p `
+      + `WHERE NOT EXISTS (SELECT 1 FROM post_has_tag pht WHERE pht.post_id = p.id AND pht.is_auto = 1) `
+      + `AND ${IMAGE_EXT_WHERE} AND ${notFailedClause('p')} `
+      + `ORDER BY p.id${limit === undefined ? '' : ' LIMIT ?'}`
+  const params: unknown[] = limit === undefined ? [TAGGER_WORKER] : [TAGGER_WORKER, limit]
+  const rows = sqlite.prepare<unknown[], { id: number, full_path: string }>(sql).all(...params)
+  return rows.map(r => ({ postId: r.id, path: `${targetDir}/${r.full_path}` }))
+}
+
+/** 确保四个规范 tag 组存在，返回 `{组名: id}`。 */
+export function ensureCanonicalTagGroups(sqlite: BetterSqlite3.Database): Record<string, number> {
+  const insert = sqlite.prepare(
+    'INSERT INTO tag_groups(name, color) VALUES (?, ?) ON CONFLICT (name) DO NOTHING',
+  )
+  const select = sqlite.prepare<[string], { id: number }>('SELECT id FROM tag_groups WHERE name = ?')
+  const out: Record<string, number> = {}
+  sqlite.transaction(() => {
+    for (const [name, color] of Object.entries(TAG_GROUP_COLORS)) {
+      insert.run(name, color)
+      out[name] = select.get(name)!.id
+    }
+  })()
+  return out
+}
+
+/** WDTagger 对一张图的输出 —— 与 `@pictoria/contracts` 的 `TaggerResult` 同形。 */
+export interface TaggerRow {
+  postId: number
+  generalTags: string[]
+  characterTags: string[]
+  rating: string
+}
+
+/** `general`/`sensitive`/`questionable`/`explicit` → 1..4，其余 0。与 Python 侧同表。 */
+export function ratingToInt(rating: string): number {
+  return ({ general: 1, sensitive: 2, questionable: 3, explicit: 4 } as Record<string, number>)[rating] ?? 0
+}
+
+/**
+ * 把一批 tagger 结果落库，返回**仍然没有**自动标签的那些 id。
+ *
+ * 三件事在一个事务里：tag 名 upsert（分 general / character 两组）、
+ * `post_has_tag` 关联、rating 补写。
+ *
+ * 返回值是落库后的复查结果，不是可有可无的信息：`post_has_tag` 的插入是
+ * `ON CONFLICT DO NOTHING`，所以当 tagger 产出的每一个标签**都已经**作为手工标签
+ * （`is_auto = 0`）存在时 —— Danbooru 导入的图很常见 —— 一行 `is_auto = 1` 都不会
+ * 建出来，而待办查询下一轮又会选中它。调用方要把这些 id 拉黑，因为重跑 tagger
+ * 只会得到同样被遮住的结果。
+ *
+ * rating 只在原值为 0（未评级）时写。人工评过的不会被模型覆盖。
+ */
+export function persistTaggerResults(
+  sqlite: BetterSqlite3.Database,
+  rows: TaggerRow[],
+  groups: Record<string, number>,
+): number[] {
+  if (!rows.length)
+    return []
+
+  // 整批去重，于是一个被很多图共享的标签只 upsert 一次
+  const general = new Set<string>()
+  const character = new Set<string>()
+  const links: Array<[number, string]> = []
+  for (const r of rows) {
+    const own = new Set([...r.generalTags, ...r.characterTags])
+    for (const t of r.generalTags) general.add(t)
+    for (const t of r.characterTags) character.add(t)
+    for (const t of own) links.push([r.postId, t])
+  }
+
+  // 已有 group_id 的标签不被改组：手工归过组的不该被模型的猜测覆盖
+  const upsertTag = sqlite.prepare(
+    'INSERT INTO tags(name, group_id) VALUES (?, ?) ON CONFLICT (name) DO UPDATE '
+    + 'SET group_id = CASE WHEN tags.group_id IS NULL THEN excluded.group_id ELSE tags.group_id END',
+  )
+  const link = sqlite.prepare(
+    'INSERT INTO post_has_tag(post_id, tag_name, is_auto) VALUES (?, ?, 1) '
+    + 'ON CONFLICT (post_id, tag_name) DO NOTHING',
+  )
+  const setRating = sqlite.prepare(
+    'UPDATE posts SET rating = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ? AND rating = 0',
+  )
+
+  sqlite.transaction(() => {
+    for (const name of general) upsertTag.run(name, groups.general)
+    for (const name of character) upsertTag.run(name, groups.character)
+    for (const [postId, name] of links) link.run(postId, name)
+    for (const r of rows) {
+      const rating = ratingToInt(r.rating)
+      if (rating !== 0)
+        setRating.run(rating, r.postId)
+    }
+  })()
+
+  const ids = rows.map(r => r.postId)
+  return sqlite
+    .prepare<unknown[], { id: number }>(
+      `SELECT p.id FROM posts p WHERE p.id IN (${placeholders(ids.length)}) `
+      + `AND NOT EXISTS (SELECT 1 FROM post_has_tag pht WHERE pht.post_id = p.id AND pht.is_auto = 1)`,
+    )
+    .all(...ids)
+    .map(r => r.id)
+}

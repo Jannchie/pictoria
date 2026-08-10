@@ -20,14 +20,20 @@ import {
   GPU_QUEUE,
   SILVA_TASK_BATCH,
   silvaTask,
+  TAGGER_TASK_BATCH,
+  TAGGER_WORKER_KEY,
+  taggerTask,
   WAIFU_TASK_BATCH,
   WAIFU_WORKER_KEY,
   waifuTask,
 } from '@pictoria/contracts'
 import {
+  ensureCanonicalTagGroups,
   fetchEmbeddingBlobs,
   listSilvaPending,
+  listTaggerPending,
   listWaifuPending,
+  persistTaggerResults,
   recordFailures,
   upsertAestheticScores,
   upsertWaifuScores,
@@ -167,6 +173,49 @@ export function startWaifuBackfill(
     )
     // 整批都失败时仍然算"干了活"：黑名单已经写下，下一轮的待办查询不会再选它们，
     // 所以立刻继续而不是空等 30 秒。
+    return true
+  }, log)
+}
+
+/**
+ * tagger：算在 Python，落库在 TS —— 三个 worker 里落库最复杂的一个。
+ *
+ * worker 只回传标签名和 rating 字符串。哪个标签属于哪个组、rating 能不能覆盖已有值，
+ * 都是 schema 的知识，留在拥有 schema 的这一侧。
+ */
+export function startTaggerBackfill(
+  sqlite: SqliteHandle,
+  tasks: CairnQ,
+  { log = console }: { log?: Log } = {},
+): BackfillHandle {
+  const root = targetDir()
+  return loop('tagger', async () => {
+    const items = listTaggerPending(sqlite, root, TAGGER_TASK_BATCH)
+    if (!items.length)
+      return false
+
+    const result = await tasks.call(taggerTask, { items }, {
+      queue: GPU_QUEUE,
+      key: `tagger:${items[0]!.postId}:${items.length}`,
+      conflict: 'reuse',
+      waitTimeoutMs: CALL_TIMEOUT_MS,
+    })
+
+    const groups = ensureCanonicalTagGroups(sqlite)
+    // 落库后仍然没有 is_auto 行的那些 —— tagger 产出的标签全部被同名手工标签遮住了。
+    // 重跑只会得到同样的结果，所以和读不出来的图一样拉黑。
+    const shadowed = persistTaggerResults(sqlite, result.results, groups)
+    recordFailures(sqlite, TAGGER_WORKER_KEY, [
+      ...result.failures,
+      ...shadowed.map(postId => ({ postId, error: 'all auto tags shadowed by manual tags' })),
+    ])
+    log.info(
+      `[tagger] 落库 ${result.results.length} 条`
+      + (result.failures.length || shadowed.length
+        ? `，拉黑 ${result.failures.length + shadowed.length} 条（${shadowed.length} 条被手工标签遮住）`
+        : '')
+      + `，起始 id ${items[0]!.postId}`,
+    )
     return true
   }, log)
 }

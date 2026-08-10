@@ -96,3 +96,40 @@ export const WAIFU_TASK_BATCH = 32
 
 /** `post_process_failures.worker` 里 waifu 用的桶名。与 Python 侧同值。 */
 export const WAIFU_WORKER_KEY = 'waifu'
+
+/** WDTagger 对一张图的输出。 */
+export interface TaggerResult {
+  postId: number
+  generalTags: string[]
+  characterTags: string[]
+  /** `general` / `sensitive` / `questionable` / `explicit`，或空串。 */
+  rating: string
+}
+
+export interface TaggerPayload {
+  items: ImageItem[]
+}
+
+export interface TaggerBatchResult {
+  results: TaggerResult[]
+  failures: WorkerFailure[]
+}
+
+/**
+ * 自动标签（wd-vit-large-tagger-v3）。
+ *
+ * worker 只把标签**算出来**，标签落进 `tags` / `post_has_tag`、rating 落进 `posts`
+ * 都在 TS 侧 —— 这是三个 worker 里落库最复杂的一个，也正因如此它最能说明 §D1 的价值：
+ * 一个 tag 该属于哪个组、rating 什么时候能覆盖，这些是 schema 的知识，属于拥有 schema
+ * 的那一侧。
+ *
+ * 空标签响应被 worker 判为失败（而不是成功但没结果）：留着它 `post_has_tag` 一行不写，
+ * 待办查询会永远重选这张图，而重跑只会得到同样的空响应。
+ */
+export const taggerTask = defineTask<TaggerPayload, TaggerBatchResult>('tagger')
+
+/** wd-vit-large 跑在 GPU 上，32 能把一张 30xx 喂饱。与 Python 侧同值。 */
+export const TAGGER_TASK_BATCH = 32
+
+/** `post_process_failures.worker` 里 tagger 用的桶名。 */
+export const TAGGER_WORKER_KEY = 'tagger'

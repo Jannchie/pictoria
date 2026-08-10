@@ -29,5 +29,5 @@ export type { AnnotationQueueRow, QueueWithProgress } from './repositories/annot
 export { cosine, existingVectors, knn, SIGLIP2_TABLE, unitVectors, vectorExists } from './repositories/vectors.js'
 export { PairGraph, Sampler, samplePairs, samplePostIds } from './repositories/sampling.js'
 export type { Block } from './repositories/sampling.js'
-export { aestheticWorkerKey, fetchEmbeddingBlobs, listSilvaPending, listWaifuPending, notFailedClause, recordFailures, upsertAestheticScores, upsertWaifuScores } from './repositories/backfill.js'
-export type { PendingImage } from './repositories/backfill.js'
+export { aestheticWorkerKey, ensureCanonicalTagGroups, fetchEmbeddingBlobs, listSilvaPending, listTaggerPending, listWaifuPending, notFailedClause, persistTaggerResults, ratingToInt, recordFailures, TAG_GROUP_COLORS, upsertAestheticScores, upsertWaifuScores } from './repositories/backfill.js'
+export type { PendingImage, TaggerRow } from './repositories/backfill.js'

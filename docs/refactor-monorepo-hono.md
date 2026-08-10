@@ -404,7 +404,7 @@ Python worker）和旧路径（Python 进程内直接读库算）算出的分数
 
 ### Phase 6 · 剩余 worker（1–2 周）—— 进行中
 
-~~`silva_luna`~~ ✅（和 silva 同一条代码路径，随它一起接通）→ ~~`waifu`~~ ✅ → `tagger` →
+~~`silva_luna`~~ ✅（和 silva 同一条代码路径，随它一起接通）→ ~~`waifu`~~ ✅ → ~~`tagger`~~ ✅ →
 ~~`embedding`（D1 的例外，直接写向量表）~~ → `basics`（最后，因为它顺带产缩略图）。
 
 > "embedding 是 D1 的例外"是初稿的说法，**已被 §D1 推翻** —— 那个例外建立在错误的批量
@@ -428,9 +428,19 @@ Python worker）和旧路径（Python 进程内直接读库算）算出的分数
    钉了三条：逃逸被拒、文件不存在是**丢弃**而不是拉黑（它不是坏数据，它是没了）、
    待办查询拼出来的路径真实存在。
 
-> 参考实现（`server/scripts/score_direct.py`）的 stdout 会被 WaifuScorer 的 rich 日志
+> 参考实现（`server/scripts/worker_direct.py`）的 stdout 会被 WaifuScorer 的 rich 日志
 > 污染 —— 它把加载进度打在 stdout 上，正好混进要输出的 JSON 里。脚本因此先把
 > `sys.stdout` 换成 stderr，只留一个私有句柄写结果。
+
+**tagger 是落库最复杂的一个**（对拍 41 项，数据层 27 项单测），也最能说明 §D1 的价值：
+worker 只回传标签名和 rating 字符串，而"这个标签属于哪个组"、"rating 能不能覆盖已有值"
+是 schema 的知识，留在拥有 schema 的那一侧。三条规则各有单测钉住：
+
+* 已经归过组的标签**不被**模型的猜测改组（`CASE WHEN tags.group_id IS NULL`）；
+* rating 只在原值为 0 时写 —— 人工评过的不被模型覆盖；
+* 落库后要**复查**：`post_has_tag` 是 `ON CONFLICT DO NOTHING`，当 tagger 产出的每个标签
+  都已作为手工标签存在时（Danbooru 导入的图很常见），一行 `is_auto = 1` 都建不出来，
+  待办查询下一轮又会选中它。这些 id 要一起拉黑，因为重跑只会得到同样被遮住的结果。
 
 ### Phase 7 · 清理（2–3 天）
 

@@ -6,7 +6,7 @@
  *
  * 为什么不拿库里存量当基准：silva head 的权重更新过，`post_aesthetic_scores` 里
  * 的历史分数是**旧权重**算的，和今天任何一条路径都对不上。基准必须是同一时刻的
- * 旧代码路径，所以这里现场起一个 Python 子进程算（`server/scripts/score_direct.py`），
+ * 旧代码路径，所以这里现场起一个 Python 子进程算（`server/scripts/worker_direct.py`），
  * 而不是查表。
  *
  * 这个脚本是 Phase 5/6 每搬一个 worker 都要复用的形状：同一批输入，两条路径，
@@ -16,8 +16,8 @@ import { spawn } from 'node:child_process'
 import fs from 'node:fs'
 import path from 'node:path'
 import process from 'node:process'
-import { encodeVectorBlob, GPU_QUEUE, silvaTask, waifuTask } from '@pictoria/contracts'
-import { createDb, fetchEmbeddingBlobs, listWaifuPending } from '@pictoria/db'
+import { encodeVectorBlob, GPU_QUEUE, silvaTask, taggerTask, waifuTask } from '@pictoria/contracts'
+import { createDb, fetchEmbeddingBlobs, listTaggerPending, listWaifuPending } from '@pictoria/db'
 import { CairnQ } from 'cairnq'
 
 const ROOT = path.resolve(import.meta.dirname, '../../..')
@@ -27,10 +27,10 @@ const fsExists = (p: string) => fs.existsSync(p)
 
 const { sqlite } = createDb({ path: path.resolve(ROOT, 'server/illustration/images/.pictoria/pictoria.sqlite') })
 
-/** 旧路径：Python 进程内直接读库算。 */
-function scoreDirect(scorer: string, postIds: number[]): Promise<Array<{ postId: number, score: number }>> {
+/** 旧路径：Python 进程内直接读库算。返回值形状随 worker 而定。 */
+function workerDirect(scorer: string, postIds: number[]): Promise<any> {
   return new Promise((resolve, reject) => {
-    const child = spawn('uv', ['run', 'python', 'scripts/score_direct.py'], {
+    const child = spawn('uv', ['run', 'python', 'scripts/worker_direct.py'], {
       cwd: path.resolve(ROOT, 'server'),
       shell: true,
     })
@@ -40,12 +40,12 @@ function scoreDirect(scorer: string, postIds: number[]): Promise<Array<{ postId:
     child.stderr.on('data', d => (err += d))
     child.on('close', (code) => {
       if (code !== 0)
-        return reject(new Error(`score_direct.py 退出 ${code}: ${err.slice(-500)}`))
+        return reject(new Error(`worker_direct.py 退出 ${code}: ${err.slice(-500)}`))
       try {
-        resolve(JSON.parse(out).scores)
+        resolve(JSON.parse(out))
       }
       catch {
-        reject(new Error(`score_direct.py 输出不是 JSON: ${out.slice(0, 300)}`))
+        reject(new Error(`worker_direct.py 输出不是 JSON: ${out.slice(0, 300)}`))
       }
     })
     child.stdin.end(JSON.stringify({ scorer, postIds }))
@@ -90,7 +90,7 @@ for (const scorer of ['silva', 'silva_luna'] as const) {
   }
   const elapsed = Date.now() - t0
 
-  const direct = await scoreDirect(scorer, ids)
+  const direct = (await workerDirect(scorer, ids)).scores
   const directMap = new Map(direct.map(d => [d.postId, d.score]))
 
   if (viaQueue.scores.length !== direct.length) {
@@ -188,7 +188,7 @@ for (const scorer of ['silva'] as const) {
   })
   console.log(`waifu: 队列往返 ${Date.now() - t0} ms，${viaQueue.scores.length} 条打分 / ${viaQueue.failures.length} 条失败`)
 
-  const direct = await scoreDirect('waifu', imgRows.map(r => r.id))
+  const direct = (await workerDirect('waifu', imgRows.map(r => r.id))).scores
   const directMap = new Map(direct.map(d => [d.postId, d.score]))
   let bad = 0
   for (const s of viaQueue.scores) {
@@ -238,6 +238,56 @@ for (const scorer of ['silva'] as const) {
   if (!broken.length)
     pass++
   else fails.push(`待办查询拼出了不存在的路径：${broken.map(b => b.path).join(', ')}`)
+}
+
+// ─── tagger：算在 Python，落库在 TS ────────────────────────────────
+{
+  const rows = sqlite
+    .prepare<[], { id: number, full_path: string }>(
+      `SELECT p.id, p.full_path FROM posts p `
+      + `WHERE LOWER(p.extension) IN ('jpg','jpeg','png','webp') ORDER BY RANDOM() LIMIT 4`,
+    )
+    .all()
+  const root = path.resolve(ROOT, 'server/illustration/images')
+  const tagItems = rows.map(r => ({ postId: r.id, path: `${root}/${r.full_path}` }))
+
+  const t0 = Date.now()
+  const viaQueue = await tasks.call(taggerTask, { items: tagItems }, {
+    queue: GPU_QUEUE,
+    key: `parity:tagger:${Date.now()}`,
+    conflict: 'reject',
+    waitTimeoutMs: 300_000,
+    pollMs: 100,
+  })
+  console.log(`tagger: 队列往返 ${Date.now() - t0} ms，${viaQueue.results.length} 条`)
+
+  const direct: any[] = (await workerDirect('tagger', rows.map(r => r.id))).results
+  const directMap = new Map(direct.map(d => [d.postId, d]))
+  let bad = 0
+  for (const r of viaQueue.results) {
+    const d = directMap.get(r.postId)
+    // 标签集合与顺序都要一样：顺序是模型按置信度排的，落库时不重排，
+    // 所以它也是契约的一部分。
+    if (!d
+      || JSON.stringify(d.generalTags) !== JSON.stringify(r.generalTags)
+      || JSON.stringify(d.characterTags) !== JSON.stringify(r.characterTags)
+      || d.rating !== r.rating) {
+      bad++
+      if (bad <= 2)
+        fails.push(`tagger post ${r.postId}: 队列 ${JSON.stringify(r).slice(0, 160)} vs 直算 ${JSON.stringify(d).slice(0, 160)}`)
+    }
+  }
+  if (bad)
+    fails.push(`tagger: ${bad}/${viaQueue.results.length} 条不一致`)
+  else
+    pass += viaQueue.results.length
+
+  // 待办查询拼出来的路径必须真实存在（和 waifu 同款检查，但走的是另一条 SQL）
+  const pending = listTaggerPending(sqlite, root, 3)
+  const broken = pending.filter(p => !fsExists(p.path))
+  if (!broken.length)
+    pass++
+  else fails.push(`tagger 待办查询拼出了不存在的路径：${broken.map(b => b.path).join(', ')}`)
 }
 
 await tasks.close()

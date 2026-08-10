@@ -140,3 +140,59 @@ async def handle_waifu(payload: dict[str, Any]) -> dict[str, Any]:
         "scores": [{"postId": pid, "score": float(score)} for pid, score in successes],
         "failures": failures + [{"postId": pid, "error": err} for pid, err in ladder_failures],
     }
+
+
+def _no_tags(_pid: int, resp: Any) -> str | None:
+    """Reject an empty tagger response so it is blacklisted, not silently dropped.
+
+    An empty result leaves ``post_has_tag`` untouched, so the post stays pending
+    forever and re-running produces the same empty response. Passed to the
+    ladder as ``reject_reason`` so the check runs identically at the full-batch,
+    mini-batch and per-image levels.
+    """
+    if not resp.general_tags and not resp.character_tags:
+        return "no auto tags produced"
+    return None
+
+
+async def handle_tagger(payload: dict[str, Any]) -> dict[str, Any]:
+    """Auto-tag images with WDTagger.
+
+    Returns the tags and the predicted rating as **data**. Which tag group a
+    name belongs to, and whether a rating may overwrite the stored one, are
+    schema questions — they belong to the side that owns the schema (§D1), so
+    they are decided in TS, not here.
+    """
+    items_in = payload["items"]
+    if not items_in:
+        return {"results": [], "failures": []}
+
+    from services.wd_tagging import get_tagger  # noqa: PLC0415  # lazy: defer the ML stack
+
+    items: list[tuple[int, Path]] = []
+    failures: list[dict[str, Any]] = []
+    for item in items_in:
+        try:
+            path = _resolve_inside(item["path"])
+        except ValueError as exc:
+            failures.append({"postId": item["postId"], "error": str(exc)})
+            continue
+        if path.exists():
+            items.append((item["postId"], path))
+
+    tagger = await asyncio.to_thread(get_tagger)
+    successes, ladder_failures = await run_with_fallback(
+        tagger.tag, items, label="tagger", reject_reason=_no_tags,
+    )
+    return {
+        "results": [
+            {
+                "postId": pid,
+                "generalTags": list(resp.general_tags),
+                "characterTags": list(resp.character_tags),
+                "rating": resp.rating or "",
+            }
+            for pid, resp in successes
+        ],
+        "failures": failures + [{"postId": pid, "error": err} for pid, err in ladder_failures],
+    }
