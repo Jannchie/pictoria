@@ -31,3 +31,4 @@ export { PairGraph, Sampler, samplePairs, samplePostIds } from './repositories/s
 export type { Block } from './repositories/sampling.js'
 export { aestheticWorkerKey, ensureCanonicalTagGroups, fetchEmbeddingBlobs, listEmbeddingPending, listSilvaPending, listTaggerPending, listWaifuPending, notFailedClause, persistTaggerResults, ratingToInt, recordFailures, TAG_GROUP_COLORS, upsertAestheticScores, upsertVectors, upsertWaifuScores } from './repositories/backfill.js'
 export type { PendingImage, TaggerRow } from './repositories/backfill.js'
+export { assignFromPairs, assignGroupForPost, DEDUP_KNN_K, exportVectorMatrix, replaceAllGroups, setCanonical } from './repositories/dedup.js'

@@ -29,7 +29,7 @@ from pathlib import Path
 
 from cairnq import SQLiteStore, Worker
 
-from worker.handlers import handle_embedding, handle_silva, handle_tagger, handle_waifu, set_root
+from worker.handlers import handle_dedup, handle_embedding, handle_silva, handle_tagger, handle_waifu, set_root
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 log = logging.getLogger("worker")
@@ -68,8 +68,12 @@ async def main() -> None:
     worker.task("waifu")(lambda _ctx, payload: handle_waifu(payload))
     worker.task("tagger")(lambda _ctx, payload: handle_tagger(payload))
     worker.task("embedding")(lambda _ctx, payload: handle_embedding(payload))
+    # dedup is not a backfill worker — it is one whole-library pass, kicked off by
+    # /v2/cmd/group-duplicates or by the embedding scheduler after it writes new
+    # vectors. Same queue on purpose: it wants the GPU exclusively.
+    worker.task("dedup")(lambda _ctx, payload: handle_dedup(payload))
 
-    log.info("worker up: silva, waifu, tagger, embedding  queue=%s db=%s", GPU_QUEUE, db_path)
+    log.info("worker up: silva, waifu, tagger, embedding, dedup  queue=%s db=%s", GPU_QUEUE, db_path)
     await worker.run()
 
 

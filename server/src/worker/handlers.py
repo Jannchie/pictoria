@@ -233,3 +233,35 @@ async def handle_embedding(payload: dict[str, Any]) -> dict[str, Any]:
         "embeddings": [{"postId": pid, "embedding": encode_vector(emb)} for pid, emb in successes],
         "failures": failures + [{"postId": pid, "error": err} for pid, err in ladder_failures],
     }
+
+
+async def handle_dedup(payload: dict[str, Any]) -> dict[str, Any]:
+    """Find every near-duplicate pair in the whole library at once.
+
+    The odd one out: its payload carries a *path* instead of data, because the
+    input is every vector there is (1.0 GB of float32) and the alternative — a
+    per-post vec0 KNN — is ~48h at library scale. §D1 still holds; a file is not
+    a database, and this process still opens no SQL connection.
+
+    Returns ``{pairs: [[i, j], ...]}`` of **row indices**, not post ids: the
+    matrix file has no ids in it. TS holds the parallel id array and does the
+    greedy canonical assignment.
+    """
+    from worker.dedup import find_near_pairs, load_matrix  # noqa: PLC0415  # lazy: pulls torch
+
+    path = _resolve_inside(payload["matrixPath"])
+    count = int(payload["count"])
+    dim = int(payload["dim"])
+    if count < 2:  # noqa: PLR2004
+        return {"pairs": []}
+
+    matrix = load_matrix(path, count, dim)
+    # Off-loop like every other GPU call here: the loop that runs this handler
+    # is also the one renewing its lease, and a full-library matmul is minutes.
+    pairs = await asyncio.to_thread(
+        find_near_pairs,
+        matrix,
+        float(payload["threshold"]),
+        int(payload["chunkSize"]),
+    )
+    return {"pairs": pairs}

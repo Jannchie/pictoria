@@ -229,28 +229,37 @@ export function startTaggerBackfill(
 /**
  * embedding：SigLIP 2 检索向量。
  *
- * ⚠️ **还没有在 `index.ts` 里启用。** 缺的不是这段代码 —— 对拍已经证明新链路算出的
- * 向量与旧路径逐字节相同 —— 而是它的**后置钩子**：Python 侧 `EMBEDDING_WORKER` 带一个
- * `on_backfill_complete`，一轮写进新向量后会重建近重复分组
- * （`services/dedup.py` 的 `rebuild_groups`）。把 embedding 加进
- * `PICTORIA_SKIP_WORKERS` 而分组还没有对应物，等于悄悄关掉近重复分组。
+ * 唯一带**后置钩子**的 worker，对应 Python 侧 `EMBEDDING_WORKER.on_backfill_complete`：
+ * 写进新向量之后要重建近重复分组，否则新图永远不会被认成任何一张老图的重复。
  *
- * 而 dedup 不能照搬前四个 worker 的形状：它要**全库**向量做一次分块矩阵乘，
- * 22.3 万条 base64 是 1.3 GB 的 payload，塞不进一行 JSON。形状见
- * `docs/refactor-monorepo-hono.md` §Phase 6 的"dedup 的形状问题"。
- *
- * 在那之前 embedding 仍由 Python poller 跑，这个函数只是就位待命。
+ * 触发时机是**待办清空的那一刻**，不是每一批之后 —— 一次重建是全库分块矩阵乘，
+ * 分钟级；每 16 张图触发一次等于让 GPU 什么正事都干不成。Python 侧 `run_all_backfill`
+ * 跑完整轮才 fire 一次，这里的"清空即一轮结束"是它的等价物。
  */
 export function startEmbeddingBackfill(
   sqlite: SqliteHandle,
   tasks: CairnQ,
-  { log = console }: { log?: Log } = {},
+  { log = console, onDrained }: {
+    log?: Log
+    /** 待办清空、且这一轮确实写进过向量时调用，参数是这一轮写了多少条。 */
+    onDrained?: (written: number) => Promise<void>
+  } = {},
 ): BackfillHandle {
   const root = targetDir()
+  let writtenSinceIdle = 0
   return loop('embedding', async () => {
     const items = listEmbeddingPending(sqlite, root, EMBEDDING_TASK_BATCH)
-    if (!items.length)
+    if (!items.length) {
+      if (writtenSinceIdle && onDrained) {
+        const written = writtenSinceIdle
+        // 先清零再 await：重组是分钟级的，期间新写进来的向量属于**下一轮**，
+        // 不该被这一次的计数吞掉。
+        writtenSinceIdle = 0
+        log.info(`[embedding] 待办清空，本轮写入 ${written} 条，触发近重复重组`)
+        await onDrained(written)
+      }
       return false
+    }
 
     const result = await tasks.call(embeddingTask, { items }, {
       queue: GPU_QUEUE,
@@ -263,6 +272,7 @@ export function startEmbeddingBackfill(
       embedding: Buffer.from(e.embedding, 'base64'),
     })))
     recordFailures(sqlite, EMBEDDING_WORKER_KEY, result.failures)
+    writtenSinceIdle += result.embeddings.length
     log.info(
       `[embedding] 落库 ${result.embeddings.length} 条`
       + (result.failures.length ? `，拉黑 ${result.failures.length} 条` : '')

@@ -19,12 +19,10 @@ import {
 } from '@pictoria/db'
 import { getDb } from '../db.js'
 import { OK, RESP_400, zodErrorHook } from '../openapi.js'
-import { PostDetailPublic, toIsoDateTime } from '../schemas.js'
+import { PostDetailPublic, Result, toIsoDateTime } from '../schemas.js'
 import { translateTag } from '../tag-i18n.js'
 
 const MAX_TAG_LENGTH = 200
-
-const Result = z.object({ msg: z.string() }).openapi('Result')
 
 const TagGroupPublic = z
   .object({ id: z.int(), name: z.string(), color: z.string() })

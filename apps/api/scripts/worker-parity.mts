@@ -14,10 +14,11 @@
  */
 import { spawn } from 'node:child_process'
 import fs from 'node:fs'
+import os from 'node:os'
 import path from 'node:path'
 import process from 'node:process'
-import { embeddingTask, encodeVectorBlob, GPU_QUEUE, silvaTask, taggerTask, waifuTask } from '@pictoria/contracts'
-import { createDb, fetchEmbeddingBlobs, listEmbeddingPending, listTaggerPending, listWaifuPending } from '@pictoria/db'
+import { DEDUP_CHUNK_SIZE, DEDUP_THRESHOLD, dedupTask, embeddingTask, encodeVectorBlob, GPU_QUEUE, silvaTask, taggerTask, waifuTask } from '@pictoria/contracts'
+import { assignFromPairs, createDb, exportVectorMatrix, fetchEmbeddingBlobs, listEmbeddingPending, listTaggerPending, listWaifuPending, runMigrations } from '@pictoria/db'
 import { CairnQ } from 'cairnq'
 
 const ROOT = path.resolve(import.meta.dirname, '../../..')
@@ -28,7 +29,7 @@ const fsExists = (p: string) => fs.existsSync(p)
 const { sqlite } = createDb({ path: path.resolve(ROOT, 'server/illustration/images/.pictoria/pictoria.sqlite') })
 
 /** 旧路径：Python 进程内直接读库算。返回值形状随 worker 而定。 */
-function workerDirect(scorer: string, postIds: number[]): Promise<any> {
+function workerDirect(scorer: string, postIds: number[], extra: Record<string, unknown> = {}): Promise<any> {
   return new Promise((resolve, reject) => {
     const child = spawn('uv', ['run', 'python', 'scripts/worker_direct.py'], {
       cwd: path.resolve(ROOT, 'server'),
@@ -48,7 +49,7 @@ function workerDirect(scorer: string, postIds: number[]): Promise<any> {
         reject(new Error(`worker_direct.py 输出不是 JSON: ${out.slice(0, 300)}`))
       }
     })
-    child.stdin.end(JSON.stringify({ scorer, postIds }))
+    child.stdin.end(JSON.stringify({ scorer, postIds, ...extra }))
   })
 }
 
@@ -336,6 +337,111 @@ for (const scorer of ['silva'] as const) {
   if (!broken.length)
     pass++
   else fails.push(`embedding 待办查询拼出了不存在的路径：${broken.map(b => b.path).join(', ')}`)
+}
+
+// ─── dedup：唯一一个输入走文件的任务 ──────────────────────────────
+{
+  // 取样必须**含近重复**，否则两条路径都返回空对，比对通过但什么也没证明。
+  // 库里现成的分组就是已知的近重复簇 —— 拿几个组的全部成员，再随机填一些
+  // 无关的当噪声，构成一个既有真对、又有真非对的输入。
+  const groups = sqlite
+    .prepare<[], { canonical_post_id: number }>(
+      `SELECT canonical_post_id FROM posts WHERE canonical_post_id IS NOT NULL `
+      + `GROUP BY canonical_post_id ORDER BY RANDOM() LIMIT 8`,
+    )
+    .all()
+    .map(r => r.canonical_post_id)
+  const members = groups.length
+    ? sqlite
+        .prepare<number[], { id: number }>(
+          `SELECT id FROM posts WHERE id IN (${groups.map(() => '?').join(',')}) `
+          + `OR canonical_post_id IN (${groups.map(() => '?').join(',')})`,
+        )
+        .all(...groups, ...groups)
+        .map(r => r.id)
+    : []
+  const noise = sqlite
+    .prepare<[number], { post_id: number }>(
+      `SELECT post_id FROM post_vectors_siglip2 ORDER BY RANDOM() LIMIT ?`,
+    )
+    .all(200)
+    .map(r => r.post_id)
+  const sampleIds = [...new Set([...members, ...noise])].sort((a, b) => a - b)
+
+  // 导出用的是**生产那个函数**，不是脚本里另写一份 —— 这个文件的字节布局正是
+  // 跨语言契约本身。给它一个只装了取样向量的临时库，就能不改生产代码地跑子集。
+  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'pictoria-dedup-parity-'))
+  const tmp = createDb({ path: path.join(tmpDir, 'subset.sqlite') })
+  runMigrations(tmp.sqlite, path.resolve(ROOT, 'server/migrations'))
+  const blobRows = sqlite
+    .prepare<number[], { post_id: number, embedding: Buffer }>(
+      `SELECT post_id, embedding FROM post_vectors_siglip2 WHERE post_id IN (${sampleIds.map(() => '?').join(',')})`,
+    )
+    .all(...sampleIds)
+  const ins = tmp.sqlite.prepare('INSERT INTO post_vectors_siglip2(post_id, embedding) VALUES (?, ?)')
+  tmp.sqlite.transaction(() => {
+    for (const r of blobRows) ins.run(BigInt(r.post_id), r.embedding)
+  })()
+
+  // 文件必须落在图库根之内 —— worker 的 _resolve_inside 挡在外面的路径
+  const root = path.resolve(ROOT, 'server/illustration/images')
+  const matrixFile = path.join(root, '.pictoria', 'parity-dedup.f32')
+  const { ids, count, dim } = exportVectorMatrix(tmp.sqlite, matrixFile)
+  tmp.sqlite.close()
+  fs.rmSync(tmpDir, { recursive: true, force: true })
+  console.log(`dedup: 取样 ${count} 条（${members.length} 条来自已知分组），矩阵 ${(count * dim * 4 / 1e6).toFixed(1)} MB`)
+
+  try {
+    const t0 = Date.now()
+    const viaQueue = await tasks.call(dedupTask, {
+      matrixPath: matrixFile,
+      count,
+      dim,
+      threshold: DEDUP_THRESHOLD,
+      chunkSize: DEDUP_CHUNK_SIZE,
+    }, {
+      queue: GPU_QUEUE,
+      key: `parity:dedup:${Date.now()}`,
+      conflict: 'reject',
+      waitTimeoutMs: 600_000,
+      pollMs: 100,
+    })
+    console.log(`dedup: 队列往返 ${Date.now() - t0} ms，${viaQueue.pairs.length} 对近邻`)
+
+    const direct = await workerDirect('dedup', sampleIds, {
+      threshold: DEDUP_THRESHOLD,
+      chunkSize: DEDUP_CHUNK_SIZE,
+    })
+
+    // 前提：两侧看到的是同一批 id、同一个行序。不成立的话下面的下标比对没有意义。
+    if (JSON.stringify(ids) === JSON.stringify(direct.ids))
+      pass++
+    else fails.push(`dedup: 两侧的 id 顺序不同（${ids.length} vs ${direct.ids.length}）`)
+
+    // 邻接对逐个相同 —— 这是矩阵乘 + 文件读的联合结论
+    const mine = JSON.stringify([...viaQueue.pairs].map(p => [p[0], p[1]]).sort((a, b) => a[0]! - b[0]! || a[1]! - b[1]!))
+    const theirs = JSON.stringify(direct.pairs)
+    if (mine === theirs)
+      pass++
+    else fails.push(`dedup: 邻接对不同，队列 ${viaQueue.pairs.length} 对，直算 ${direct.pairs.length} 对`)
+
+    // 贪心分配（这一段在 TS，旧路径里在 Python）必须给出同一份 (成员, canonical)
+    const assignments = assignFromPairs(ids, viaQueue.pairs).sort((a, b) => a[0]! - b[0]!)
+    if (JSON.stringify(assignments) === JSON.stringify(direct.assignments))
+      pass++
+    else fails.push(`dedup: 分组结果不同
+   TS  ${JSON.stringify(assignments).slice(0, 300)}
+   PY  ${JSON.stringify(direct.assignments).slice(0, 300)}`)
+
+    // 取样里既然含已知分组，就必须真的归出组来 —— 否则上面三项全"通过"，
+    // 而它们比对的是两个空结果，什么也没证明。
+    if (!members.length || assignments.length)
+      pass++
+    else fails.push('dedup: 取样里有已知分组，却一个成员都没归组 —— 对拍等于空跑')
+  }
+  finally {
+    fs.rmSync(matrixFile, { force: true })
+  }
 }
 
 await tasks.close()

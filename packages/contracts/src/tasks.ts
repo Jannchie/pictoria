@@ -159,3 +159,52 @@ export const EMBEDDING_TASK_BATCH = 16
 
 /** `post_process_failures.worker` 里 embedding 用的桶名。注意带表名后缀。 */
 export const EMBEDDING_WORKER_KEY = 'embedding:siglip2'
+
+/**
+ * 近重复分组的一次全量重算。
+ *
+ * 它是唯一一个 payload 里不带数据、只带**文件路径**的任务，因为它要的是**全库**
+ * 向量：22.3 万条 × 1152 维 float32 = 1.0 GB，base64 之后 1.3 GB —— 塞不进一行
+ * JSON。而逐个 KNN 不是备选（170k 行实测约 48 小时），必须一次分块 `X @ X.T`。
+ *
+ * 于是形状是：TS 把全库向量按 post_id 升序导成一个裸 float32 文件，payload 只带
+ * 路径；worker mmap 读它、算、回传**行下标对**；TS 再把下标翻回 post_id、做贪心
+ * 分组、落库。文件不是数据库，§D1 仍然成立 —— worker 依旧一行 SQL 都不碰。
+ */
+export interface DedupPayload {
+  /**
+   * 裸 float32 矩阵文件的绝对路径，形状 `(count, dim)`，C 序，小端。
+   *
+   * 必须落在图库根之内 —— worker 用 `_resolve_inside` 挡在外面的路径。
+   */
+  matrixPath: string
+  count: number
+  dim: number
+  /** 余弦**距离**上限（1 - 相似度）。越小越严。 */
+  threshold: number
+  /** 一次矩阵乘吃多少行。每块物化一个 `(chunk, count)` 的相似度块。 */
+  chunkSize: number
+}
+
+export interface DedupResult {
+  /**
+   * 上三角邻接：`[i, j]` 且 `i < j`，都是**行下标**而不是 post id。
+   *
+   * 回传下标而不是 id，是因为 worker 手里根本没有 id —— 矩阵文件里只有向量。
+   * 翻译由持有 ids 数组的 TS 侧做，这也让 worker 的输出与库完全无关。
+   */
+  pairs: Array<[number, number]>
+}
+
+export const dedupTask = defineTask<DedupPayload, DedupResult>('dedup')
+
+/**
+ * 判定"同一张图"的余弦距离上限。与 Python 侧 `DEFAULT_DEDUP_THRESHOLD` 同值。
+ *
+ * vec0 的 siglip2 表用 cosine，所以完全相同的图约 0，无关的图接近 1。0.01
+ * （相似度 ≥ 0.99）能抓住分辨率变体和近似差分，又不至于把"只是画风像"的收进来。
+ */
+export const DEDUP_THRESHOLD = 0.01
+
+/** 每块 1024 行 —— 即使 N=170k，一个 `(1024, N)` 的块也远在 1 GB 以内。 */
+export const DEDUP_CHUNK_SIZE = 1024

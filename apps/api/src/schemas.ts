@@ -31,6 +31,9 @@ export const PostHasColorPublic = z
   .object({ order: z.int(), color: z.int() })
   .openapi('PostHasColorPublic')
 
+/** Litestar 里所有"只回一句话"的命令端点共用的响应体。 */
+export const Result = z.object({ msg: z.string() }).openapi('Result')
+
 export const WaifuScorePublic = z.object({ score: z.number() }).openapi('WaifuScorePublic')
 
 export const AestheticScorePublic = z

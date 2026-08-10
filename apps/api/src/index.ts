@@ -2,12 +2,14 @@ import process from 'node:process'
 import { serve } from '@hono/node-server'
 import { OpenAPIHono } from '@hono/zod-openapi'
 import { compress } from 'hono/compress'
+import { rebuildGroups } from './dedup.js'
 import { createProxy } from './proxy.js'
 import { getDb } from './db.js'
-import { startSilvaBackfill, startTaggerBackfill, startWaifuBackfill } from './scheduler.js'
+import { startEmbeddingBackfill, startSilvaBackfill, startTaggerBackfill, startWaifuBackfill } from './scheduler.js'
 import { getTasks } from './tasks.js'
 import { annotationQueuesRoutes } from './routes/annotation-queues.js'
 import { annotationsRoutes } from './routes/annotations.js'
+import { commandsRoutes } from './routes/commands.js'
 import { foldersRoutes } from './routes/folders.js'
 import { postCountsRoutes } from './routes/post-counts.js'
 import { postListRoutes } from './routes/post-list.js'
@@ -41,6 +43,7 @@ app.route('/', tagsRoutes)
 app.route('/', tagWritesRoutes)
 app.route('/', annotationsRoutes)
 app.route('/', annotationQueuesRoutes)
+app.route('/', commandsRoutes)
 // ⚠️ 顺序有意义：Hono 按注册顺序匹配，字面量路径必须排在带参数的前面。
 // postWrites 里有 /v2/posts/bulk/*，若排在 /v2/posts/{post_id}/* 之后，
 // "bulk" 会被当成 post_id 去 coerce 成 NaN。
@@ -117,6 +120,14 @@ if (process.env.PICTORIA_SCHEDULER !== '0') {
       startSilvaBackfill(sqlite, tasks, { scorer })
     startWaifuBackfill(sqlite, tasks)
     startTaggerBackfill(sqlite, tasks)
-    console.warn('[pictoria-api] backfill 调度已启动：silva, silva_luna, waifu, tagger')
+    // embedding 的待办清空之后要重建近重复分组 —— 新图不经过这一步就永远不会被
+    // 认成任何一张老图的重复（对应 Python 侧 EMBEDDING_WORKER 的 on_backfill_complete）。
+    startEmbeddingBackfill(sqlite, tasks, {
+      onDrained: async () => {
+        await rebuildGroups(sqlite, tasks).catch((err: unknown) =>
+          console.warn(`[dedup] 重建失败：${String(err)}`))
+      },
+    })
+    console.warn('[pictoria-api] backfill 调度已启动：silva, silva_luna, waifu, tagger, embedding')
   })()
 }

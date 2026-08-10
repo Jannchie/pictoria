@@ -129,6 +129,48 @@ def _embed_images(post_ids: list[int]) -> list[dict[str, object]]:
     ]
 
 
+def _dedup(post_ids: list[int], threshold: float, chunk_size: int) -> dict[str, object]:
+    """The OLD dedup path over a subset: load vectors from the DB, matmul, greedy.
+
+    Deliberately calls ``services.dedup`` rather than re-deriving it — the point
+    of a reference implementation is that it *is* the code being replaced. The
+    greedy loop below is copied from ``rebuild_groups``; the rest of that
+    function is DB writes, which the new path does in TS.
+    """
+    import numpy as np  # noqa: PLC0415
+
+    from services.dedup import _find_near_pairs  # noqa: PLC0415  # the thing under test
+
+    conn = _connect()
+    cur = conn.cursor()
+    placeholders = ",".join("?" * len(post_ids))
+    cur.execute(
+        f"SELECT post_id, embedding FROM post_vectors_siglip2 WHERE post_id IN ({placeholders}) ORDER BY post_id ASC",
+        post_ids,
+    )
+    rows = cur.fetchall()
+    conn.close()
+
+    ids = [int(pid) for pid, _ in rows]
+    matrix = np.vstack([np.frombuffer(bytes(b), dtype=np.float32) for _, b in rows])
+    adjacency = _find_near_pairs(matrix, threshold, chunk_size)
+
+    claimed: dict[int, int] = {}
+    for idx in range(len(ids)):
+        if idx in claimed:
+            continue
+        for j in adjacency.get(idx, ()):
+            if j in claimed:
+                continue
+            claimed[j] = idx
+
+    return {
+        "ids": ids,
+        "pairs": sorted([i, j] for i, js in adjacency.items() for j in js),
+        "assignments": sorted([ids[m], ids[c]] for m, c in claimed.items()),
+    }
+
+
 def main() -> None:
     req = json.load(sys.stdin)
     scorer: str = req["scorer"]
@@ -140,6 +182,13 @@ def main() -> None:
 
     if scorer == "embedding":
         json.dump({"embeddings": _embed_images(post_ids)}, _RESULT_STREAM)
+        return
+
+    if scorer == "dedup":
+        json.dump(
+            _dedup(post_ids, req.get("threshold", 0.01), req.get("chunkSize", 1024)),
+            _RESULT_STREAM,
+        )
         return
 
     pairs = _score_images(post_ids) if scorer == "waifu" else _score_embeddings(scorer, post_ids)

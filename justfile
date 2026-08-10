@@ -7,7 +7,7 @@ default:
 # 挑活、Python cairnq worker 干活（见 docs/refactor-monorepo-hono.md §D2），
 # 这个进程就不再自己扫它们的 pending —— 否则两边会对同一批数据重复烧 GPU。
 server-dev:
-    cd server && PICTORIA_PORT=4779 PICTORIA_SKIP_WORKERS=silva,silva_luna,waifu,tagger uv run ./src/app.py --target_dir ./illustration/images
+    cd server && PICTORIA_PORT=4779 PICTORIA_SKIP_WORKERS=silva,silva_luna,waifu,tagger,embedding uv run ./src/app.py --target_dir ./illustration/images
 
 # 不走代理，Litestar 直接占 4777。代理本身出问题时用它二分定位。
 server-dev-direct:
