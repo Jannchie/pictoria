@@ -11,6 +11,7 @@ import { postReadsRoutes } from './routes/post-reads.js'
 import { postWritesRoutes } from './routes/post-writes.js'
 import { statisticsRoutes } from './routes/statistics.js'
 import { tagsRoutes } from './routes/tags.js'
+import { tagWritesRoutes } from './routes/tag-writes.js'
 
 /**
  * Pictoria API —— 迁移期的门面。
@@ -33,6 +34,7 @@ app.use('*', compress())
 app.route('/', statisticsRoutes)
 app.route('/', foldersRoutes)
 app.route('/', tagsRoutes)
+app.route('/', tagWritesRoutes)
 app.route('/', annotationsRoutes)
 // ⚠️ 顺序有意义：Hono 按注册顺序匹配，字面量路径必须排在带参数的前面。
 // postWrites 里有 /v2/posts/bulk/*，若排在 /v2/posts/{post_id}/* 之后，
