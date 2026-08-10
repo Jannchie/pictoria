@@ -17,6 +17,8 @@ import {
   IO_QUEUE,
   silvaTask,
   taggerTask,
+  urlDownloadTask,
+  urlScanTask,
   waifuTask,
 } from '@pictoria/contracts'
 import {
@@ -489,4 +491,184 @@ commandsRoutes.openapi(
     wakeAllBackfills()
     return c.json(result.stats, 201)
   },
+)
+
+
+const GalleryDLStats = z
+  .object({
+    fetched: z.int().default(0),
+    images: z.int().default(0),
+    new: z.int().default(0),
+    downloaded: z.int().default(0),
+    failed: z.int().default(0),
+  })
+  .openapi('GalleryDLStats')
+
+const UrlImportStatus = z
+  .object({
+    state: z.enum(['idle', 'running', 'done', 'failed']).default('idle'),
+    url: z.string().nullable().optional(),
+    stats: z.union([GalleryDLStats, z.null()]).optional(),
+    error: z.string().nullable().optional(),
+    startedAt: z.string().nullable().optional(),
+    finishedAt: z.string().nullable().optional(),
+    syncTriggered: z.boolean().default(false),
+  })
+  .openapi('UrlImportStatus')
+
+/**
+ * 当前 / 上一次 URL 导入的状态。
+ *
+ * 进程内的一个对象，和 Python 侧的 `app.state.url_import_status` 一一对应 ——
+ * 不落库，重启即回到 idle。前端靠轮询它拿进度。
+ */
+let urlImportStatus: {
+  state: 'idle' | 'running' | 'done' | 'failed'
+  url: string | null
+  stats: { fetched: number, images: number, new: number, downloaded: number, failed: number } | null
+  error: string | null
+  startedAt: string | null
+  finishedAt: string | null
+  syncTriggered: boolean
+} = {
+  state: 'idle',
+  url: null,
+  stats: null,
+  error: null,
+  startedAt: null,
+  finishedAt: null,
+  syncTriggered: false,
+}
+
+/** ISO，秒精度 —— 和 Python 的 `isoformat(timespec="seconds")` 同形。 */
+function nowIso(): string {
+  return new Date().toISOString().replace(/\.\d{3}Z$/, '+00:00')
+}
+
+/**
+ * 后台跑一次 gallery-dl 导入。
+ *
+ * 三步，中间那步必须回到 TS：扫描（worker 跑 gallery-dl）→ **按目录去重**
+ * （读库）→ 下载 + 落库。gallery-dl 是个 Python 工具，所以扫描和下载只能在
+ * worker；去重是数据库读，所以只能在这里。
+ */
+async function runUrlImport(url: string): Promise<void> {
+  const status = urlImportStatus
+  try {
+    await importOnce(url, status)
+  }
+  catch (err) {
+    status.state = 'failed'
+    status.error = String(err)
+    status.finishedAt = nowIso()
+    console.warn(`[url-import] ${url} 失败：${String(err)}`)
+    return
+  }
+  status.state = 'done'
+  status.finishedAt = nowIso()
+  // 新图需要向量 / 分数 / 自动标签（kemono 的帖子根本不带标签）—— 踢一脚既有的
+  // backfill 流程。⚠️ 必须在 state='done' **之后**，因为 done 是前端停止轮询的信号，
+  // 而 syncTriggered 是它要读的最后一个字段。
+  status.syncTriggered = startSync(getDb().sqlite, () => wakeAllBackfills())
+}
+
+/**
+ * 一次导入的三步。
+ *
+ * 单独一个函数是为了让"没有可导的东西"能用 `return` 干净地退出，而不会顺带跳过
+ * 外面那句 `state = 'done'` —— 第一版把两者写在一起，结果空结果的导入永远停在
+ * `running`，前端会一直转圈。
+ */
+async function importOnce(url: string, status: typeof urlImportStatus): Promise<void> {
+  const { sqlite } = getDb()
+  const tasks: CairnQ = await getTasks()
+
+  const scan = await tasks.call(urlScanTask, { url }, {
+    queue: IO_QUEUE,
+    waitTimeoutMs: 30 * 60_000,
+    pollMs: 200,
+    maxAttempts: 1,
+  })
+  status.stats = { fetched: scan.fetched, images: scan.items.length, new: 0, downloaded: 0, failed: 0 }
+  if (!scan.items.length)
+    return
+
+  // 一个目录下已经有的 file_name。判据是"行存在"而不是"有手工标签" —— 和
+  // Danbooru 那边不同，这里照抄 gallery_dl_import 的原样。
+  const existing = new Set(
+    sqlite
+      .prepare<[string], { file_name: string }>('SELECT file_name FROM posts WHERE file_path = ?')
+      .all(scan.filePath)
+      .map(r => r.file_name),
+  )
+  const fresh = scan.items.filter((it: { fileName: string }) => !existing.has(it.fileName))
+  status.stats.new = fresh.length
+  if (!fresh.length)
+    return
+
+  const result = await tasks.call(urlDownloadTask, {
+    items: fresh,
+    saveDir: path.resolve(targetDir(), scan.filePath),
+    filePathStr: scan.filePath,
+    typeToGroupId: ensureCanonicalTagGroups(sqlite),
+  }, {
+    queue: IO_QUEUE,
+    waitTimeoutMs: 60 * 60_000,
+    pollMs: 200,
+    maxAttempts: 1,
+  })
+  status.stats.downloaded = result.downloaded
+  status.stats.failed = result.failed
+  persistPostsWithTags(sqlite, result.rows)
+}
+
+commandsRoutes.openapi(
+  createRoute({
+    method: 'post',
+    path: '/v2/cmd/import-from-url',
+    operationId: 'v2ImportFromUrlEndpoint',
+    summary: 'ImportFromUrlEndpoint',
+    description: 'Fetch a creator/tag URL via gallery-dl in the background and persist new images',
+    request: {
+      query: z.object({
+        url: z.string().openapi({ param: { name: 'url', in: 'query', required: true } }),
+      }),
+    },
+    responses: {
+      201: { description: 'Document created, URL follows', content: { 'application/json': { schema: Result } } },
+      ...RESP_400,
+    },
+  }),
+  (c) => {
+    const { url } = c.req.valid('query')
+    if (urlImportStatus.state === 'running')
+      return c.json({ msg: 'Import already running' }, 201)
+
+    // 同步换掉整个状态对象，于是"忙不忙"的判断在单线程事件循环上没有竞态。
+    urlImportStatus = {
+      state: 'running',
+      url,
+      stats: null,
+      error: null,
+      startedAt: nowIso(),
+      finishedAt: null,
+      syncTriggered: false,
+    }
+    void runUrlImport(url)
+    return c.json({ msg: 'Import started' }, 201)
+  },
+)
+
+commandsRoutes.openapi(
+  createRoute({
+    method: 'get',
+    path: '/v2/cmd/import-from-url/status',
+    operationId: 'v2ImportFromUrlStatus',
+    summary: 'ImportFromUrlStatus',
+    description: 'Status of the current/last background URL import',
+    responses: {
+      200: { description: OK, content: { 'application/json': { schema: UrlImportStatus } } },
+    },
+  }),
+  c => c.json(urlImportStatus),
 )

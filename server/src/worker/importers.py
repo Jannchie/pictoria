@@ -26,6 +26,8 @@ import os
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
+from worker.handlers import _resolve_inside, library_root
+
 if TYPE_CHECKING:
     from danbooru import DanbooruPost
 
@@ -135,4 +137,103 @@ async def handle_danbooru_import(payload: dict[str, Any]) -> dict[str, Any]:
             "failed": dl_stats.get("failed", 0),
             "early_stopped": early_stopped,
         },
+    }
+
+
+# ─── gallery-dl（多站点导入） ──────────────────────────────────────────
+
+
+def _gallery_dl_conf(root: Path) -> str | None:
+    """Optional gallery-dl.conf (kemono cookies / UA) at ``<root>/.pictoria/``."""
+    conf = root / ".pictoria" / "gallery-dl.conf"
+    return str(conf) if conf.is_file() else None
+
+
+async def handle_url_scan(payload: dict[str, Any]) -> dict[str, Any]:
+    """``gallery-dl -j <url>`` → the parsed, image-only item list.
+
+    Split from the download half on purpose: the dedup check ("which of these
+    file names does the library already have under this directory?") is a
+    database read, and this process has none. So it returns the candidates, TS
+    filters them, and the survivors come back to :func:`handle_url_download`.
+
+    ``filePath`` comes from the first item — every item behind one URL shares
+    category/creator, which is exactly what makes it one directory.
+    """
+    from services.gallery_dl_import import parse_entry, run_gallery_dl_json  # noqa: PLC0415
+
+    url = payload["url"]
+    raw = await asyncio.to_thread(run_gallery_dl_json, url, config_path=_gallery_dl_conf(library_root()))
+
+    items = []
+    for dl_url, meta in raw:
+        it = parse_entry(dl_url, meta, fallback_url=url)
+        if it is None:
+            continue
+        items.append(
+            {
+                "downloadUrl": it.download_url,
+                "fileName": it.file_name,
+                "extension": it.extension,
+                "source": it.source,
+                "category": it.category,
+                "creator": it.creator,
+                "rating": it.rating,
+                "publishedAt": it.published_at,
+                "tagsByCategory": it.tags_by_category,
+            },
+        )
+
+    file_path = f"{items[0]['category']}/{items[0]['creator']}" if items else ""
+    return {"fetched": len(raw), "filePath": file_path, "items": items}
+
+
+async def handle_url_download(payload: dict[str, Any]) -> dict[str, Any]:
+    """Download the items TS decided are new, return rows for the ones that landed.
+
+    Same download-before-persist ordering as the Danbooru importer: only bytes
+    already on disk come back as rows, so a concurrent ``sync-metadata`` can
+    never see a post row without its file.
+    """
+    from services.gallery_dl_import import GalleryDLItem, build_tag_to_group, download_items  # noqa: PLC0415
+
+    raw_items = payload["items"]
+    if not raw_items:
+        return {"rows": [], "downloaded": 0, "failed": 0}
+
+    save_dir = _resolve_inside(payload["saveDir"])
+    file_path_str = payload["filePathStr"]
+    type_to_group_id = payload["typeToGroupId"]
+
+    items = [
+        GalleryDLItem(
+            download_url=r["downloadUrl"],
+            file_name=r["fileName"],
+            extension=r["extension"],
+            source=r["source"],
+            category=r["category"],
+            creator=r["creator"],
+            rating=r["rating"],
+            published_at=r["publishedAt"],
+            tags_by_category=r["tagsByCategory"],
+        )
+        for r in raw_items
+    ]
+
+    ok = await asyncio.to_thread(download_items, items, save_dir, headers=None)
+    return {
+        "rows": [
+            {
+                "filePath": file_path_str,
+                "fileName": it.file_name,
+                "extension": it.extension,
+                "source": it.source,
+                "rating": it.rating,
+                "publishedAt": it.published_at,
+                "tags": build_tag_to_group(it, type_to_group_id),
+            }
+            for it in ok
+        ],
+        "downloaded": len(ok),
+        "failed": len(items) - len(ok),
     }

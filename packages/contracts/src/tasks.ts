@@ -439,3 +439,62 @@ export const danbooruImportTask = defineTask<DanbooruImportPayload, DanbooruImpo
  * 调用方看到的就是卡死。
  */
 export const DANBOORU_LISTING_LIMIT = 5000
+
+
+/** gallery-dl 解析出来的一条待下载项。 */
+export interface GalleryDLItem {
+  downloadUrl: string
+  /** 写进 `posts.file_name`（不含扩展名）。 */
+  fileName: string
+  extension: string
+  source: string
+  /** gallery-dl 的 category（yandere / kemono / …）。 */
+  category: string
+  /** 搜索标签或用户名 —— 它就是目录名。 */
+  creator: string
+  rating: number
+  publishedAt: string | null
+  /** `{组名: [tag, ...]}`，还没解析成 group_id。 */
+  tagsByCategory: Record<string, string[]>
+}
+
+export interface UrlScanPayload {
+  url: string
+}
+
+export interface UrlScanResult {
+  /** gallery-dl 一共吐出多少条（含非图片）。 */
+  fetched: number
+  /** `<category>/<creator>`。一个 URL 下的所有项共享它，所以就是一个目录。 */
+  filePath: string
+  items: GalleryDLItem[]
+}
+
+/**
+ * `gallery-dl -j <url>` —— 只解析，不下载。
+ *
+ * 和下载分成两个任务是因为中间夹着一次**数据库读**：这个目录下哪些 file_name 已经
+ * 有了。worker 没有库，所以它把候选交出来，TS 过滤完再把幸存者送回去下载。
+ *
+ * gallery-dl 是个 Python 工具，这也是它必须留在 worker 的原因 —— 不是权宜。
+ */
+export const urlScanTask = defineTask<UrlScanPayload, UrlScanResult>('url-scan')
+
+export interface UrlDownloadPayload {
+  items: GalleryDLItem[]
+  /** 落盘目录的绝对路径。 */
+  saveDir: string
+  /** 相对图库根的目录，写进 `posts.file_path`。 */
+  filePathStr: string
+  typeToGroupId: Record<string, number>
+}
+
+export interface UrlDownloadResult {
+  /** 只包含字节已经落盘的那些。 */
+  rows: NormalizedPostRow[]
+  downloaded: number
+  failed: number
+}
+
+/** 把 TS 判定为"新"的那些项下下来，回传可以落库的行。 */
+export const urlDownloadTask = defineTask<UrlDownloadPayload, UrlDownloadResult>('url-download')

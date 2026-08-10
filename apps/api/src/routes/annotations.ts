@@ -486,8 +486,12 @@ annotationsRoutes.openapi(
     description: 'Queue-less streaming: sample candidate posts for absolute annotation. Posts already annotated in any requested dimension are excluded.',
     request: {
       query: z.object({
-        dimensions: z.array(z.string())
-          .openapi({ param: { name: 'dimensions', in: 'query', required: true } }),
+        // ⚠️ 单个 `?dimensions=overall` 到 Hono 手里是**字符串**而不是长度 1 的数组，
+        // 直接写 z.array 会让它在 schema 层就被拒（"Expected array"），根本走不到
+        // handler 里那句 `invalid strategy: 'bogus'`。统一收成数组。
+        dimensions: z.union([z.string(), z.array(z.string())])
+          .transform((v: string | string[]) => (Array.isArray(v) ? v : [v]))
+          .openapi({ param: { name: 'dimensions', in: 'query', required: true }, type: 'array', items: { type: 'string' } }),
         strategy: z.string().default('random')
           .openapi({ param: { name: 'strategy', in: 'query', required: false } }),
         limit: z.coerce.number().int().default(10)

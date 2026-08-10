@@ -43,7 +43,7 @@ from worker.handlers import (
     handle_waifu,
     set_root,
 )
-from worker.importers import handle_danbooru_import
+from worker.importers import handle_danbooru_import, handle_url_download, handle_url_scan
 
 #: The importers need DANBOORU_API_KEY / DANBOORU_USER_NAME out of server/.env —
 #: the same file bootstrap.py loads for the API process.
@@ -125,6 +125,8 @@ async def main() -> None:
     io_worker.task("caption")(lambda _ctx, payload: handle_caption(payload))
     io_worker.task("basics")(lambda _ctx, payload: handle_basics(payload))
     io_worker.task("danbooru-import")(lambda _ctx, payload: handle_danbooru_import(payload))
+    io_worker.task("url-scan")(lambda _ctx, payload: handle_url_scan(payload))
+    io_worker.task("url-download")(lambda _ctx, payload: handle_url_download(payload))
 
     log.info(
         "worker up: silva, waifu, tagger, embedding, dedup on %s; text-embed on %s; thumbnail + rotate + caption + basics + import on %s  db=%s",

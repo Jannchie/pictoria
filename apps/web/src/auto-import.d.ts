@@ -63,7 +63,6 @@ declare global {
   const lastRovingIndex: typeof import('./composables/useRovingIndex').lastRovingIndex
   const localeSetting: typeof import('./locale/index').localeSetting
   const makeDestructurable: typeof import('@vueuse/core').makeDestructurable
-  const manualResetRef: typeof import('@vueuse/core').manualResetRef
   const markRaw: typeof import('vue').markRaw
   const nextRovingIndex: typeof import('./composables/useRovingIndex').nextRovingIndex
   const nextTick: typeof import('vue').nextTick
@@ -107,9 +106,7 @@ declare global {
   const refWithControl: typeof import('@vueuse/core').refWithControl
   const resolveComponent: typeof import('vue').resolveComponent
   const resolveKeyScope: typeof import('./composables/useKeyScope').resolveKeyScope
-  const resolveRef: typeof import('@vueuse/core').resolveRef
   const resolveScoreScope: typeof import('./composables/useKeyScope').resolveScoreScope
-  const resolveUnref: typeof import('@vueuse/core')['resolveUnref']
   const resolvedLocale: typeof import('./locale/index').resolvedLocale
   const shallowReactive: typeof import('vue').shallowReactive
   const shallowReadonly: typeof import('vue').shallowReadonly

@@ -91,6 +91,14 @@ def set_root(root: Path) -> None:
     _ROOT = root.resolve()
 
 
+def library_root() -> Path:
+    """The configured library root. Raises if ``set_root`` never ran."""
+    if _ROOT is None:
+        msg = "worker root not configured"
+        raise RuntimeError(msg)
+    return _ROOT
+
+
 def _resolve_inside(raw: str) -> Path:
     path = Path(raw).resolve()
     if _ROOT is None:
