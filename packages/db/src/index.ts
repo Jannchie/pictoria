@@ -22,3 +22,5 @@ export type { AestheticScore, PostColor, PostDetail, PostTag, TagInfo } from './
 export { buildSearchQuery, listPaginated, listSimpleByIdsPreservingOrder, searchPosts } from './queries/post-search.js'
 export type { PaginatedPosts, PostFilterWithOrder } from './queries/post-search.js'
 export { bulkUpdateField, postExists, touchAccessed, updateField } from './repositories/posts.js'
+export { annotationTimeline, countPairwise, editAnnotation, insertAbsolute, insertContentFlag, insertPairwise, latestContentFlag, listAbsoluteForPost, listPairwiseForPost, markQueueItemDone, MUTABLE_KINDS, undoAnnotations } from './repositories/annotations.js'
+export type { AbsoluteEventIn, PairwiseEventIn } from './repositories/annotations.js'

@@ -3,6 +3,7 @@ import { serve } from '@hono/node-server'
 import { OpenAPIHono } from '@hono/zod-openapi'
 import { compress } from 'hono/compress'
 import { createProxy } from './proxy.js'
+import { annotationsRoutes } from './routes/annotations.js'
 import { foldersRoutes } from './routes/folders.js'
 import { postCountsRoutes } from './routes/post-counts.js'
 import { postListRoutes } from './routes/post-list.js'
@@ -32,6 +33,7 @@ app.use('*', compress())
 app.route('/', statisticsRoutes)
 app.route('/', foldersRoutes)
 app.route('/', tagsRoutes)
+app.route('/', annotationsRoutes)
 // ⚠️ 顺序有意义：Hono 按注册顺序匹配，字面量路径必须排在带参数的前面。
 // postWrites 里有 /v2/posts/bulk/*，若排在 /v2/posts/{post_id}/* 之后，
 // "bulk" 会被当成 post_id 去 coerce 成 NaN。

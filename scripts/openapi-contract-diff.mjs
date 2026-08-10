@@ -89,8 +89,13 @@ function canonicalize(node) {
     if (!Array.isArray(branches)) continue
     const nulls = branches.filter((b) => b && b.type === 'null')
     const rest = branches.filter((b) => !(b && b.type === 'null'))
-    if (nulls.length !== 1) continue
     const { [kw]: _drop, ...outer } = out
+    if (nulls.length === 0) {
+      // 没有 null 分支，纯粹是关键字方言（Pydantic oneOf ↔ zod anyOf）。
+      // 统一成 `union` 并排序，语义相同 —— hey-api 两边都生成 `A | B`。
+      return { ...outer, union: [...rest].sort((a, b) => JSON.stringify(a).localeCompare(JSON.stringify(b))) }
+    }
+    if (nulls.length !== 1) continue
     if (rest.length === 1) {
       const merged = { ...rest[0], ...outer, 'x-nullable': true }
       if (rest[0].default !== undefined && merged.default === undefined) merged.default = rest[0].default
