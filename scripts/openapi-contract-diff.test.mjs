@@ -123,6 +123,24 @@ check('完全相同', clone(BASE), false)
   check('操作级 description/tags 差异', d, false)
 }
 
+{
+  const s = clone(BASE.components.schemas.Thing)
+  // 三分支联合：Pydantic 写 oneOf，zod 写 anyOf，语义相同
+  s.properties.sortish = { oneOf: [{ type: 'number' }, { type: 'string' }, { type: 'null' }] }
+  const a = doc(s)
+  const s2 = clone(s)
+  s2.properties.sortish = { anyOf: [{ type: 'string' }, { type: 'number' }, { type: 'null' }] }
+  const b = doc(s2)
+  // 直接两两比：BASE 不含这个字段，所以单独构造一对
+  fs.writeFileSync(path.join(tmp, 'x.json'), JSON.stringify(a))
+  fs.writeFileSync(path.join(tmp, 'y.json'), JSON.stringify(b))
+  const r = spawnSync(process.execPath, [DIFF, path.join(tmp, 'x.json'), path.join(tmp, 'y.json')], { encoding: 'utf8' })
+  const ok = r.status === 0
+  console.log(`  ${ok ? '✅' : '❌'} 三分支联合 oneOf ↔ anyOf 视为一致`)
+  if (ok) pass++
+  else { fail++; console.log(r.stdout.split(String.fromCharCode(10)).slice(0, 8).map((l) => `        ${l}`).join(String.fromCharCode(10))) }
+}
+
 fs.rmSync(tmp, { recursive: true, force: true })
 console.log(`\n${fail === 0 ? '✅' : '💥'} ${pass} 通过, ${fail} 失败`)
 process.exit(fail === 0 ? 0 : 1)

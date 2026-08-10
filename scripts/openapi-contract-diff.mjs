@@ -80,17 +80,28 @@ function canonicalize(node) {
     else out.required = [...out.required].sort()
   }
 
-  // 形式 A: oneOf/anyOf 中恰好一支是 null
+  // 形式 A: oneOf/anyOf 里有一支是 null
+  //
+  // 两种关键字也要归一：Pydantic 写 oneOf，zod 写 anyOf，对同一组互斥标量分支
+  // 语义相同（`sortValue: number | string | null` 两边都是这个 TS 类型）。
   for (const kw of ['oneOf', 'anyOf']) {
     const branches = out[kw]
     if (!Array.isArray(branches)) continue
     const nulls = branches.filter((b) => b && b.type === 'null')
     const rest = branches.filter((b) => !(b && b.type === 'null'))
-    if (nulls.length !== 1 || rest.length !== 1) continue
+    if (nulls.length !== 1) continue
     const { [kw]: _drop, ...outer } = out
-    const merged = { ...rest[0], ...outer, 'x-nullable': true }
-    if (rest[0].default !== undefined && merged.default === undefined) merged.default = rest[0].default
-    return merged
+    if (rest.length === 1) {
+      const merged = { ...rest[0], ...outer, 'x-nullable': true }
+      if (rest[0].default !== undefined && merged.default === undefined) merged.default = rest[0].default
+      return merged
+    }
+    // 多于一支：保留联合，但用统一的关键字 `union`，并按稳定顺序排序
+    return {
+      ...outer,
+      union: [...rest].sort((a, b) => JSON.stringify(a).localeCompare(JSON.stringify(b))),
+      'x-nullable': true,
+    }
   }
 
   // 形式 B: type 是数组且含 'null'

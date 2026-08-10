@@ -11,6 +11,7 @@
     "lint": "pnpm -r lint",
     "genapi": "pnpm --filter pictoria genapi",
     "contract:diff": "node scripts/openapi-contract-diff.mjs docs/openapi.baseline.json http://127.0.0.1:4777/schema/openapi.json",
-    "contract:test": "node scripts/openapi-contract-diff.test.mjs"
+    "contract:test": "node scripts/openapi-contract-diff.test.mjs",
+    "parity": "node scripts/endpoint-parity.mjs"
   }
 }
