@@ -46,6 +46,17 @@ with pathlib.Path("pyproject.toml").open("rb") as f:
 MIGRATIONS_DIR = pathlib.Path(__file__).resolve().parent.parent / "migrations"
 
 
+def _listen_port() -> int:
+    """Port uvicorn binds to.
+
+    Defaults to 4777 — what the frontend hard-codes — so running this file
+    on its own behaves exactly as before. During the Hono migration the Hono
+    process takes 4777 and starts this one with PICTORIA_PORT=4779 behind it
+    (see docs/refactor-monorepo-hono.md Phase 3).
+    """
+    return int(os.environ.get("PICTORIA_PORT", "4777"))
+
+
 @asynccontextmanager
 async def my_lifespan(app: Litestar):
     load_dotenv()
@@ -115,8 +126,7 @@ async def my_lifespan(app: Litestar):
         _spawn_backfill_poller(app, db)
 
         host = "localhost"
-        port = 4777
-        doc_url = f"http://{host}:{port}/schema"
+        doc_url = f"http://{host}:{_listen_port()}/schema"
         logger.info(f"API Document: {doc_url}")
         yield
     finally:
@@ -328,7 +338,7 @@ if __name__ == "__main__":
     uvicorn.run(
         "app:app",
         host="0.0.0.0",  # noqa: S104
-        port=4777,
+        port=_listen_port(),
         reload=False,
         log_config=None,
         # On SIGINT/SIGTERM, stop accepting new connections and give in-flight

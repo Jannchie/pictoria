@@ -1,6 +1,8 @@
 # 重构规划：Litestar → Hono + Drizzle + cairnq worker
 
-> 状态：**全部前置实验已完成（2026-08-10）**，方案可行，无阻塞风险。安全网（`scripts/openapi-contract-diff.mjs` + 自测）已就位。待拍板 §2 的四个决策即可开工 Phase 1
+> 状态：**Phase 0 / 1 / 3 已完成（2026-08-10）**。四个决策已拍板，安全网就位，Hono 代理已接管 4777 且 70 端点契约全绿。**下一步：Phase 2（packages/db）→ Phase 4（端点逐个搬）**
+>
+> 贯穿全局的一条原则（D1 + D3 的共同结论）：**所有计算在 Python worker，所有数据库写入在 TS，没有例外。**
 > 前提：前端 `web/` 不改（除路径移动），API 契约逐字保持
 
 ## 1. 现状盘点
@@ -131,7 +133,7 @@ pictoria/
 
 两个附带结论：
 
-- **`onlyBuiltDependencies` 是真坑**：pnpm 10 默认拒跑 `better-sqlite3` 的 install 脚本，装完 `node_modules/better-sqlite3/build/` 不存在。根 `package.json` 必须显式列它（§3 已记）。
+- **pnpm 那句 "Ignored build scripts: better-sqlite3" 是正常的，不要去消除它** —— 13.x 走 prebuildify，不跑 install 脚本照样能用；批准了反而触发注定失败的 node-gyp（详见 §3）。
 - **KNN 冷启动约 8 s**：首次查询要把向量数据从 2.2 GB 文件里读进 page cache，之后稳定在 ~950 ms。这不是 Node 的问题（Python 侧同样），但意味着 **API 进程重启后的第一次相似度搜索会明显卡一下** —— 现状已经如此，迁移不会变好也不会变坏；真要治得另开话题（预热查询 / `mmap_size`）。
 
 > spike 脚本未进主干（一次性验证）。要复现：scratchpad 里 `vec-spike/spike.cjs`。
@@ -279,11 +281,29 @@ const f32blob = customType<{ data: Float32Array; driverData: Buffer }>({
 drizzle schema（pull 后人工校对）+ 连接封装 + `PostRepo`/`PostQueryService` 等价物。
 验收标准：把 `server/tests/test_post_repo_characterization.py` 逐条翻成 vitest，**指向同一个 fixture 库，两边输出逐字节相同**。
 
-### Phase 3 · Hono 空壳 + 反向代理（1 天）⭐
+### ~~Phase 3 · Hono 空壳 + 反向代理（1 天）⭐~~ ✅ 已完成 2026-08-10
 
-Hono 占用 4777，Litestar 挪到 4779，Hono 未实现的路由全部透传给 Litestar。前端零感知。
+Hono 占用 4777，Litestar 挪到 4779（`PICTORIA_PORT` 环境变量，缺省仍是 4777 —— 单独跑 `just server-dev-direct` 行为不变），Hono 未实现的路由全部透传。前端零感知。
 
-**这是整个计划的枢纽**：从这一刻起，72 个端点可以一个一个搬，随时能停在中间状态，任何一个搬砸了就把 proxy 加回来。
+**这是整个计划的枢纽**：从这一刻起，70 个端点可以一个一个搬，随时能停在中间状态，任何一个搬砸了就把 proxy 加回来。
+
+**实测验收**（全部对着直连 4779 做对照）：
+
+| 项 | 结果 |
+|---|---|
+| 契约 diff | ✅ **70 个操作全绿**，穿过代理后 operationId 与结构逐项相同 |
+| POST + JSON 体 | ✅ `/v2/posts/count` 两侧同为 `{"count":189334}` |
+| 真实图片二进制 | ✅ 65,635 B **逐字节相同**，`image/jpeg` |
+| gzip | ✅ 两侧都带 `content-encoding: gzip` + `Vary`，解压后 19,401 B 逐字节相同 |
+| 图片不被误压 | ✅ 图片响应无 `content-encoding` |
+| 状态码 | ✅ 404 / 404 / 200 三例两侧一致 |
+| 写路径 | ✅ `PUT bulk/rating` 经代理 rating 1→4 生效（已还原） |
+| 上游不可达 | ✅ 返回 502 + `{status_code, detail, extra}`，不是崩溃 |
+
+**两个实现要点**：
+
+1. **undici 会自动解压 gzip 但留着 `content-encoding` 头** —— 照抄响应头会让浏览器对已解压的数据再解一次，直接乱码。做法是请求侧摘掉 `accept-encoding` 让上游返回 identity，响应侧再把 `content-encoding`/`content-length` 从透传名单里剔除兜底，压缩由 Hono 的 `compress()` 在出口补回来（它按 content-type 白名单过滤，不碰 JPEG/PNG，也会跳过 206）。
+2. **响应体直接交出上游的 ReadableStream，不缓冲** —— 原图动辄几十 MB，缓冲会让内存随并发线性上涨。请求体同理，流式转发时 undici 强制要求 `duplex: 'half'`。
 
 ### Phase 4 · 端点逐个搬（2–3 周）
 
