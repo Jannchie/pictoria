@@ -305,13 +305,29 @@ Hono 占用 4777，Litestar 挪到 4779（`PICTORIA_PORT` 环境变量，缺省�
 1. **undici 会自动解压 gzip 但留着 `content-encoding` 头** —— 照抄响应头会让浏览器对已解压的数据再解一次，直接乱码。做法是请求侧摘掉 `accept-encoding` 让上游返回 identity，响应侧再把 `content-encoding`/`content-length` 从透传名单里剔除兜底，压缩由 Hono 的 `compress()` 在出口补回来（它按 content-type 白名单过滤，不碰 JPEG/PNG，也会跳过 206）。
 2. **响应体直接交出上游的 ReadableStream，不缓冲** —— 原图动辄几十 MB，缓冲会让内存随并发线性上涨。请求体同理，流式转发时 undici 强制要求 `duplex: 'half'`。
 
-### Phase 4 · 端点逐个搬（2–3 周）
+### Phase 4 · 端点逐个搬（2–3 周）—— 进行中
 
 顺序（由简到繁、由读到写）：
-`statistics(1)` → `folders(2)` → `tags(6)` → `images(4)` → `posts` 读(8) → `posts` 写(17) → `annotation-queues(8)` → `annotations(10)` → `commands(11，最后，因为要等 cairnq)`
+`statistics(1)` ✅ → `folders(2)` ✅读 → `tags(6)` ✅读 → ~~`images(4)`~~ 见下 → `posts` 读 → `posts` 写 → `annotation-queues(7)` → `annotations(10)` → `commands(11，最后，因为要等 cairnq)`
 
 每搬完一组：删对应 proxy 规则 → 跑 §4.2 的 schema diff → 跑 web vitest。
 
+**已搬**：`GET /v2/statistics`、`GET /v2/folders`、`GET /v2/tags`、`GET /v2/tags/groups`。破坏性写操作（`DELETE /v2/folders/{path}` 要删磁盘文件和缩略图）和带存在性校验的 tag 写操作仍透传，等读路径全部稳定再搬。
+
+**`images` 整组暂不搬**，理由是一致性而非难度：
+
+- 四个端点里两个是缩略图，缺失时要**现场生成**（PIL）。按 §D3 的决定，图像处理留在 Python
+- 只搬 `original` 会让"服务图片"这件事被两种语言各做一半 —— 正是这次重构想消灭的那类割裂
+- 附带两个细节：契约里这些端点的 `content` 用**空串**作 media-type 键（Litestar `File` 响应特有），响应还带 Litestar 计算的 `etag`；照抄要额外功夫，收益却只是省掉一跳本机回环
+
+代理本来就流式转发不缓冲，图片走代理的额外成本只有一次本地 TCP。等"缩略图要不要交给 sharp"单独有结论后，四个端点一起搬。
+
+#### Phase 4 的实操坑（每条都真的踩了）
+
+1. **合并 OpenAPI 文档必须按方法，不能按路径** —— 同一路径下 GET 已搬、POST 还在上游是常态（`/v2/tags` 就是），路径级浅合并会把上游整个 path item 挤掉，POST/DELETE 从文档里凭空消失。
+2. **`.openapi({ type: 'integer' })` 会覆盖整个 schema**，不只是 type —— nullable 会被一起弄丢。要写成 `type: ['integer', 'null']`。
+3. **目录树根节点的 `name` 是空串**，不是目录名（Python 侧取 `relative_to(target_dir).name`）。
+4. **DB 路径要从模块自身位置解析**，不能靠 `process.cwd()` —— `pnpm --filter` 会把 cwd 设成包目录。
 ### Phase 5 · 接入 cairnq（3–5 天）
 
 先只接 **silva**（最简单：输入是已有向量，输出一个标量，不碰 GPU、不碰文件），把 submit → lease → progress → 结果落库整条链路跑通并观察一周。
