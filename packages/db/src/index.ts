@@ -9,3 +9,5 @@ export { buildWhere, hasActiveFilters, BULK_UPDATABLE_FIELDS, GROUPABLE_COLUMNS,
 export type { PostFilter, WhereParts } from './filters.js'
 export { bucketCaseSql, SCORE_BUCKET_UNSCORED, SCORERS, SILVA, SILVA_LUNA, SILVA_SCORE_BUCKETS, WAIFU_SCORE_BUCKETS } from './scorers.js'
 export type { Buckets, ScorerSpec } from './scorers.js'
+export { waifuScoreDistribution } from './repositories/scores.js'
+export type { WaifuBucketCount } from './repositories/scores.js'
