@@ -268,6 +268,12 @@ const f32blob = customType<{ data: Float32Array; driverData: Buffer }>({
 
 `web/` → `apps/web/`，建根 workspace，`pnpm i && pnpm build && pnpm test && pnpm lint` 全绿。**一行业务代码不改**，单独一个 commit。
 
+**执行中踩到的三个坑**（2026-08-10）：
+
+1. **`git mv web apps/web` 会 `Permission denied`** —— 前端 dev server 在跑，Windows 下锁住了目录。先停 4778 上的进程（后端 4777 不受影响）。
+2. **lockfile 的 importer 路径必须手工改写**：`pnpm-lock.yaml` 从 `web/` 移到根之后，里面的 importer 键还是 `.`，而包现在住在 `apps/web`。pnpm 判定 lockfile 失效 → **全量重新解析 546 个依赖**。把 `importers:` 下的 `  .:` 改成 `  apps/web:` 即可，改完 `--frozen-lockfile` 直接通过、24.8 秒装完（不改的话 15 分钟都跑不完，registry 单请求要 20–26 秒）。
+3. **全量重解析会撞上 `trustPolicy: no-downgrade`**：`ERR_PNPM_TRUST_DOWNGRADE  High-risk trust downgrade for "semver@6.3.1"`（经由 `@vitejs/plugin-vue-jsx` → `@babel/core`）。这是既有安全策略在正常工作，**不要为了装上去而删掉它** —— 修好第 2 点，lockfile 有效就不会重新解析，也就不会触发。
+
 ### Phase 2 · `packages/db`（3–5 天）
 
 drizzle schema（pull 后人工校对）+ 连接封装 + `PostRepo`/`PostQueryService` 等价物。

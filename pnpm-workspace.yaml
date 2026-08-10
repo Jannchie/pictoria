@@ -1,0 +1,15 @@
+packages:
+  - apps/*
+  - packages/*
+
+# 从 web/pnpm-workspace.yaml 上提，逐字保留。
+shellEmulator: true
+
+trustPolicy: no-downgrade
+
+# ⚠️ 别往这里加 better-sqlite3 / sharp。它们走 prebuildify / optional-dep
+# 分发，包里自带 prebuilds/win32-x64.node，不批准脚本就能用；一旦批准，
+# install 脚本会尝试 node-gyp rebuild，在没有 MSVC 工具链的机器上必然失败
+# 并中断整个 pnpm install。pnpm 那句 "Ignored build scripts" 是正常状态。
+onlyBuiltDependencies:
+  - vue-demi

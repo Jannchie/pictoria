@@ -4,3 +4,11 @@ __pycache__/
 *.pyc
 # run_get_artist_data.py 的 tag 冷却状态（本地运行痕迹）
 scripts/.run_get_artist_data_state.json
+
+# Node —— 转成 pnpm workspace 后 node_modules 出现在仓库根，
+# 而原来的 node_modules 规则只写在 web/.gitignore 里，管不到这一层。
+node_modules/
+dist/
+*.log
+*.tsbuildinfo
+.vite/

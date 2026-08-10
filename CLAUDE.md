@@ -27,20 +27,20 @@ cd server && uv run ./src/app.py --target_dir ./illustration/images
 
 # Run frontend only
 just web-dev
-# Or directly:
-cd web && pnpm dev
+# Or directly (from the repo root — pnpm workspace):
+pnpm dev
 
 # Generate API client after backend changes
 just web-genapi
 # Or directly:
-cd web && pnpm genapi
+pnpm genapi
 ```
 
 ### Building & Testing
 
 ```bash
 # Frontend
-cd web
+cd apps/web
 pnpm build        # Production build
 pnpm test         # Run vitest tests
 pnpm lint         # ESLint with auto-fix
@@ -97,7 +97,7 @@ uv run python scripts/inspect_db.py
 - **src/App.vue**: Root component with 3-panel splitpanes layout
 - **src/views/**: Page components (Home, Post, Settings, etc.)
 - **src/components/**: Reusable feature components and mixed-boundary wrappers (`ToastSystem`, `UndoSnackbar`, `TagSelectorWindow`, …) that bind a primitive to global app state
-- **src/ui/**: ~22 in-house design-system primitives (`PButton`, `PInput`, `PMenu`, `PSwitch`, `PDialog`, `PPopover`, `PToast`/`PToastContainer`, the virtualised `PTreeList` powering the sidebar folder tree, …) plus `modal.ts` (shared `openDialogCount`), all styled with `--p-*` CSS variables + scoped styles and exported from `index.ts` (these replaced the former `@roku-ui` dependency). See `web/docs/design-system.md`
+- **src/ui/**: ~22 in-house design-system primitives (`PButton`, `PInput`, `PMenu`, `PSwitch`, `PDialog`, `PPopover`, `PToast`/`PToastContainer`, the virtualised `PTreeList` powering the sidebar folder tree, …) plus `modal.ts` (shared `openDialogCount`), all styled with `--p-*` CSS variables + scoped styles and exported from `index.ts` (these replaced the former `@roku-ui` dependency). See `apps/web/docs/design-system.md`
 - **src/api/**: Auto-generated API client from OpenAPI schema
 - **src/composables/**: Vue composables for shared logic
 - **src/shared/**: Global state and utilities
@@ -141,7 +141,7 @@ Notes when writing SQL for SQLite:
 1. Follow Vue 3 Composition API patterns
 2. Use existing composables from `src/composables/`
 3. Maintain three-panel layout structure
-4. Use UnoCSS for styling and follow `web/docs/design-system.md` — tokens only from `--p-*` (no hardcoded hex), floating panels use the `p-popover-panel` shortcut, shadows for floating layers only (`sm`/`md`, no `shadow-lg`), no gradients, no nested panels; new reusable UI primitives go in `src/ui` with a `P` prefix and an `index.ts` export. `src/test/design.test.ts` enforces the hex / z-index / gradient / shadow rules
+4. Use UnoCSS for styling and follow `apps/web/docs/design-system.md` — tokens only from `--p-*` (no hardcoded hex), floating panels use the `p-popover-panel` shortcut, shadows for floating layers only (`sm`/`md`, no `shadow-lg`), no gradients, no nested panels; new reusable UI primitives go in `src/ui` with a `P` prefix and an `index.ts` export. `src/test/design.test.ts` enforces the hex / z-index / gradient / shadow rules
 5. No hardcoded user-visible strings — every label/placeholder/aria/toast goes through vue-i18n: `$t('…')` in templates, `useI18n()` in `<script setup>`, `i18n.global.t` in non-component modules; static option arrays store message *keys* (`labelKey`) resolved at render. Add new keys to **both** `src/locale/messages/en.ts` and `zh-Hans.ts` — `src/test/locale.test.ts` fails on key-tree drift, on zh-only interpolation params, and on any literal key used in source that's missing from the catalogue. Numbers/dates use `formatNumber`/`formatDateTime` from `@/locale` (never `Intl.NumberFormat('en-US')` or bare `toLocaleString()`). Tag display names are translated server-side: pass `lang: resolvedLocale.value` to those endpoints and include `resolvedLocale` in the TanStack queryKey so a language switch refetches
 6. Run linting before commit: `pnpm lint`
 
@@ -150,14 +150,14 @@ Notes when writing SQL for SQLite:
 After any backend API changes, regenerate the TypeScript client:
 
 ```bash
-cd web && pnpm genapi
+pnpm genapi
 ```
 
 This ensures type safety between frontend and backend.
 
 ### Testing
 
-- Frontend tests use Vitest: `cd web && pnpm test`
+- Frontend tests use Vitest: `cd apps/web && pnpm test` (or `pnpm test` from the root)
 - Backend: `uv run ruff check src` (lint), Pyright (types), and `uv run pytest` — a golden-master characterization suite in `server/tests/` pins the data-access layer's behaviour (run it before/after any repository or query change)
 
 ## Important Configuration Files
@@ -165,5 +165,6 @@ This ensures type safety between frontend and backend.
 - **server/pyproject.toml**: Python dependencies and tool settings
 - **server/.env**: Local runtime overrides — S3 credentials, Danbooru API keys; optional `DB_PATH` overrides the default `<target_dir>/.pictoria/pictoria.sqlite`
 - **server/migrations/*.sql**: Ordered, idempotent schema migrations (applied at startup)
-- **web/vite.config.ts**: Vite build configuration
-- **web/uno.config.ts**: UnoCSS styling configuration
+- **apps/web/vite.config.ts**: Vite build configuration
+- **apps/web/uno.config.ts**: UnoCSS styling configuration
+- **pnpm-workspace.yaml**: workspace roots (`apps/*`, `packages/*`). Do NOT add `better-sqlite3`/`sharp` to `onlyBuiltDependencies` — they ship prebuilds; approving their scripts triggers a node-gyp build that fails without MSVC
