@@ -373,3 +373,102 @@ async def handle_caption(payload: dict[str, Any]) -> dict[str, Any]:
     annotator = OpenAIImageAnnotator(api_key)
     caption = await asyncio.to_thread(annotator.annotate_image, image)
     return {"configured": True, "caption": caption}
+
+
+def _compute_basics(item: dict[str, Any], thumbnails_root: Path) -> dict[str, Any]:
+    """One image, one decode: sha256 / arthash / dimensions / palette / thumbnail.
+
+    Ported from ``processors/basics.py::_compute_basics_for``. The five outputs
+    stay bundled because they all ride the same file open + PIL decode —
+    splitting them would decode the same image up to four times.
+    """
+    import numpy as np  # noqa: PLC0415
+    from PIL import Image  # noqa: PLC0415
+    from skimage import color as skcolor  # noqa: PLC0415
+
+    from tools.colors import get_palette, rgb2int  # noqa: PLC0415
+    from utils import calculate_arthash, calculate_sha256, create_thumbnail_by_image  # noqa: PLC0415
+
+    path = _resolve_inside(item["path"])
+    needs_sha256 = not item["hasSha256"]
+    needs_arthash = not item["hasArthash"]
+    needs_color = not item["hasColor"]
+
+    colors_ints: list[int] = []
+    dominant_lab: list[float] | None = None
+    color_error: str | None = None
+
+    with path.open("rb") as f:
+        file_data = f.read() if needs_sha256 else None
+        f.seek(0)
+        # No img.verify(): it ignores LOAD_TRUNCATED_IMAGES and rejects
+        # partially-downloaded files the decode below handles fine. A genuine
+        # "not an image" still fails at Image.open() and bubbles up.
+        with Image.open(f) as img:
+            width, height = img.size
+
+            thumb_path = thumbnails_root / item["relPath"]
+            if not thumb_path.exists():
+                thumb_path.parent.mkdir(parents=True, exist_ok=True)
+                create_thumbnail_by_image(img, thumb_path)
+
+            arthash = calculate_arthash(img) if needs_arthash else None
+            if needs_color:
+                try:
+                    palette = get_palette(img)
+                except Exception as exc:  # colorthief raises a bare Exception
+                    color_error = str(exc)
+                else:
+                    colors_ints = [rgb2int(rgb) for rgb in palette]
+                    if palette:
+                        rgb_norm = np.array(palette[0], dtype=np.float64) / 255.0
+                        dominant_lab = [float(v) for v in skcolor.rgb2lab(rgb_norm.reshape(1, 1, 3)).reshape(3)]
+
+    return {
+        "postId": item["postId"],
+        "sha256": calculate_sha256(file_data) if (file_data and needs_sha256) else None,
+        "size": path.stat().st_size if needs_sha256 else None,
+        "arthash": arthash,
+        "width": width,
+        "height": height,
+        "colors": colors_ints,
+        "dominantLab": dominant_lab,
+        "colorError": color_error,
+    }
+
+
+async def handle_basics(payload: dict[str, Any]) -> dict[str, Any]:
+    """Compute basics for a batch, one image per thread.
+
+    Failures are per-item and come back as data: one unreadable file must not
+    cost the other 31 in the batch. A successful decode whose palette step
+    failed still returns its row *and* a failure — the row carries the other
+    columns, the failure one-shot blacklists the post so ``dominant_color IS
+    NULL`` stops re-selecting it forever.
+    """
+    items = payload["items"]
+    if not items:
+        return {"rows": [], "failures": []}
+    if _ROOT is None:
+        msg = "worker root not configured"
+        raise RuntimeError(msg)
+    thumbnails_root = _ROOT / ".pictoria" / "thumbnails"
+
+    async def _one(item: dict[str, Any]) -> dict[str, Any] | BaseException:
+        try:
+            return await asyncio.to_thread(_compute_basics, item, thumbnails_root)
+        except BaseException as exc:  # reported per item, never fails the whole batch
+            return exc
+
+    results = await asyncio.gather(*[_one(item) for item in items])
+
+    rows: list[dict[str, Any]] = []
+    failures: list[dict[str, Any]] = []
+    for item, result in zip(items, results, strict=True):
+        if isinstance(result, BaseException):
+            failures.append({"postId": item["postId"], "error": f"compute failed: {result}"})
+            continue
+        rows.append(result)
+        if result["colorError"]:
+            failures.append({"postId": item["postId"], "error": f"color: {result['colorError']}"})
+    return {"rows": rows, "failures": failures}

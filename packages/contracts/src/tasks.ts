@@ -316,3 +316,59 @@ export interface CaptionResult {
  * `<target_dir>/.pictoria/OPENAI_API_KEY`，让它只被一个进程读到也更干净。
  */
 export const captionTask = defineTask<CaptionPayload, CaptionResult>('caption')
+
+/** basics 的一条输入：路径，加上"哪几样已经有了"。 */
+export interface BasicsItem {
+  postId: number
+  path: string
+  /** 相对图库根的路径 —— worker 据此算出缩略图该写到哪儿。 */
+  relPath: string
+  hasSha256: boolean
+  hasArthash: boolean
+  hasColor: boolean
+}
+
+export interface BasicsRow {
+  postId: number
+  /** 只在 `hasSha256` 为 false 时算，否则 null（落库用 COALESCE 保留原值）。 */
+  sha256: string | null
+  size: number | null
+  arthash: string | null
+  width: number
+  height: number
+  /** 调色板，每项是 `(r<<16)|(g<<8)|b`。 */
+  colors: number[]
+  /** 主色的 CIELAB 三元组，提不出调色板时是 null。 */
+  dominantLab: [number, number, number] | null
+  /**
+   * colorthief 失败时的消息。
+   *
+   * PIL 解码成功但取不出调色板（退化的纯色图会报 `vbox1 not defined`）时，其余
+   * 字段照常落库，只有 `dominant_color` 留 NULL —— 而"dominant_color IS NULL"
+   * 正是待办查询的条件之一，不拉黑的话这张图每一轮都会被重选。
+   */
+  colorError: string | null
+}
+
+export interface BasicsPayload {
+  items: BasicsItem[]
+}
+
+export interface BasicsResult {
+  rows: BasicsRow[]
+  failures: WorkerFailure[]
+}
+
+/**
+ * basics：sha256 + arthash + 尺寸 + 调色板 + 主色，外加缩略图。
+ *
+ * 五样捆在一起是因为它们都搭同一次文件打开 / PIL 解码的便车 —— 拆开就要把同一张
+ * 图解码四遍。走 IO 队列：全是 CPU 和磁盘。
+ */
+export const basicsTask = defineTask<BasicsPayload, BasicsResult>('basics')
+
+/** 与 Python 侧 `BASICS_BATCH_SIZE` 同值。 */
+export const BASICS_TASK_BATCH = 32
+
+/** `post_process_failures.worker` 里 basics 用的桶名。 */
+export const BASICS_WORKER_KEY = 'basics'

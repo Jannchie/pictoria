@@ -5,7 +5,7 @@ import { compress } from 'hono/compress'
 import { rebuildGroups } from './dedup.js'
 import { createProxy } from './proxy.js'
 import { getDb } from './db.js'
-import { startEmbeddingBackfill, startSilvaBackfill, startTaggerBackfill, startWaifuBackfill } from './scheduler.js'
+import { startBasicsBackfill, startEmbeddingBackfill, startSilvaBackfill, startTaggerBackfill, startWaifuBackfill } from './scheduler.js'
 import { getTasks } from './tasks.js'
 import { annotationQueuesRoutes } from './routes/annotation-queues.js'
 import { annotationsRoutes } from './routes/annotations.js'
@@ -118,6 +118,8 @@ if (process.env.PICTORIA_SCHEDULER !== '0') {
   void (async () => {
     const tasks = await getTasks()
     const { sqlite } = getDb()
+    // basics 排在最前：其余 worker 的输入（尺寸、缩略图）都由它产出。
+    startBasicsBackfill(sqlite, tasks)
     for (const scorer of ['silva', 'silva_luna'] as const)
       startSilvaBackfill(sqlite, tasks, { scorer })
     startWaifuBackfill(sqlite, tasks)
@@ -130,6 +132,6 @@ if (process.env.PICTORIA_SCHEDULER !== '0') {
           console.warn(`[dedup] 重建失败：${String(err)}`))
       },
     })
-    console.warn('[pictoria-api] backfill 调度已启动：silva, silva_luna, waifu, tagger, embedding')
+    console.warn('[pictoria-api] backfill 调度已启动：basics, silva, silva_luna, waifu, tagger, embedding')
   })()
 }

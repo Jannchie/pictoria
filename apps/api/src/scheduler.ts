@@ -16,11 +16,15 @@ import type { getDb } from './db.js'
 import path from 'node:path'
 import process from 'node:process'
 import {
+  BASICS_TASK_BATCH,
+  BASICS_WORKER_KEY,
+  basicsTask,
   EMBEDDING_TASK_BATCH,
   EMBEDDING_WORKER_KEY,
   embeddingTask,
   encodeVectorBlob,
   GPU_QUEUE,
+  IO_QUEUE,
   SILVA_TASK_BATCH,
   silvaTask,
   TAGGER_TASK_BATCH,
@@ -33,6 +37,7 @@ import {
 import { Buffer } from 'node:buffer'
 import {
   ensureCanonicalTagGroups,
+  listBasicsPending,
   fetchEmbeddingBlobs,
   listEmbeddingPending,
   listSilvaPending,
@@ -41,6 +46,7 @@ import {
   persistTaggerResults,
   recordFailures,
   upsertAestheticScores,
+  upsertBasics,
   upsertVectors,
   upsertWaifuScores,
 } from '@pictoria/db'
@@ -275,6 +281,42 @@ export function startEmbeddingBackfill(
     writtenSinceIdle += result.embeddings.length
     log.info(
       `[embedding] 落库 ${result.embeddings.length} 条`
+      + (result.failures.length ? `，拉黑 ${result.failures.length} 条` : '')
+      + `，起始 id ${items[0]!.postId}`,
+    )
+    return true
+  }, log)
+}
+
+/**
+ * basics：sha256 / arthash / 尺寸 / 调色板 / 主色，外加缩略图。
+ *
+ * 六个 worker 里唯一不碰模型的一个，所以它走 IO 队列（并发 4）而不是 GPU 队列。
+ * 失败**要**拉黑，而且有两种：读不出来的文件，以及解码成功但取不出调色板的
+ * （退化的纯色图）。后者其余字段照常落库，只有 `dominant_color` 留 NULL ——
+ * 而那正是待办查询的条件之一，不拉黑就会每一轮重选它。
+ */
+export function startBasicsBackfill(
+  sqlite: SqliteHandle,
+  tasks: CairnQ,
+  { log = console }: { log?: Log } = {},
+): BackfillHandle {
+  const root = targetDir()
+  return loop('basics', async () => {
+    const items = listBasicsPending(sqlite, root, BASICS_TASK_BATCH)
+    if (!items.length)
+      return false
+
+    const result = await tasks.call(basicsTask, { items }, {
+      queue: IO_QUEUE,
+      key: `basics:${items[0]!.postId}:${items.length}`,
+      conflict: 'reuse',
+      waitTimeoutMs: CALL_TIMEOUT_MS,
+    })
+    upsertBasics(sqlite, result.rows)
+    recordFailures(sqlite, BASICS_WORKER_KEY, result.failures)
+    log.info(
+      `[basics] 落库 ${result.rows.length} 条`
       + (result.failures.length ? `，拉黑 ${result.failures.length} 条` : '')
       + `，起始 id ${items[0]!.postId}`,
     )

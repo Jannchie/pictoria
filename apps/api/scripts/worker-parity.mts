@@ -17,8 +17,8 @@ import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import process from 'node:process'
-import { DEDUP_CHUNK_SIZE, DEDUP_THRESHOLD, dedupTask, embeddingTask, encodeVectorBlob, GPU_QUEUE, silvaTask, taggerTask, waifuTask } from '@pictoria/contracts'
-import { assignFromPairs, createDb, exportVectorMatrix, fetchEmbeddingBlobs, listEmbeddingPending, listTaggerPending, listWaifuPending, runMigrations } from '@pictoria/db'
+import { basicsTask, DEDUP_CHUNK_SIZE, DEDUP_THRESHOLD, dedupTask, embeddingTask, encodeVectorBlob, GPU_QUEUE, IO_QUEUE, silvaTask, taggerTask, waifuTask } from '@pictoria/contracts'
+import { assignFromPairs, createDb, exportVectorMatrix, fetchEmbeddingBlobs, listBasicsPending, listEmbeddingPending, listTaggerPending, listWaifuPending, runMigrations } from '@pictoria/db'
 import { CairnQ } from 'cairnq'
 
 const ROOT = path.resolve(import.meta.dirname, '../../..')
@@ -337,6 +337,71 @@ for (const scorer of ['silva'] as const) {
   if (!broken.length)
     pass++
   else fails.push(`embedding 待办查询拼出了不存在的路径：${broken.map(b => b.path).join(', ')}`)
+}
+
+// ─── basics：唯一不碰模型的 worker ────────────────────────────────
+{
+  // 库里每张图的 basics 都齐了，所以两侧都要**强制重算**：新链路把 has* 三个
+  // 布尔都设成 false，旧链路那边用同样"缺三样"的 Post 实体去跑。
+  const rows = sqlite
+    .prepare<[], { id: number, full_path: string }>(
+      `SELECT p.id, p.full_path FROM posts p `
+      + `WHERE LOWER(p.extension) IN ('jpg','jpeg','png','webp') ORDER BY RANDOM() LIMIT 4`,
+    )
+    .all()
+  const root = path.resolve(ROOT, 'server/illustration/images')
+  const items = rows.map(r => ({
+    postId: r.id,
+    path: `${root}/${r.full_path}`,
+    relPath: r.full_path,
+    hasSha256: false,
+    hasArthash: false,
+    hasColor: false,
+  }))
+
+  const t0 = Date.now()
+  const viaQueue = await tasks.call(basicsTask, { items }, {
+    queue: IO_QUEUE,
+    key: `parity:basics:${Date.now()}`,
+    conflict: 'reject',
+    waitTimeoutMs: 300_000,
+    pollMs: 100,
+  })
+  console.log(`basics: 队列往返 ${Date.now() - t0} ms，${viaQueue.rows.length} 条`)
+
+  const direct: any[] = (await workerDirect('basics', rows.map(r => r.id))).rows
+  const directMap = new Map(direct.map(d => [d.postId, d]))
+  let bad = 0
+  for (const r of viaQueue.rows) {
+    const d = directMap.get(r.postId)
+    // 调色板和主色都逐位比：dominant_color 是过滤器用的向量列，末位漂移会让
+    // 同一张图在颜色搜索里排到不同位置。
+    if (!d
+      || d.sha256 !== r.sha256
+      || d.size !== r.size
+      || d.arthash !== r.arthash
+      || d.width !== r.width
+      || d.height !== r.height
+      || JSON.stringify(d.colors) !== JSON.stringify(r.colors)
+      || JSON.stringify(d.dominantLab) !== JSON.stringify(r.dominantLab)) {
+      bad++
+      if (bad <= 2)
+        fails.push(`basics post ${r.postId}:
+   队列 ${JSON.stringify(r).slice(0, 200)}
+   直算 ${JSON.stringify(d).slice(0, 200)}`)
+    }
+  }
+  if (bad)
+    fails.push(`basics: ${bad}/${viaQueue.rows.length} 条不一致`)
+  else
+    pass += viaQueue.rows.length
+
+  // 待办查询拼出来的路径必须真实存在（和其它 worker 同款检查）
+  const pending = listBasicsPending(sqlite, root, 3)
+  const broken = pending.filter(p => !fsExists(p.path))
+  if (!broken.length)
+    pass++
+  else fails.push(`basics 待办查询拼出了不存在的路径：${broken.map(b => b.path).join(', ')}`)
 }
 
 // ─── dedup：唯一一个输入走文件的任务 ──────────────────────────────

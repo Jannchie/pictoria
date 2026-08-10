@@ -30,6 +30,7 @@ from pathlib import Path
 from cairnq import SQLiteStore, Worker
 
 from worker.handlers import (
+    handle_basics,
     handle_caption,
     handle_dedup,
     handle_embedding,
@@ -116,9 +117,10 @@ async def main() -> None:
     io_worker.task("thumbnail")(lambda _ctx, payload: handle_thumbnail(payload))
     io_worker.task("rotate")(lambda _ctx, payload: handle_rotate(payload))
     io_worker.task("caption")(lambda _ctx, payload: handle_caption(payload))
+    io_worker.task("basics")(lambda _ctx, payload: handle_basics(payload))
 
     log.info(
-        "worker up: silva, waifu, tagger, embedding, dedup on %s; text-embed on %s; thumbnail + rotate + caption on %s  db=%s",
+        "worker up: silva, waifu, tagger, embedding, dedup on %s; text-embed on %s; thumbnail + rotate + caption + basics on %s  db=%s",
         GPU_QUEUE,
         INTERACTIVE_QUEUE,
         IO_QUEUE,

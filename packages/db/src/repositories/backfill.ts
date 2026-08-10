@@ -6,6 +6,7 @@
  * 写入在 TS"的那一半：待办查询挑出要算什么，结果函数把算完的东西写回去。
  */
 import type BetterSqlite3 from 'better-sqlite3'
+import { Buffer } from 'node:buffer'
 import { AESTHETIC_SCORES_TABLE } from '../scorers.js'
 import { SIGLIP2_TABLE } from './vectors.js'
 
@@ -360,5 +361,111 @@ export function upsertVectors(
   sqlite.transaction(() => {
     for (const r of rows) del.run(BigInt(r.postId))
     for (const r of rows) ins.run(BigInt(r.postId), r.embedding)
+  })()
+}
+
+// ─── basics（sha256 / arthash / 尺寸 / 调色板 / 主色 / 缩略图） ──────────
+
+/** `post_process_failures.worker` 里 basics 用的桶名。 */
+const BASICS_WORKER = 'basics'
+
+/** basics 待办的一条：路径 + 哪几样已经有了。 */
+export interface BasicsPending {
+  postId: number
+  path: string
+  relPath: string
+  hasSha256: boolean
+  hasArthash: boolean
+  hasColor: boolean
+}
+
+/**
+ * 还缺 sha256 / arthash / 主色中任意一样、且没被拉黑的图片，按 id 升序。
+ *
+ * 三个条件是 OR：缺任意一样就要重新解码一次（反正解码是同一次）。worker 拿到
+ * `has*` 三个布尔值，只算缺的那几样。
+ */
+export function listBasicsPending(
+  sqlite: BetterSqlite3.Database,
+  targetDir: string,
+  limit?: number,
+): BasicsPending[] {
+  const sql
+    = `SELECT p.id, p.full_path, p.sha256, p.arthash, p.dominant_color FROM posts p `
+      + `WHERE (p.sha256 = '' OR p.arthash IS NULL OR p.arthash = '' OR p.dominant_color IS NULL) `
+      + `AND ${IMAGE_EXT_WHERE} AND ${notFailedClause('p')} `
+      + `ORDER BY p.id${limit === undefined ? '' : ' LIMIT ?'}`
+  const params: unknown[] = limit === undefined ? [BASICS_WORKER] : [BASICS_WORKER, limit]
+  return sqlite
+    .prepare<unknown[], {
+      id: number
+      full_path: string
+      sha256: string | null
+      arthash: string | null
+      dominant_color: Buffer | null
+    }>(sql)
+    .all(...params)
+    .map(r => ({
+      postId: r.id,
+      path: `${targetDir}/${r.full_path}`,
+      relPath: r.full_path,
+      hasSha256: !!r.sha256,
+      hasArthash: !!r.arthash,
+      hasColor: r.dominant_color !== null,
+    }))
+}
+
+/** worker 回传的一行 basics。 */
+export interface BasicsRowIn {
+  postId: number
+  sha256: string | null
+  size: number | null
+  arthash: string | null
+  width: number
+  height: number
+  colors: number[]
+  dominantLab: [number, number, number] | null
+}
+
+/**
+ * 批量落库 basics。
+ *
+ * 一条 UPDATE 模板覆盖所有行，不管这一行实际算了哪几样：`COALESCE` 让 null 保留
+ * 列上原来的值。`dominant_color` 只从 NULL 写到有值 —— 不覆盖已经算过的。
+ * `post_has_color` 则是整组替换。
+ */
+export function upsertBasics(
+  sqlite: BetterSqlite3.Database,
+  rows: BasicsRowIn[],
+): void {
+  if (!rows.length)
+    return
+
+  const main = sqlite.prepare(
+    'UPDATE posts SET width = ?, height = ?, sha256 = COALESCE(?, sha256), '
+    + 'size = CASE WHEN ? IS NULL THEN size ELSE ? END, arthash = COALESCE(?, arthash), '
+    + 'updated_at = CURRENT_TIMESTAMP WHERE id = ?',
+  )
+  const dom = sqlite.prepare(
+    'UPDATE posts SET dominant_color = ? WHERE id = ? AND dominant_color IS NULL',
+  )
+  const clearColors = sqlite.prepare('DELETE FROM post_has_color WHERE post_id = ?')
+  const insColor = sqlite.prepare(
+    'INSERT INTO post_has_color(post_id, "order", color) VALUES (?, ?, ?)',
+  )
+
+  sqlite.transaction(() => {
+    for (const r of rows)
+      main.run(r.width, r.height, r.sha256, r.sha256, r.size, r.arthash, r.postId)
+    for (const r of rows) {
+      if (r.dominantLab)
+        dom.run(Buffer.from(new Float32Array(r.dominantLab).buffer), r.postId)
+    }
+    for (const r of rows) {
+      if (!r.colors.length)
+        continue
+      clearColors.run(r.postId)
+      for (const [i, c] of r.colors.entries()) insColor.run(r.postId, i, c)
+    }
   })()
 }

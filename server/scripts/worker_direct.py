@@ -171,6 +171,57 @@ def _dedup(post_ids: list[int], threshold: float, chunk_size: int) -> dict[str, 
     }
 
 
+def _basics(post_ids: list[int]) -> list[dict[str, object]]:
+    """The OLD basics path over a subset, with every field forced to recompute.
+
+    Every post in the library already has its basics, so a faithful
+    ``_compute_basics_for`` would short-circuit and compute nothing. The Post
+    entities below are therefore built with the three "missing" markers
+    (``sha256=''``, ``arthash=''``, ``dominant_color=None``) so the reference
+    actually runs — the same trick the TS side uses by sending
+    ``has*: false``.
+    """
+    import bootstrap  # noqa: PLC0415
+
+    bootstrap.initialize(TARGET_DIR)
+
+    from db.entities import POST_COLUMNS, Post  # noqa: PLC0415
+    from processors.basics import _compute_basics_for  # noqa: PLC0415
+
+    conn = _connect()
+    cur = conn.cursor()
+    placeholders = ",".join("?" * len(post_ids))
+    cur.execute(
+        f"SELECT {POST_COLUMNS} FROM posts WHERE id IN ({placeholders}) ORDER BY id",
+        post_ids,
+    )
+    columns = [d[0] for d in cur.description]
+    rows = [dict(zip(columns, row, strict=True)) for row in cur.fetchall()]
+    conn.close()
+
+    out = []
+    for row in rows:
+        post = Post.model_validate({**row, "sha256": "", "arthash": "", "dominant_color": None})
+        pid = post.id
+        b = _compute_basics_for(post, post.absolute_path)
+        if b is None:
+            continue
+        out.append(
+            {
+                "postId": pid,
+                "sha256": b["sha256"],
+                "size": b["size"],
+                "arthash": b["arthash"],
+                "width": b["width"],
+                "height": b["height"],
+                "colors": list(b["colors"]),
+                "dominantLab": None if b["dominant_lab"] is None else [float(v) for v in b["dominant_lab"]],
+                "colorError": b["color_error"],
+            },
+        )
+    return out
+
+
 def main() -> None:
     req = json.load(sys.stdin)
     scorer: str = req["scorer"]
@@ -182,6 +233,10 @@ def main() -> None:
 
     if scorer == "embedding":
         json.dump({"embeddings": _embed_images(post_ids)}, _RESULT_STREAM)
+        return
+
+    if scorer == "basics":
+        json.dump({"rows": _basics(post_ids)}, _RESULT_STREAM)
         return
 
     if scorer == "dedup":
