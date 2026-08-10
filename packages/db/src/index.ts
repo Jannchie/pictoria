@@ -21,7 +21,7 @@ export { decodeDominantColor, fetchAestheticByIds, fetchColorsByIds, fetchTagsBy
 export type { AestheticScore, PostColor, PostDetail, PostTag, TagInfo } from './queries/post-detail.js'
 export { buildSearchQuery, listPaginated, listSimpleByIdsPreservingOrder, searchByTextVector, searchPosts } from './queries/post-search.js'
 export type { PaginatedPosts, PostFilterWithOrder } from './queries/post-search.js'
-export { bulkUpdateField, clearCanonical, deleteManyReturningPaths, listIdsInFolder, makeCanonical, postExists, touchAccessed, updateField, updateForRotate } from './repositories/posts.js'
+export { bulkUpdateField, clearCanonical, createPost, deleteManyReturningPaths, listIdsInFolder, makeCanonical, postExists, touchAccessed, updateField, updateForRotate } from './repositories/posts.js'
 export { annotationTimeline, countPairwise, editAnnotation, insertAbsolute, insertContentFlag, insertPairwise, latestContentFlag, listAbsoluteForPost, listPairwiseForPost, markQueueItemDone, MUTABLE_KINDS, postsById, undoAnnotations } from './repositories/annotations.js'
 export type { AbsoluteEventIn, PairwiseEventIn, QueueItemPost } from './repositories/annotations.js'
 export { createAbsoluteQueue, createPairwiseQueue, getQueue, listQueues, nextAbsoluteItems, nextPairwiseItems } from './repositories/annotation-queues.js'

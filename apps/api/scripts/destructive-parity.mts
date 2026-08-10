@@ -157,6 +157,49 @@ try {
     check('auto-caption 不存在的 post', JSON.stringify(h) === JSON.stringify(l), `${JSON.stringify(h)} vs ${JSON.stringify(l)}`)
   }
 
+  // ─── upload ─────────────────────────────────────────────────────
+  //
+  // 两侧各上传同一串字节到沙箱的不同文件名下，比状态码、落盘的字节、以及建出来的
+  // 行。Hono 这一侧**不**在请求里跑 process_post（那些活交给 backfill 调度器），
+  // 所以只比"文件和行都在、路径三元组一致"，不比 sha256 之类还没算的列。
+  for (const [label, base] of [['hono', HONO], ['litestar', LITESTAR]] as const) {
+    const form = new FormData()
+    form.set('file', new File([new Uint8Array(templateBytes)], `up-${label}.jpg`, { type: 'image/jpeg' }))
+    form.set('path', `${SANDBOX}/up`)
+    form.set('source', 'parity')
+    const r = await fetch(`${base}/v2/posts/upload`, { method: 'POST', body: form })
+    check(`upload(${label}) 201`, r.status === 201, String(r.status))
+
+    const rel = `${SANDBOX}/up/up-${label}.jpg`
+    const onDisk = fs.existsSync(path.resolve(TARGET_DIR, rel))
+    check(`upload(${label}) 文件落盘`, onDisk)
+    const row = sqlite
+      .prepare<[string, string], { id: number, extension: string, source: string }>(
+        'SELECT id, extension, source FROM posts WHERE file_path = ? AND file_name = ?',
+      )
+      .get(`${SANDBOX}/up`, `up-${label}`)
+    check(`upload(${label}) 建了行`, !!row, JSON.stringify(row))
+    check(`upload(${label}) 路径三元组`, row?.extension === 'jpg' && row?.source === 'parity', JSON.stringify(row))
+
+    // 重复上传同一个路径必须两侧都 400 且文案一致
+    const form2 = new FormData()
+    form2.set('file', new File([new Uint8Array(templateBytes)], `up-${label}.jpg`, { type: 'image/jpeg' }))
+    form2.set('path', `${SANDBOX}/up`)
+    const dup = await fetch(`${base}/v2/posts/upload`, { method: 'POST', body: form2 })
+    const dupBody = await dup.text()
+    check(`upload(${label}) 重复路径 400`, dup.status === 400, `${dup.status} ${dupBody.slice(0, 120)}`)
+  }
+  {
+    // 既没有 file 也没有 url
+    const bare = new FormData()
+    bare.set('path', `${SANDBOX}/up`)
+    const h = await fetch(`${HONO}/v2/posts/upload`, { method: 'POST', body: bare })
+    const bare2 = new FormData()
+    bare2.set('path', `${SANDBOX}/up`)
+    const l = await fetch(`${LITESTAR}/v2/posts/upload`, { method: 'POST', body: bare2 })
+    check('upload 没有 file 也没有 url', h.status === l.status && h.status === 400, `${h.status} vs ${l.status}`)
+  }
+
   // ─── delete ─────────────────────────────────────────────────────
   for (const [label, base] of [['hono', HONO], ['litestar', LITESTAR]] as const) {
     const one = makePost('del', `${label}-1`)

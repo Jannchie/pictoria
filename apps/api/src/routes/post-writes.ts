@@ -1,15 +1,13 @@
 /**
- * posts 的写：标量字段（score / rating / caption / source / touch / 批量）加上三个
- * 碰文件系统的（delete / rotate）。
- *
- * 还留在代理上的只剩 `upload` —— 它要 multipart 落盘之后跑一整轮 process_post，
- * 而 process_post 依赖 basics worker。
+ * posts 的写：标量字段（score / rating / caption / source / touch / 批量）加上四个
+ * 碰文件系统的（delete / rotate / upload）。
  */
 import { createRoute, OpenAPIHono, z } from '@hono/zod-openapi'
 import fs from 'node:fs'
 import path from 'node:path'
 import { IO_QUEUE, rotateTask } from '@pictoria/contracts'
-import { bulkUpdateField, clearCanonical, deleteManyReturningPaths, getDetail, getPostPath, makeCanonical, postExists, touchAccessed, updateField, updateForRotate } from '@pictoria/db'
+import { Buffer } from 'node:buffer'
+import { bulkUpdateField, clearCanonical, createPost, deleteManyReturningPaths, getDetail, getPostPath, makeCanonical, postExists, touchAccessed, updateField, updateForRotate } from '@pictoria/db'
 import { getDb } from '../db.js'
 import { OK, RESP_400, zodErrorHook } from '../openapi.js'
 import { PostDetailPublic, toPostDetail } from '../schemas.js'
@@ -23,13 +21,25 @@ const MAX_POST_RATING = 4
 // score 的范围交给 zod：Litestar 侧 msgspec 同样在**校验层**拒绝，返回 400，
 // 不是 handler 里的 InvalidArgumentError(409)。rating 则相反 —— 它在 query 上
 // 没有 schema 约束，由 handler 判断，所以是 409。这个不对称是既有行为。
+/** 上传表单，键序照抄 baseline：url → path → source → file。 */
+const UploadFormData = z
+  .object({
+    url: z.string().nullable().optional(),
+    path: z.string().nullable().optional(),
+    source: z.string().nullable().optional(),
+    // `.any()` 会让 zod-openapi 把它当可选，于是 required:['file'] 消失。
+    // 这个 schema 只是文档 —— 实际校验在 handler 里 —— 所以 required 手工补上。
+    file: z.any().openapi({ type: 'string', format: 'binary', contentMediaType: 'application/octet-stream' }),
+  })
+  .openapi('PostController.UploadFormData', { required: ['file'] })
+
 const ScoreUpdate = z
   .object({ score: z.int().min(0).max(MAX_POST_SCORE).describe('Score from 0 to 5.') })
   .openapi('ScoreUpdate')
 
 export const postWritesRoutes = new OpenAPIHono({ defaultHook: zodErrorHook })
 
-function domainError(detail: string, error: string, status: 404 | 409) {
+function domainError(detail: string, error: string, status: 400 | 404 | 409) {
   return new Response(JSON.stringify({ detail, error }), {
     status,
     headers: { 'content-type': 'application/json' },
@@ -310,5 +320,93 @@ postWritesRoutes.openapi(
     if (!detail)
       return domainError(`Post with id ${postId} not found.`, 'PostNotFoundError', 404) as never
     return c.json(toPostDetail(detail)) as never
+  },
+)
+
+/** 让 hotlink 有防护的站点（比如 pixiv 的 i.pximg.net）愿意给我们文件的普通浏览器 UA。 */
+const BROWSER_UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/127.0.0.0 Safari/537.36'
+
+/**
+ * 把上传（multipart 文件**或**一个远程 URL）变成一个 post。
+ *
+ * 落库 + 落盘就结束 —— 剩下的（basics / 向量 / 标签 / 各种分）由 backfill 调度器
+ * 在下一轮捡走。Python 侧原来是在请求里同步跑完整条 `process_post`，那让一次上传
+ * 阻塞在 GPU 上好几秒；现在同样的活由同一批 worker 干，只是不占着请求。
+ *
+ * ⚠️ 先建行再写文件，顺序照抄 Python。反过来的话，两步之间跑一次 sync 会让 sync
+ * 自己把行建出来，紧接着这里的 INSERT 就多出一行重复。
+ */
+postWritesRoutes.openapi(
+  createRoute({
+    method: 'post',
+    path: '/v2/posts/upload',
+    operationId: 'v2UploadFile',
+    summary: 'UploadFile',
+    tags: ['Posts', 'Upload'],
+    request: {
+      body: {
+        required: true,
+        content: { 'multipart/form-data': { schema: UploadFormData } },
+      },
+    },
+    responses: {
+      201: { description: 'Document created, URL follows', headers: {} },
+      ...RESP_400,
+    },
+  }),
+  async (c) => {
+    const form = await c.req.formData()
+    const file = form.get('file')
+    const url = (form.get('url') as string | null) || null
+    const rawPath = (form.get('path') as string | null) || null
+    const source = (form.get('source') as string | null) || 'unknown'
+
+    const hasFile = file instanceof File && file.size > 0
+    if (!hasFile && !url)
+      return domainError('Either file or url must be provided.', 'InvalidUploadError', 400) as never
+
+    // 路径解析顺序照抄 `UploadIntake._resolve_path`
+    const fileName = hasFile ? (file as File).name : ''
+    let rel: string
+    if (!rawPath && fileName)
+      rel = fileName
+    else if (rawPath && fileName)
+      rel = `${rawPath}/${fileName}`
+    else rel = rawPath || (url ? url.split('/').pop()! : '')
+
+    const base = targetDir()
+    const absPath = path.resolve(base, rel)
+    if (absPath !== base && !absPath.startsWith(base + path.sep))
+      return domainError('File already exists.', 'FileAlreadyExistsError', 400) as never
+    if (fs.existsSync(absPath))
+      return domainError('File already exists.', 'FileAlreadyExistsError', 400) as never
+
+    let bytes: Buffer
+    if (hasFile) {
+      bytes = Buffer.from(await (file as File).arrayBuffer())
+    }
+    else {
+      const headers: Record<string, string> = { 'user-agent': BROWSER_UA }
+      if (url!.includes('pximg.net'))
+        headers.referer = 'https://www.pixiv.net/'
+      const r = await fetch(url!, { headers })
+      bytes = Buffer.from(await r.arrayBuffer())
+    }
+
+    fs.mkdirSync(path.dirname(absPath), { recursive: true })
+    const relPosix = path.relative(base, absPath).split(path.sep).join('/')
+    const lastSlash = relPosix.lastIndexOf('/')
+    const dir = lastSlash === -1 ? '.' : relPosix.slice(0, lastSlash)
+    const nameWithExt = relPosix.slice(lastSlash + 1)
+    const dot = nameWithExt.lastIndexOf('.')
+
+    createPost(getDb().sqlite, {
+      filePath: dir,
+      fileName: dot === -1 ? nameWithExt : nameWithExt.slice(0, dot),
+      extension: dot === -1 ? '' : nameWithExt.slice(dot + 1),
+      source,
+    })
+    fs.writeFileSync(absPath, bytes)
+    return c.body(null, 201) as never
   },
 )

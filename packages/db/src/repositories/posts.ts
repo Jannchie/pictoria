@@ -208,3 +208,18 @@ export function updateForRotate(
     )
     .run(v.sha256, v.size, v.width, v.height, v.arthash, postId)
 }
+
+/**
+ * 建一个只有路径三元组和 source 的 post，返回新 id。
+ *
+ * 上传路径用它 —— 其余每一列都吃 schema 默认值，交给 backfill 去填。
+ */
+export function createPost(
+  sqlite: BetterSqlite3.Database,
+  v: { filePath: string, fileName: string, extension: string, source?: string },
+): number {
+  const info = sqlite
+    .prepare('INSERT INTO posts(file_path, file_name, extension, source) VALUES (?, ?, ?, ?)')
+    .run(v.filePath, v.fileName, v.extension, v.source ?? '')
+  return Number(info.lastInsertRowid)
+}
