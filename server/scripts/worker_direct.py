@@ -111,6 +111,24 @@ def _tag_images(post_ids: list[int]) -> list[dict[str, object]]:
     ]
 
 
+def _embed_images(post_ids: list[int]) -> list[dict[str, object]]:
+    import base64  # noqa: PLC0415
+
+    import numpy as np  # noqa: PLC0415
+
+    from ai.siglip_embed import calculate_image_features_batch  # noqa: PLC0415  # lazy: same
+
+    paths = _paths_for(post_ids)
+    ordered = [pid for pid in post_ids if pid in paths and paths[pid].exists()]
+    if not ordered:
+        return []
+    feats = calculate_image_features_batch([paths[pid] for pid in ordered]).cpu().numpy().astype(np.float32)
+    return [
+        {"postId": pid, "embedding": base64.b64encode(feats[i].tobytes()).decode()}
+        for i, pid in enumerate(ordered)
+    ]
+
+
 def main() -> None:
     req = json.load(sys.stdin)
     scorer: str = req["scorer"]
@@ -118,6 +136,10 @@ def main() -> None:
 
     if scorer == "tagger":
         json.dump({"results": _tag_images(post_ids)}, _RESULT_STREAM)
+        return
+
+    if scorer == "embedding":
+        json.dump({"embeddings": _embed_images(post_ids)}, _RESULT_STREAM)
         return
 
     pairs = _score_images(post_ids) if scorer == "waifu" else _score_embeddings(scorer, post_ids)

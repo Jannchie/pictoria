@@ -16,8 +16,8 @@ import { spawn } from 'node:child_process'
 import fs from 'node:fs'
 import path from 'node:path'
 import process from 'node:process'
-import { encodeVectorBlob, GPU_QUEUE, silvaTask, taggerTask, waifuTask } from '@pictoria/contracts'
-import { createDb, fetchEmbeddingBlobs, listTaggerPending, listWaifuPending } from '@pictoria/db'
+import { embeddingTask, encodeVectorBlob, GPU_QUEUE, silvaTask, taggerTask, waifuTask } from '@pictoria/contracts'
+import { createDb, fetchEmbeddingBlobs, listEmbeddingPending, listTaggerPending, listWaifuPending } from '@pictoria/db'
 import { CairnQ } from 'cairnq'
 
 const ROOT = path.resolve(import.meta.dirname, '../../..')
@@ -288,6 +288,54 @@ for (const scorer of ['silva'] as const) {
   if (!broken.length)
     pass++
   else fails.push(`tagger 待办查询拼出了不存在的路径：${broken.map(b => b.path).join(', ')}`)
+}
+
+// ─── embedding：向量必须逐字节相同 ────────────────────────────────
+{
+  const rows = sqlite
+    .prepare<[], { id: number, full_path: string }>(
+      `SELECT p.id, p.full_path FROM posts p `
+      + `WHERE LOWER(p.extension) IN ('jpg','jpeg','png','webp') ORDER BY RANDOM() LIMIT 3`,
+    )
+    .all()
+  const root = path.resolve(ROOT, 'server/illustration/images')
+  const embItems = rows.map(r => ({ postId: r.id, path: `${root}/${r.full_path}` }))
+
+  const t0 = Date.now()
+  const viaQueue = await tasks.call(embeddingTask, { items: embItems }, {
+    queue: GPU_QUEUE,
+    key: `parity:embedding:${Date.now()}`,
+    conflict: 'reject',
+    waitTimeoutMs: 300_000,
+    pollMs: 100,
+  })
+  console.log(`embedding: 队列往返 ${Date.now() - t0} ms，${viaQueue.embeddings.length} 条`)
+
+  const direct: any[] = (await workerDirect('embedding', rows.map(r => r.id))).embeddings
+  const directMap = new Map(direct.map(d => [d.postId, d.embedding]))
+  let bad = 0
+  for (const e of viaQueue.embeddings) {
+    // base64 逐字符相同 ⇒ float32 逐位相同。向量是检索的地基，末位漂移会让
+    // KNN 的邻居顺序变化，而那种不一致查起来最要命。
+    if (directMap.get(e.postId) !== e.embedding) {
+      bad++
+      if (bad <= 2)
+        fails.push(`embedding post ${e.postId}: 队列与直算的向量不同`)
+    }
+    // 尺寸也钉一下：1152 维 float32 → 4608 字节 → base64 6144 字符
+    if (e.embedding.length !== 6144)
+      fails.push(`embedding post ${e.postId}: base64 长度 ${e.embedding.length}，应为 6144`)
+  }
+  if (bad)
+    fails.push(`embedding: ${bad}/${viaQueue.embeddings.length} 条不一致`)
+  else
+    pass += viaQueue.embeddings.length
+
+  const pending = listEmbeddingPending(sqlite, root, 3)
+  const broken = pending.filter(p => !fsExists(p.path))
+  if (!broken.length)
+    pass++
+  else fails.push(`embedding 待办查询拼出了不存在的路径：${broken.map(b => b.path).join(', ')}`)
 }
 
 await tasks.close()

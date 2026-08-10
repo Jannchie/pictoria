@@ -29,7 +29,7 @@ from pathlib import Path
 
 from cairnq import SQLiteStore, Worker
 
-from worker.handlers import handle_silva, handle_tagger, handle_waifu, set_root
+from worker.handlers import handle_embedding, handle_silva, handle_tagger, handle_waifu, set_root
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 log = logging.getLogger("worker")
@@ -67,8 +67,9 @@ async def main() -> None:
     worker.task("silva")(lambda _ctx, payload: handle_silva(payload))
     worker.task("waifu")(lambda _ctx, payload: handle_waifu(payload))
     worker.task("tagger")(lambda _ctx, payload: handle_tagger(payload))
+    worker.task("embedding")(lambda _ctx, payload: handle_embedding(payload))
 
-    log.info("worker up: silva, waifu, tagger  queue=%s db=%s", GPU_QUEUE, db_path)
+    log.info("worker up: silva, waifu, tagger, embedding  queue=%s db=%s", GPU_QUEUE, db_path)
     await worker.run()
 
 

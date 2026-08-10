@@ -405,10 +405,36 @@ Python worker）和旧路径（Python 进程内直接读库算）算出的分数
 ### Phase 6 · 剩余 worker（1–2 周）—— 进行中
 
 ~~`silva_luna`~~ ✅（和 silva 同一条代码路径，随它一起接通）→ ~~`waifu`~~ ✅ → ~~`tagger`~~ ✅ →
-~~`embedding`（D1 的例外，直接写向量表）~~ → `basics`（最后，因为它顺带产缩略图）。
+~~`embedding`（D1 的例外，直接写向量表）~~ ⚠️ 链路已通、**尚未启用** → `basics`（最后，因为它顺带产缩略图）。
 
 > "embedding 是 D1 的例外"是初稿的说法，**已被 §D1 推翻** —— 那个例外建立在错误的批量
-> 假设上。embedding 和其余 worker 一样：算在 Python，写在 TS。
+> 假设上。embedding 和其余 worker 一样：算在 Python，写在 TS。对拍（45 项）已证明新链路
+> 算出的向量与旧路径**逐字节相同**，`upsertVectors` 的 BigInt rowid 也有回归钉。
+
+#### ⚠️ embedding 卡在 dedup 上（2026-08-10）
+
+embedding 的代码、对拍、单测都完成了，但**没有**加进 `PICTORIA_SKIP_WORKERS`，因为它带一个
+后置钩子：Python 侧 `EMBEDDING_WORKER.on_backfill_complete` 在一轮写进新向量后会重建近重复
+分组。切过去而分组没有对应物，等于悄悄关掉近重复分组 —— 库里 33,726 个非 canonical post
+就是它的产物。
+
+**dedup 不能照搬前四个 worker 的形状。** 它要**全库**向量做一次分块 `X @ X.T`
+（`services/dedup.py`，torch/CUDA，170k 行时逐个 KNN 要 48 小时，所以只能矩阵乘）。
+22.3 万条向量 base64 是 **1.3 GB**，塞不进一行 JSON payload。
+
+四个选项，只有一个同时满足 D1 和可行性：
+
+| 方案 | 判断 |
+|---|---|
+| worker 直接读 vec0 | ❌ 破坏 D1，而且这正是"就这一个 worker 例外"的开头 |
+| payload 带全部向量 | ❌ 1.3 GB 一行 JSON |
+| 分块喂给有状态的 worker | ❌ 把状态放回了 worker 里，比例外更糟 |
+| **TS 导出一个临时 float32 文件，payload 带路径** | ✅ 文件不是数据库；worker mmap 读、算、回传**邻接索引对**，TS 做并查集分组和落库 |
+
+最后一个是要走的路：约 1 GB 的临时文件，全量 rebuild 时写一次，而 rebuild 本身就是分钟级的
+GPU 操作。它同时解掉 `/v2/cmd/group-duplicates`（commands 11 个里的一个）。
+
+在那之前 embedding 仍由 Python poller 跑，`startEmbeddingBackfill` 就位待命。
 
 每搬一个：给它写 TaskDef + handler + 调度循环，跑 `pnpm parity:worker` 的同款对拍
 （同一批输入，新旧两条路径逐位比对），然后把它的 `key` 加进 `justfile` 的

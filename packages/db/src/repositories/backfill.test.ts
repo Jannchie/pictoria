@@ -18,12 +18,14 @@ import {
   fetchEmbeddingBlobs,
   listSilvaPending,
   ensureCanonicalTagGroups,
+  listEmbeddingPending,
   listTaggerPending,
   listWaifuPending,
   persistTaggerResults,
   ratingToInt,
   recordFailures,
   upsertAestheticScores,
+  upsertVectors,
   upsertWaifuScores,
 } from './backfill.js'
 
@@ -345,5 +347,45 @@ describe('tagger 落库', () => {
 
   it('空列表是空操作', () => {
     expect(persistTaggerResults(sqlite, [], groups())).toEqual([])
+  })
+})
+
+describe('embedding 向量落库', () => {
+  it('post_id 必须能以 BigInt 写进 vec0（JS number 会被拒）', () => {
+    insertPost(1)
+    const blob = vectorBlob(3)
+    // 这条是回归钉：better-sqlite3 把 JS number 按 REAL 绑定，vec0 的主键只收整数，
+    // 直接传 number 会报 "Only integers are allowed for primary key values"。
+    expect(() => upsertVectors(sqlite, [{ postId: 1, embedding: blob }])).not.toThrow()
+    const got = fetchEmbeddingBlobs(sqlite, [1]).get(1)!
+    expect(Buffer.compare(got, blob)).toBe(0)
+  })
+
+  it('重复写同一个 post 是替换而不是第二行（vec0 没有 ON CONFLICT）', () => {
+    insertPost(1)
+    upsertVectors(sqlite, [{ postId: 1, embedding: vectorBlob(1) }])
+    upsertVectors(sqlite, [{ postId: 1, embedding: vectorBlob(2) }])
+    expect(sqlite.prepare<[], { n: number }>('SELECT COUNT(*) AS n FROM post_vectors_siglip2').get()!.n).toBe(1)
+    expect(Buffer.compare(fetchEmbeddingBlobs(sqlite, [1]).get(1)!, vectorBlob(2))).toBe(0)
+  })
+
+  it('写完之后待办查询就不再返回它', () => {
+    insertPost(1)
+    insertPost(2)
+    expect(listEmbeddingPending(sqlite, '/lib').map(p => p.postId)).toEqual([1, 2])
+    upsertVectors(sqlite, [{ postId: 1, embedding: vectorBlob(1) }])
+    expect(listEmbeddingPending(sqlite, '/lib').map(p => p.postId)).toEqual([2])
+  })
+
+  it('待办查询过滤扩展名与黑名单，路径拼法同 waifu', () => {
+    insertPost(1, 'png')
+    insertPost(2, 'txt')
+    insertPost(3)
+    recordFailures(sqlite, 'embedding:siglip2', [{ postId: 3, error: 'unreadable' }])
+    expect(listEmbeddingPending(sqlite, '/lib')).toEqual([{ postId: 1, path: '/lib/dir/f1.png' }])
+  })
+
+  it('空列表是空操作', () => {
+    expect(() => upsertVectors(sqlite, [])).not.toThrow()
   })
 })

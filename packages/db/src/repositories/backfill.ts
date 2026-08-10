@@ -306,3 +306,59 @@ export function persistTaggerResults(
     .all(...ids)
     .map(r => r.id)
 }
+
+// ─── embedding（SigLIP 2 检索向量） ────────────────────────────────────
+
+/** `post_process_failures.worker` 里 embedding 用的桶名。 */
+const EMBEDDING_WORKER = 'embedding:siglip2'
+
+/**
+ * 还没有 SigLIP2 向量、且没被拉黑的图片，按 id 升序。
+ *
+ * "已经有向量了吗"用一次 vec0 post_id 列全扫做集合求差，而不是
+ * `LEFT JOIN ... IS NULL` —— vec0 的点查是虚表探测不是 B-tree 探测，join 会让它
+ * 每行 posts 跑一次（17 万行时是几十秒）。
+ */
+export function listEmbeddingPending(
+  sqlite: BetterSqlite3.Database,
+  targetDir: string,
+  limit?: number,
+): PendingImage[] {
+  const candidates = sqlite
+    .prepare<[string], { id: number, full_path: string }>(
+      `SELECT p.id, p.full_path FROM posts p `
+      + `WHERE ${IMAGE_EXT_WHERE} AND ${notFailedClause('p')} ORDER BY p.id`,
+    )
+    .all(EMBEDDING_WORKER)
+
+  const embedded = new Set(
+    sqlite.prepare<[], { post_id: number }>(`SELECT post_id FROM ${SIGLIP2_TABLE}`).all().map(r => r.post_id),
+  )
+  const pending = candidates.filter(r => !embedded.has(r.id))
+  const slice = limit === undefined ? pending : pending.slice(0, limit)
+  return slice.map(r => ({ postId: r.id, path: `${targetDir}/${r.full_path}` }))
+}
+
+/**
+ * 批量写入 SigLIP2 向量。
+ *
+ * ⚠️ **rowid 必须传 `BigInt`**。better-sqlite3 把 JS `number` 按 REAL 绑定，而 vec0
+ * 的主键只收整数，会直接报 `Only integers are allowed for primary key values`。
+ *
+ * vec0 不支持 `ON CONFLICT`，所以 upsert 是 DELETE + INSERT 手工模拟，两条语句在
+ * 一个事务里 —— 中间被打断会留下一个没有向量的 post，而它在待办查询里看起来是
+ * "从没算过"，于是整批白算一次。
+ */
+export function upsertVectors(
+  sqlite: BetterSqlite3.Database,
+  rows: Array<{ postId: number, embedding: Buffer }>,
+): void {
+  if (!rows.length)
+    return
+  const del = sqlite.prepare(`DELETE FROM ${SIGLIP2_TABLE} WHERE post_id = ?`)
+  const ins = sqlite.prepare(`INSERT INTO ${SIGLIP2_TABLE}(post_id, embedding) VALUES (?, ?)`)
+  sqlite.transaction(() => {
+    for (const r of rows) del.run(BigInt(r.postId))
+    for (const r of rows) ins.run(BigInt(r.postId), r.embedding)
+  })()
+}

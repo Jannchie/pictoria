@@ -133,3 +133,29 @@ export const TAGGER_TASK_BATCH = 32
 
 /** `post_process_failures.worker` 里 tagger 用的桶名。 */
 export const TAGGER_WORKER_KEY = 'tagger'
+
+export interface EmbeddingPayload {
+  items: ImageItem[]
+}
+
+export interface EmbeddingResult {
+  /** `embedding` 是 base64 的 float32，和 silva 输入用的是同一个编码。 */
+  embeddings: Array<{ postId: number, embedding: string }>
+  failures: WorkerFailure[]
+}
+
+/**
+ * SigLIP 2 图像向量 —— 全站唯一的检索向量（图搜图 + 文搜图）。
+ *
+ * 初稿曾把它列为 §D1 的例外（"向量太大，让 worker 直接写 vec0"），**那条例外已被
+ * 推翻**：它建立在错误的批量假设上（以为一批 256，实际 16）。真实批量下队列往返的
+ * 纯开销约 12 ms，而这一批的 GPU 编码是秒级 —— 用一个永久的架构例外换 3% 不到的
+ * 开销，不划算。所以它和其余 worker 一样：算在 Python，写在 TS。
+ */
+export const embeddingTask = defineTask<EmbeddingPayload, EmbeddingResult>('embedding')
+
+/** so400m 是比 CLIP-L/14 更大的 ViT，bf16 下 16 张正好放进 12 GB。与 Python 侧同值。 */
+export const EMBEDDING_TASK_BATCH = 16
+
+/** `post_process_failures.worker` 里 embedding 用的桶名。注意带表名后缀。 */
+export const EMBEDDING_WORKER_KEY = 'embedding:siglip2'

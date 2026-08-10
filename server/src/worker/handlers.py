@@ -23,7 +23,7 @@ from typing import Any
 
 import numpy as np
 
-from worker.codec import decode_vector
+from worker.codec import decode_vector, encode_vector
 from worker.ladder import run_with_fallback
 
 #: Registered heads. Guarding here rather than passing ``payload["scorer"]``
@@ -194,5 +194,42 @@ async def handle_tagger(payload: dict[str, Any]) -> dict[str, Any]:
             }
             for pid, resp in successes
         ],
+        "failures": failures + [{"postId": pid, "error": err} for pid, err in ladder_failures],
+    }
+
+
+async def handle_embedding(payload: dict[str, Any]) -> dict[str, Any]:
+    """Encode images into SigLIP 2 retrieval embeddings.
+
+    Vectors go back base64'd (same encoding ``handle_silva`` consumes) and TS
+    writes them into the vec0 table. The initial draft made this the one
+    exception to §D1 — "vectors are too big, let the worker write vec0" — and
+    that exception was measured away: at the real batch size the queue round
+    trip costs ~12 ms against seconds of GPU encoding.
+    """
+    items_in = payload["items"]
+    if not items_in:
+        return {"embeddings": [], "failures": []}
+
+    from ai.siglip_embed import calculate_image_features_batch  # noqa: PLC0415  # lazy: defer the ML stack
+
+    items: list[tuple[int, Path]] = []
+    failures: list[dict[str, Any]] = []
+    for item in items_in:
+        try:
+            path = _resolve_inside(item["path"])
+        except ValueError as exc:
+            failures.append({"postId": item["postId"], "error": str(exc)})
+            continue
+        if path.exists():
+            items.append((item["postId"], path))
+
+    def _encode(paths: list[Path]) -> list[np.ndarray]:
+        features = calculate_image_features_batch(paths)
+        return list(features.cpu().numpy().astype(np.float32))
+
+    successes, ladder_failures = await run_with_fallback(_encode, items, label="embedding")
+    return {
+        "embeddings": [{"postId": pid, "embedding": encode_vector(emb)} for pid, emb in successes],
         "failures": failures + [{"postId": pid, "error": err} for pid, err in ladder_failures],
     }

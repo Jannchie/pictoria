@@ -16,6 +16,9 @@ import type { getDb } from './db.js'
 import path from 'node:path'
 import process from 'node:process'
 import {
+  EMBEDDING_TASK_BATCH,
+  EMBEDDING_WORKER_KEY,
+  embeddingTask,
   encodeVectorBlob,
   GPU_QUEUE,
   SILVA_TASK_BATCH,
@@ -27,15 +30,18 @@ import {
   WAIFU_WORKER_KEY,
   waifuTask,
 } from '@pictoria/contracts'
+import { Buffer } from 'node:buffer'
 import {
   ensureCanonicalTagGroups,
   fetchEmbeddingBlobs,
+  listEmbeddingPending,
   listSilvaPending,
   listTaggerPending,
   listWaifuPending,
   persistTaggerResults,
   recordFailures,
   upsertAestheticScores,
+  upsertVectors,
   upsertWaifuScores,
 } from '@pictoria/db'
 import { repoRoot } from './db.js'
@@ -214,6 +220,52 @@ export function startTaggerBackfill(
       + (result.failures.length || shadowed.length
         ? `，拉黑 ${result.failures.length + shadowed.length} 条（${shadowed.length} 条被手工标签遮住）`
         : '')
+      + `，起始 id ${items[0]!.postId}`,
+    )
+    return true
+  }, log)
+}
+
+/**
+ * embedding：SigLIP 2 检索向量。
+ *
+ * ⚠️ **还没有在 `index.ts` 里启用。** 缺的不是这段代码 —— 对拍已经证明新链路算出的
+ * 向量与旧路径逐字节相同 —— 而是它的**后置钩子**：Python 侧 `EMBEDDING_WORKER` 带一个
+ * `on_backfill_complete`，一轮写进新向量后会重建近重复分组
+ * （`services/dedup.py` 的 `rebuild_groups`）。把 embedding 加进
+ * `PICTORIA_SKIP_WORKERS` 而分组还没有对应物，等于悄悄关掉近重复分组。
+ *
+ * 而 dedup 不能照搬前四个 worker 的形状：它要**全库**向量做一次分块矩阵乘，
+ * 22.3 万条 base64 是 1.3 GB 的 payload，塞不进一行 JSON。形状见
+ * `docs/refactor-monorepo-hono.md` §Phase 6 的"dedup 的形状问题"。
+ *
+ * 在那之前 embedding 仍由 Python poller 跑，这个函数只是就位待命。
+ */
+export function startEmbeddingBackfill(
+  sqlite: SqliteHandle,
+  tasks: CairnQ,
+  { log = console }: { log?: Log } = {},
+): BackfillHandle {
+  const root = targetDir()
+  return loop('embedding', async () => {
+    const items = listEmbeddingPending(sqlite, root, EMBEDDING_TASK_BATCH)
+    if (!items.length)
+      return false
+
+    const result = await tasks.call(embeddingTask, { items }, {
+      queue: GPU_QUEUE,
+      key: `embedding:${items[0]!.postId}:${items.length}`,
+      conflict: 'reuse',
+      waitTimeoutMs: CALL_TIMEOUT_MS,
+    })
+    upsertVectors(sqlite, result.embeddings.map(e => ({
+      postId: e.postId,
+      embedding: Buffer.from(e.embedding, 'base64'),
+    })))
+    recordFailures(sqlite, EMBEDDING_WORKER_KEY, result.failures)
+    log.info(
+      `[embedding] 落库 ${result.embeddings.length} 条`
+      + (result.failures.length ? `，拉黑 ${result.failures.length} 条` : '')
       + `，起始 id ${items[0]!.postId}`,
     )
     return true
