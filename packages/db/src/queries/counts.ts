@@ -2,7 +2,7 @@
  * 过滤后的计数与聚合 —— 对应 Python 侧 `PostQueryService` 的 counts/aggregates 段。
  */
 import type BetterSqlite3 from 'better-sqlite3'
-import { buildWhere, GROUPABLE_COLUMNS, type PostFilter } from '../filters.js'
+import { buildWhere, GROUPABLE_COLUMNS, hasActiveFilters, type PostFilter } from '../filters.js'
 import { bucketCaseSql, WAIFU_SCORE_BUCKETS, type ScorerSpec } from '../scorers.js'
 
 /** `WHERE a AND b`，没有子句时是空串。 */
@@ -157,4 +157,88 @@ export function aggregateStats(sqlite: BetterSqlite3.Database, f: PostFilter): A
     waifu_count: waifuCount,
     rating_distribution: rows.map(r => ({ rating: Number(r.rating ?? 0), count: Number(r.count) })),
   }
+}
+
+export interface TagCount {
+  tag_name: string
+  count: number
+}
+
+/**
+ * 过滤后的 post 里每个 tag 各命中多少 —— tag 过滤器的 facet。
+ *
+ * tag 是多对多，所以（不像 `countByColumn`）要 JOIN `post_has_tag` 再按 `tag_name`
+ * 分组。前端在计数前会把 `tags` 这一项从过滤器里清掉（`filterWithoutSelf`），于是
+ * 这个查询回答的是"再加上 tag X 的话还剩多少"。
+ *
+ * `extraNames` 把 `query` 的匹配面扩宽：控制器把本地化显示名的命中
+ * （"绿眼"）解析成 DB 里的 tag 名（`green_eyes`）传进来。一个 tag 只要命中 LIKE
+ * **或**落在这个集合里就算匹配 —— 这一层对翻译一无所知。
+ */
+export function countByTag(
+  sqlite: BetterSqlite3.Database,
+  f: PostFilter,
+  { query = '', limit = 50, extraNames = [] as string[] } = {},
+): TagCount[] {
+  const { where: clauses, params, joins } = buildWhere(f)
+
+  // 转义 LIKE 的元字符，让搜索框里打的 '%' / '_' 按字面匹配
+  // （默认转义符 '\' 自己要先转义）。
+  const escapedLike = query
+    ? `%${query.replaceAll('\\', '\\\\').replaceAll('%', '\\%').replaceAll('_', '\\_')}%`
+    : null
+
+  /** LIKE 与显式名字集合 OR 起来的名字谓词。 */
+  function nameMatch(col: string): { sql: string, params: unknown[] } | null {
+    const parts: string[] = []
+    const p: unknown[] = []
+    if (escapedLike !== null) {
+      parts.push(`${col} LIKE ? ESCAPE '\\'`)
+      p.push(escapedLike)
+    }
+    if (extraNames.length) {
+      parts.push(`${col} IN (${extraNames.map(() => '?').join(',')})`)
+      p.push(...extraNames)
+    }
+    return parts.length ? { sql: `(${parts.join(' OR ')})`, params: p } : null
+  }
+
+  // 快路径：没有**内容**过滤器，于是每个 tag 的命中数就是它的 canonical 总数，
+  // 由触发器维护在 `tags.post_count` 上（触发器只数 canonical post，所以隐藏的
+  // 组成员已经被排除了）。走 ix_tags_post_count，而不是每次打开下拉框都对
+  // 940 万行的 post_has_tag 做一次 GROUP BY。
+  //
+  // ⚠️ `only_canonical` 单独成立不会离开快路径 —— 只有真正收窄集合的过滤器
+  // （或显式要求包含成员）才会走实时路径。
+  if (f.only_canonical !== false && !hasActiveFilters(f)) {
+    const fastParams: unknown[] = []
+    let sql = 'SELECT name AS tag_name, post_count AS count FROM tags WHERE post_count > 0'
+    const fast = nameMatch('name')
+    if (fast) {
+      sql += ` AND ${fast.sql}`
+      fastParams.push(...fast.params)
+    }
+    sql += ' ORDER BY post_count DESC, name ASC LIMIT ?'
+    fastParams.push(limit)
+    return sqlite.prepare<unknown[], TagCount>(sql).all(...fastParams)
+  }
+
+  // 过滤路径：对 join 实时 GROUP BY。过滤器先把 post 集合收窄，所以扫到的
+  // 远少于整张关联表。
+  const live = nameMatch('pt.tag_name')
+  if (live) {
+    clauses.push(live.sql)
+    params.push(...live.params)
+  }
+  params.push(limit) // 最后绑定 —— 对应 LIMIT 里那个结尾的 ?
+  return sqlite
+    .prepare<unknown[], TagCount>(
+      `SELECT pt.tag_name AS tag_name, count(*) AS count `
+      + `FROM posts p JOIN post_has_tag pt ON pt.post_id = p.id `
+      + `${joins.join('\n')} ${whereSql(clauses)} `
+      + `GROUP BY pt.tag_name `
+      + `ORDER BY count DESC, pt.tag_name ASC `
+      + `LIMIT ?`,
+    )
+    .all(...params)
 }

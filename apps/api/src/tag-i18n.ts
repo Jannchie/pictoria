@@ -39,3 +39,48 @@ export function translateTag(name: string, lang = 'zh-Hans'): string | null {
     return null
   return table(lang)[name] ?? null
 }
+
+/**
+ * `IN (...)` 参数表的上限，与 Python 侧 `MAX_TRANSLATION_MATCHES` 同值。
+ *
+ * 只有单个 CJK 字符的查询才会接近它；SQLite 的变量上限是 32766，5000 给调用方的
+ * 其它参数留足了余量。
+ */
+const MAX_TRANSLATION_MATCHES = 5000
+
+/** `(小写显示名, DB tag 名)` 的搜索索引，按 lang 缓存一次。 */
+const searchIndex = new Map<string, Array<[string, string]>>()
+
+function index(lang: string): Array<[string, string]> {
+  const hit = searchIndex.get(lang)
+  if (hit)
+    return hit
+  const built = Object.entries(table(lang)).map(([name, display]) =>
+    [display.toLowerCase(), name] as [string, string])
+  searchIndex.set(lang, built)
+  return built
+}
+
+/**
+ * 本地化显示名包含 `query` 的那些 DB tag 名。
+ *
+ * 大小写不敏感的子串匹配，线性扫 —— 10 万条表上几毫秒，躲在前端 250ms 的防抖后面
+ * 完全够用。空查询和 `en` 返回 `[]`（没有表，而用户输入的本来就是原始 tag 名）。
+ *
+ * 注：Python 侧用 `str.casefold()`，JS 只有 `toLowerCase()`。两者只在 'ß'→'ss'
+ * 这类欧洲语言的特殊折叠上不同，而这张表里是 CJK 显示名，落不到那个差异上。
+ */
+export function searchTagsByTranslation(query: string, lang = 'zh-Hans'): string[] {
+  const q = query.trim().toLowerCase()
+  if (!q || lang === 'en')
+    return []
+  const matches: string[] = []
+  for (const [display, name] of index(lang)) {
+    if (display.includes(q)) {
+      matches.push(name)
+      if (matches.length >= MAX_TRANSLATION_MATCHES)
+        break
+    }
+  }
+  return matches
+}

@@ -9,14 +9,16 @@ import {
   aggregateStats,
   countByColumn,
   countByScorerBucket,
+  countByTag,
   countPosts,
   SILVA,
   SILVA_LUNA,
   type PostFilter as DbPostFilter,
 } from '@pictoria/db'
 import { getDb } from '../db.js'
-import { PostFilterSchema as PostFilter } from '../filter-schema.js'
+import { PostFilterSchema as PostFilter, TagCountRequestSchema as TagCountRequest } from '../filter-schema.js'
 import { OK, RESP_400, zodErrorHook } from '../openapi.js'
+import { searchTagsByTranslation, translateTag } from '../tag-i18n.js'
 
 const CountPostsResponse = z.object({ count: z.int() }).openapi('CountPostsResponse')
 const RatingCountItem = z.object({ rating: z.int(), count: z.int() }).openapi('RatingCountItem')
@@ -25,6 +27,10 @@ const ExtensionCountItem = z.object({ extension: z.string(), count: z.int() }).o
 const WaifuBucketCountItem = z.object({ bucket: z.string(), count: z.int() }).openapi('WaifuBucketCountItem')
 const SilvaBucketCountItem = z.object({ bucket: z.string(), count: z.int() }).openapi('SilvaBucketCountItem')
 const SilvaLunaBucketCountItem = z.object({ bucket: z.string(), count: z.int() }).openapi('SilvaLunaBucketCountItem')
+// 键序照抄 baseline：tag_name → count → translated_name。
+const TagCountItem = z
+  .object({ tag_name: z.string(), count: z.int(), translated_name: z.string().nullable().optional() })
+  .openapi('TagCountItem')
 
 // 注意 camelCase：PostStatsResponse 继承 DTOBaseModel（alias_generator=to_camel），
 // 和上面 snake_case 的 PostFilter 在同一个请求里并存。
@@ -129,5 +135,38 @@ postCountsRoutes.openapi(
       waifuCount: s.waifu_count,
       ratingDistribution: s.rating_distribution,
     })
+  },
+)
+
+/**
+ * tag facet —— 唯一一个不吃 `PostFilter` 而吃 `TagCountRequest` 的计数端点。
+ *
+ * 它多出来的三个字段（query / limit / lang）都服务于同一件事：可搜索的下拉框。
+ * 本地化搜索在这一层解决 —— 把显示名的命中（"绿眼"）解析成 DB 里的 tag 名
+ * （`green_eyes`）再传给查询，于是用户打哪种形式都能匹配上。查询层本身对翻译
+ * 一无所知。
+ */
+postCountsRoutes.openapi(
+  createRoute({
+    method: 'post',
+    path: '/v2/posts/count/tags',
+    operationId: 'v2GetTagCount',
+    summary: 'GetTagCount',
+    description: 'Count posts per tag (searchable, top-N by count).',
+    request: { body: { required: true, content: { 'application/json': { schema: TagCountRequest } } } },
+    responses: jsonOk(z.array(TagCountItem)),
+  }),
+  (c) => {
+    const data = c.req.valid('json')
+    const rows = countByTag(getDb().sqlite, data as DbPostFilter, {
+      query: data.query ?? '',
+      limit: data.limit ?? 50,
+      extraNames: searchTagsByTranslation(data.query ?? '', data.lang ?? 'zh-Hans'),
+    })
+    return c.json(rows.map(r => ({
+      tag_name: r.tag_name,
+      count: r.count,
+      translated_name: translateTag(r.tag_name, data.lang ?? 'zh-Hans'),
+    })))
   },
 )

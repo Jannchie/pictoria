@@ -39,3 +39,13 @@ export const PostFilterWithOrderSchema = z
     sort_direction: z.enum(['asc', 'desc']).nullable().optional().describe("Sort direction for ``order_by`` when ``order='random'``. Ignored unless both ``order='random'`` and ``order_by`` are set."),
   })
   .openapi('PostFilterWithOrder')
+
+/** `PostFilter` 加上 tag 计数专用的三个字段。键序照抄 baseline：过滤器在前。 */
+export const TagCountRequestSchema = z
+  .object({
+    ...baseFilter,
+    query: z.string().default('').optional().describe("Substring filter on tag names."),
+    limit: z.int().default(50).optional().describe("Max tags returned, by descending count."),
+    lang: z.string().default('zh-Hans').optional().describe("Locale for translated tag names (e.g. zh-Hans; en yields null)."),
+  })
+  .openapi('TagCountRequest')

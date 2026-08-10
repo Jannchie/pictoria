@@ -141,6 +141,24 @@ async function buildCases() {
     '/v2/posts/stats',
   ]) for (const f of FILTERS) cases.push(['POST', ep, f])
 
+  // count/tags 吃的是 TagCountRequest（PostFilter + query/limit/lang），所以单列。
+  // 三条路径都要走到：无过滤器的快路径（读 tags.post_count）、有过滤器的实时
+  // GROUP BY、以及本地化搜索（"绿眼" 要能命中 green_eyes）。LIKE 元字符也钉一下 ——
+  // 搜索框里打 '%' 必须按字面匹配而不是通配。
+  for (const f of FILTERS) cases.push(['POST', '/v2/posts/count/tags', { ...f, limit: 20 }])
+  for (const extra of [
+    { query: 'girl', limit: 10 },
+    { query: 'green', limit: 10 },
+    { query: '绿眼', limit: 10 },
+    { query: '绿眼', limit: 10, lang: 'en' },
+    { query: '%', limit: 10 },
+    { query: '_', limit: 10 },
+    { query: 'zzzzzzzz-no-such-tag', limit: 10 },
+    { query: 'girl', limit: 10, rating: [1, 2] },
+    { query: 'girl', limit: 10, only_canonical: false },
+    { limit: 5 },
+  ]) cases.push(['POST', '/v2/posts/count/tags', extra])
+
   return cases
 }
 
