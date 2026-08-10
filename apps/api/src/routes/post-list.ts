@@ -114,6 +114,21 @@ postListRoutes.openapi(
   },
 )
 
+/**
+ * `/v2/posts/` 是同一个端点的别名。
+ *
+ * Litestar 的控制器路径是 `/posts` 加一条 `/` 路由，所以**带斜杠**才是它的规范形式，
+ * 不带的也一样能通。Hono 两者不通用，而代理还在的时候带斜杠的请求被悄悄透传走了，
+ * 删掉代理才暴露出来。
+ *
+ * 只补这一条，不做全局的结尾斜杠归一化 —— 那会顺手改掉 `/v2/folders/`
+ * （空目录名，Litestar 给的是 400 "不是库目录"）和 `/v2/folders/.` 的语义，
+ * 把两个刻意的拒绝分支变成 404。
+ */
+postListRoutes.get('/v2/posts/', c => postListRoutes.fetch(
+  new Request(new URL(c.req.url.replace('/v2/posts/', '/v2/posts')), c.req.raw),
+))
+
 postListRoutes.openapi(
   createRoute({
     method: 'post',

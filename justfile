@@ -33,6 +33,12 @@ server-ref:
 contract-diff:
     pnpm contract:diff
 
-# 全套对拍。需要 api-dev + worker-dev + server-ref 三个都在跑。
+# 全套对拍。需要 api-quiet + worker-dev + server-ref 三个都在跑。
 parity:
     pnpm parity:all
+
+# 对拍专用的 API：关掉自动 backfill / 文件监视 / 轮询。
+# parity:destructive 会在库里造一次性样本再删掉，自动后台工作会和它抢同一批文件和
+# 同一把写锁（详见那个脚本的注释）。按需触发的 /v2/cmd/sync-metadata 不受影响。
+api-quiet:
+    PICTORIA_SCHEDULER=0 pnpm --filter @pictoria/api dev

@@ -1,7 +1,14 @@
 /**
  * 破坏性端点的对拍：delete / rotate / delete-folder。
  *
+ *   # API 必须以 PICTORIA_SCHEDULER=0 启动
  *   pnpm parity:destructive        # 两侧都要在跑，cairnq worker 也要在跑
+ *
+ * ⚠️ **API 要关掉自动后台工作**（`PICTORIA_SCHEDULER=0`）。开着的话文件监视会在样本
+ * 落盘的瞬间同步、backfill 立刻抓走它们，于是：Windows 上 worker 开着文件时
+ * delete-folder 的 unlink 会 EBUSY 500，脚本删掉行之后 worker 回写分数又会撞
+ * FOREIGN KEY，两个写者还会互相把对方的事务锁在外面。这些都是**测试**制造的竞态
+ * （生产里没有人在同一秒里既造样本又删它们），不是端点的问题。
  *
  * 这三个端点没法拿库里现成的数据去比 —— 比一次就少一批。所以脚本自己在
  * `<target_dir>/__parity__/` 下造一次性的图和 post 行，两侧各操作一份**内容完全
@@ -69,7 +76,21 @@ function makePost(subdir: string, name: string): { id: number, rel: string } {
       'INSERT INTO posts (file_path, file_name, extension, width, height) VALUES (?, ?, \'jpg\', 100, 100)',
     )
     .run(filePath, name)
-  return { id: Number(info.lastInsertRowid), rel: `${filePath}/${name}.jpg` }
+  const id = Number(info.lastInsertRowid)
+
+  // 把它对每个 worker 都拉黑。
+  //
+  // 不这么做的话，文件一落盘、监视器就同步、backfill 立刻抓走这些一次性样本：
+  // Windows 上 worker 开着文件时 delete-folder 的 unlink 会 EBUSY 500，而脚本
+  // 删掉行之后 worker 回写分数又会撞 FOREIGN KEY。两个都是测试自己制造的竞态，
+  // 拉黑是这张表本来就有的语义 —— "别处理这一条"。
+  const blacklist = sqlite.prepare(
+    'INSERT INTO post_process_failures(post_id, worker, error) VALUES (?, ?, ?) ON CONFLICT DO NOTHING',
+  )
+  for (const worker of ['basics', 'waifu', 'tagger', 'embedding:siglip2', 'aesthetic:silva', 'aesthetic:silva_luna'])
+    blacklist.run(id, worker, 'parity fixture')
+
+  return { id, rel: `${filePath}/${name}.jpg` }
 }
 
 function rowCount(filePath: string, fileName: string): number {

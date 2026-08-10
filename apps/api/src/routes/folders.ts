@@ -158,6 +158,21 @@ foldersRoutes.openAPIRegistry.registerPath({
   },
 })
 
+/**
+ * `DELETE /v2/folders/` —— 空目录名。
+ *
+ * Litestar 的路由是 `{folder_path:path}`，`path` 参数至少要一个字符，所以带斜杠但
+ * 后面什么都没有的请求根本匹配不上；`/v2/folders` 上只有 GET，于是它答 405。
+ * Hono 默认会给 404（这个**路径**没有任何路由），所以这一条要手工补上，否则
+ * 同一个请求两边一个 404 一个 405。
+ *
+ * `/v2/folders/.` 走的也是这里：fetch 客户端在发出前就把 `/.` 归一成了 `/`。
+ */
+foldersRoutes.delete('/v2/folders/', () => new Response(
+  JSON.stringify({ status_code: 405, detail: 'Method Not Allowed' }),
+  { status: 405, headers: { 'content-type': 'application/json', 'allow': 'GET, OPTIONS' } },
+))
+
 foldersRoutes.delete('/v2/folders/:folder_path{.+}', (c) => {
   const folder = (c.req.param('folder_path') ?? '').replace(/^\/+|\/+$/g, '')
   const base = path.resolve(targetDir())

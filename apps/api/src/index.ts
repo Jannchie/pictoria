@@ -108,6 +108,15 @@ app.get('/schema/openapi.json', async (c) => {
   return c.json(merged)
 })
 
+/**
+ * 没有路由匹配时的 404。
+ *
+ * Hono 默认回一句纯文本 `404 Not Found`，Litestar 回的是
+ * `{"status_code":404,"detail":"Not Found"}`。代理还在的时候这个差别被藏住了
+ * （未匹配的一律透传），删掉代理才露出来。前端的错误处理认 JSON 那一种。
+ */
+app.notFound(c => c.json({ status_code: 404, detail: 'Not Found' }, 404))
+
 serve({ fetch: app.fetch, port: PORT }, (info) => {
   console.warn(`[pictoria-api] listening on http://127.0.0.1:${info.port}`)
 })
