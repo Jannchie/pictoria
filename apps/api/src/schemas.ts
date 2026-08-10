@@ -142,3 +142,50 @@ export function toPostSimple(row: Record<string, unknown>): Record<string, unkno
     sortValue: row.sort_value ?? null,
   }
 }
+
+function camelTag(t: { is_auto: boolean, tag_info: Record<string, any> }) {
+  const info = t.tag_info
+  return {
+    isAuto: t.is_auto,
+    tagInfo: {
+      group: info.group,
+      name: info.name,
+      translatedName: info.translated_name,
+      updatedAt: toIsoDateTime(info.updated_at),
+      createdAt: toIsoDateTime(info.created_at),
+    },
+  }
+}
+
+/** 键序照抄 PostDetailPublic 的声明顺序。 */
+export function toPostDetail(row: Record<string, any>) {
+  return {
+    id: row.id,
+    filePath: row.file_path,
+    fileName: row.file_name,
+    extension: row.extension,
+    fullPath: row.full_path,
+    width: row.width,
+    height: row.height,
+    aspectRatio: row.aspect_ratio,
+    updatedAt: toIsoDateTime(row.updated_at),
+    createdAt: toIsoDateTime(row.created_at),
+    score: row.score,
+    rating: row.rating,
+    description: row.description,
+    meta: row.meta,
+    sha256: row.sha256,
+    size: row.size,
+    source: row.source,
+    caption: row.caption,
+    colors: row.colors,
+    publishedAt: toIsoDateTime(row.published_at),
+    dominantColor: row.dominant_color,
+    arthash: row.arthash,
+    canonicalPostId: row.canonical_post_id,
+    groupMemberCount: row.group_member_count,
+    waifuScore: row.waifu_score,
+    aestheticScores: row.aesthetic_scores,
+    tags: row.tags.map(camelTag),
+  }
+}
