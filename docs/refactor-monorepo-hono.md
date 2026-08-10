@@ -312,7 +312,7 @@ Hono 占用 4777，Litestar 挪到 4779（`PICTORIA_PORT` 环境变量，缺省�
 
 每搬完一组：删对应 proxy 规则 → 跑 §4.2 的 schema diff → 跑 web vitest。
 
-**已搬 24/70**：
+**已搬 31/70**：
 
 | 组 | 端点 |
 |---|---|
@@ -322,8 +322,19 @@ Hono 占用 4777，Litestar 挪到 4779（`PICTORIA_PORT` 环境变量，缺省�
 | posts 计数 | `count`、`count/rating`、`count/score`、`count/extension`、`count/waifu`、`count/silva`、`count/silva-luna`、`stats` |
 | posts 读 | `GET /v2/posts`（游标列表）、`GET /v2/posts/{id}`、`GET /v2/posts/{id}/group`、`POST /v2/posts/search`（三种排序 + lab 距离） |
 | posts 写 | `score`、`rating`、`caption`、`source`、`touch`、`bulk/score`、`bulk/rating` |
+| annotations | `absolute`、`pairwise`、`content-flag`、`undo`、`PATCH {kind}/{id}`、`pairwise/count`、`post/{id}` |
 
-**仍透传**：向量搜索（`search/text`、`similar` —— 等 Phase 5 的 cairnq）、碰文件系统的写（`upload`、`rotate`、`delete`、`DELETE /v2/folders/{path}`）、分组重排（`ungroup`、`make-canonical`）、per-post tag 增删、tag 写操作、`images` 四个、`annotations` 10 个、`annotation-queues` 7 个、`commands` 11 个。
+**仍透传 39 个**，按"为什么还没搬"分类：
+
+| 原因 | 端点 |
+|---|---|
+| 依赖 Phase 5/6 的 cairnq worker | `commands` 全部 11 个 |
+| 依赖向量/ML 链路 | `posts/search/text`、`posts/{id}/similar` |
+| 碰文件系统 | `posts/upload`、`posts/{id}/rotate`、`posts/delete`、`DELETE /v2/folders/{path}`、`images` 4 个 |
+| 依赖 1058 行采样图算法 | `annotations/sample-absolute`、`sample-pairwise`、`annotation-queues` 全部 7 个 |
+| 还没轮到（纯 SQL，可直接搬） | `annotations/timeline`、tag 写 4 个、`posts/{id}/tags/{tag}` 增删、`ungroup`、`make-canonical` |
+
+最后一行那 9 个没有技术障碍，只是还没做到。
 
 **两个对拍工具**（`pnpm parity` / `pnpm parity:write`）：
 
@@ -349,6 +360,8 @@ Hono 占用 4777，Litestar 挪到 4779（`PICTORIA_PORT` 环境变量，缺省�
 7. **同一个"越界"在不同层被拒，状态码就不同**：`score` 在 msgspec schema 上有边界，校验层拒 → **400**；`rating` 在 query 上没约束，handler 里判断 → **409**。不对称，但这是既有行为，照抄。
 8. **响应键序照抄 DTO 声明顺序**，不是 SELECT 列顺序；**日期**要把 SQLite 的空格换成 `T`（Pydantic 的 ISO 8601）；**`PostSimplePublic` 永远带 `matchProb`/`sortValue`**（Pydantic 把未设置的可选字段序列化成 null）。
 ### Phase 5 · 接入 cairnq（3–5 天）
+9. **同一个 400 有两种形状**：手抛的 `ValidationException` 是 `{status_code, detail}`（消息直接进 detail，**没有 extra**）；msgspec 的 schema 校验失败是 `{status_code, detail: "Validation failed for …", extra: [...]}`。前端能分辨，所以两种都要照抄。
+10. **动手前先读常量**。我凭印象猜 `VALID_DIMENSIONS`，真实是 `color/finish/composition/overall`；错误消息措辞同理。契约 diff 抓不到这类（它们不进 schema），只有读源码或对拍能抓到。
 
 先只接 **silva**（最简单：输入是已有向量，输出一个标量，不碰 GPU、不碰文件），把 submit → lease → progress → 结果落库整条链路跑通并观察一周。
 
