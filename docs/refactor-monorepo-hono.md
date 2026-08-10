@@ -312,34 +312,37 @@ Hono 占用 4777，Litestar 挪到 4779（`PICTORIA_PORT` 环境变量，缺省�
 
 每搬完一组：删对应 proxy 规则 → 跑 §4.2 的 schema diff → 跑 web vitest。
 
-**已搬 31/70**：
+**已搬 40/70**：
 
 | 组 | 端点 |
 |---|---|
 | statistics | `GET /v2/statistics` |
 | folders | `GET /v2/folders` |
-| tags | `GET /v2/tags`、`GET /v2/tags/groups` |
+| tags 读 | `GET /v2/tags`、`GET /v2/tags/groups` |
+| tags 写 | `POST /v2/tags`、`PUT/DELETE /v2/tags/{name}`、`DELETE /v2/tags`（批量） |
 | posts 计数 | `count`、`count/rating`、`count/score`、`count/extension`、`count/waifu`、`count/silva`、`count/silva-luna`、`stats` |
-| posts 读 | `GET /v2/posts`（游标列表）、`GET /v2/posts/{id}`、`GET /v2/posts/{id}/group`、`POST /v2/posts/search`（三种排序 + lab 距离） |
-| posts 写 | `score`、`rating`、`caption`、`source`、`touch`、`bulk/score`、`bulk/rating` |
-| annotations | `absolute`、`pairwise`、`content-flag`、`undo`、`PATCH {kind}/{id}`、`pairwise/count`、`post/{id}` |
+| posts 读 | `GET /v2/posts`、`GET /v2/posts/{id}`、`GET /v2/posts/{id}/group`、`POST /v2/posts/search` |
+| posts 写 | `score`、`rating`、`caption`、`source`、`touch`、`bulk/score`、`bulk/rating`、`ungroup`、`make-canonical`、tag 增删 |
+| annotations | `absolute`、`pairwise`、`content-flag`、`undo`、`PATCH {kind}/{id}`、`timeline`、`pairwise/count`、`post/{id}` |
 
-**仍透传 39 个**，按"为什么还没搬"分类：
+**剩下 30 个全部有实质阻塞**（没有"只是还没做"的了）：
 
-| 原因 | 端点 |
-|---|---|
-| 依赖 Phase 5/6 的 cairnq worker | `commands` 全部 11 个 |
-| 依赖向量/ML 链路 | `posts/search/text`、`posts/{id}/similar` |
-| 碰文件系统 | `posts/upload`、`posts/{id}/rotate`、`posts/delete`、`DELETE /v2/folders/{path}`、`images` 4 个 |
-| 依赖 1058 行采样图算法 | `annotations/sample-absolute`、`sample-pairwise`、`annotation-queues` 全部 7 个 |
-| 还没轮到（纯 SQL，可直接搬） | `annotations/timeline`、tag 写 4 个、`posts/{id}/tags/{tag}` 增删、`ungroup`、`make-canonical` |
+| 阻塞 | 端点 | 什么时候能解 |
+|---|---|---|
+| Phase 5/6 的 cairnq worker | `commands` 11 个 | Phase 5 接通 cairnq 之后 |
+| ML / 向量链路 | `posts/search/text`、`posts/{id}/similar` | 同上（§4.6 的文本编码走 cairnq） |
+| 文件系统 | `posts/upload`、`posts/{id}/rotate`、`posts/delete`、`DELETE /v2/folders/{path}`、`images` 4 个 | 缩略图归属定了之后一起（§D3） |
+| 1058 行采样图算法 | `annotations/sample-*` 2 个、`annotation-queues` 7 个 | 独立一趟，无外部依赖 |
 
-最后一行那 9 个没有技术障碍，只是还没做到。
+**五个对拍套件**（`pnpm parity:all` 一次跑全部 + 契约 diff）：
 
-**两个对拍工具**（`pnpm parity` / `pnpm parity:write`）：
-
-- `scripts/endpoint-parity.mjs` —— 106 个读用例，比较**解析后**的 JSON。不比字节：Python 把 float `3.0` 序列化成 `3.0`，JS 只能产出 `3`，两者 parse 后完全相同，比字节会红成一片。键**顺序**仍然要比（hey-api 按声明顺序生成 TS）。
-- `scripts/write-parity.mjs` —— 21 项写检查。写不能重放，所以每个用例都是「记原值 → 经 Hono 写 → 读回 → 还原 → 经 Litestar 写 → 读回 → 还原」，比完再断言数据回到起点。
+| 脚本 | 覆盖 | 关键设计 |
+|---|---|---|
+| `endpoint-parity.mjs` | 106 读用例 | 比**解析后**的 JSON 而非字节 —— Python 把 float `3.0` 序列化成 `3.0`，JS 只能产出 `3`，parse 后完全相同。键**顺序**仍然比（hey-api 按声明顺序生成 TS） |
+| `write-parity.mjs` | 21 项 | 写不能重放：记原值 → 经 Hono 写 → 读回 → 还原 → 经 Litestar 写 → 读回 → 还原，最后断言数据回到起点 |
+| `annotations-parity.mjs` | 21 项 | 提交完整周期后 undo 掉，断言探针会话不留痕 |
+| `tag-writes-parity.mjs` | 13 项 | 探针 tag 走完整生命周期。两侧**必须用同一个名字** —— 名字不同会让 post 详情里的 tags 数组排序位置不同，那是测试自身的假差异 |
+| `timeline-parity.mjs` | 11 项 | 含真实游标翻页与三种非法游标 |
 
 **`images` 整组暂不搬**，理由是一致性而非难度：
 
