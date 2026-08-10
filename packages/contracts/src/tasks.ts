@@ -239,3 +239,34 @@ export interface TextEmbedResult {
  * 但拿到它们要碰 torch，而这一侧不能碰 torch。跟车一起走是最便宜的做法。
  */
 export const textEmbedTask = defineTask<TextEmbedPayload, TextEmbedResult>('text-embed')
+
+/**
+ * IO 队列 —— 不碰 GPU 的活。
+ *
+ * 缩略图生成属于这里：它是 CPU + 磁盘，和显存毫无关系，塞进 GPU 队列只会让它
+ * 排在某个模型批次后面。并发也因此可以大于 1（GPU 队列必须是 1）。
+ */
+export const IO_QUEUE = 'io'
+
+export interface ThumbnailPayload {
+  /** 原图绝对路径。 */
+  originalPath: string
+  /** 缩略图要写到哪儿（绝对路径，父目录由 worker 建）。 */
+  thumbnailPath: string
+}
+
+export interface ThumbnailResult {
+  /** 生成成功。false 时 `error` 说明原因（多半是原图解不出来）。 */
+  ok: boolean
+  error?: string
+}
+
+/**
+ * 缩略图生成。
+ *
+ * 为什么不在 TS 侧用 sharp：库里现存的 22 万张缩略图全是 PIL 出的，换一个编码器
+ * 意味着从此新旧两批缩略图字节不同。放在 worker 里既守住 §D1（算在 Python），又
+ * 让 basics worker 之后能直接复用同一段代码。worker 写的是**文件**不是数据库，
+ * 和 dedup 的矩阵文件是同一类东西 —— 也就是说，不是例外。
+ */
+export const thumbnailTask = defineTask<ThumbnailPayload, ThumbnailResult>('thumbnail')

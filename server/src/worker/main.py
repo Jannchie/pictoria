@@ -35,6 +35,7 @@ from worker.handlers import (
     handle_silva,
     handle_tagger,
     handle_text_embed,
+    handle_thumbnail,
     handle_waifu,
     set_root,
 )
@@ -57,6 +58,12 @@ GPU_QUEUE = "gpu"
 #: human is waiting on the response (§4.6).
 INTERACTIVE_QUEUE = "gpu-interactive"
 INTERACTIVE_POLL_MS = 20
+
+#: Queue for work that touches CPU and disk but never the GPU (thumbnails).
+#: It gets its own Worker so it neither waits on a model batch nor makes one
+#: wait, and unlike the GPU queue its concurrency can exceed 1.
+IO_QUEUE = "io"
+IO_CONCURRENCY = 4
 
 
 def tasks_db_path(target_dir: Path) -> Path:
@@ -83,6 +90,12 @@ async def main() -> None:
         concurrency=1,
         poll_interval_ms=INTERACTIVE_POLL_MS,
     )
+    io_worker = Worker(
+        store,
+        queues=[IO_QUEUE],
+        concurrency=IO_CONCURRENCY,
+        poll_interval_ms=INTERACTIVE_POLL_MS,
+    )
 
     # Payload paths are resolved inside this root and nowhere else.
     set_root(args.target_dir)
@@ -98,14 +111,16 @@ async def main() -> None:
     # vectors. Same queue on purpose: it wants the GPU exclusively.
     worker.task("dedup")(lambda _ctx, payload: handle_dedup(payload))
     interactive.task("text-embed")(lambda _ctx, payload: handle_text_embed(payload))
+    io_worker.task("thumbnail")(lambda _ctx, payload: handle_thumbnail(payload))
 
     log.info(
-        "worker up: silva, waifu, tagger, embedding, dedup on %s; text-embed on %s  db=%s",
+        "worker up: silva, waifu, tagger, embedding, dedup on %s; text-embed on %s; thumbnail on %s  db=%s",
         GPU_QUEUE,
         INTERACTIVE_QUEUE,
+        IO_QUEUE,
         db_path,
     )
-    await asyncio.gather(worker.run(), interactive.run())
+    await asyncio.gather(worker.run(), interactive.run(), io_worker.run())
 
 
 if __name__ == "__main__":

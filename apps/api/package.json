@@ -10,7 +10,8 @@
     "test": "vitest run",
     "parity:write": "node scripts/write-parity.mjs",
     "parity:worker": "tsx scripts/worker-parity.mts",
-    "parity:commands": "tsx scripts/commands-parity.mts"
+    "parity:commands": "tsx scripts/commands-parity.mts",
+    "parity:s3": "tsx scripts/s3-presign-parity.mts"
   },
   "dependencies": {
     "@hono/node-server": "^1.15.0",

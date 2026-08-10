@@ -16,12 +16,14 @@
     "parity:annotations": "node scripts/annotations-parity.mjs",
     "parity:write": "node scripts/write-parity.mjs",
     "parity:tags": "node scripts/tag-writes-parity.mjs",
-    "parity:all": "pnpm parity && pnpm parity:write && pnpm parity:annotations && pnpm parity:tags && pnpm parity:timeline && pnpm parity:queues && pnpm parity:sampling && pnpm parity:commands && pnpm contract:diff",
+    "parity:all": "pnpm parity && pnpm parity:write && pnpm parity:annotations && pnpm parity:tags && pnpm parity:timeline && pnpm parity:queues && pnpm parity:sampling && pnpm parity:commands && pnpm parity:images && pnpm parity:s3 && pnpm contract:diff",
     "parity:timeline": "node scripts/timeline-parity.mjs",
     "parity:queues": "node scripts/queues-parity.mjs",
     "parity:sampling": "node scripts/sampling-parity.mjs",
     "parity:worker": "pnpm --filter @pictoria/api parity:worker",
     "migration:status": "node scripts/migration-status.mjs",
-    "parity:commands": "pnpm --filter @pictoria/api parity:commands"
+    "parity:commands": "pnpm --filter @pictoria/api parity:commands",
+    "parity:s3": "pnpm --filter @pictoria/api parity:s3",
+    "parity:images": "node scripts/images-parity.mjs"
   }
 }

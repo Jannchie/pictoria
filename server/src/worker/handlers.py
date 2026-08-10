@@ -289,3 +289,27 @@ async def handle_text_embed(payload: dict[str, Any]) -> dict[str, Any]:
 
     vec, scale, bias = await asyncio.to_thread(_encode)
     return {"embedding": encode_vector(vec), "scale": scale, "bias": bias}
+
+
+async def handle_thumbnail(payload: dict[str, Any]) -> dict[str, Any]:
+    """Generate one thumbnail. CPU + disk only — no GPU, hence the ``io`` queue.
+
+    A 0-byte or otherwise corrupt original makes PIL raise
+    ``UnidentifiedImageError`` (or ``OSError`` for a truncated file). That is a
+    *data* condition, not a server fault, so it comes back as ``ok: false`` and
+    the HTTP layer turns it into a 404 — same as the Litestar path did.
+    """
+    from PIL import UnidentifiedImageError  # noqa: PLC0415  # lazy: PIL is not free to import
+
+    from utils import create_thumbnail  # noqa: PLC0415
+
+    original = _resolve_inside(payload["originalPath"])
+    # Thumbnails live under ``.pictoria/thumbnails`` inside the library root,
+    # so they pass the same escape guard the originals do.
+    thumbnail = _resolve_inside(payload["thumbnailPath"])
+    thumbnail.parent.mkdir(parents=True, exist_ok=True)
+    try:
+        await asyncio.to_thread(create_thumbnail, original, thumbnail)
+    except (UnidentifiedImageError, OSError) as exc:
+        return {"ok": False, "error": str(exc)}
+    return {"ok": True}

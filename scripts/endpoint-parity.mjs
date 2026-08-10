@@ -176,6 +176,18 @@ async function buildCases() {
     { query: 'cat girl', only_canonical: false },
   ]) cases.push(['POST', '/v2/posts/search/text?limit=5', body])
 
+  // images：只比 404 分支和它们的 detail 文案。200 分支是二进制流，
+  // 头和字节的比对在 scripts/images-parity.mjs 里单独做。
+  for (const u of [
+    '/v2/images/original/id/999999999',
+    '/v2/images/thumbnails/id/999999999',
+    '/v2/images/original/no/such/file.jpg',
+    '/v2/images/thumbnails/no/such/file.jpg',
+    // 百分号编码的 ..：客户端不会归一化，服务端解码后才看见，正是逃逸检查要挡的那种
+    '/v2/images/original/%2e%2e%2f%2e%2e%2fwindows/win.ini',
+    '/v2/images/thumbnails/%2e%2e%2f%2e%2e%2fwindows/win.ini',
+  ]) cases.push(['GET', u])
+
   return cases
 }
 
