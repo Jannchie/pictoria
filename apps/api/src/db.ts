@@ -18,6 +18,11 @@ import { createDb } from '@pictoria/db'
  */
 const REPO_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../..')
 
+/** 供其它模块解析仓库内相对路径。 */
+export function repoRoot(): string {
+  return REPO_ROOT
+}
+
 let handle: ReturnType<typeof createDb> | null = null
 
 /** 与 Python 侧 app.py 的解析规则一致：DB_PATH 覆盖 `<target_dir>/.pictoria/`。 */

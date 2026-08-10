@@ -110,6 +110,9 @@ function normalizeOperation(op, doc) {
       return { name: r.name, in: r.in, required: r.required ?? false, schema: r.schema }
     })
     .sort((a, b) => `${a.in}:${a.name}`.localeCompare(`${b.in}:${b.name}`))
+  // 按 (in, name) 键成对象而不是留成数组：数组只能整体报"不一样"，键成对象后
+  // deepDiff 能一路指到 params.query:limit.schema.x-nullable。
+  const paramsByKey = Object.fromEntries(params.map(p => [`${p.in}:${p.name}`, p]))
 
   const body = op.requestBody
     ? {
@@ -135,7 +138,7 @@ function normalizeOperation(op, doc) {
       ]),
   )
 
-  return { operationId: op.operationId ?? null, params, body, responses }
+  return { operationId: op.operationId ?? null, params: paramsByKey, body, responses }
 }
 
 function indexOperations(doc) {

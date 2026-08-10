@@ -11,3 +11,7 @@ export { bucketCaseSql, SCORE_BUCKET_UNSCORED, SCORERS, SILVA, SILVA_LUNA, SILVA
 export type { Buckets, ScorerSpec } from './scorers.js'
 export { waifuScoreDistribution } from './repositories/scores.js'
 export type { WaifuBucketCount } from './repositories/scores.js'
+export { addAgg, emptyAgg, folderScoreAggregates } from './repositories/folders.js'
+export type { FolderScoreAgg } from './repositories/folders.js'
+export { listTagGroups, listTagsWithCounts } from './repositories/tags.js'
+export type { TagGroupRow, TagWithCount } from './repositories/tags.js'

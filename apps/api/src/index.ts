@@ -3,7 +3,9 @@ import { serve } from '@hono/node-server'
 import { OpenAPIHono } from '@hono/zod-openapi'
 import { compress } from 'hono/compress'
 import { createProxy } from './proxy.js'
+import { foldersRoutes } from './routes/folders.js'
 import { statisticsRoutes } from './routes/statistics.js'
+import { tagsRoutes } from './routes/tags.js'
 
 /**
  * Pictoria API —— 迁移期的门面。
@@ -24,6 +26,8 @@ app.use('*', compress())
 
 // ---- 已迁移到 Hono 的路由 ----
 app.route('/', statisticsRoutes)
+app.route('/', foldersRoutes)
+app.route('/', tagsRoutes)
 
 /**
  * `/schema/openapi.json` 必须把两侧合起来。
@@ -47,9 +51,16 @@ app.get('/schema/openapi.json', async (c) => {
     return c.json(local)
   }
 
+  // 必须**按方法**合并，不能按路径。一个路径下的 GET 搬过来了、POST 还在上游是
+  // 常态（/v2/tags 就是），路径级的浅合并会把上游那一整个 path item 挤掉，于是
+  // POST/DELETE 从文档里凭空消失 —— contract-diff 会报，但别等它报。
+  const paths: Record<string, any> = { ...upstream.paths }
+  for (const [route, item] of Object.entries(local.paths ?? {}))
+    paths[route] = { ...paths[route], ...(item as object) }
+
   const merged = {
     ...upstream,
-    paths: { ...upstream.paths, ...local.paths },
+    paths,
     components: {
       ...upstream.components,
       schemas: { ...upstream.components?.schemas, ...local.components?.schemas },
