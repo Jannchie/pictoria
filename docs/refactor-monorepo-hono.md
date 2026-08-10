@@ -312,7 +312,23 @@ Hono 占用 4777，Litestar 挪到 4779（`PICTORIA_PORT` 环境变量，缺省�
 
 每搬完一组：删对应 proxy 规则 → 跑 §4.2 的 schema diff → 跑 web vitest。
 
-**已搬**：`GET /v2/statistics`、`GET /v2/folders`、`GET /v2/tags`、`GET /v2/tags/groups`。破坏性写操作（`DELETE /v2/folders/{path}` 要删磁盘文件和缩略图）和带存在性校验的 tag 写操作仍透传，等读路径全部稳定再搬。
+**已搬 24/70**：
+
+| 组 | 端点 |
+|---|---|
+| statistics | `GET /v2/statistics` |
+| folders | `GET /v2/folders` |
+| tags | `GET /v2/tags`、`GET /v2/tags/groups` |
+| posts 计数 | `count`、`count/rating`、`count/score`、`count/extension`、`count/waifu`、`count/silva`、`count/silva-luna`、`stats` |
+| posts 读 | `GET /v2/posts`（游标列表）、`GET /v2/posts/{id}`、`GET /v2/posts/{id}/group`、`POST /v2/posts/search`（三种排序 + lab 距离） |
+| posts 写 | `score`、`rating`、`caption`、`source`、`touch`、`bulk/score`、`bulk/rating` |
+
+**仍透传**：向量搜索（`search/text`、`similar` —— 等 Phase 5 的 cairnq）、碰文件系统的写（`upload`、`rotate`、`delete`、`DELETE /v2/folders/{path}`）、分组重排（`ungroup`、`make-canonical`）、per-post tag 增删、tag 写操作、`images` 四个、`annotations` 10 个、`annotation-queues` 7 个、`commands` 11 个。
+
+**两个对拍工具**（`pnpm parity` / `pnpm parity:write`）：
+
+- `scripts/endpoint-parity.mjs` —— 106 个读用例，比较**解析后**的 JSON。不比字节：Python 把 float `3.0` 序列化成 `3.0`，JS 只能产出 `3`，两者 parse 后完全相同，比字节会红成一片。键**顺序**仍然要比（hey-api 按声明顺序生成 TS）。
+- `scripts/write-parity.mjs` —— 21 项写检查。写不能重放，所以每个用例都是「记原值 → 经 Hono 写 → 读回 → 还原 → 经 Litestar 写 → 读回 → 还原」，比完再断言数据回到起点。
 
 **`images` 整组暂不搬**，理由是一致性而非难度：
 
@@ -328,6 +344,10 @@ Hono 占用 4777，Litestar 挪到 4779（`PICTORIA_PORT` 环境变量，缺省�
 2. **`.openapi({ type: 'integer' })` 会覆盖整个 schema**，不只是 type —— nullable 会被一起弄丢。要写成 `type: ['integer', 'null']`。
 3. **目录树根节点的 `name` 是空串**，不是目录名（Python 侧取 `relative_to(target_dir).name`）。
 4. **DB 路径要从模块自身位置解析**，不能靠 `process.cwd()` —— `pnpm --filter` 会把 cwd 设成包目录。
+5. **同一个 `OpenAPIHono` 实例内按注册顺序匹配**：`/v2/posts/bulk/rating` 会被先注册的 `/v2/posts/{post_id}/rating` 抢走，把 `"bulk"` coerce 成 NaN。字面量路径必须先注册。
+6. **zod 的校验失败形状要翻译**：默认是 `{success, error:{name:'ZodError'}}`，Litestar 是 `{status_code, detail, extra:[{message,key,source}]}`，连**措辞**都不同（msgspec 说 `Expected \`int\` <= 5`，zod 说 `Too big: expected number to be <=5`）。前端可能把这句直接显示给用户，所以逐条翻译。
+7. **同一个"越界"在不同层被拒，状态码就不同**：`score` 在 msgspec schema 上有边界，校验层拒 → **400**；`rating` 在 query 上没约束，handler 里判断 → **409**。不对称，但这是既有行为，照抄。
+8. **响应键序照抄 DTO 声明顺序**，不是 SELECT 列顺序；**日期**要把 SQLite 的空格换成 `T`（Pydantic 的 ISO 8601）；**`PostSimplePublic` 永远带 `matchProb`/`sortValue`**（Pydantic 把未设置的可选字段序列化成 null）。
 ### Phase 5 · 接入 cairnq（3–5 天）
 
 先只接 **silva**（最简单：输入是已有向量，输出一个标量，不碰 GPU、不碰文件），把 submit → lease → progress → 结果落库整条链路跑通并观察一周。
