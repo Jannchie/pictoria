@@ -3,6 +3,9 @@ import { serve } from '@hono/node-server'
 import { OpenAPIHono } from '@hono/zod-openapi'
 import { compress } from 'hono/compress'
 import { createProxy } from './proxy.js'
+import { getDb } from './db.js'
+import { startSilvaBackfill } from './scheduler.js'
+import { getTasks } from './tasks.js'
 import { annotationQueuesRoutes } from './routes/annotation-queues.js'
 import { annotationsRoutes } from './routes/annotations.js'
 import { foldersRoutes } from './routes/folders.js'
@@ -102,3 +105,15 @@ serve({ fetch: app.fetch, port: PORT }, (info) => {
   console.warn(`[pictoria-api] listening on http://127.0.0.1:${info.port}`)
   console.warn(`[pictoria-api] proxying unmigrated routes to ${UPSTREAM}`)
 })
+
+// ---- backfill 调度（§D2：挑活在 TS，干活在 Python worker） ----
+// 默认开着 —— 这是迁移的目标状态。Python 侧对应地用 PICTORIA_SKIP_WORKERS 把同名
+// worker 关掉，两边不会重复算。设 PICTORIA_SCHEDULER=0 可以整个停掉，用来二分定位。
+if (process.env.PICTORIA_SCHEDULER !== '0') {
+  void (async () => {
+    const tasks = await getTasks()
+    for (const scorer of ['silva', 'silva_luna'] as const)
+      startSilvaBackfill(getDb().sqlite, tasks, { scorer })
+    console.warn('[pictoria-api] backfill 调度已启动：silva, silva_luna')
+  })()
+}

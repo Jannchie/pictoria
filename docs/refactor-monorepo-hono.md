@@ -363,16 +363,57 @@ Hono 占用 4777，Litestar 挪到 4779（`PICTORIA_PORT` 环境变量，缺省�
 6. **zod 的校验失败形状要翻译**：默认是 `{success, error:{name:'ZodError'}}`，Litestar 是 `{status_code, detail, extra:[{message,key,source}]}`，连**措辞**都不同（msgspec 说 `Expected \`int\` <= 5`，zod 说 `Too big: expected number to be <=5`）。前端可能把这句直接显示给用户，所以逐条翻译。
 7. **同一个"越界"在不同层被拒，状态码就不同**：`score` 在 msgspec schema 上有边界，校验层拒 → **400**；`rating` 在 query 上没约束，handler 里判断 → **409**。不对称，但这是既有行为，照抄。
 8. **响应键序照抄 DTO 声明顺序**，不是 SELECT 列顺序；**日期**要把 SQLite 的空格换成 `T`（Pydantic 的 ISO 8601）；**`PostSimplePublic` 永远带 `matchProb`/`sortValue`**（Pydantic 把未设置的可选字段序列化成 null）。
-### Phase 5 · 接入 cairnq（3–5 天）
 9. **同一个 400 有两种形状**：手抛的 `ValidationException` 是 `{status_code, detail}`（消息直接进 detail，**没有 extra**）；msgspec 的 schema 校验失败是 `{status_code, detail: "Validation failed for …", extra: [...]}`。前端能分辨，所以两种都要照抄。
 10. **动手前先读常量**。我凭印象猜 `VALID_DIMENSIONS`，真实是 `color/finish/composition/overall`；错误消息措辞同理。契约 diff 抓不到这类（它们不进 schema），只有读源码或对拍能抓到。
 
-先只接 **silva**（最简单：输入是已有向量，输出一个标量，不碰 GPU、不碰文件），把 submit → lease → progress → 结果落库整条链路跑通并观察一周。
+### ~~Phase 5 · 接入 cairnq（3–5 天）~~ ✅ silva / silva_luna 已接通 2026-08-10
 
-### Phase 6 · 剩余 worker（1–2 周）
+`packages/contracts`（TaskDef + 跨语言向量编解码）、`server/src/worker/`（cairnq worker
+进程）、`apps/api/src/scheduler.ts`（挑活）三块落地，两个 SILVA 头走完整条
+submit → lease → 结果落库。
 
-`silva_luna` → `waifu` → `tagger` → `embedding`（D1 的例外，直接写向量表）→ `basics`（最后，因为它顺带产缩略图）。
-同时把 `run_all_backfill` / `gpu_pressure` / `post_process_failures` 的职责交给 cairnq。
+**验收**（`pnpm parity:worker`，27 项）：同一批向量，新链路（TS 挑活 → cairnq →
+Python worker）和旧路径（Python 进程内直接读库算）算出的分数**逐位相同**；结果顺序
+与 payload 一致；空批次不加载 ML 栈；未注册的 scorer 被 worker 拒绝。热态往返
+104–816 ms，冷启动（torch + 权重进显存）约 11 s。
+
+#### 四件踩出来的事
+
+1. **不能拿库里的存量分数当基准。** 第一次对拍 8 条全红，看着像编码错了。二分之后
+   发现 Python 旧路径**直算**的结果和新链路逐位相同 —— 对不上的是
+   `post_aesthetic_scores` 里的历史值，那是**旧权重**的 head 算的。基准必须是同一时刻
+   的旧代码路径（`server/scripts/score_direct.py`），不是查表。
+2. **向量必须随 payload 走，用 base64 的原始 float32。** §D1 说 worker 不读库，而 silva
+   的输入正是已存的向量。JSON 数字数组体积是 base64 的 **3.4 倍**（1152 维：21 KB vs
+   6 KB），而且十进制往返有损 —— 两侧对不齐时表现为分数末位漂移，最难查的那种。批大小
+   随之从 256 降到 64：head forward 在这两个批量上都是毫秒级，批大小买不到吞吐，只买到
+   payload 体积。
+3. **`PICTORIA_SKIP_WORKERS` 是迁移缝。** 一个 worker 搬过去之后，Python 侧的 backfill
+   poller 必须停止扫它的 pending，否则两边对同一批数据重复烧 GPU。`WorkerSpec` 为此加了
+   稳定的 `key` 字段（`silva` / `basics` / …，与 cairnq 任务名同名），`enabled_workers()`
+   按环境变量过滤。`justfile` 的 `server-dev` 已经带上 `silva,silva_luna`。
+4. **`pnpm add` 会被 `trustPolicy: no-downgrade` 拦住**（Phase 1 那个 semver@6.3.1 又来了）。
+   任何一次 add 都触发全量重解析，于是既有依赖也要重新过信任检查。正解是
+   `trustPolicyExclude: ['semver@6.3.1']` —— 精确豁免这一个 (包, 版本)，策略对其余一切
+   照旧。**不要**把 trustPolicy 关掉。
+
+> ⚠️ 生产库上 `silva` / `silva_luna` 都已经打满 223,060 条，所以调度器在真机上**没有存量
+> 待办可跑** —— "服务起来没报错"证明不了待办查询挑对了东西。那条路径由
+> `packages/db/src/repositories/backfill.test.ts`（11 项，跑在迁移建出来的临时库上）覆盖，
+> 含"一批里有一条违反外键时整批回滚"。
+
+### Phase 6 · 剩余 worker（1–2 周）—— 进行中
+
+~~`silva_luna`~~ ✅（和 silva 同一条代码路径，随它一起接通）→ `waifu` → `tagger` →
+~~`embedding`（D1 的例外，直接写向量表）~~ → `basics`（最后，因为它顺带产缩略图）。
+
+> "embedding 是 D1 的例外"是初稿的说法，**已被 §D1 推翻** —— 那个例外建立在错误的批量
+> 假设上。embedding 和其余 worker 一样：算在 Python，写在 TS。
+
+每搬一个：给它写 TaskDef + handler + 调度循环，跑 `pnpm parity:worker` 的同款对拍
+（同一批输入，新旧两条路径逐位比对），然后把它的 `key` 加进 `justfile` 的
+`PICTORIA_SKIP_WORKERS`。全部搬完之后 `run_all_backfill` / `gpu_pressure` /
+`post_process_failures` 的职责一起交给 cairnq。
 
 ### Phase 7 · 清理（2–3 天）
 

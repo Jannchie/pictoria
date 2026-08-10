@@ -8,14 +8,17 @@
     "start": "tsx src/index.ts",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
-    "parity:write": "node scripts/write-parity.mjs"
+    "parity:write": "node scripts/write-parity.mjs",
+    "parity:worker": "tsx scripts/worker-parity.mts"
   },
   "dependencies": {
     "@hono/node-server": "^1.15.0",
-    "hono": "^4.13.1",
     "@hono/zod-openapi": "^1.5.2",
-    "zod": "^4.4.3",
-    "@pictoria/db": "workspace:*"
+    "@pictoria/contracts": "workspace:*",
+    "@pictoria/db": "workspace:*",
+    "cairnq": "0.6.0",
+    "hono": "^4.13.1",
+    "zod": "^4.4.3"
   },
   "devDependencies": {
     "@types/node": "^25.7.0",

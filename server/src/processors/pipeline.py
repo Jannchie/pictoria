@@ -12,7 +12,7 @@ from db.repositories.posts import PostRepo
 from db.repositories.vectors import VectorRepo
 from processors.basics import _compute_basics_for, persist_single_basics
 from processors.common import IMAGE_EXTS
-from processors.registry import BASICS_WORKER, WORKERS, WorkerContext, context_from_connection, run_worker
+from processors.registry import BASICS_WORKER, WorkerContext, context_from_connection, enabled_workers, run_worker
 from progress import get_progress
 from services.file_management import add_new_files, remove_deleted_files
 from shared import logger
@@ -94,7 +94,7 @@ async def run_all_backfill(db: DB) -> None:
     # One connection + worker context per spec so the workers run concurrently
     # without sharing per-statement cursor state (see docstring above). Order,
     # batch sizes, and GPU-pressure flags all come from the WORKERS registry.
-    specs_ctx = [(spec, context_from_connection(_checkout())) for spec in WORKERS]
+    specs_ctx = [(spec, context_from_connection(_checkout())) for spec in enabled_workers()]
 
     try:
         with get_progress() as progress:
@@ -190,7 +190,7 @@ async def process_post(
     # post_vectors_siglip2), so the embedding worker encodes straight into it,
     # and the silva worker scores that embedding back out of the vec0 table.
     ctx = WorkerContext(posts=posts, vectors=vectors, tag_groups=tag_groups)
-    for spec in WORKERS:
+    for spec in enabled_workers():
         if spec is BASICS_WORKER:
             continue
         await spec.process_batch(ctx, [post.id])

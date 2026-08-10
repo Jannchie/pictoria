@@ -16,6 +16,7 @@ visible in one table rather than buried across five modules.
 
 from __future__ import annotations
 
+import os
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Literal
 
@@ -36,6 +37,7 @@ from processors.scoring import (
     _process_waifu_batch,
 )
 from processors.tagger import TAGGER_BATCH_SIZE, _list_tagger_pending, _process_tagger_batch
+from shared import logger
 
 if TYPE_CHECKING:
     import sqlite3
@@ -72,6 +74,10 @@ class WorkerContext:
 
 @dataclass(frozen=True)
 class WorkerSpec:
+    #: Stable machine name, used by ``PICTORIA_SKIP_WORKERS`` and matching the
+    #: cairnq task name this worker is migrating to. ``name`` is the human
+    #: label shown in progress output and is free to change; this is not.
+    key: str
     name: str
     batch_size: int
     gpu_adaptive: bool
@@ -192,6 +198,7 @@ async def _regroup_after_embedding(db: DB, pending_count: int) -> None:
 # Order matches the historical run_all_backfill / process_post ordering.
 
 BASICS_WORKER = WorkerSpec(
+    key="basics",
     name="Basics",
     batch_size=BASICS_BATCH_SIZE,
     gpu_adaptive=False,
@@ -201,6 +208,7 @@ BASICS_WORKER = WorkerSpec(
 )
 
 EMBEDDING_WORKER = WorkerSpec(
+    key="embedding",
     name="SigLIP embeddings",
     batch_size=SIGLIP_EMBED_BATCH_SIZE,
     gpu_adaptive=True,
@@ -211,6 +219,7 @@ EMBEDDING_WORKER = WorkerSpec(
 )
 
 TAGGER_WORKER = WorkerSpec(
+    key="tagger",
     name="Tags",
     batch_size=TAGGER_BATCH_SIZE,
     gpu_adaptive=True,
@@ -220,6 +229,7 @@ TAGGER_WORKER = WorkerSpec(
 )
 
 WAIFU_WORKER = WorkerSpec(
+    key="waifu",
     name="Waifu scorer",
     batch_size=WAIFU_BATCH_SIZE,
     gpu_adaptive=True,
@@ -229,6 +239,7 @@ WAIFU_WORKER = WorkerSpec(
 )
 
 SILVA_WORKER = WorkerSpec(
+    key="silva",
     name="SILVA scorer",
     batch_size=SILVA_BATCH_SIZE,
     gpu_adaptive=False,
@@ -238,6 +249,7 @@ SILVA_WORKER = WorkerSpec(
 )
 
 SILVA_LUNA_WORKER = WorkerSpec(
+    key="silva_luna",
     name="SILVA-Luna scorer",
     batch_size=SILVA_BATCH_SIZE,
     gpu_adaptive=False,
@@ -245,6 +257,25 @@ SILVA_LUNA_WORKER = WorkerSpec(
     list_pending=_silva_luna_pending,
     process_batch=_silva_luna_process,
 )
+
+def enabled_workers() -> tuple[WorkerSpec, ...]:
+    """``WORKERS`` minus whatever ``PICTORIA_SKIP_WORKERS`` names.
+
+    This is the migration seam. A worker moves to the cairnq path one at a time,
+    and while it is over there the TS scheduler is picking its pending work — so
+    this process must stop picking the same work, or both sides burn GPU on the
+    same batch. Comma-separated ``key`` values, e.g.
+    ``PICTORIA_SKIP_WORKERS=silva,silva_luna``.
+
+    It goes away with the poller itself once Phase 6 moves the last worker.
+    """
+    skip = {k.strip() for k in os.environ.get("PICTORIA_SKIP_WORKERS", "").split(",") if k.strip()}
+    if not skip:
+        return WORKERS
+    kept = tuple(w for w in WORKERS if w.key not in skip)
+    logger.info(f"backfill workers disabled by PICTORIA_SKIP_WORKERS: {sorted(skip)}")
+    return kept
+
 
 WORKERS: tuple[WorkerSpec, ...] = (
     BASICS_WORKER,

@@ -19,6 +19,7 @@
     "parity:all": "pnpm parity && pnpm parity:write && pnpm parity:annotations && pnpm parity:tags && pnpm parity:timeline && pnpm parity:queues && pnpm parity:sampling && pnpm contract:diff",
     "parity:timeline": "node scripts/timeline-parity.mjs",
     "parity:queues": "node scripts/queues-parity.mjs",
-    "parity:sampling": "node scripts/sampling-parity.mjs"
+    "parity:sampling": "node scripts/sampling-parity.mjs",
+    "parity:worker": "pnpm --filter @pictoria/api parity:worker"
   }
 }

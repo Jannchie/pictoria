@@ -16,9 +16,15 @@ importers:
       '@hono/zod-openapi':
         specifier: ^1.5.2
         version: 1.5.2(hono@4.13.1)(zod@4.4.3)
+      '@pictoria/contracts':
+        specifier: workspace:*
+        version: link:../../packages/contracts
       '@pictoria/db':
         specifier: workspace:*
         version: link:../../packages/db
+      cairnq:
+        specifier: 0.6.0
+        version: 0.6.0
       hono:
         specifier: ^4.13.1
         version: 4.13.1
@@ -135,6 +141,22 @@ importers:
       vue-tsc:
         specifier: 3.2.8
         version: 3.2.8(typescript@6.0.3)
+
+  packages/contracts:
+    dependencies:
+      cairnq:
+        specifier: 0.6.0
+        version: 0.6.0
+    devDependencies:
+      '@types/node':
+        specifier: ^25.7.0
+        version: 25.7.0
+      typescript:
+        specifier: ^6.0.3
+        version: 6.0.3
+      vitest:
+        specifier: ^4.1.6
+        version: 4.1.6(@types/node@25.7.0)(vite@8.0.12(@types/node@25.7.0)(esbuild@0.28.2)(jiti@2.7.0)(tsx@4.23.12)(yaml@2.9.0))
 
   packages/db:
     dependencies:
@@ -1957,6 +1979,15 @@ packages:
   cac@7.0.0:
     resolution: {integrity: sha512-tixWYgm5ZoOD+3g6UTea91eow5z6AAHaho3g0V9CNSNb45gM8SmflpAc+GRd1InC4AqN/07Unrgp56Y94N9hJQ==}
     engines: {node: '>=20.19.0'}
+
+  cairnq@0.6.0:
+    resolution: {integrity: sha512-cb8yH/t9g3Kyff42fF6WUY6hoAeG/bw2G/XnPTJ8XNnx42E66VoS1+NSIJp36lMtAYdOgteyK8XXE3piKJp0dQ==}
+    engines: {node: '>=22'}
+    peerDependencies:
+      pg: ^8.13.0
+    peerDependenciesMeta:
+      pg:
+        optional: true
 
   call-bind-apply-helpers@1.0.2:
     resolution: {integrity: sha512-Sp1ablJ0ivDkSzjcaJdxEunN5/XvksFJ2sMBFfq6x0ryhQV/2b/KwFe21cMpmHtPOSij8K99/wSfoEuTObmuMQ==}
@@ -5289,6 +5320,10 @@ snapshots:
       rc9: 3.0.1
 
   cac@7.0.0: {}
+
+  cairnq@0.6.0:
+    dependencies:
+      better-sqlite3: 13.0.3
 
   call-bind-apply-helpers@1.0.2:
     dependencies:
