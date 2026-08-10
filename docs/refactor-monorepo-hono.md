@@ -404,7 +404,7 @@ Python worker）和旧路径（Python 进程内直接读库算）算出的分数
 
 ### Phase 6 · 剩余 worker（1–2 周）—— 进行中
 
-~~`silva_luna`~~ ✅（和 silva 同一条代码路径，随它一起接通）→ `waifu` → `tagger` →
+~~`silva_luna`~~ ✅（和 silva 同一条代码路径，随它一起接通）→ ~~`waifu`~~ ✅ → `tagger` →
 ~~`embedding`（D1 的例外，直接写向量表）~~ → `basics`（最后，因为它顺带产缩略图）。
 
 > "embedding 是 D1 的例外"是初稿的说法，**已被 §D1 推翻** —— 那个例外建立在错误的批量
@@ -414,6 +414,23 @@ Python worker）和旧路径（Python 进程内直接读库算）算出的分数
 （同一批输入，新旧两条路径逐位比对），然后把它的 `key` 加进 `justfile` 的
 `PICTORIA_SKIP_WORKERS`。全部搬完之后 `run_all_backfill` / `gpu_pressure` /
 `post_process_failures` 的职责一起交给 cairnq。
+
+**waifu 带出来的三件事**（2026-08-10，对拍 36 项）：
+
+1. **handler 必须是 `async`，GPU 调用要 `asyncio.to_thread`。** cairnq 在自己的事件循环上
+   跑 handler，而那个循环同时负责续这个任务的租约 —— 一次几秒的同步 forward 把它挡住，
+   租约就会过期，任务被判死并交给另一个 worker，而这一个还在算。
+2. **降级阶梯搬进了 `worker/ladder.py`。** 原来的 `processors/common.py` 在模块级 import
+   `FailureRepo`，worker 用它就等于把 `db` 层拖了进来。失败现在作为**数据**回传，由 TS
+   决定它意味着什么 —— 这才是 §D1 想要的形状。
+3. **payload 里的路径是输入，要校验。** 它穿过一个数据库跨进程，所以 handler 用
+   `_resolve_inside` 挡在图库根之外的路径（和 `server/images.py` 一样的理由）。对拍里
+   钉了三条：逃逸被拒、文件不存在是**丢弃**而不是拉黑（它不是坏数据，它是没了）、
+   待办查询拼出来的路径真实存在。
+
+> 参考实现（`server/scripts/score_direct.py`）的 stdout 会被 WaifuScorer 的 rich 日志
+> 污染 —— 它把加载进度打在 stdout 上，正好混进要输出的 JSON 里。脚本因此先把
+> `sys.stdout` 换成 stderr，只留一个私有句柄写结果。
 
 ### Phase 7 · 清理（2–3 天）
 

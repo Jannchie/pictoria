@@ -17,7 +17,10 @@ import {
   aestheticWorkerKey,
   fetchEmbeddingBlobs,
   listSilvaPending,
+  listWaifuPending,
+  recordFailures,
   upsertAestheticScores,
+  upsertWaifuScores,
 } from './backfill.js'
 
 const here = path.dirname(fileURLToPath(import.meta.url))
@@ -33,12 +36,12 @@ function vectorBlob(seed: number): Buffer {
   return Buffer.from(vec.buffer)
 }
 
-function insertPost(id: number): void {
+function insertPost(id: number, extension = 'jpg'): void {
   sqlite
     .prepare(
       'INSERT INTO posts (id, file_path, file_name, extension, width, height) VALUES (?, ?, ?, ?, 100, 100)',
     )
-    .run(id, 'dir', `f${id}`, 'jpg')
+    .run(id, 'dir', `f${id}`, extension)
 }
 
 beforeAll(() => {
@@ -170,5 +173,63 @@ describe('分数落库', () => {
       { postId: 999, score: 0.5 },
     ])).toThrow()
     expect(sqlite.prepare<[], { n: number }>('SELECT COUNT(*) AS n FROM post_aesthetic_scores').get()!.n).toBe(0)
+  })
+})
+
+describe('waifu 待办查询', () => {
+  beforeEach(() => {
+    sqlite.exec('DELETE FROM post_waifu_scores')
+  })
+
+  it('拼出来的路径是 targetDir + full_path（生成列）', () => {
+    insertPost(1, 'png')
+    expect(listWaifuPending(sqlite, '/lib')).toEqual([{ postId: 1, path: '/lib/dir/f1.png' }])
+  })
+
+  it('只要图片扩展名', () => {
+    insertPost(1, 'jpg')
+    insertPost(2, 'txt')
+    insertPost(3, 'zip')
+    insertPost(4, 'WEBP') // 大小写不敏感，和 Python 侧的 LOWER(extension) 一致
+    expect(listWaifuPending(sqlite, '/lib').map(p => p.postId)).toEqual([1, 4])
+  })
+
+  it('已经打过分的不再出现', () => {
+    insertPost(1)
+    insertPost(2)
+    upsertWaifuScores(sqlite, [{ postId: 1, score: 7.5 }])
+    expect(listWaifuPending(sqlite, '/lib').map(p => p.postId)).toEqual([2])
+  })
+
+  it('被拉黑的不再出现，而且只认 waifu 那个桶', () => {
+    insertPost(1)
+    insertPost(2)
+    recordFailures(sqlite, 'waifu', [{ postId: 2, error: 'unreadable' }])
+    recordFailures(sqlite, 'basics', [{ postId: 1, error: '别的 worker' }])
+    expect(listWaifuPending(sqlite, '/lib').map(p => p.postId)).toEqual([1])
+  })
+
+  it('重复拉黑同一条是空操作而不是唯一约束错误', () => {
+    insertPost(1)
+    recordFailures(sqlite, 'waifu', [{ postId: 1, error: 'first' }])
+    expect(() => recordFailures(sqlite, 'waifu', [{ postId: 1, error: 'again' }])).not.toThrow()
+    const rows = sqlite
+      .prepare<[], { error: string }>('SELECT error FROM post_process_failures WHERE post_id = 1')
+      .all()
+    // OR IGNORE：保留第一条，不覆盖
+    expect(rows).toEqual([{ error: 'first' }])
+  })
+
+  it('limit 截断的是 id 升序的前缀', () => {
+    for (const id of [3, 1, 2]) insertPost(id)
+    expect(listWaifuPending(sqlite, '/lib', 2).map(p => p.postId)).toEqual([1, 2])
+  })
+
+  it('重复写分数是更新', () => {
+    insertPost(1)
+    upsertWaifuScores(sqlite, [{ postId: 1, score: 7.5 }])
+    upsertWaifuScores(sqlite, [{ postId: 1, score: 2.5 }])
+    const rows = sqlite.prepare<[], { score: number }>('SELECT score FROM post_waifu_scores WHERE post_id = 1').all()
+    expect(rows).toEqual([{ score: 2.5 }])
   })
 })

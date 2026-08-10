@@ -54,3 +54,45 @@ export const silvaTask = defineTask<SilvaPayload, SilvaResult>('silva')
  * 吞吐，只买到 payload 体积。
  */
 export const SILVA_TASK_BATCH = 64
+
+/** 一条待打分的图片：post id 加上磁盘上的绝对路径。 */
+export interface ImageItem {
+  postId: number
+  /** 绝对路径。worker 没有库可查（§D1），所以路径必须随 payload 走。 */
+  path: string
+}
+
+/** 降级阶梯判定为坏数据的那些 post —— TS 决定这意味着什么。 */
+export interface WorkerFailure {
+  postId: number
+  error: string
+}
+
+export interface WaifuPayload {
+  items: ImageItem[]
+}
+
+export interface WaifuResult {
+  scores: Array<{ postId: number, score: number }>
+  failures: WorkerFailure[]
+}
+
+/**
+ * waifu 质量分：CLIP ViT-L/14 backbone + 一个回归头，输入是图片本身。
+ *
+ * 与 silva 的关键差别在于失败**是**一种正常结果：一张读不出来的图会让整批崩掉，
+ * worker 内部的降级阶梯（整批 → 4 张 → 单张）把它隔离出来，作为 `failures` 回传。
+ * TS 侧把它写进 `post_process_failures` 一次性拉黑，否则待办查询会永远重选它。
+ */
+export const waifuTask = defineTask<WaifuPayload, WaifuResult>('waifu')
+
+/**
+ * 一批的大小，与 Python 侧的 `WAIFU_BATCH_SIZE` 同值。
+ *
+ * 这里不像 silva 那样需要缩小 —— payload 里只有路径，32 条也就几 KB。它的上限
+ * 是显存，不是队列。
+ */
+export const WAIFU_TASK_BATCH = 32
+
+/** `post_process_failures.worker` 里 waifu 用的桶名。与 Python 侧同值。 */
+export const WAIFU_WORKER_KEY = 'waifu'

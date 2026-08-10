@@ -4,7 +4,7 @@ import { OpenAPIHono } from '@hono/zod-openapi'
 import { compress } from 'hono/compress'
 import { createProxy } from './proxy.js'
 import { getDb } from './db.js'
-import { startSilvaBackfill } from './scheduler.js'
+import { startSilvaBackfill, startWaifuBackfill } from './scheduler.js'
 import { getTasks } from './tasks.js'
 import { annotationQueuesRoutes } from './routes/annotation-queues.js'
 import { annotationsRoutes } from './routes/annotations.js'
@@ -112,8 +112,10 @@ serve({ fetch: app.fetch, port: PORT }, (info) => {
 if (process.env.PICTORIA_SCHEDULER !== '0') {
   void (async () => {
     const tasks = await getTasks()
+    const { sqlite } = getDb()
     for (const scorer of ['silva', 'silva_luna'] as const)
-      startSilvaBackfill(getDb().sqlite, tasks, { scorer })
-    console.warn('[pictoria-api] backfill 调度已启动：silva, silva_luna')
+      startSilvaBackfill(sqlite, tasks, { scorer })
+    startWaifuBackfill(sqlite, tasks)
+    console.warn('[pictoria-api] backfill 调度已启动：silva, silva_luna, waifu')
   })()
 }

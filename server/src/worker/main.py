@@ -29,7 +29,7 @@ from pathlib import Path
 
 from cairnq import SQLiteStore, Worker
 
-from worker.handlers import handle_silva
+from worker.handlers import handle_silva, handle_waifu, set_root
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 log = logging.getLogger("worker")
@@ -59,11 +59,15 @@ async def main() -> None:
     store = SQLiteStore(str(db_path))
     worker = Worker(store, queues=[GPU_QUEUE], concurrency=1)
 
+    # Payload paths are resolved inside this root and nowhere else.
+    set_root(args.target_dir)
+
     # ``silva`` and ``silva_luna`` are the same code path with different learnt
     # weights, so one handler serves both names and the payload says which head.
     worker.task("silva")(lambda _ctx, payload: handle_silva(payload))
+    worker.task("waifu")(lambda _ctx, payload: handle_waifu(payload))
 
-    log.info("worker up: %s queue=%s db=%s", "silva", GPU_QUEUE, db_path)
+    log.info("worker up: silva, waifu  queue=%s db=%s", GPU_QUEUE, db_path)
     await worker.run()
 
 

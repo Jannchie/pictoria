@@ -13,14 +13,17 @@
  * 逐位比对。
  */
 import { spawn } from 'node:child_process'
+import fs from 'node:fs'
 import path from 'node:path'
 import process from 'node:process'
-import { encodeVectorBlob, GPU_QUEUE, silvaTask } from '@pictoria/contracts'
-import { createDb, fetchEmbeddingBlobs } from '@pictoria/db'
+import { encodeVectorBlob, GPU_QUEUE, silvaTask, waifuTask } from '@pictoria/contracts'
+import { createDb, fetchEmbeddingBlobs, listWaifuPending } from '@pictoria/db'
 import { CairnQ } from 'cairnq'
 
 const ROOT = path.resolve(import.meta.dirname, '../../..')
 const SAMPLE = 12
+
+const fsExists = (p: string) => fs.existsSync(p)
 
 const { sqlite } = createDb({ path: path.resolve(ROOT, 'server/illustration/images/.pictoria/pictoria.sqlite') })
 
@@ -159,6 +162,82 @@ for (const scorer of ['silva'] as const) {
   catch {
     pass++
   }
+}
+
+// ─── waifu：输入是图片本身，失败是正常结果 ────────────────────────
+{
+  // 从库里现成的行拿绝对路径 —— 和调度器用的是同一个函数，所以路径的拼法本身
+  // 也在对拍范围内。挑已经打过分的（listWaifuPending 只给没打分的），所以这里
+  // 自己查。
+  const imgRows = sqlite
+    .prepare<[], { id: number, full_path: string }>(
+      `SELECT p.id, p.full_path FROM posts p JOIN post_waifu_scores w ON w.post_id = p.id `
+      + `WHERE LOWER(p.extension) IN ('jpg','jpeg','png','webp') ORDER BY RANDOM() LIMIT 6`,
+    )
+    .all()
+  const root = path.resolve(ROOT, 'server/illustration/images')
+  const imgItems = imgRows.map(r => ({ postId: r.id, path: `${root}/${r.full_path}` }))
+
+  const t0 = Date.now()
+  const viaQueue = await tasks.call(waifuTask, { items: imgItems }, {
+    queue: GPU_QUEUE,
+    key: `parity:waifu:${Date.now()}`,
+    conflict: 'reject',
+    waitTimeoutMs: 300_000,
+    pollMs: 100,
+  })
+  console.log(`waifu: 队列往返 ${Date.now() - t0} ms，${viaQueue.scores.length} 条打分 / ${viaQueue.failures.length} 条失败`)
+
+  const direct = await scoreDirect('waifu', imgRows.map(r => r.id))
+  const directMap = new Map(direct.map(d => [d.postId, d.score]))
+  let bad = 0
+  for (const s of viaQueue.scores) {
+    if (directMap.get(s.postId) !== s.score) {
+      bad++
+      if (bad <= 3)
+        fails.push(`waifu post ${s.postId}: 队列 ${s.score} vs 直算 ${directMap.get(s.postId)}`)
+    }
+  }
+  if (bad)
+    fails.push(`waifu: ${bad}/${viaQueue.scores.length} 条不一致`)
+  else
+    pass += viaQueue.scores.length
+
+  // 路径逃逸必须被 worker 拒绝，而不是当成一张读不出来的图默默拉黑。payload 穿过
+  // 进程边界，路径是输入。
+  const escaped = await tasks.call(waifuTask, {
+    items: [{ postId: -1, path: path.resolve(ROOT, 'package.json') }],
+  }, {
+    queue: GPU_QUEUE,
+    key: `parity:escape:${Date.now()}`,
+    conflict: 'reject',
+    waitTimeoutMs: 60_000,
+    pollMs: 100,
+  })
+  if (escaped.failures.length === 1 && escaped.failures[0]!.error.includes('escapes'))
+    pass++
+  else fails.push(`路径逃逸没有被拒：${JSON.stringify(escaped)}`)
+
+  // 不存在的文件被丢掉而不是拉黑 —— 它不是坏数据，它是没了
+  const missing = await tasks.call(waifuTask, {
+    items: [{ postId: -1, path: `${root}/__does_not_exist__.jpg` }],
+  }, {
+    queue: GPU_QUEUE,
+    key: `parity:missing:${Date.now()}`,
+    conflict: 'reject',
+    waitTimeoutMs: 60_000,
+    pollMs: 100,
+  })
+  if (missing.scores.length === 0 && missing.failures.length === 0)
+    pass++
+  else fails.push(`文件不存在时的处理不对：${JSON.stringify(missing)}`)
+
+  // 调度器用的待办查询本身：拼出来的路径必须真的存在
+  const pending = listWaifuPending(sqlite, root, 3)
+  const broken = pending.filter(p => !fsExists(p.path))
+  if (!broken.length)
+    pass++
+  else fails.push(`待办查询拼出了不存在的路径：${broken.map(b => b.path).join(', ')}`)
 }
 
 await tasks.close()
