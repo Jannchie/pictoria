@@ -104,6 +104,32 @@ async function buildCases() {
     cases.push(['GET', `/v2/posts/${id}/group`])
   }
 
+  // 列表：游标分页 + 语言
+  for (const q of ['', '?limit=3', '?start=100&limit=5', '?limit=3&lang=en', '?limit=0', '?start=-1'])
+    cases.push(['GET', `/v2/posts/${q}`])
+
+  // 搜索：三种排序模式 × 虚拟排序列 × lab 距离
+  const searches = [
+    {},
+    { order_by: 'id', order: 'asc' },
+    { order_by: 'score', order: 'desc' },
+    { order_by: 'created_at', order: 'asc' },
+    { order_by: 'waifu_score', order: 'desc' },
+    { order_by: 'silva_score', order: 'desc' },
+    { order_by: 'silva_luna_score', order: 'asc' },
+    { order_by: 'discrepancy', order: 'desc' },
+    { order: 'random', order_seed: 42 },
+    { order: 'random', order_seed: 42, order_by: 'score', sort_direction: 'asc' },
+    { order: 'random', order_seed: 7, order_by: 'waifu_score', sort_direction: 'desc' },
+    { lab: [50, 10, -20] },
+    { lab: [50, 10, -20], rating: [1, 2] },
+    { tags: ['1girl'], order_by: 'score', order: 'desc' },
+    { only_canonical: false, order_by: 'id', order: 'desc' },
+    { waifu_score_levels: ['A'], order_by: 'waifu_score', order: 'desc' },
+  ]
+  for (const body of searches) cases.push(['POST', '/v2/posts/search?limit=5', body])
+  cases.push(['POST', '/v2/posts/search?limit=3&offset=10', { order_by: 'id', order: 'asc' }])
+
   for (const ep of [
     '/v2/posts/count',
     '/v2/posts/count/rating',

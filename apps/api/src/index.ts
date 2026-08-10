@@ -5,6 +5,7 @@ import { compress } from 'hono/compress'
 import { createProxy } from './proxy.js'
 import { foldersRoutes } from './routes/folders.js'
 import { postCountsRoutes } from './routes/post-counts.js'
+import { postListRoutes } from './routes/post-list.js'
 import { postReadsRoutes } from './routes/post-reads.js'
 import { statisticsRoutes } from './routes/statistics.js'
 import { tagsRoutes } from './routes/tags.js'
@@ -32,6 +33,7 @@ app.route('/', foldersRoutes)
 app.route('/', tagsRoutes)
 app.route('/', postCountsRoutes)
 app.route('/', postReadsRoutes)
+app.route('/', postListRoutes)
 
 /**
  * `/schema/openapi.json` 必须把两侧合起来。
