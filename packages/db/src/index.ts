@@ -24,3 +24,5 @@ export type { PaginatedPosts, PostFilterWithOrder } from './queries/post-search.
 export { bulkUpdateField, clearCanonical, makeCanonical, postExists, touchAccessed, updateField } from './repositories/posts.js'
 export { annotationTimeline, countPairwise, editAnnotation, insertAbsolute, insertContentFlag, insertPairwise, latestContentFlag, listAbsoluteForPost, listPairwiseForPost, markQueueItemDone, MUTABLE_KINDS, postsById, undoAnnotations } from './repositories/annotations.js'
 export type { AbsoluteEventIn, PairwiseEventIn, QueueItemPost } from './repositories/annotations.js'
+export { createAbsoluteQueue, createPairwiseQueue, getQueue, listQueues, nextAbsoluteItems, nextPairwiseItems } from './repositories/annotation-queues.js'
+export type { AnnotationQueueRow, QueueWithProgress } from './repositories/annotation-queues.js'
