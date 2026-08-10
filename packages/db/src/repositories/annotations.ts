@@ -251,3 +251,40 @@ export function markQueueItemDone(
       .run(done ? 1 : 0, queueId, position).changes > 0
   )
 }
+
+/** timeline / 采样都要的那七个图片列。 */
+const POST_COLS = ['id', 'file_path', 'file_name', 'extension', 'sha256', 'width', 'height'] as const
+
+export interface QueueItemPost {
+  post_id: number
+  file_path: string
+  file_name: string
+  extension: string
+  sha256: string
+  width: number
+  height: number
+}
+
+/**
+ * `post_id -> 图片行`，只含仍然存在的 id，重复自动收敛。
+ *
+ * 每个调用方都是"手里有一批 id 要渲染"（采样批、历史页），都需要同样这七列和同样的
+ * "post 可能已经被删了"处理，所以查询只写一处。
+ */
+export function postsById(
+  sqlite: BetterSqlite3.Database,
+  ids: number[],
+): Map<number, QueueItemPost> {
+  const unique = [...new Set(ids)]
+  const out = new Map<number, QueueItemPost>()
+  if (!unique.length)
+    return out
+  const cols = ['p.id AS post_id', ...POST_COLS.slice(1).map(c => `p.${c} AS ${c}`)].join(', ')
+  for (const row of sqlite
+    .prepare<unknown[], QueueItemPost>(
+      `SELECT ${cols} FROM posts p WHERE p.id IN (${placeholders(unique.length)})`,
+    )
+    .all(...unique))
+    out.set(row.post_id, row)
+  return out
+}

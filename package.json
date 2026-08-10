@@ -15,6 +15,7 @@
     "parity": "node scripts/endpoint-parity.mjs",
     "parity:annotations": "node scripts/annotations-parity.mjs",
     "parity:tags": "node scripts/tag-writes-parity.mjs",
-    "parity:all": "pnpm parity && pnpm parity:write && pnpm parity:annotations && pnpm parity:tags && pnpm contract:diff"
+    "parity:all": "pnpm parity && pnpm parity:write && pnpm parity:annotations && pnpm parity:tags && pnpm parity:timeline && pnpm contract:diff",
+    "parity:timeline": "node scripts/timeline-parity.mjs"
   }
 }

@@ -1,8 +1,7 @@
 /**
- * `/v2/annotations` —— 提交、撤回、更正、按 post 查历史、pairwise 计数。
+ * `/v2/annotations` —— 提交、撤回、更正、timeline、按 post 查历史、pairwise 计数。
  *
- * 三个端点仍透传：`timeline` 要把事件流和 post 图片字段拼起来（另一个仓储的
- * `posts_by_id`），两个 `sample-*` 依赖 1058 行的采样图算法。它们各自值得单独一趟。
+ * 两个 `sample-*` 仍透传：它们依赖 1058 行的采样图算法，值得单独一趟。
  */
 import { createRoute, OpenAPIHono, z } from '@hono/zod-openapi'
 import {
@@ -14,8 +13,10 @@ import {
   latestContentFlag,
   listAbsoluteForPost,
   listPairwiseForPost,
+  annotationTimeline,
   markQueueItemDone,
   MUTABLE_KINDS,
+  postsById,
   undoAnnotations,
 } from '@pictoria/db'
 import { getDb } from '../db.js'
@@ -350,6 +351,130 @@ annotationsRoutes.openapi(
       })),
       // 'none' 是撤回，对外等同于"没有 flag"。
       contentFlag: !flag || flag.flag === 'none' ? null : (flag.flag as string),
+    })
+  },
+)
+
+const TIMELINE_MAX_LIMIT = 100
+const CURSOR_PARTS = 3
+
+const QueueItemPostPublic = z
+  .object({
+    id: z.int(),
+    filePath: z.string(),
+    fileName: z.string(),
+    extension: z.string(),
+    sha256: z.string(),
+    width: z.int(),
+    height: z.int(),
+  })
+  .openapi('QueueItemPostPublic')
+
+const TimelineEntryPublic = z
+  .object({
+    kind: z.string(),
+    id: z.int(),
+    createdAt: z.iso.datetime(),
+    post: QueueItemPostPublic,
+    postB: z.union([QueueItemPostPublic, z.null()]).optional(),
+    dimension: z.string().nullable().optional(),
+    winner: z.string().nullable().optional(),
+    scale: z.int().nullable().optional(),
+    value: z.int().nullable().optional(),
+    flag: z.string().nullable().optional(),
+    editedAt: z.iso.datetime().nullable().optional(),
+  })
+  .openapi('TimelineEntryPublic')
+
+const TimelinePagePublic = z
+  .object({ items: z.array(TimelineEntryPublic), nextCursor: z.string().nullable().optional() })
+  .openapi('TimelinePagePublic')
+
+/**
+ * `created_at|kind|id` —— 把合并流的全序压成一个不透明 token。
+ *
+ * 对客户端刻意不透明：它是一个**排序位置**而不是行 id，把三段都编进去，下一页才能
+ * 精确地从这一页停下的地方续上（id 只在单表内递增）。
+ *
+ * **只为一页的最后一条原始行生成**，绝不逐条生成：post 已被删的行会从 items 里剔掉，
+ * 所以最后一条可见条目不是这页停下的位置，从它续会把被剔掉的重新发一遍。
+ */
+function makeCursor(row: any): string {
+  return `${row.created_at}|${row.kind}|${row.id}`
+}
+
+function parseCursor(raw?: string | null): [string, string, number] | null {
+  if (!raw)
+    return null
+  const parts = raw.split('|')
+  if (parts.length !== CURSOR_PARTS || parts.some(p => !p) || !/^\d+$/.test(parts[2]!))
+    return 'malformed' as never
+  return [parts[0]!, parts[1]!, Number(parts[2])]
+}
+
+function toQueuePost(p: any) {
+  return {
+    id: p.post_id,
+    filePath: p.file_path,
+    fileName: p.file_name,
+    extension: p.extension,
+    sha256: p.sha256,
+    width: p.width,
+    height: p.height,
+  }
+}
+
+annotationsRoutes.openapi(
+  createRoute({
+    method: 'get',
+    path: '/v2/annotations/timeline',
+    operationId: 'v2AnnotationTimeline',
+    summary: 'AnnotationTimeline',
+    description: "Everything submitted so far, newest first, across all three event kinds. Cursor-paged: pass the previous page's nextCursor as 'before'. Cursor rather than offset because the head of this list grows while it is being scrolled.",
+    request: {
+      query: z.object({
+        limit: z.coerce.number().int().default(30)
+          .openapi({ param: { name: 'limit', in: 'query', required: false }, type: 'integer', default: 30 }),
+        before: z.string().nullable().optional()
+          .openapi({ param: { name: 'before', in: 'query', required: false } }),
+      }),
+    },
+    responses: {
+      200: { description: OK, content: { 'application/json': { schema: TimelinePagePublic } } },
+      ...RESP_400,
+    },
+  }),
+  (c) => {
+    const { limit, before } = c.req.valid('query')
+    const cursor = parseCursor(before)
+    if ((cursor as unknown) === 'malformed')
+      return validationError(c, `malformed cursor: '${before}'`) as never
+
+    const page = Math.min(Math.max(limit, 1), TIMELINE_MAX_LIMIT)
+    const { sqlite } = getDb()
+    const rows = annotationTimeline(sqlite, { limit: page, before: cursor })
+    const posts = postsById(sqlite, rows.flatMap((r: any) => [r.post, r.post_b].filter(Boolean)))
+
+    const items = rows
+      // 判决之后 post 被删了，这条事件就没东西可展示。在这里剔掉比渲染一个碎块诚实。
+      .filter((r: any) => posts.has(r.post) && (!r.post_b || posts.has(r.post_b)))
+      .map((r: any) => ({
+        kind: r.kind,
+        id: r.id,
+        createdAt: toIsoDateTime(r.created_at),
+        post: toQueuePost(posts.get(r.post)),
+        postB: r.post_b ? toQueuePost(posts.get(r.post_b)) : null,
+        dimension: r.dimension,
+        winner: r.winner,
+        scale: r.scale,
+        value: r.value,
+        flag: r.flag,
+        editedAt: toIsoDateTime(r.edited_at),
+      }))
+
+    return c.json({
+      items,
+      nextCursor: rows.length === page ? makeCursor(rows[rows.length - 1]) : null,
     })
   },
 )

@@ -91,3 +91,48 @@ export function touchAccessed(sqlite: BetterSqlite3.Database, postId: number): b
 export function postExists(sqlite: BetterSqlite3.Database, postId: number): boolean {
   return sqlite.prepare('SELECT 1 FROM posts WHERE id = ?').get(postId) !== undefined
 }
+
+/** 解组：把这些 id 提回独立的 canonical post。 */
+export function clearCanonical(sqlite: BetterSqlite3.Database, ids: number[]): void {
+  if (!ids.length)
+    return
+  sqlite
+    .prepare(
+      `UPDATE posts SET canonical_post_id = NULL, updated_at = CURRENT_TIMESTAMP `
+      + `WHERE id IN (${placeholders(ids.length)})`,
+    )
+    .run(...ids)
+}
+
+/**
+ * 把 `postId` 提升为它所在组的 canonical（"设为封面"）。
+ *
+ * 把原 canonical 和所有兄弟成员重新指向 `postId`，再清掉 `postId` 自己的指针。
+ * post 不存在或本来就是 canonical 时是空操作（返回 false）。
+ *
+ * 一个事务：两条 UPDATE 之间，这个组是个 2-环 —— **每个**成员（含原 canonical）
+ * 的指针都非 NULL，也就是整组从列表里消失。被打断不能把那个状态冻住，WAL 读者
+ * 也绝不能观察到它。
+ */
+export function makeCanonical(sqlite: BetterSqlite3.Database, postId: number): boolean {
+  const row = sqlite
+    .prepare<[number], { canonical_post_id: number | null }>(
+      'SELECT canonical_post_id FROM posts WHERE id = ?',
+    )
+    .get(postId)
+  if (!row || row.canonical_post_id === null)
+    return false
+  const current = row.canonical_post_id
+
+  const repoint = sqlite.prepare(
+    'UPDATE posts SET canonical_post_id = ?, updated_at = CURRENT_TIMESTAMP WHERE (id = ? OR canonical_post_id = ?) AND id != ?',
+  )
+  const promote = sqlite.prepare(
+    'UPDATE posts SET canonical_post_id = NULL, updated_at = CURRENT_TIMESTAMP WHERE id = ?',
+  )
+  sqlite.transaction(() => {
+    repoint.run(postId, current, current, postId)
+    promote.run(postId)
+  })()
+  return true
+}

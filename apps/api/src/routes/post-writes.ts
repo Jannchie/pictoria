@@ -2,11 +2,10 @@
  * posts 的标量字段写入：score / rating / caption / source / touch / 批量。
  *
  * 还留在代理上的写端点：`upload`（multipart + 落盘）、`rotate`（要重编码图片）、
- * `delete`（连带删文件和缩略图）、`ungroup` / `make-canonical`（分组重排）、
- * 以及 per-post 的 tag 增删。它们要么碰文件系统，要么改分组结构，各自值得单独一趟。
+ * `delete`（连带删文件和缩略图）。它们都碰文件系统，值得单独一趟。
  */
 import { createRoute, OpenAPIHono, z } from '@hono/zod-openapi'
-import { bulkUpdateField, getDetail, touchAccessed, updateField } from '@pictoria/db'
+import { bulkUpdateField, clearCanonical, getDetail, makeCanonical, postExists, touchAccessed, updateField } from '@pictoria/db'
 import { getDb } from '../db.js'
 import { OK, RESP_400, zodErrorHook } from '../openapi.js'
 import { PostDetailPublic, toIsoDateTime } from '../schemas.js'
@@ -228,3 +227,44 @@ postWritesRoutes.openapi(
     return c.body(null, 204) as never
   },
 )
+
+/** 分组重排：解组 / 提升为 canonical。两个都在成功后回读整个详情。 */
+const groupOps = [
+  {
+    path: '/v2/posts/{post_id}/ungroup',
+    id: 'v2UngroupPost',
+    desc: 'Detach this post from its near-duplicate group (make it standalone).',
+    run: (sqlite: any, postId: number) => clearCanonical(sqlite, [postId]),
+  },
+  {
+    path: '/v2/posts/{post_id}/make-canonical',
+    id: 'v2MakePostCanonical',
+    desc: "Promote this group member to be the group's canonical representative.",
+    run: (sqlite: any, postId: number) => makeCanonical(sqlite, postId),
+  },
+] as const
+
+for (const op of groupOps) {
+  postWritesRoutes.openapi(
+    createRoute({
+      method: 'put',
+      path: op.path,
+      operationId: op.id,
+      summary: op.id.replace(/^v2/, ''),
+      description: op.desc,
+      request: { params: z.object({ post_id: postIdParam }) },
+      responses: detailResponse,
+    }),
+    (c) => {
+      const { post_id: postId } = c.req.valid('param')
+      const { sqlite } = getDb()
+      if (!postExists(sqlite, postId))
+        return domainError(`Post with id ${postId} not found.`, 'PostNotFoundError', 404) as never
+      op.run(sqlite, postId)
+      const detail = getDetail(sqlite, postId, n => translateTag(n))
+      if (!detail)
+        return domainError(`Post with id ${postId} not found.`, 'PostNotFoundError', 404) as never
+      return Response.json(toPostDetail(detail)) as never
+    },
+  )
+}
