@@ -5,7 +5,8 @@ import { compress } from 'hono/compress'
 import { rebuildGroups } from './dedup.js'
 import { createProxy } from './proxy.js'
 import { getDb } from './db.js'
-import { startBasicsBackfill, startEmbeddingBackfill, startSilvaBackfill, startTaggerBackfill, startWaifuBackfill } from './scheduler.js'
+import { startBasicsBackfill, startEmbeddingBackfill, startSilvaBackfill, startTaggerBackfill, startWaifuBackfill, wakeAllBackfills } from './scheduler.js'
+import { startAutoSync } from './sync.js'
 import { getTasks } from './tasks.js'
 import { annotationQueuesRoutes } from './routes/annotation-queues.js'
 import { annotationsRoutes } from './routes/annotations.js'
@@ -132,6 +133,10 @@ if (process.env.PICTORIA_SCHEDULER !== '0') {
           console.warn(`[dedup] 重建失败：${String(err)}`))
       },
     })
+    // 磁盘变化和定时轮询都会触发一次对账，然后把 backfill 循环叫醒 ——
+    // 对应 Python 侧 app.py 里的 watchdog + 10 分钟 poller。
+    startAutoSync(sqlite, () => wakeAllBackfills())
     console.warn('[pictoria-api] backfill 调度已启动：basics, silva, silva_luna, waifu, tagger, embedding')
+    console.warn('[pictoria-api] 文件监视 + 10 分钟轮询已启动')
   })()
 }
