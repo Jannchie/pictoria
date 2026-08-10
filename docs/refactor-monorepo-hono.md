@@ -418,30 +418,51 @@ Python worker）和旧路径（Python 进程内直接读库算）算出的分数
 > 假设上。embedding 和其余 worker 一样：算在 Python，写在 TS。对拍（45 项）已证明新链路
 > 算出的向量与旧路径**逐字节相同**，`upsertVectors` 的 BigInt rowid 也有回归钉。
 
-#### ⚠️ embedding 卡在 dedup 上（2026-08-10）
+#### dedup：唯一一个输入走文件的任务（2026-08-10 已完成）
 
-embedding 的代码、对拍、单测都完成了，但**没有**加进 `PICTORIA_SKIP_WORKERS`，因为它带一个
-后置钩子：Python 侧 `EMBEDDING_WORKER.on_backfill_complete` 在一轮写进新向量后会重建近重复
-分组。切过去而分组没有对应物，等于悄悄关掉近重复分组 —— 库里 33,726 个非 canonical post
-就是它的产物。
+embedding 一度卡在这里：它带一个后置钩子，一轮写进新向量后要重建近重复分组，切过去
+而分组没有对应物就等于悄悄关掉近重复分组。
 
-**dedup 不能照搬前四个 worker 的形状。** 它要**全库**向量做一次分块 `X @ X.T`
-（`services/dedup.py`，torch/CUDA，170k 行时逐个 KNN 要 48 小时，所以只能矩阵乘）。
-22.3 万条向量 base64 是 **1.3 GB**，塞不进一行 JSON payload。
-
-四个选项，只有一个同时满足 D1 和可行性：
+而 dedup 不能照搬前四个 worker 的形状。它要**全库**向量做一次分块 `X @ X.T`
+（170k 行时逐个 KNN 实测要 48 小时，所以只能矩阵乘），22.3 万条向量 base64 是 **1.3 GB**，
+塞不进一行 JSON payload。四个选项，只有一个同时满足 D1 和可行性：
 
 | 方案 | 判断 |
 |---|---|
 | worker 直接读 vec0 | ❌ 破坏 D1，而且这正是"就这一个 worker 例外"的开头 |
 | payload 带全部向量 | ❌ 1.3 GB 一行 JSON |
 | 分块喂给有状态的 worker | ❌ 把状态放回了 worker 里，比例外更糟 |
-| **TS 导出一个临时 float32 文件，payload 带路径** | ✅ 文件不是数据库；worker mmap 读、算、回传**邻接索引对**，TS 做并查集分组和落库 |
+| **TS 导出一个临时 float32 文件，payload 带路径** | ✅ 文件不是数据库；worker mmap 读、算、回传**邻接索引对**，TS 做贪心分组和落库 |
 
-最后一个是要走的路：约 1 GB 的临时文件，全量 rebuild 时写一次，而 rebuild 本身就是分钟级的
-GPU 操作。它同时解掉 `/v2/cmd/group-duplicates`（commands 11 个里的一个）。
+最后一条就是实现出来的形状：
 
-在那之前 embedding 仍由 Python poller 跑，`startEmbeddingBackfill` 就位待命。
+* `exportVectorMatrix`（`packages/db/src/repositories/dedup.ts`）按 post_id 升序把全库向量
+  写成一个裸 float32 文件，落在 `<target_dir>/.pictoria/` 下 —— 那正好在 worker 的
+  `_resolve_inside` 允许的根之内。**升序不只是为了确定性**：贪心分配按行下标升序跑，
+  行序即 id 序才能保证簇里最早的 post 拿到 canonical 位。
+* worker 的 `handle_dedup` 用 `np.memmap` 读它（不是 `fromfile` —— 数据反正要拷进显存，
+  再付一份宿主机全量拷贝买不到任何东西），回传**行下标对**而不是 post id：矩阵文件里根本
+  没有 id，翻译由持有 ids 数组的 TS 做。
+* `assignFromPairs` 是纯函数，于是"谁当 canonical、组会不会成链"脱离 GPU 就能钉住
+  （`dedup.test.ts`，12 项）。
+* `replaceAllGroups` 在**一个事务**里清空 + 重设。分开做的话，从清空到写完之间
+  （一次 GPU 计算加两万多条 UPDATE）每个成员都会在列表里冒出来。
+
+**验证（2026-08-10）**：
+
+1. `pnpm parity:worker` 加了 4 项 dedup 对拍（总 49 项）。取样必须**含近重复** ——
+   否则两条路径都返回空对，比对"通过"而什么也没证明，所以取样是"几个已知分组的全部成员
+   + 200 条随机噪声"。导出用的是生产那个函数本身，喂它一个只装了取样向量的临时库。
+2. 真库全量重建：22.3 万条向量、1.03 GB 文件、GPU 30.9 秒，**33,726 个成员归入 28,063 个
+   canonical**，与旧路径留下的分组指针**逐条相同**（0 条改指向、0 条新增、0 条消失）。
+
+于是 embedding 解锁了。它的后置钩子在 TS 侧是"**待办清空的那一刻**"触发，而不是每一批
+之后 —— 一次重建是全库矩阵乘，每 16 张图触发一次等于让 GPU 什么正事都干不成。
+Python 侧 `run_all_backfill` 跑完整轮才 fire 一次，"清空即一轮结束"是它的等价物。
+
+`POST /v2/cmd/group-duplicates` 一并搬过来了（49/70）。忙检查用 `isRebuilding()`，
+对应 Python 的 `rebuild_lock.locked()`；⚠️ `await getTasks()` 必须排在忙检查**之前**，
+否则两个几乎同时到达的请求会双双通过检查，排成两次分钟级的 GPU 白烧。
 
 每搬一个：给它写 TaskDef + handler + 调度循环，跑 `pnpm parity:worker` 的同款对拍
 （同一批输入，新旧两条路径逐位比对），然后把它的 `key` 加进 `justfile` 的
