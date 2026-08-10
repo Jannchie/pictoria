@@ -8,7 +8,7 @@
 import { createRoute, OpenAPIHono, z } from '@hono/zod-openapi'
 import { listPaginated, searchPosts, type PostFilterWithOrder } from '@pictoria/db'
 import { getDb } from '../db.js'
-import { OK, RESP_400 } from '../openapi.js'
+import { OK, RESP_400, zodErrorHook } from '../openapi.js'
 import { PostDetailPublic, PostSimplePublic, toIsoDateTime, toPostSimple } from '../schemas.js'
 import { translateTag } from '../tag-i18n.js'
 
@@ -53,7 +53,7 @@ const CursorResponse = z
   })
   .openapi('CursorResponse')
 
-export const postListRoutes = new OpenAPIHono()
+export const postListRoutes = new OpenAPIHono({ defaultHook: zodErrorHook })
 
 /** 详情里的 tag 也要转 camelCase（嵌套的 snake_case 不在 toCamel 的处理范围）。 */
 function camelTag(t: { is_auto: boolean, tag_info: Record<string, unknown> }) {

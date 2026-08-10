@@ -25,3 +25,45 @@ export const RESP_400 = {
 
 /** Litestar 200 响应固定用这句 description。 */
 export const OK = 'Request fulfilled, document follows'
+
+/**
+ * 把 zod 的校验失败转成 Litestar 的 400 形状。
+ *
+ * `@hono/zod-openapi` 默认返回 `{success:false, error:{name:'ZodError',...}}`，
+ * 而 Litestar 返回 `{status_code, detail, extra:[{message,key,source}]}`。前端
+ * 的错误处理认后者，所以这里逐字段翻译。
+ */
+/** 把一条 zod issue 翻成 msgspec 的措辞。 */
+function msgspecMessage(i: any): string {
+  const t = i.origin ?? i.expected
+  if (i.code === 'too_big')
+    return `Expected \`${t === 'number' ? 'int' : t}\` <= ${i.maximum}`
+  if (i.code === 'too_small')
+    return `Expected \`${t === 'number' ? 'int' : t}\` >= ${i.minimum}`
+  if (i.code === 'invalid_type')
+    return `Expected \`${i.expected === 'number' ? 'int' : i.expected}\``
+  return i.message
+}
+
+export function zodErrorHook(result: any, c: any) {
+  if (result.success)
+    return undefined
+  const issues = result.error?.issues ?? []
+  const method = c.req.method
+  const path = new URL(c.req.url).pathname
+  return c.json(
+    {
+      status_code: 400,
+      detail: `Validation failed for ${method} ${path}`,
+      extra: issues.map((i: any) => ({
+        // 措辞对齐 msgspec：`Expected \`int\` <= 5`，不是 zod 的
+        // `Too big: expected number to be <=5`。前端可能把这句直接显示给用户。
+        message: msgspecMessage(i),
+        key: Array.isArray(i.path) ? i.path[i.path.length - 1] : undefined,
+        // zod 不区分 body/query/path，Litestar 区分；这里给 body 作为最常见来源。
+        source: 'body',
+      })),
+    },
+    400,
+  )
+}

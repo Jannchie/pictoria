@@ -7,6 +7,7 @@ import { foldersRoutes } from './routes/folders.js'
 import { postCountsRoutes } from './routes/post-counts.js'
 import { postListRoutes } from './routes/post-list.js'
 import { postReadsRoutes } from './routes/post-reads.js'
+import { postWritesRoutes } from './routes/post-writes.js'
 import { statisticsRoutes } from './routes/statistics.js'
 import { tagsRoutes } from './routes/tags.js'
 
@@ -31,9 +32,13 @@ app.use('*', compress())
 app.route('/', statisticsRoutes)
 app.route('/', foldersRoutes)
 app.route('/', tagsRoutes)
+// ⚠️ 顺序有意义：Hono 按注册顺序匹配，字面量路径必须排在带参数的前面。
+// postWrites 里有 /v2/posts/bulk/*，若排在 /v2/posts/{post_id}/* 之后，
+// "bulk" 会被当成 post_id 去 coerce 成 NaN。
 app.route('/', postCountsRoutes)
-app.route('/', postReadsRoutes)
+app.route('/', postWritesRoutes)
 app.route('/', postListRoutes)
+app.route('/', postReadsRoutes)
 
 /**
  * `/schema/openapi.json` 必须把两侧合起来。

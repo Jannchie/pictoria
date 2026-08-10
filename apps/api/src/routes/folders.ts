@@ -10,7 +10,7 @@ import process from 'node:process'
 import { createRoute, OpenAPIHono, z } from '@hono/zod-openapi'
 import { addAgg, emptyAgg, folderScoreAggregates, type FolderScoreAgg } from '@pictoria/db'
 import { getDb, repoRoot } from '../db.js'
-import { OK } from '../openapi.js'
+import { OK, zodErrorHook } from '../openapi.js'
 
 interface DirectorySummary {
   name: string
@@ -101,7 +101,7 @@ function attachStats(
   return total
 }
 
-export const foldersRoutes = new OpenAPIHono()
+export const foldersRoutes = new OpenAPIHono({ defaultHook: zodErrorHook })
 
 foldersRoutes.openapi(
   createRoute({

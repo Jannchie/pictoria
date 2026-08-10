@@ -7,13 +7,13 @@
 import { createRoute, OpenAPIHono, z } from '@hono/zod-openapi'
 import { waifuScoreDistribution } from '@pictoria/db'
 import { getDb } from '../db.js'
-import { OK } from '../openapi.js'
+import { OK, zodErrorHook } from '../openapi.js'
 
 const WaifuScoreResult = z
   .object({ bucket: z.string(), count: z.int() })
   .openapi('WaifuScoreResult')
 
-export const statisticsRoutes = new OpenAPIHono()
+export const statisticsRoutes = new OpenAPIHono({ defaultHook: zodErrorHook })
 
 statisticsRoutes.openapi(
   createRoute({

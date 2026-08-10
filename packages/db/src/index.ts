@@ -21,3 +21,4 @@ export { decodeDominantColor, fetchAestheticByIds, fetchColorsByIds, fetchTagsBy
 export type { AestheticScore, PostColor, PostDetail, PostTag, TagInfo } from './queries/post-detail.js'
 export { buildSearchQuery, listPaginated, listSimpleByIdsPreservingOrder, searchPosts } from './queries/post-search.js'
 export type { PaginatedPosts, PostFilterWithOrder } from './queries/post-search.js'
+export { bulkUpdateField, postExists, touchAccessed, updateField } from './repositories/posts.js'

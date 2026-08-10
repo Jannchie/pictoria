@@ -6,11 +6,11 @@
 import { createRoute, OpenAPIHono, z } from '@hono/zod-openapi'
 import { getDetail, getGroupMembers, type PostTag } from '@pictoria/db'
 import { getDb } from '../db.js'
-import { OK, RESP_400 } from '../openapi.js'
+import { OK, RESP_400, zodErrorHook } from '../openapi.js'
 import { PostDetailPublic, PostSimplePublic, toIsoDateTime, toPostSimple } from '../schemas.js'
 import { translateTag } from '../tag-i18n.js'
 
-export const postReadsRoutes = new OpenAPIHono()
+export const postReadsRoutes = new OpenAPIHono({ defaultHook: zodErrorHook })
 
 /** 嵌套结构里的 snake_case 也要转 —— toCamel 只处理顶层。 */
 function camelTag(t: PostTag) {

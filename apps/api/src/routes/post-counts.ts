@@ -15,7 +15,7 @@ import {
   type PostFilter as DbPostFilter,
 } from '@pictoria/db'
 import { getDb } from '../db.js'
-import { OK, RESP_400 } from '../openapi.js'
+import { OK, RESP_400, zodErrorHook } from '../openapi.js'
 
 /**
  * 全字段 snake_case —— 这一族在 Python 侧是 msgspec Struct，不走 to_camel
@@ -58,7 +58,7 @@ const PostStatsResponse = z
   })
   .openapi('PostStatsResponse')
 
-export const postCountsRoutes = new OpenAPIHono()
+export const postCountsRoutes = new OpenAPIHono({ defaultHook: zodErrorHook })
 
 function filterBody() {
   return { required: true, content: { 'application/json': { schema: PostFilter } } }

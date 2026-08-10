@@ -7,7 +7,7 @@
 import { createRoute, OpenAPIHono, z } from '@hono/zod-openapi'
 import { listTagGroups, listTagsWithCounts } from '@pictoria/db'
 import { getDb } from '../db.js'
-import { OK, RESP_400 } from '../openapi.js'
+import { OK, RESP_400, zodErrorHook } from '../openapi.js'
 import { translateTag } from '../tag-i18n.js'
 
 const TagGroupPublic = z
@@ -24,7 +24,7 @@ const TagWithCountPublic = z
   })
   .openapi('TagWithCountPublic')
 
-export const tagsRoutes = new OpenAPIHono()
+export const tagsRoutes = new OpenAPIHono({ defaultHook: zodErrorHook })
 
 tagsRoutes.openapi(
   createRoute({
