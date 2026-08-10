@@ -19,7 +19,7 @@ export { aggregateStats, countByColumn, countByScorerBucket, countByTag, countPo
 export type { AggregateStats, BucketCount, TagCount } from './queries/counts.js'
 export { decodeDominantColor, fetchAestheticByIds, fetchColorsByIds, fetchTagsByIds, fetchWaifuByIds, getDetail, getGroupMembers, memberCounts, POST_COLUMNS, SIMPLE_BASE_COLUMNS, SIMPLE_POST_COLUMNS } from './queries/post-detail.js'
 export type { AestheticScore, PostColor, PostDetail, PostTag, TagInfo } from './queries/post-detail.js'
-export { buildSearchQuery, listPaginated, listSimpleByIdsPreservingOrder, searchPosts } from './queries/post-search.js'
+export { buildSearchQuery, listPaginated, listSimpleByIdsPreservingOrder, searchByTextVector, searchPosts } from './queries/post-search.js'
 export type { PaginatedPosts, PostFilterWithOrder } from './queries/post-search.js'
 export { bulkUpdateField, clearCanonical, makeCanonical, postExists, touchAccessed, updateField } from './repositories/posts.js'
 export { annotationTimeline, countPairwise, editAnnotation, insertAbsolute, insertContentFlag, insertPairwise, latestContentFlag, listAbsoluteForPost, listPairwiseForPost, markQueueItemDone, MUTABLE_KINDS, postsById, undoAnnotations } from './repositories/annotations.js'

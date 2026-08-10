@@ -265,3 +265,27 @@ async def handle_dedup(payload: dict[str, Any]) -> dict[str, Any]:
         int(payload["chunkSize"]),
     )
     return {"pairs": pairs}
+
+
+async def handle_text_embed(payload: dict[str, Any]) -> dict[str, Any]:
+    """Encode a search prompt into the SigLIP 2 text/image joint space.
+
+    The only *interactive* handler here — someone is waiting on the HTTP
+    response — which is why it lives on its own queue with a tight poll
+    interval rather than behind the backfill batches.
+
+    ``scale`` / ``bias`` ride along with the vector because computing them
+    touches torch, and the TS side is the one place that must not. They are
+    constants once the model is loaded, so this costs a float each way.
+    """
+    prompt = payload["prompt"]
+
+    from ai.siglip_embed import calculate_text_features, get_logit_scale_bias  # noqa: PLC0415  # lazy: defer the ML stack
+
+    def _encode() -> tuple[np.ndarray, float, float]:
+        features = calculate_text_features(prompt).cpu().numpy()[0].astype(np.float32)
+        scale, bias = get_logit_scale_bias()
+        return features, scale, bias
+
+    vec, scale, bias = await asyncio.to_thread(_encode)
+    return {"embedding": encode_vector(vec), "scale": scale, "bias": bias}

@@ -159,6 +159,23 @@ async function buildCases() {
     { limit: 5 },
   ]) cases.push(['POST', '/v2/posts/count/tags', extra])
 
+  // 向量路径：图搜图（vec0 KNN）与文搜图（SigLIP 文本塔 + KNN）。
+  // matchProb 逐位比 —— 它是 1-距离 / sigmoid(scale*cos+bias) 算出来的，
+  // 末位漂移就说明某一侧的向量或常量不同。
+  for (const id of ids.slice(0, 3)) {
+    cases.push(['GET', `/v2/posts/${id}/similar?limit=5`])
+    cases.push(['GET', `/v2/posts/${id}/similar?limit=1`])
+  }
+  cases.push(['GET', '/v2/posts/999999999/similar?limit=5'])
+  for (const body of [
+    { query: 'a girl with green eyes' },
+    { query: 'sunset over the sea' },
+    { query: '' },
+    { query: '   ' },
+    { query: 'cat girl', rating: [1, 2] },
+    { query: 'cat girl', only_canonical: false },
+  ]) cases.push(['POST', '/v2/posts/search/text?limit=5', body])
+
   return cases
 }
 

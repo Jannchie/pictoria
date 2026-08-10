@@ -208,3 +208,34 @@ export const DEDUP_THRESHOLD = 0.01
 
 /** 每块 1024 行 —— 即使 N=170k，一个 `(1024, N)` 的块也远在 1 GB 以内。 */
 export const DEDUP_CHUNK_SIZE = 1024
+
+/**
+ * 交互队列。**和 GPU backfill 队列分开**，由 worker 进程里第二个 `Worker` 实例
+ * 伺候，poll 间隔紧得多。
+ *
+ * 分开不是为了并行 —— 显卡只有一张 —— 而是为了不排队：backfill 一批是秒级的，
+ * 而文搜图是**有人正在等**的请求。共用一个队列会让一次搜索卡在某一批 embedding
+ * 后面几秒；共用默认的 500 ms poll 则会给每次搜索无端加上半秒（§4.6）。
+ */
+export const INTERACTIVE_QUEUE = 'gpu-interactive'
+
+export interface TextEmbedPayload {
+  prompt: string
+}
+
+export interface TextEmbedResult {
+  /** base64 float32，1152 维，和图像向量在同一个空间里。 */
+  embedding: string
+  /** SigLIP 学到的 logit scale（已 exp）。 */
+  scale: number
+  /** SigLIP 学到的 logit bias。 */
+  bias: number
+}
+
+/**
+ * 文搜图的文本编码。
+ *
+ * scale / bias 随结果一起回传而不是另开一个任务：它们在模型加载后就是常量，
+ * 但拿到它们要碰 torch，而这一侧不能碰 torch。跟车一起走是最便宜的做法。
+ */
+export const textEmbedTask = defineTask<TextEmbedPayload, TextEmbedResult>('text-embed')

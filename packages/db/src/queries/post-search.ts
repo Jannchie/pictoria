@@ -2,6 +2,7 @@
  * 列表与搜索 —— 对应 Python 侧 `PostQueryService.list_paginated` / `search`。
  */
 import type BetterSqlite3 from 'better-sqlite3'
+import { Buffer } from 'node:buffer'
 import { buildWhere, ORDERABLE_COLUMNS, type PostFilter } from '../filters.js'
 import { SILVA, SILVA_LUNA } from '../scorers.js'
 import {
@@ -273,4 +274,52 @@ export function listSimpleByIdsPreservingOrder(
     r.group_member_count = counts.get(r.id as number) ?? 0
   }
   return ordered
+}
+
+/**
+ * 按 SigLIP 2 余弦相似度对 `vec` 排序，并在过滤器 `f` 之内。
+ *
+ * 走 vec0 原生的 `MATCH ... k=N` KNN 作为一个快子查询，再 JOIN `posts` 把
+ * `buildWhere(f)` 当后置过滤器用，按 KNN 距离排序。
+ *
+ * ⚠️ **刻意不**对全表暴力算 `vec_distance_cosine`：17 万行的库上那个全扫加
+ * TEMP-B-TREE 排序要跑几分钟，把其它请求全卡死（vec0 会退化成 `INDEX 0:1`
+ * 全扫），而原生 KNN（`INDEX 0:3`）1–2 秒就回来。带过滤器时会超采候选，好让
+ * 后置过滤器仍能凑满 `limit`；过滤器特别窄时可能不足 `limit`。没有 SigLIP 2
+ * 向量的 post 永远不会出现（它们不在 KNN 表里）。
+ */
+export function searchByTextVector(
+  sqlite: BetterSqlite3.Database,
+  vec: Float32Array,
+  f: PostFilter,
+  { limit = 100, offset = 0 }: { limit?: number, offset?: number } = {},
+): Array<Record<string, unknown>> {
+  const { where, params, joins } = buildWhere(f)
+  const vecBlob = Buffer.from(vec.buffer, vec.byteOffset, vec.byteLength)
+  const want = limit + offset
+  // vec0 的 KNN 开销由 O(N) 的距离扫描主导，所以 k 大一点几乎不花钱；带过滤器时
+  // 超采，让后置过滤器有足够候选凑满 limit。
+  const k = where.length ? Math.max(want, 1000) : want
+
+  const rows = sqlite
+    .prepare<unknown[], Record<string, unknown>>(
+      `SELECT ${SIMPLE_BASE_SELECT}, knn.distance AS _knn_distance `
+      + `FROM (SELECT post_id, distance FROM post_vectors_siglip2 `
+      + `      WHERE embedding MATCH ? AND k = ?) AS knn `
+      + `JOIN posts p ON p.id = knn.post_id `
+      + `${joins.join('\n')} `
+      + `${where.length ? `WHERE ${where.join(' AND ')}` : ''} `
+      + `ORDER BY knn.distance LIMIT ? OFFSET ?`,
+    )
+    .all(vecBlob, k, ...params, limit, offset)
+
+  for (const r of rows) r.dominant_color = decodeDominantColor(r.dominant_color)
+  const ids = rows.map(r => r.id as number)
+  const colors = fetchColorsByIds(sqlite, ids)
+  const counts = memberCounts(sqlite, ids)
+  for (const r of rows) {
+    r.colors = colors.get(r.id as number) ?? []
+    r.group_member_count = counts.get(r.id as number) ?? 0
+  }
+  return rows
 }

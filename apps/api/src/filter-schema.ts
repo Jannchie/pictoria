@@ -49,3 +49,11 @@ export const TagCountRequestSchema = z
     lang: z.string().default('zh-Hans').optional().describe("Locale for translated tag names (e.g. zh-Hans; en yields null)."),
   })
   .openapi('TagCountRequest')
+
+/** `PostFilter` 加一个自然语言查询串。 */
+export const TextSearchRequestSchema = z
+  .object({
+    ...baseFilter,
+    query: z.string().default('').optional().describe("Natural-language search prompt."),
+  })
+  .openapi('TextSearchRequest')

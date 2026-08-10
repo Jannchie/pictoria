@@ -29,7 +29,15 @@ from pathlib import Path
 
 from cairnq import SQLiteStore, Worker
 
-from worker.handlers import handle_dedup, handle_embedding, handle_silva, handle_tagger, handle_waifu, set_root
+from worker.handlers import (
+    handle_dedup,
+    handle_embedding,
+    handle_silva,
+    handle_tagger,
+    handle_text_embed,
+    handle_waifu,
+    set_root,
+)
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 log = logging.getLogger("worker")
@@ -41,6 +49,14 @@ log = logging.getLogger("worker")
 #: *different* queue with a much tighter poll; see §4.6, where the default
 #: turned out to be a 626 ms trap for a synchronous request.
 GPU_QUEUE = "gpu"
+
+#: Queue for the interactive path (SigLIP text encoding behind
+#: ``/posts/search/text``). Separate from ``GPU_QUEUE`` and served by its own
+#: Worker so a search never queues behind a backfill batch, and polled far
+#: tighter than the 500 ms default — that default is a 626 ms trap when a
+#: human is waiting on the response (§4.6).
+INTERACTIVE_QUEUE = "gpu-interactive"
+INTERACTIVE_POLL_MS = 20
 
 
 def tasks_db_path(target_dir: Path) -> Path:
@@ -58,6 +74,15 @@ async def main() -> None:
 
     store = SQLiteStore(str(db_path))
     worker = Worker(store, queues=[GPU_QUEUE], concurrency=1)
+    # A second Worker rather than a second queue on the same one: with
+    # concurrency=1 a single worker would still make a search wait out
+    # whatever batch is in flight.
+    interactive = Worker(
+        store,
+        queues=[INTERACTIVE_QUEUE],
+        concurrency=1,
+        poll_interval_ms=INTERACTIVE_POLL_MS,
+    )
 
     # Payload paths are resolved inside this root and nowhere else.
     set_root(args.target_dir)
@@ -72,9 +97,15 @@ async def main() -> None:
     # /v2/cmd/group-duplicates or by the embedding scheduler after it writes new
     # vectors. Same queue on purpose: it wants the GPU exclusively.
     worker.task("dedup")(lambda _ctx, payload: handle_dedup(payload))
+    interactive.task("text-embed")(lambda _ctx, payload: handle_text_embed(payload))
 
-    log.info("worker up: silva, waifu, tagger, embedding, dedup  queue=%s db=%s", GPU_QUEUE, db_path)
-    await worker.run()
+    log.info(
+        "worker up: silva, waifu, tagger, embedding, dedup on %s; text-embed on %s  db=%s",
+        GPU_QUEUE,
+        INTERACTIVE_QUEUE,
+        db_path,
+    )
+    await asyncio.gather(worker.run(), interactive.run())
 
 
 if __name__ == "__main__":
