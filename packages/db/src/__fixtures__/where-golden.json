@@ -1,0 +1,447 @@
+[
+  {
+    "name": "empty",
+    "filter": {},
+    "where": [
+      "p.canonical_post_id IS NULL"
+    ],
+    "params": [],
+    "joins": [],
+    "has_active_filters": false
+  },
+  {
+    "name": "only_canonical_false",
+    "filter": {
+      "only_canonical": false
+    },
+    "where": [],
+    "params": [],
+    "joins": [],
+    "has_active_filters": false
+  },
+  {
+    "name": "rating",
+    "filter": {
+      "rating": [
+        1,
+        2,
+        3
+      ]
+    },
+    "where": [
+      "p.canonical_post_id IS NULL",
+      "p.rating IN (?,?,?)"
+    ],
+    "params": [
+      1,
+      2,
+      3
+    ],
+    "joins": [],
+    "has_active_filters": true
+  },
+  {
+    "name": "score",
+    "filter": {
+      "score": [
+        4,
+        5
+      ]
+    },
+    "where": [
+      "p.canonical_post_id IS NULL",
+      "p.score IN (?,?)"
+    ],
+    "params": [
+      4,
+      5
+    ],
+    "joins": [],
+    "has_active_filters": true
+  },
+  {
+    "name": "single_tag",
+    "filter": {
+      "tags": [
+        "1girl"
+      ]
+    },
+    "where": [
+      "p.canonical_post_id IS NULL",
+      "EXISTS (SELECT 1 FROM post_has_tag pht WHERE pht.post_id = p.id AND pht.tag_name = ?)"
+    ],
+    "params": [
+      "1girl"
+    ],
+    "joins": [],
+    "has_active_filters": true
+  },
+  {
+    "name": "multi_tag_and",
+    "filter": {
+      "tags": [
+        "1girl",
+        "solo",
+        "masterpiece"
+      ]
+    },
+    "where": [
+      "p.canonical_post_id IS NULL",
+      "EXISTS (SELECT 1 FROM post_has_tag pht WHERE pht.post_id = p.id AND pht.tag_name = ?)",
+      "EXISTS (SELECT 1 FROM post_has_tag pht WHERE pht.post_id = p.id AND pht.tag_name = ?)",
+      "EXISTS (SELECT 1 FROM post_has_tag pht WHERE pht.post_id = p.id AND pht.tag_name = ?)"
+    ],
+    "params": [
+      "1girl",
+      "solo",
+      "masterpiece"
+    ],
+    "joins": [],
+    "has_active_filters": true
+  },
+  {
+    "name": "extension",
+    "filter": {
+      "extension": [
+        "jpg",
+        "png"
+      ]
+    },
+    "where": [
+      "p.canonical_post_id IS NULL",
+      "p.extension IN (?,?)"
+    ],
+    "params": [
+      "jpg",
+      "png"
+    ],
+    "joins": [],
+    "has_active_filters": true
+  },
+  {
+    "name": "folder",
+    "filter": {
+      "folder": "danbooru/wlop"
+    },
+    "where": [
+      "p.canonical_post_id IS NULL",
+      "(p.file_path = ? OR (p.file_path >= ? AND p.file_path < ?))"
+    ],
+    "params": [
+      "danbooru/wlop",
+      "danbooru/wlop/",
+      "danbooru/wlop0"
+    ],
+    "joins": [],
+    "has_active_filters": true
+  },
+  {
+    "name": "folder_dot",
+    "filter": {
+      "folder": "."
+    },
+    "where": [
+      "p.canonical_post_id IS NULL"
+    ],
+    "params": [],
+    "joins": [],
+    "has_active_filters": false
+  },
+  {
+    "name": "folder_empty",
+    "filter": {
+      "folder": ""
+    },
+    "where": [
+      "p.canonical_post_id IS NULL"
+    ],
+    "params": [],
+    "joins": [],
+    "has_active_filters": false
+  },
+  {
+    "name": "waifu_range",
+    "filter": {
+      "waifu_score_range": [
+        2.5,
+        8.0
+      ]
+    },
+    "where": [
+      "p.canonical_post_id IS NULL",
+      "pws.score >= ? AND pws.score <= ?"
+    ],
+    "params": [
+      2.5,
+      8.0
+    ],
+    "joins": [
+      "LEFT JOIN post_waifu_scores pws ON pws.post_id = p.id"
+    ],
+    "has_active_filters": true
+  },
+  {
+    "name": "waifu_levels",
+    "filter": {
+      "waifu_score_levels": [
+        "A",
+        "B"
+      ]
+    },
+    "where": [
+      "p.canonical_post_id IS NULL",
+      "((pws.score >= ? AND pws.score < ?) OR (pws.score >= ? AND pws.score < ?))"
+    ],
+    "params": [
+      8.0,
+      10.001,
+      6.0,
+      8.0
+    ],
+    "joins": [
+      "LEFT JOIN post_waifu_scores pws ON pws.post_id = p.id"
+    ],
+    "has_active_filters": true
+  },
+  {
+    "name": "waifu_unscored",
+    "filter": {
+      "waifu_score_levels": [
+        "UNSCORED"
+      ]
+    },
+    "where": [
+      "p.canonical_post_id IS NULL",
+      "(pws.post_id IS NULL)"
+    ],
+    "params": [],
+    "joins": [
+      "LEFT JOIN post_waifu_scores pws ON pws.post_id = p.id"
+    ],
+    "has_active_filters": true
+  },
+  {
+    "name": "waifu_levels_and_unscored",
+    "filter": {
+      "waifu_score_levels": [
+        "A",
+        "UNSCORED"
+      ]
+    },
+    "where": [
+      "p.canonical_post_id IS NULL",
+      "((pws.score >= ? AND pws.score < ?) OR pws.post_id IS NULL)"
+    ],
+    "params": [
+      8.0,
+      10.001
+    ],
+    "joins": [
+      "LEFT JOIN post_waifu_scores pws ON pws.post_id = p.id"
+    ],
+    "has_active_filters": true
+  },
+  {
+    "name": "waifu_bogus_level",
+    "filter": {
+      "waifu_score_levels": [
+        "Z"
+      ]
+    },
+    "where": [
+      "p.canonical_post_id IS NULL"
+    ],
+    "params": [],
+    "joins": [
+      "LEFT JOIN post_waifu_scores pws ON pws.post_id = p.id"
+    ],
+    "has_active_filters": true
+  },
+  {
+    "name": "waifu_range_and_levels",
+    "filter": {
+      "waifu_score_range": [
+        1.0,
+        9.0
+      ],
+      "waifu_score_levels": [
+        "C"
+      ]
+    },
+    "where": [
+      "p.canonical_post_id IS NULL",
+      "pws.score >= ? AND pws.score <= ?",
+      "((pws.score >= ? AND pws.score < ?))"
+    ],
+    "params": [
+      1.0,
+      9.0,
+      4.0,
+      6.0
+    ],
+    "joins": [
+      "LEFT JOIN post_waifu_scores pws ON pws.post_id = p.id"
+    ],
+    "has_active_filters": true
+  },
+  {
+    "name": "silva_levels",
+    "filter": {
+      "silva_score_levels": [
+        "A",
+        "E"
+      ]
+    },
+    "where": [
+      "p.canonical_post_id IS NULL",
+      "((pas_silva.score >= ? AND pas_silva.score < ?) OR (pas_silva.score >= ? AND pas_silva.score < ?))"
+    ],
+    "params": [
+      0.8,
+      1.0001,
+      0.0,
+      0.2
+    ],
+    "joins": [
+      "LEFT JOIN post_aesthetic_scores pas_silva ON pas_silva.post_id = p.id AND pas_silva.scorer = 'silva'"
+    ],
+    "has_active_filters": true
+  },
+  {
+    "name": "silva_luna_levels",
+    "filter": {
+      "silva_luna_score_levels": [
+        "B"
+      ]
+    },
+    "where": [
+      "p.canonical_post_id IS NULL",
+      "((pas_silva_luna.score >= ? AND pas_silva_luna.score < ?))"
+    ],
+    "params": [
+      0.6,
+      0.8
+    ],
+    "joins": [
+      "LEFT JOIN post_aesthetic_scores pas_silva_luna ON pas_silva_luna.post_id = p.id AND pas_silva_luna.scorer = 'silva_luna'"
+    ],
+    "has_active_filters": true
+  },
+  {
+    "name": "both_silva",
+    "filter": {
+      "silva_score_levels": [
+        "A"
+      ],
+      "silva_luna_score_levels": [
+        "A"
+      ]
+    },
+    "where": [
+      "p.canonical_post_id IS NULL",
+      "((pas_silva.score >= ? AND pas_silva.score < ?))",
+      "((pas_silva_luna.score >= ? AND pas_silva_luna.score < ?))"
+    ],
+    "params": [
+      0.8,
+      1.0001,
+      0.8,
+      1.0001
+    ],
+    "joins": [
+      "LEFT JOIN post_aesthetic_scores pas_silva ON pas_silva.post_id = p.id AND pas_silva.scorer = 'silva'",
+      "LEFT JOIN post_aesthetic_scores pas_silva_luna ON pas_silva_luna.post_id = p.id AND pas_silva_luna.scorer = 'silva_luna'"
+    ],
+    "has_active_filters": true
+  },
+  {
+    "name": "silva_unscored",
+    "filter": {
+      "silva_score_levels": [
+        "UNSCORED"
+      ]
+    },
+    "where": [
+      "p.canonical_post_id IS NULL",
+      "(pas_silva.post_id IS NULL)"
+    ],
+    "params": [],
+    "joins": [
+      "LEFT JOIN post_aesthetic_scores pas_silva ON pas_silva.post_id = p.id AND pas_silva.scorer = 'silva'"
+    ],
+    "has_active_filters": true
+  },
+  {
+    "name": "kitchen_sink",
+    "filter": {
+      "rating": [
+        2,
+        3
+      ],
+      "score": [
+        5
+      ],
+      "tags": [
+        "1girl",
+        "solo"
+      ],
+      "extension": [
+        "jpg"
+      ],
+      "folder": "art",
+      "waifu_score_range": [
+        3.0,
+        7.0
+      ],
+      "waifu_score_levels": [
+        "B",
+        "UNSCORED"
+      ],
+      "silva_score_levels": [
+        "A"
+      ],
+      "silva_luna_score_levels": [
+        "E",
+        "UNSCORED"
+      ],
+      "only_canonical": false
+    },
+    "where": [
+      "p.rating IN (?,?)",
+      "p.score IN (?)",
+      "EXISTS (SELECT 1 FROM post_has_tag pht WHERE pht.post_id = p.id AND pht.tag_name = ?)",
+      "EXISTS (SELECT 1 FROM post_has_tag pht WHERE pht.post_id = p.id AND pht.tag_name = ?)",
+      "p.extension IN (?)",
+      "(p.file_path = ? OR (p.file_path >= ? AND p.file_path < ?))",
+      "pws.score >= ? AND pws.score <= ?",
+      "((pws.score >= ? AND pws.score < ?) OR pws.post_id IS NULL)",
+      "((pas_silva.score >= ? AND pas_silva.score < ?))",
+      "((pas_silva_luna.score >= ? AND pas_silva_luna.score < ?) OR pas_silva_luna.post_id IS NULL)"
+    ],
+    "params": [
+      2,
+      3,
+      5,
+      "1girl",
+      "solo",
+      "jpg",
+      "art",
+      "art/",
+      "art0",
+      3.0,
+      7.0,
+      6.0,
+      8.0,
+      0.8,
+      1.0001,
+      0.0,
+      0.2
+    ],
+    "joins": [
+      "LEFT JOIN post_waifu_scores pws ON pws.post_id = p.id",
+      "LEFT JOIN post_aesthetic_scores pas_silva ON pas_silva.post_id = p.id AND pas_silva.scorer = 'silva'",
+      "LEFT JOIN post_aesthetic_scores pas_silva_luna ON pas_silva_luna.post_id = p.id AND pas_silva_luna.scorer = 'silva_luna'"
+    ],
+    "has_active_filters": true
+  }
+]
