@@ -464,6 +464,42 @@ Python 侧 `run_all_backfill` 跑完整轮才 fire 一次，"清空即一轮结�
 对应 Python 的 `rebuild_lock.locked()`；⚠️ `await getTasks()` 必须排在忙检查**之前**，
 否则两个几乎同时到达的请求会双双通过检查，排成两次分钟级的 GPU 白烧。
 
+### ✅ Phase 6 完成：70/70（2026-08-10）
+
+`pnpm migration:status` 运行时探测：**所有端点都在 Hono 上**。Litestar 进程除了端点
+之外拿着的三件事也都搬完了 —— 六个 backfill worker（全部走 cairnq）、文件监视 +
+定时轮询、近重复重组。
+
+最后一批端点带出来的东西：
+
+| 端点组 | 值得记的 |
+|---|---|
+| images (4) | etag 必须用 `bigint` stat：`mtimeMs/1000` 掉精度（…2125 vs Python 的 …2122），对不上就是全库图片重下一遍。缩略图现生成走 worker 而不是在 TS 侧换 sharp —— 库里 22 万张是 PIL 出的 |
+| posts delete/rotate/upload | rotate 的 `clockwise` 不能用 `z.coerce.boolean()`：它把 `"false"` 当 true。upload 只落盘落库，剩下的交给调度器 |
+| cmd 打分三连 + auto-tags | `is_image` 的扩展名集合比 backfill 的 `IMAGE_EXTS` **宽**，auto-tags 的 rating **无条件**覆写而 backfill 只在 0 时写 —— 两处刻意的不对称，照抄不统一 |
+| sync-metadata | 扫描必须异步：`readdirSync` 走 22 万文件把事件循环占住 2.5 秒，连自己的 201 都发不出去 |
+| Danbooru / URL 导入 | 抓取留在 Python（限流闸和翻页停止条件是那 880 行里最值钱的调优；gallery-dl 本身就是 Python 工具），落库回 TS |
+
+**两个跨语言的对拍新形状**：
+
+* `parity:destructive`（47 项）—— delete / rotate / upload / folder-delete / caption / sync
+  没法拿库里现成的数据比，比一次就少一批。脚本自己在 `__parity__/` 下造一次性的图和
+  行，两侧各操作一份内容相同的副本，跑完清掉。rotate 尤其需要：JPEG 每转一次重编码
+  一次，拿真图来回转会无声劣化用户的库。
+* `parity:s3`（4 项）—— 手写的 SigV4 预签名和 minio-py 逐字符比，含空格 / `+` / 非 ASCII
+  对象名。签名把时间戳算进去，所以两侧钉同一个 `X-Amz-Date`。
+
+**cairnq 的 key 有个陷阱**：`key` + `conflict: 'reuse'` 在任务**完成之后**依然有效。
+缩略图曾用它去重并发请求，结果缩略图被删再请求，拿回的是上次"已生成"的结论，于是
+一直 404。幂等且便宜的任务不要设 key。
+
+**Danbooru 导入的验证方式值得复用**：用一个已存在的标签跑 Hono 这条路（扫 202 条、
+新下 3 条、落库），紧接着让 Litestar 复跑同一个标签 —— 它自己的去重查询报
+`downloaded=0 / skipped=202 / early_stopped=true`，也就是说旧代码认得新代码写进去的
+行和标签。比任何断言都硬。
+
+---
+
 每搬一个：给它写 TaskDef + handler + 调度循环，跑 `pnpm parity:worker` 的同款对拍
 （同一批输入，新旧两条路径逐位比对），然后把它的 `key` 加进 `justfile` 的
 `PICTORIA_SKIP_WORKERS`。全部搬完之后 `run_all_backfill` / `gpu_pressure` /
