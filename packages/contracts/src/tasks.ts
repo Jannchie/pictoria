@@ -372,3 +372,70 @@ export const BASICS_TASK_BATCH = 32
 
 /** `post_process_failures.worker` 里 basics 用的桶名。 */
 export const BASICS_WORKER_KEY = 'basics'
+
+/** 一条准备落库的图片，用 `posts` 表自己的说法表述。 */
+export interface NormalizedPostRow {
+  filePath: string
+  fileName: string
+  extension: string
+  source: string
+  rating: number
+  /** ISO 串或 null —— 它要穿过一次 JSON，所以不是 datetime。 */
+  publishedAt: string | null
+  /** `{tag_name: group_id}`。tag 归哪个组是 schema 知识，由 TS 侧算好传进来。 */
+  tags: Record<string, number>
+}
+
+export interface DanbooruImportPayload {
+  tags: string
+  limit: number
+  fullScan: boolean
+  /**
+   * 已经**带 tag** 导入过的 Danbooru post id。
+   *
+   * 去重过滤器和翻页停止条件都要用它，而 worker 没有库可查，所以必须随 payload 走。
+   */
+  importedIds: string[]
+  /** 落盘目录的绝对路径。 */
+  saveDir: string
+  /** 相对图库根的目录，写进 `posts.file_path`。 */
+  filePathStr: string
+  /** 规范 tag 组的 `{类型: group_id}`，按优先级排序。 */
+  typeToGroupId: Record<string, number>
+}
+
+export interface DanbooruStats {
+  total: number
+  with_url: number
+  filtered: number
+  downloaded: number
+  skipped: number
+  failed: number
+  early_stopped: boolean
+}
+
+export interface DanbooruImportResult {
+  /** 只包含**字节已经落盘**的那些 —— 行不能早于文件存在。 */
+  rows: NormalizedPostRow[]
+  stats: DanbooruStats
+}
+
+/**
+ * Danbooru 标签导入。
+ *
+ * 抓取和下载留在 Python 不是妥协，是同一条规则：那个客户端带着两道调好的限流闸
+ * （API 和 CDN 各一道）和一个很微妙的翻页停止条件，重写一遍只会漂移。落库照旧
+ * 在 TS —— 于是 §D1 依然成立。
+ *
+ * 走 IO 队列：全是网络和磁盘，一点显存都不占。
+ */
+export const danbooruImportTask = defineTask<DanbooruImportPayload, DanbooruImportResult>('danbooru-import')
+
+/**
+ * 一次标签列表最多翻多少条。与 Python 侧 `_DEFAULT_LISTING_LIMIT` 同值。
+ *
+ * 原本是 99999，也就是最多约 500 页串行请求。绝大多数画师标签在第一页就短路了，
+ * 但大的版权/角色标签会在一次调用里翻上几分钟 —— 而客户端的读超时是关掉的，
+ * 调用方看到的就是卡死。
+ */
+export const DANBOORU_LISTING_LIMIT = 5000

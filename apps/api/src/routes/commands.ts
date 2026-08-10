@@ -9,6 +9,8 @@ import type { CairnQ } from 'cairnq'
 import { createRoute, OpenAPIHono, z } from '@hono/zod-openapi'
 import {
   captionTask,
+  DANBOORU_LISTING_LIMIT,
+  danbooruImportTask,
   embeddingTask,
   encodeVectorBlob,
   GPU_QUEUE,
@@ -25,6 +27,8 @@ import {
   getPostPath,
   getWaifuScore,
   isImagePath,
+  listImportedDanbooruIds,
+  persistPostsWithTags,
   persistAutoTagsForPost,
   ratingToInt,
   upsertAestheticScores,
@@ -46,6 +50,18 @@ import { translateTag } from '../tag-i18n.js'
 import { getTasks } from '../tasks.js'
 
 const SnapshotResult = z.object({ path: z.string(), dir: z.string() }).openapi('SnapshotResult')
+
+const DanbooruDownloadStats = z
+  .object({
+    total: z.int(),
+    with_url: z.int(),
+    filtered: z.int(),
+    downloaded: z.int(),
+    skipped: z.int(),
+    failed: z.int(),
+    early_stopped: z.boolean(),
+  })
+  .openapi('DanbooruDownloadStats')
 
 export const commandsRoutes = new OpenAPIHono({ defaultHook: zodErrorHook })
 
@@ -398,5 +414,79 @@ commandsRoutes.openapi(
       wakeAllBackfills()
     })
     return c.json({ msg: started ? 'Sync started' : 'Sync already running' }, 201)
+  },
+)
+
+/**
+ * Windows 不允许文件名里出现 `<>:"/\|?*`；`re:rin` 这种 Danbooru 标签否则会
+ * mkdir 失败。控制字符一并替换掉，尾部的点和空格也要削掉（Windows 不允许）。
+ */
+function safeDirName(name: string): string {
+  let out = ''
+  for (const ch of name)
+    out += '<>:"/\\|?*'.includes(ch) || ch < ' ' ? '_' : ch
+  return out.replace(/[.\s]+$/, '') || '_'
+}
+
+/**
+ * 从 Danbooru 下载一个标签下的图并落库。
+ *
+ * 抓取和下载在 worker（那个客户端带着两道调好的限流闸和一个很微妙的翻页停止条件），
+ * 落库在这里。两样东西必须随 payload 走，因为 worker 没有库可查：已导入的 post id
+ * 集合（去重和停止条件都要它），以及 tag 类型 → 组 id 的映射。
+ *
+ * `full_scan` 会翻到列表尾部，用来捡起"我们导完它的 id 邻居之后 Danbooru 才打上
+ * 这个标签"的那些 post；默认不开，因为那种情况少见而代价是每次都翻满。
+ */
+commandsRoutes.openapi(
+  createRoute({
+    method: 'post',
+    path: '/v2/cmd/download-from-danbooru',
+    operationId: 'v2DownloadFromDanbooru',
+    summary: 'DownloadFromDanbooru',
+    description: 'Download posts from Danbooru',
+    request: {
+      query: z.object({
+        tags: z.string().openapi({ param: { name: 'tags', in: 'query', required: true } }),
+        full_scan: z.coerce.boolean().default(false)
+          .openapi({ param: { name: 'full_scan', in: 'query', required: false }, type: 'boolean', default: false }),
+      }),
+    },
+    responses: {
+      201: { description: 'Document created, URL follows', content: { 'application/json': { schema: DanbooruDownloadStats } } },
+      ...RESP_400,
+    },
+  }),
+  async (c) => {
+    const { tags } = c.req.valid('query')
+    // z.coerce.boolean() 把 "false" 当成 true，自己解析（同 rotate 的 clockwise）。
+    const rawFullScan = c.req.query('full_scan')
+    const fullScan = rawFullScan !== undefined && !/^(?:false|0)$/i.test(rawFullScan)
+
+    const { sqlite } = getDb()
+    const filePathStr = `danbooru/${safeDirName(tags)}`
+    const saveDir = path.resolve(targetDir(), filePathStr)
+
+    const tasks: CairnQ = await getTasks()
+    const result = await tasks.call(danbooruImportTask, {
+      tags,
+      limit: DANBOORU_LISTING_LIMIT,
+      fullScan,
+      importedIds: listImportedDanbooruIds(sqlite, filePathStr),
+      saveDir,
+      filePathStr,
+      typeToGroupId: ensureCanonicalTagGroups(sqlite),
+    }, {
+      queue: IO_QUEUE,
+      // 一次大标签的列表 + 下载是分钟级的：CDN 被限到约 1 req/s。
+      waitTimeoutMs: 60 * 60_000,
+      pollMs: 200,
+      maxAttempts: 1,
+    })
+
+    persistPostsWithTags(sqlite, result.rows)
+    // 新行只有路径三元组，其余列等 backfill 去填 —— 别让它们干等一轮空转。
+    wakeAllBackfills()
+    return c.json(result.stats, 201)
   },
 )

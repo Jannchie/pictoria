@@ -34,3 +34,5 @@ export type { BasicsPending, BasicsRowIn, PendingImage, TaggerRow } from './repo
 export { assignFromPairs, assignGroupForPost, DEDUP_KNN_K, exportVectorMatrix, replaceAllGroups, setCanonical } from './repositories/dedup.js'
 export { getAestheticScore, getPostPath, getWaifuScore, isImagePath, persistAutoTagsForPost } from './repositories/commands.js'
 export type { CommandPost } from './repositories/commands.js'
+export { listImportedDanbooruIds, persistPostsWithTags } from './repositories/import-persist.js'
+export type { NormalizedRow } from './repositories/import-persist.js'

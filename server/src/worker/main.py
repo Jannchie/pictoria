@@ -28,6 +28,7 @@ import logging
 from pathlib import Path
 
 from cairnq import SQLiteStore, Worker
+from dotenv import load_dotenv
 
 from worker.handlers import (
     handle_basics,
@@ -42,6 +43,11 @@ from worker.handlers import (
     handle_waifu,
     set_root,
 )
+from worker.importers import handle_danbooru_import
+
+#: The importers need DANBOORU_API_KEY / DANBOORU_USER_NAME out of server/.env —
+#: the same file bootstrap.py loads for the API process.
+load_dotenv()
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 log = logging.getLogger("worker")
@@ -118,9 +124,10 @@ async def main() -> None:
     io_worker.task("rotate")(lambda _ctx, payload: handle_rotate(payload))
     io_worker.task("caption")(lambda _ctx, payload: handle_caption(payload))
     io_worker.task("basics")(lambda _ctx, payload: handle_basics(payload))
+    io_worker.task("danbooru-import")(lambda _ctx, payload: handle_danbooru_import(payload))
 
     log.info(
-        "worker up: silva, waifu, tagger, embedding, dedup on %s; text-embed on %s; thumbnail + rotate + caption + basics on %s  db=%s",
+        "worker up: silva, waifu, tagger, embedding, dedup on %s; text-embed on %s; thumbnail + rotate + caption + basics + import on %s  db=%s",
         GPU_QUEUE,
         INTERACTIVE_QUEUE,
         IO_QUEUE,
