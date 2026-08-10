@@ -136,6 +136,7 @@ annotationQueuesRoutes.openapi(
     path: '/v2/annotation-queues',
     operationId: 'v2ListQueues',
     summary: 'ListQueues',
+    description: 'List queues with progress, newest first.',
     responses: {
       // 没有 400 —— 这个端点没有任何参数，Litestar 就不会挂校验错误响应。
       200: { description: OK, content: { 'application/json': { schema: z.array(QueueSummaryPublic) } } },
@@ -166,6 +167,7 @@ annotationQueuesRoutes.openapi(
     path: '/v2/annotation-queues/{queue_id}/next-absolute',
     operationId: 'v2NextAbsolute',
     summary: 'NextAbsolute',
+    description: 'Next undone items of an absolute queue, with image info.',
     request: {
       params: z.object({ queue_id: queueIdParam }),
       query: z.object({ limit: limitParam }),
@@ -193,6 +195,7 @@ annotationQueuesRoutes.openapi(
     path: '/v2/annotation-queues/{queue_id}/next-pairwise',
     operationId: 'v2NextPairwise',
     summary: 'NextPairwise',
+    description: 'Next undone items of a pairwise queue, with image info for both posts.',
     request: {
       params: z.object({ queue_id: queueIdParam }),
       query: z.object({ limit: limitParam }),

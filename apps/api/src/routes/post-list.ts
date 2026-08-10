@@ -8,42 +8,11 @@
 import { createRoute, OpenAPIHono, z } from '@hono/zod-openapi'
 import { listPaginated, searchPosts, type PostFilterWithOrder } from '@pictoria/db'
 import { getDb } from '../db.js'
+import { PostFilterWithOrderSchema } from '../filter-schema.js'
 import { OK, RESP_400, zodErrorHook } from '../openapi.js'
 import { PostDetailPublic, PostSimplePublic, toIsoDateTime, toPostSimple } from '../schemas.js'
 import { translateTag } from '../tag-i18n.js'
 
-const ORDER_COLUMNS = [
-  'id', 'score', 'rating', 'created_at', 'published_at', 'file_name',
-  'last_accessed_at', 'updated_at', 'waifu_score', 'silva_score',
-  'silva_luna_score', 'discrepancy',
-] as const
-
-/** 与 PostFilter 同族：全字段 snake_case（msgspec Struct）。 */
-const PostFilterWithOrderSchema = z
-  .object({
-    rating: z.array(z.int()).default([]).nullable().optional(),
-    score: z.array(z.int()).default([]).nullable().optional(),
-    tags: z.array(z.string()).default([]).nullable().optional(),
-    extension: z.array(z.string()).default([]).nullable().optional(),
-    folder: z.string().nullable().optional(),
-    lab: z.tuple([z.number(), z.number(), z.number()]).nullable().optional(),
-    waifu_score_range: z.tuple([z.number(), z.number()]).nullable().optional(),
-    waifu_score_levels: z.array(z.string()).default([]).nullable().optional(),
-    silva_score_levels: z.array(z.string()).default([]).nullable().optional(),
-    silva_luna_score_levels: z.array(z.string()).default([]).nullable().optional(),
-    only_canonical: z.boolean().default(true).optional(),
-    order_by: z.enum(ORDER_COLUMNS).nullable().optional(),
-    order: z.enum(['asc', 'desc', 'random']).default('desc').optional(),
-    order_seed: z.int().nullable().optional(),
-    sort_direction: z.enum(['asc', 'desc']).nullable().optional(),
-  })
-  .openapi('PostFilterWithOrder')
-
-/**
- * `items` 在 baseline 里是**无结构的 object** —— Litestar 的泛型 `CursorResponse`
- * 没有把 `PostDetailPublic` 展开进去。这里照抄那个形状，不是照抄"更好的"形状：
- * 契约的目标是让前端一行不改，不是趁机改进类型。
- */
 const CursorResponse = z
   .object({
     // z.object({}) 会产出 properties:{} 和 additionalProperties，baseline 里

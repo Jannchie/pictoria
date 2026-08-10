@@ -15,27 +15,8 @@ import {
   type PostFilter as DbPostFilter,
 } from '@pictoria/db'
 import { getDb } from '../db.js'
+import { PostFilterSchema as PostFilter } from '../filter-schema.js'
 import { OK, RESP_400, zodErrorHook } from '../openapi.js'
-
-/**
- * 全字段 snake_case —— 这一族在 Python 侧是 msgspec Struct，不走 to_camel
- * （见 §4.2 的命名风格表）。别顺手改成 camelCase。
- */
-const PostFilter = z
-  .object({
-    rating: z.array(z.int()).default([]).nullable().optional(),
-    score: z.array(z.int()).default([]).nullable().optional(),
-    tags: z.array(z.string()).default([]).nullable().optional(),
-    extension: z.array(z.string()).default([]).nullable().optional(),
-    folder: z.string().nullable().optional(),
-    lab: z.tuple([z.number(), z.number(), z.number()]).nullable().optional(),
-    waifu_score_range: z.tuple([z.number(), z.number()]).nullable().optional(),
-    waifu_score_levels: z.array(z.string()).default([]).nullable().optional(),
-    silva_score_levels: z.array(z.string()).default([]).nullable().optional(),
-    silva_luna_score_levels: z.array(z.string()).default([]).nullable().optional(),
-    only_canonical: z.boolean().default(true).optional(),
-  })
-  .openapi('PostFilter')
 
 const CountPostsResponse = z.object({ count: z.int() }).openapi('CountPostsResponse')
 const RatingCountItem = z.object({ rating: z.int(), count: z.int() }).openapi('RatingCountItem')

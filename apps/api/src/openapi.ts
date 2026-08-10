@@ -10,11 +10,14 @@ import { z } from '@hono/zod-openapi'
  * Litestar 给 70 个端点里的 63 个自动挂了同一个 400。Hono 没有等价机制，只能
  * 做成常量逐个端点显式挂上 —— 漏一个 contract-diff 就会报。
  */
-export const ValidationError = z.object({
-  status_code: z.int(),
-  detail: z.string(),
-  extra: z.any().openapi({ type: ['null', 'object', 'array'], additionalProperties: {} }).optional(),
-})
+export const ValidationError = z
+  .object({
+    status_code: z.int(),
+    detail: z.string(),
+    extra: z.any().openapi({ type: ['null', 'object', 'array'], additionalProperties: {} }).optional(),
+  })
+  // schema 自身的 description（不是响应的），hey-api 把它转成类型上的 JSDoc。
+  .describe('Validation Exception')
 
 export const RESP_400 = {
   400: {

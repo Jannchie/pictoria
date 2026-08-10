@@ -59,6 +59,14 @@ app.get('/schema/openapi.json', async (c) => {
     info: { title: 'Pictoria', version: '0.1.0' },
   })
 
+  // Litestar 给每个组件都带 `title`（恒等于组件名），hey-api 把它转成 TS 类型上的
+  // JSDoc。zod-openapi 不产出这个字段，缺了会让 genapi 的产物少掉 260 行注释 ——
+  // 类型不变，但编辑器里的悬停提示会空掉。统一在这里补，比在 50 处手写可靠。
+  for (const [name, schema] of Object.entries(local.components?.schemas ?? {})) {
+    const s = schema as Record<string, unknown>
+    s.title ??= name
+  }
+
   let upstream: any
   try {
     upstream = await (await fetch(`${UPSTREAM}/schema/openapi.json`)).json()
