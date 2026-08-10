@@ -15,3 +15,5 @@ export { addAgg, emptyAgg, folderScoreAggregates } from './repositories/folders.
 export type { FolderScoreAgg } from './repositories/folders.js'
 export { listTagGroups, listTagsWithCounts } from './repositories/tags.js'
 export type { TagGroupRow, TagWithCount } from './repositories/tags.js'
+export { aggregateStats, countByColumn, countByScorerBucket, countPosts } from './queries/counts.js'
+export type { AggregateStats, BucketCount } from './queries/counts.js'
