@@ -209,6 +209,66 @@ for (const [method, url, body] of cases) {
   else pass++
 }
 
+
+// ─── CORS ───────────────────────────────────────────────────────────
+//
+// 前端在 4778、API 在 4777，每个请求都是跨源的。迁移期间这件事是**隐形**的：
+// 响应头由代理从 Litestar 透传，浏览器一直是通的；端点搬成原生 Hono 之后就断了，
+// 而上面所有用例都没发现 —— 它们不带 `Origin` 头。
+//
+// 所以这里比的不是响应体而是**头**，而且只比浏览器真正会看的那几个：
+// 简单请求要有 allow-origin；预检要 2xx、要放行前端用的方法和 content-type。
+// Litestar 在简单请求上还会多发 allow-headers / allow-methods（浏览器忽略），
+// 这种无害的差异不比。
+{
+  const ORIGIN = 'http://localhost:4778'
+  const corsFails = []
+
+  async function simple(base) {
+    const r = await fetch(`${base}/v2/tags?limit=1`, { headers: { origin: ORIGIN } })
+    return { status: r.status, allowOrigin: r.headers.get('access-control-allow-origin') }
+  }
+
+  async function preflight(base, method, path) {
+    const r = await fetch(base + path, {
+      method: 'OPTIONS',
+      headers: {
+        'origin': ORIGIN,
+        'access-control-request-method': method,
+        'access-control-request-headers': 'content-type',
+      },
+    })
+    const allowed = (r.headers.get('access-control-allow-methods') ?? '')
+      .split(',').map(s => s.trim().toUpperCase())
+    const headers = (r.headers.get('access-control-allow-headers') ?? '')
+      .split(',').map(s => s.trim().toLowerCase())
+    return {
+      ok: r.status >= 200 && r.status < 300,
+      allowOrigin: r.headers.get('access-control-allow-origin'),
+      // 通配和显式列表在浏览器看来是一回事，归一之后再比
+      methodAllowed: allowed.includes('*') || allowed.includes(method),
+      contentTypeAllowed: headers.includes('*') || headers.includes('content-type'),
+    }
+  }
+
+  const [hs, ls] = [await simple(HONO), await simple(LITESTAR)]
+  if (hs.allowOrigin === ls.allowOrigin && hs.allowOrigin !== null) pass++
+  else corsFails.push(`简单请求的 allow-origin: hono=${hs.allowOrigin} litestar=${ls.allowOrigin}`)
+
+  // 前端真正会触发预检的那几条：JSON POST、PUT、DELETE
+  for (const [method, path] of [
+    ['POST', '/v2/posts/search'],
+    ['PUT', '/v2/posts/1/score'],
+    ['DELETE', '/v2/posts/delete'],
+  ]) {
+    const [h, l] = [await preflight(HONO, method, path), await preflight(LITESTAR, method, path)]
+    if (h.ok && h.allowOrigin === l.allowOrigin && h.methodAllowed && h.contentTypeAllowed) pass++
+    else corsFails.push(`预检 ${method} ${path}: hono=${JSON.stringify(h)} litestar=${JSON.stringify(l)}`)
+  }
+
+  for (const f of corsFails) failures.push({ label: `CORS ${f}`, diffs: [] })
+}
+
 for (const f of failures) {
   console.log(`❌ ${f.label}`)
   for (const d of f.diffs.slice(0, 6)) {
@@ -219,5 +279,5 @@ for (const f of failures) {
   if (f.diffs.length > 6) console.log(`   …另有 ${f.diffs.length - 6} 处`)
 }
 
-console.log(`\n${failures.length === 0 ? '✅' : '💥'} ${pass}/${cases.length} 个用例与 Litestar 一致`)
+console.log(`\n${failures.length === 0 ? '✅' : '💥'} ${pass} 项与 Litestar 一致（${cases.length} 个端点用例 + 4 项 CORS）`)
 process.exit(failures.length === 0 ? 0 : 1)

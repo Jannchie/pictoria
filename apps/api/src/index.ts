@@ -2,6 +2,7 @@ import process from 'node:process'
 import { serve } from '@hono/node-server'
 import { OpenAPIHono } from '@hono/zod-openapi'
 import { compress } from 'hono/compress'
+import { cors } from 'hono/cors'
 import { rebuildGroups } from './dedup.js'
 import { getDb } from './db.js'
 import { startBasicsBackfill, startEmbeddingBackfill, startSilvaBackfill, startTaggerBackfill, startWaifuBackfill, wakeAllBackfills } from './scheduler.js'
@@ -38,6 +39,24 @@ const PORT = Number(process.env.PICTORIA_API_PORT ?? 4777)
 const UPSTREAM = process.env.PICTORIA_UPSTREAM ?? 'http://127.0.0.1:4779'
 
 const app = new OpenAPIHono()
+
+/**
+ * CORS —— 前端在 4778，API 在 4777，每一个请求都是跨源的。
+ *
+ * ⚠️ 迁移期间这件事是**隐形**的：响应头由代理从 Litestar 透传回来，所以浏览器一直
+ * 是通的；端点搬成原生 Hono 之后就断了。对拍套件全程没发现，因为它们不带 `Origin`
+ * 头 —— 下面 `endpoint-parity.mjs` 补了专门的检查。
+ *
+ * 配置对齐 Litestar 的 `CORSConfig(allow_origins=["*"])` 实测输出：预检 204 +
+ * max-age 600 + 七个方法 + 四个安全头。`allowHeaders` 显式列出而不是留空让 Hono
+ * 回显请求头 —— 两者在浏览器看来等价，但显式的那份在响应里是稳定的，好对拍。
+ */
+app.use('*', cors({
+  origin: '*',
+  allowMethods: ['DELETE', 'GET', 'HEAD', 'OPTIONS', 'PATCH', 'POST', 'PUT'],
+  allowHeaders: ['Accept', 'Accept-Language', 'Content-Language', 'Content-Type'],
+  maxAge: 600,
+}))
 
 // 按 content-type 白名单压缩：不压 JPEG/PNG（已经是压缩格式，实测省 0.2% 纯烧
 // CPU —— Litestar 那边不分类型全压，这里是有意的差别），也跳过 206。
