@@ -3,7 +3,6 @@ import { serve } from '@hono/node-server'
 import { OpenAPIHono } from '@hono/zod-openapi'
 import { compress } from 'hono/compress'
 import { rebuildGroups } from './dedup.js'
-import { createProxy } from './proxy.js'
 import { getDb } from './db.js'
 import { startBasicsBackfill, startEmbeddingBackfill, startSilvaBackfill, startTaggerBackfill, startWaifuBackfill, wakeAllBackfills } from './scheduler.js'
 import { startAutoSync } from './sync.js'
@@ -22,23 +21,28 @@ import { tagsRoutes } from './routes/tags.js'
 import { tagWritesRoutes } from './routes/tag-writes.js'
 
 /**
- * Pictoria API —— 迁移期的门面。
+ * Pictoria API。
  *
- * 占住前端硬编码的 4777。已经搬过来的路由在这里注册，其余透传给挪到 4779 的
- * Litestar（见 docs/refactor-monorepo-hono.md §5 Phase 4）。每搬完一组，透传就
- * 少一组，直到代理整个删掉。
+ * 70 个端点全部在这里；反向代理已经删掉 —— 迁移期它把没搬完的路由透传给 4779 的
+ * Litestar，现在没有"没搬完的"了（见 docs/refactor-monorepo-hono.md §Phase 6）。
+ *
+ * Litestar 的代码还在 `server/src/server/`，但只作为对拍脚本的**参照实现**存在：
+ * `just server-ref` 手动起它，`pnpm parity:all` 拿它当基准。它不再服务任何流量。
  */
 
 const PORT = Number(process.env.PICTORIA_API_PORT ?? 4777)
+/**
+ * 只有 `/schema/openapi.json` 还会问它一句，而且问不到也无所谓 —— 见下面。
+ * 对拍脚本自己直接打 4779，不经过这里。
+ */
 const UPSTREAM = process.env.PICTORIA_UPSTREAM ?? 'http://127.0.0.1:4779'
 
 const app = new OpenAPIHono()
 
-// 代理向上游摘掉了 accept-encoding（见 proxy.ts 的 RECOMPUTED 注释），压缩由这里
-// 补回来。Hono 的实现按 content-type 白名单过滤，不压 JPEG/PNG，也跳过 206。
+// 按 content-type 白名单压缩：不压 JPEG/PNG（已经是压缩格式，实测省 0.2% 纯烧
+// CPU —— Litestar 那边不分类型全压，这里是有意的差别），也跳过 206。
 app.use('*', compress())
 
-// ---- 已迁移到 Hono 的路由 ----
 app.route('/', statisticsRoutes)
 app.route('/', foldersRoutes)
 app.route('/', tagsRoutes)
@@ -56,11 +60,12 @@ app.route('/', postListRoutes)
 app.route('/', postReadsRoutes)
 
 /**
- * `/schema/openapi.json` 必须把两侧合起来。
+ * `/schema/openapi.json` —— 前端 `pnpm genapi` 打的就是这个地址。
  *
- * 前端的 `pnpm genapi` 打的就是这个地址，只给 Hono 已实现的那几个会让客户端在
- * 迁移中途缺掉大半 API。做法是取上游的完整文档，再把本地已实现端点的定义盖上去 ——
- * 于是无论一个端点在哪一侧，客户端看到的形状都一样。
+ * 迁移期它必须把两侧合起来（只给 Hono 已实现的那几个会让客户端缺掉大半 API）。
+ * 现在 70 个端点都在本地，上游那一份只剩一个用处：Litestar 跑着的时候，
+ * `contract:diff` 能顺带看出本地有没有漏掉哪个组件 schema。上游不在就直接给本地
+ * 这一份，而那才是最终形态。
  */
 app.get('/schema/openapi.json', async (c) => {
   const local = app.getOpenAPI31Document({
@@ -103,13 +108,8 @@ app.get('/schema/openapi.json', async (c) => {
   return c.json(merged)
 })
 
-// ---- 其余一律透传给 Litestar ----
-// 放在最后：Hono 按注册顺序匹配，上面任何一条命中就不会走到这里。
-app.all('*', createProxy({ upstream: UPSTREAM }))
-
 serve({ fetch: app.fetch, port: PORT }, (info) => {
   console.warn(`[pictoria-api] listening on http://127.0.0.1:${info.port}`)
-  console.warn(`[pictoria-api] proxying unmigrated routes to ${UPSTREAM}`)
 })
 
 // ---- backfill 调度（§D2：挑活在 TS，干活在 Python worker） ----
