@@ -16,25 +16,28 @@ Pictoria is a full-stack image gallery application for managing and displaying i
 
 ### Development
 
+Everything runs through pnpm scripts from the repo root (there is no justfile).
+
 ```bash
-# Run full application (backend + frontend)
-just dev
-
-# Run backend only
-just server-dev
-# Or directly (must run from server/ — app.py reads pyproject.toml relative to cwd):
-cd server && uv run ./src/app.py --target_dir ./illustration/images
-
-# Run frontend only
-just web-dev
-# Or directly (from the repo root — pnpm workspace):
+# All three dev processes: Hono API (4777), cairnq worker (GPU), Vite (4778)
 pnpm dev
 
-# Generate API client after backend changes
-just web-genapi
-# Or directly:
+# Or one at a time
+pnpm dev:api        # Hono API
+pnpm dev:worker     # cairnq worker — must run from server/, so the script cd's there
+pnpm dev:web        # Vite
+
+# Generate the API client after backend changes
 pnpm genapi
 ```
+
+`pnpm dev` runs the three under `concurrently -k`, so output is prefixed per process
+and one Ctrl+C stops all of them.
+
+⚠️ Do **not** rewrite it as a POSIX `(trap 'kill 0' SIGINT; a & b & wait)` one-liner.
+`pnpm config get script-shell` reports msys bash on this machine, but root scripts
+actually execute under cmd.exe — `trap` and `wait` come back "not recognized", the
+parent exits immediately, and the children die with it. Measured, not assumed.
 
 ### Building & Testing
 
@@ -128,7 +131,7 @@ uv run python scripts/inspect_db.py
 1. If the schema changes: add a new numbered SQL file to `server/migrations/` (e.g. `NNNN_add_foo.sql`, using the next free number). It is applied on the next process boot; do not edit existing migration files.
 2. Update the matching Pydantic entity in `src/db/entities.py`. Put **write** logic on the relevant focused repo (`PostRepo`/`ScoreRepo`/`ColorRepo`/`TagRepo`/...); put **read** logic (assembly, filtered counts/aggregates) on `PostQueryService`; add filter fields / column allowlists in `db/filters.py`.
 3. Update API endpoints in `src/server/` (reads inject `PostQueryService`, writes inject the focused repo).
-4. Regenerate frontend API client: `just web-genapi`
+4. Regenerate frontend API client: `pnpm genapi`
 5. Run checks: `uv run ruff check src` and `uv run pytest`.
 
 Notes when writing SQL for SQLite:

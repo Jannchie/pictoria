@@ -2,7 +2,7 @@
  * Worker 对拍：新链路（TS 挑活 → cairnq → Python worker）算出来的东西，必须和
  * 旧路径（Python 进程内直接读库算）**逐位相同**。
  *
- *   pnpm parity:worker          # 需要 cairnq worker 在跑（just worker-dev）
+ *   pnpm parity:worker          # 需要 cairnq worker 在跑（pnpm dev:worker）
  *
  * 为什么不拿库里存量当基准：silva head 的权重更新过，`post_aesthetic_scores` 里
  * 的历史分数是**旧权重**算的，和今天任何一条路径都对不上。基准必须是同一时刻的
@@ -86,7 +86,7 @@ for (const scorer of ['silva', 'silva_luna'] as const) {
     })
   }
   catch (err) {
-    fails.push(`${scorer}: cairnq 往返失败 —— worker 在跑吗？（just worker-dev）\n   ${String(err)}`)
+    fails.push(`${scorer}: cairnq 往返失败 —— worker 在跑吗？（pnpm dev:worker）\n   ${String(err)}`)
     continue
   }
   const elapsed = Date.now() - t0

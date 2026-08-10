@@ -1,8 +1,8 @@
 /**
  * 破坏性端点的对拍：delete / rotate / delete-folder。
  *
- *   # API 必须以 PICTORIA_SCHEDULER=0 启动
- *   pnpm parity:destructive        # 两侧都要在跑，cairnq worker 也要在跑
+ *   pnpm dev:api-quiet             # API 必须关掉自动后台工作，见下
+ *   pnpm parity:destructive        # Litestar 参照实现和 cairnq worker 也要在跑
  *
  * ⚠️ **API 要关掉自动后台工作**（`PICTORIA_SCHEDULER=0`）。开着的话文件监视会在样本
  * 落盘的瞬间同步、backfill 立刻抓走它们，于是：Windows 上 worker 开着文件时

@@ -27,7 +27,7 @@ import { tagWritesRoutes } from './routes/tag-writes.js'
  * Litestar，现在没有"没搬完的"了（见 docs/refactor-monorepo-hono.md §Phase 6）。
  *
  * Litestar 的代码还在 `server/src/server/`，但只作为对拍脚本的**参照实现**存在：
- * `just server-ref` 手动起它，`pnpm parity:all` 拿它当基准。它不再服务任何流量。
+ * `pnpm ref:litestar` 手动起它，`pnpm parity:all` 拿它当基准。它不再服务任何流量。
  */
 
 const PORT = Number(process.env.PICTORIA_API_PORT ?? 4777)

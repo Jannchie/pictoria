@@ -283,7 +283,7 @@ drizzle schema（pull 后人工校对）+ 连接封装 + `PostRepo`/`PostQuerySe
 
 ### ~~Phase 3 · Hono 空壳 + 反向代理（1 天）⭐~~ ✅ 已完成 2026-08-10
 
-Hono 占用 4777，Litestar 挪到 4779（`PICTORIA_PORT` 环境变量，缺省仍是 4777 —— 单独跑 `just server-dev-direct` 行为不变），Hono 未实现的路由全部透传。前端零感知。
+Hono 占用 4777，Litestar 挪到 4779（`PICTORIA_PORT` 环境变量，缺省仍是 4777 —— 单独跑它行为不变），Hono 未实现的路由全部透传。前端零感知。
 
 **这是整个计划的枢纽**：从这一刻起，70 个端点可以一个一个搬，随时能停在中间状态，任何一个搬砸了就把 proxy 加回来。
 
@@ -532,9 +532,25 @@ worker 只回传标签名和 rating 字符串，而"这个标签属于哪个组"
   都已作为手工标签存在时（Danbooru 导入的图很常见），一行 `is_auto = 1` 都建不出来，
   待办查询下一轮又会选中它。这些 id 要一起拉黑，因为重跑只会得到同样被遮住的结果。
 
-### Phase 7 · 清理（2–3 天）
+### Phase 7 · 清理
 
-删 Litestar、删 Python `db/` 层、删 proxy；`apps/worker` 只剩 `ai/` + `services/(danbooru, gallery_dl)` + cairnq handlers；更新 `justfile` / `CLAUDE.md` / `README`。
+已做：
+
+* **删 proxy** —— 70/70 之后它没有可透传的东西了。删掉才露出三处一直被它藏着的差异
+  （未匹配路径的 404 形状、`/v2/posts/` 的结尾斜杠、`DELETE /v2/folders/` 该是 405）。
+* **删 justfile** —— 它最后只剩三条 dev 命令加两条对拍辅助，而 pnpm workspace 本来
+  就有 script 机制。全部搬进根 `package.json`：`pnpm dev`（三个进程 + `trap 'kill 0'`）、
+  `dev:api` / `dev:worker` / `dev:web` / `dev:api-quiet` / `ref:litestar`。
+  这依赖 pnpm 的 `script-shell` 是 POSIX shell —— 它是（msys bash），根脚本要保持
+  POSIX 兼容。
+
+待定：删 Litestar 本体和 Python `db/` 层。挡在前面的不是代码而是**验证**：12 个对拍
+套件全部拿 Litestar 当基准（`pnpm ref:litestar` 起它），删了它这些套件就一起失效。
+`worker_direct.py`（worker 对拍的参照）和 `dump_query_golden.py`（golden fixture 的
+生成器）也都要 `db/` 层。
+
+真删的时候 `server/` 要留下的是：`ai/` + `tools/` + `danbooru/` +
+`services/(danbooru_import, gallery_dl_import, wd_tagging)` + `utils.py` + `worker/`。
 
 **总量粗估**：TS 侧新增 6,000–8,000 行；日历时间 5–7 周（按业余时间会更长）。
 

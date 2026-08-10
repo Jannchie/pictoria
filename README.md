@@ -22,13 +22,15 @@ Pictoria is a full-stack image gallery application designed for managing and dis
     ```
 
 2. **Run the development environment:**
-    To run both the backend and frontend servers concurrently, use the following command from the project root:
+    One command from the project root starts all three processes — the API, the
+    GPU worker and the frontend:
 
     ```bash
-    just dev
+    pnpm dev
     ```
 
-    Alternatively, you can run them separately:
+    Or run them separately:
 
-    * **Backend Server:** `just server-dev`
-    * **Frontend Server:** `just web-dev`
+    * **API (Hono, port 4777):** `pnpm dev:api`
+    * **Worker (cairnq, owns the GPU):** `pnpm dev:worker`
+    * **Frontend (Vite, port 4778):** `pnpm dev:web`
