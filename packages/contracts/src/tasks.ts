@@ -296,3 +296,23 @@ export interface RotateResult {
  * 像素缓冲 —— 两者不同，混用会让重复检测悄悄失效。
  */
 export const rotateTask = defineTask<RotatePayload, RotateResult>('rotate')
+
+export interface CaptionPayload {
+  /** 要描述的图片的绝对路径。 */
+  imagePath: string
+}
+
+export interface CaptionResult {
+  /** OpenAI 没配时是 false，TS 据此返回 MissingConfigError。 */
+  configured: boolean
+  caption: string
+}
+
+/**
+ * 用 OpenAI 给一张图写说明文字。
+ *
+ * 放在 worker 而不是 TS 侧发 HTTP：调用之前要把图重新编码成 JPEG base64
+ * （`diffusers.load_image` + PIL），那是实打实的解码/编码；而 API key 存在
+ * `<target_dir>/.pictoria/OPENAI_API_KEY`，让它只被一个进程读到也更干净。
+ */
+export const captionTask = defineTask<CaptionPayload, CaptionResult>('caption')

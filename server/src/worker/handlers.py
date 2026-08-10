@@ -347,3 +347,29 @@ async def handle_rotate(payload: dict[str, Any]) -> dict[str, Any]:
         }
 
     return await asyncio.to_thread(_rotate)
+
+
+async def handle_caption(payload: dict[str, Any]) -> dict[str, Any]:
+    """Caption one image with OpenAI.
+
+    The key lives in ``<target_dir>/.pictoria/OPENAI_API_KEY`` — the same file
+    ``bootstrap.prepare_openai_api`` reads. Absent key comes back as
+    ``configured: false`` rather than an exception: "not set up" is a 400 the
+    HTTP layer words for itself, not a worker failure to retry.
+    """
+    image = _resolve_inside(payload["imagePath"])
+    if _ROOT is None:
+        msg = "worker root not configured"
+        raise RuntimeError(msg)
+    key_file = _ROOT / ".pictoria" / "OPENAI_API_KEY"
+    if not key_file.is_file():
+        return {"configured": False, "caption": ""}
+    api_key = key_file.read_text().strip()
+    if not api_key:
+        return {"configured": False, "caption": ""}
+
+    from ai.make_captions import OpenAIImageAnnotator  # noqa: PLC0415  # lazy: pulls openai + diffusers
+
+    annotator = OpenAIImageAnnotator(api_key)
+    caption = await asyncio.to_thread(annotator.annotate_image, image)
+    return {"configured": True, "caption": caption}

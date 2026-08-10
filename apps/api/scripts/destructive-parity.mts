@@ -131,6 +131,32 @@ try {
     check('rotate 不存在的 post', JSON.stringify(h) === JSON.stringify(l), `${JSON.stringify(h)} vs ${JSON.stringify(l)}`)
   }
 
+  // ─── auto-caption ───────────────────────────────────────────────
+  //
+  // 在沙箱的副本上跑，**不碰真实 post** —— 这个端点会无条件覆写 caption，拿库里
+  // 现成的图去试就是把用户写的说明弄丢。文案本身是 LLM 出的，两次不会一样，所以
+  // 比的是"两侧都 200、都真的写进了 caption"。每跑一次两侧各花一次 OpenAI 调用。
+  {
+    const a = makePost('cap', 'hono')
+    const b = makePost('cap', 'litestar')
+    const h = await req(HONO, 'PUT', `/v2/cmd/auto-caption/${a.id}`)
+    const l = await req(LITESTAR, 'PUT', `/v2/cmd/auto-caption/${b.id}`)
+    check('auto-caption 状态码', h.status === l.status, `${h.status} vs ${l.status}`)
+    check(
+      'auto-caption 两侧都写进了 caption',
+      typeof h.body?.caption === 'string' && h.body.caption.length > 0
+      && typeof l.body?.caption === 'string' && l.body.caption.length > 0,
+      `${JSON.stringify(h.body?.caption)} / ${JSON.stringify(l.body?.caption)}`,
+    )
+    const stored = sqlite.prepare<[number], { caption: string }>('SELECT caption FROM posts WHERE id = ?').get(a.id)
+    check('auto-caption 落库了', (stored?.caption ?? '').length > 0)
+  }
+  {
+    const h = await req(HONO, 'PUT', '/v2/cmd/auto-caption/999999999')
+    const l = await req(LITESTAR, 'PUT', '/v2/cmd/auto-caption/999999999')
+    check('auto-caption 不存在的 post', JSON.stringify(h) === JSON.stringify(l), `${JSON.stringify(h)} vs ${JSON.stringify(l)}`)
+  }
+
   // ─── delete ─────────────────────────────────────────────────────
   for (const [label, base] of [['hono', HONO], ['litestar', LITESTAR]] as const) {
     const one = makePost('del', `${label}-1`)

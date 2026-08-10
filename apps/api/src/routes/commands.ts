@@ -8,9 +8,11 @@
 import type { CairnQ } from 'cairnq'
 import { createRoute, OpenAPIHono, z } from '@hono/zod-openapi'
 import {
+  captionTask,
   embeddingTask,
   encodeVectorBlob,
   GPU_QUEUE,
+  IO_QUEUE,
   silvaTask,
   taggerTask,
   waifuTask,
@@ -26,10 +28,14 @@ import {
   persistAutoTagsForPost,
   ratingToInt,
   upsertAestheticScores,
+  updateField,
   upsertVectors,
   upsertWaifuScores,
 } from '@pictoria/db'
 import { Buffer } from 'node:buffer'
+import fs from 'node:fs'
+import os from 'node:os'
+import path from 'node:path'
 import { DEDUP_THRESHOLD, isRebuilding, rebuildGroups } from '../dedup.js'
 import { getDb } from '../db.js'
 import { OK, RESP_400, zodErrorHook } from '../openapi.js'
@@ -37,6 +43,8 @@ import { PostDetailPublic, Result, toPostDetail } from '../schemas.js'
 import { targetDir } from '../scheduler.js'
 import { translateTag } from '../tag-i18n.js'
 import { getTasks } from '../tasks.js'
+
+const SnapshotResult = z.object({ path: z.string(), dir: z.string() }).openapi('SnapshotResult')
 
 export const commandsRoutes = new OpenAPIHono({ defaultHook: zodErrorHook })
 
@@ -295,5 +303,71 @@ commandsRoutes.openapi(
       rating: ratingToInt(row.rating),
     }, ensureCanonicalTagGroups(sqlite))
     return detailResponse(postId) as never
+  },
+)
+
+/**
+ * 自动配文：跑 OpenAI，把结果写进 `posts.caption`，回读详情。
+ *
+ * 没配 key 时 Python 抛 `MissingConfigError`（400）。worker 把"没配"作为**数据**
+ * 回传而不是抛异常 —— 那不是一次值得重试的失败，是一句该由 HTTP 层措辞的话。
+ */
+commandsRoutes.openapi(
+  createRoute({
+    method: 'put',
+    path: '/v2/cmd/auto-caption/{post_id}',
+    operationId: 'v2AutoCaption',
+    summary: 'AutoCaption',
+    request: { params: z.object({ post_id: postIdParam }) },
+    responses: {
+      200: { description: OK, content: { 'application/json': { schema: PostDetailPublic } } },
+      ...RESP_400,
+    },
+  }),
+  async (c) => {
+    const { post_id: postId } = c.req.valid('param')
+    const { sqlite } = getDb()
+    const post = getPostPath(sqlite, postId)
+    if (!post)
+      return domainError(`Post with id ${postId} not found.`, 'PostNotFoundError', 404) as never
+
+    const tasks: CairnQ = await getTasks()
+    const result = await tasks.call(captionTask, {
+      imagePath: `${targetDir()}/${post.fullPath}`,
+    }, { queue: IO_QUEUE, waitTimeoutMs: 120_000, pollMs: 20, maxAttempts: 1 })
+
+    if (!result.configured)
+      return domainError('OpenAI API key is not set.', 'MissingConfigError', 400) as never
+
+    updateField(sqlite, postId, 'caption', result.caption)
+    return detailResponse(postId) as never
+  },
+)
+
+/**
+ * 把在线库快照到一个临时文件，好让外部工具打开它。
+ *
+ * SQLite 的 `VACUUM INTO` 会产出一份自包含、一致的副本，写者活跃时也能做
+ * （它内部走一个读事务）。调用方自己打开、查询、然后删掉那个目录。
+ */
+commandsRoutes.openapi(
+  createRoute({
+    method: 'post',
+    path: '/v2/cmd/db/snapshot',
+    operationId: 'v2DbSnapshot',
+    summary: 'DbSnapshot',
+    description: 'Create a point-in-time SQLite snapshot for offline tooling',
+    responses: {
+      201: { description: 'Document created, URL follows', content: { 'application/json': { schema: SnapshotResult } } },
+    },
+  }),
+  (c) => {
+    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'pictoria-snapshot-'))
+    const snapPath = path.join(tmpDir, 'snapshot.sqlite')
+    // 路径由服务端生成（mkdtemp），不含单引号，所以直接内插是安全的 —— 和
+    // Python 侧同样的理由。
+    getDb().sqlite.exec(`VACUUM INTO '${snapPath.split(path.sep).join('/')}'`)
+    console.warn(`[pictoria-api] 已生成快照 ${snapPath}`)
+    return c.json({ path: snapPath, dir: tmpDir }, 201)
   },
 )
