@@ -40,7 +40,8 @@ import { DEDUP_THRESHOLD, isRebuilding, rebuildGroups } from '../dedup.js'
 import { getDb } from '../db.js'
 import { OK, RESP_400, zodErrorHook } from '../openapi.js'
 import { PostDetailPublic, Result, toPostDetail } from '../schemas.js'
-import { targetDir } from '../scheduler.js'
+import { targetDir, wakeAllBackfills } from '../scheduler.js'
+import { startSync } from '../sync.js'
 import { translateTag } from '../tag-i18n.js'
 import { getTasks } from '../tasks.js'
 
@@ -369,5 +370,33 @@ commandsRoutes.openapi(
     getDb().sqlite.exec(`VACUUM INTO '${snapPath.split(path.sep).join('/')}'`)
     console.warn(`[pictoria-api] 已生成快照 ${snapPath}`)
     return c.json({ path: snapPath, dir: tmpDir }, 201)
+  },
+)
+
+/**
+ * 重扫 target_dir 并把每个 backfill worker 都推一把。
+ *
+ * fire-and-forget：立刻返回，不让 HTTP 客户端干等一次几分钟的扫描。忙检查让
+ * 连点这个按钮（或在上一次还没跑完时再点）成为空操作，而不是启动重复的活。
+ */
+commandsRoutes.openapi(
+  createRoute({
+    method: 'post',
+    path: '/v2/cmd/sync-metadata',
+    operationId: 'v2SyncMetadataEndpoint',
+    summary: 'SyncMetadataEndpoint',
+    description: 'Rescan target_dir and run every backfill worker',
+    responses: {
+      201: { description: 'Document created, URL follows', content: { 'application/json': { schema: Result } } },
+    },
+  }),
+  (c) => {
+    const started = startSync(getDb().sqlite, (r) => {
+      console.warn(`[sync] 完成：新增 ${r.added}，删除 ${r.removed}`)
+      // 新行的空列由 backfill 循环去填。Python 侧在这里同步跑完
+      // run_all_backfill，这边只是把空转的循环叫醒 —— 同一批 worker，同样的活。
+      wakeAllBackfills()
+    })
+    return c.json({ msg: started ? 'Sync started' : 'Sync already running' }, 201)
   },
 )

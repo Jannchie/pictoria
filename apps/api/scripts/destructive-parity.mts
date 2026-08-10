@@ -72,6 +72,24 @@ function makePost(subdir: string, name: string): { id: number, rel: string } {
   return { id: Number(info.lastInsertRowid), rel: `${filePath}/${name}.jpg` }
 }
 
+function rowCount(filePath: string, fileName: string): number {
+  return sqlite
+    .prepare<[string, string], { c: number }>(
+      'SELECT count(*) c FROM posts WHERE file_path = ? AND file_name = ?',
+    )
+    .get(filePath, fileName)!.c
+}
+
+/** 轮询等一个条件成立 —— sync 是 fire-and-forget，没有可等的 promise。 */
+async function waitFor(cond: () => boolean, timeoutMs: number): Promise<void> {
+  const deadline = Date.now() + timeoutMs
+  while (Date.now() < deadline) {
+    if (cond())
+      return
+    await new Promise(r => setTimeout(r, 200))
+  }
+}
+
 function cleanup() {
   sqlite
     .prepare(`DELETE FROM posts WHERE file_path = ? OR (file_path >= ? AND file_path < ?)`)
@@ -227,6 +245,28 @@ try {
     const h = await req(HONO, 'DELETE', '/v2/posts/delete?ids=999999999')
     const l = await req(LITESTAR, 'DELETE', '/v2/posts/delete?ids=999999999')
     check('delete 不存在的 id', h.status === l.status, `${h.status} vs ${l.status}`)
+  }
+
+  // ─── sync-metadata ──────────────────────────────────────────────
+  //
+  // 只测 Hono 那一侧的**效果**，不和 Litestar 并排跑：两个进程同时对账同一个库
+  // 就是互相抢着删对方刚建的行。
+  {
+    // 磁盘上多一个文件 → sync 之后库里要多一行
+    const dir = path.resolve(TARGET_DIR, SANDBOX, 'sync')
+    fs.mkdirSync(dir, { recursive: true })
+    fs.writeFileSync(path.join(dir, 'orphan.jpg'), templateBytes)
+
+    const r = await req(HONO, 'POST', '/v2/cmd/sync-metadata')
+    check('sync 启动', r.body?.msg === 'Sync started', JSON.stringify(r))
+    await waitFor(() => rowCount(`${SANDBOX}/sync`, 'orphan') === 1, 20_000)
+    check('sync 把磁盘上多出来的文件建成了行', rowCount(`${SANDBOX}/sync`, 'orphan') === 1)
+
+    // 文件没了 → sync 之后行也要没
+    fs.rmSync(path.join(dir, 'orphan.jpg'))
+    await req(HONO, 'POST', '/v2/cmd/sync-metadata')
+    await waitFor(() => rowCount(`${SANDBOX}/sync`, 'orphan') === 0, 20_000)
+    check('sync 把磁盘上没了的文件的行删了', rowCount(`${SANDBOX}/sync`, 'orphan') === 0)
   }
 
   // ─── delete folder ──────────────────────────────────────────────

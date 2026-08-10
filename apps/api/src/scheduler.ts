@@ -68,17 +68,34 @@ const CALL_TIMEOUT_MS = 300_000
 
 export interface BackfillHandle {
   stop: () => void
+  /** 立刻结束这一轮空等，去看一眼有没有新活。 */
+  wake: () => void
+}
+
+/**
+ * 所有活着的循环，供 `wakeAllBackfills()` 用。
+ *
+ * sync 建出新行之后不该让它们干等 30 秒 —— Python 侧是同步跑完
+ * `run_all_backfill`，这边等价的动作就是把空转的循环全叫醒。
+ */
+const handles = new Set<BackfillHandle>()
+
+export function wakeAllBackfills(): void {
+  for (const h of handles) h.wake()
 }
 
 type Log = Pick<Console, 'info' | 'warn'>
 
-function sleep(ms: number, signal: AbortSignal): Promise<void> {
+function sleep(ms: number, signal: AbortSignal, waker: { resolve?: () => void }): Promise<void> {
   return new Promise((resolve) => {
     const t = setTimeout(resolve, ms)
-    signal.addEventListener('abort', () => {
+    const done = () => {
       clearTimeout(t)
+      waker.resolve = undefined
       resolve()
-    }, { once: true })
+    }
+    waker.resolve = done
+    signal.addEventListener('abort', done, { once: true })
   })
 }
 
@@ -92,6 +109,8 @@ function sleep(ms: number, signal: AbortSignal): Promise<void> {
 function loop(name: string, tick: () => Promise<boolean>, log: Log): BackfillHandle {
   const controller = new AbortController()
   const { signal } = controller
+  // 空等时这里放着那一次 sleep 的 resolve；wake() 就是提前调它。
+  const waker: { resolve?: () => void } = {}
 
   void (async () => {
     while (!signal.aborted) {
@@ -103,11 +122,19 @@ function loop(name: string, tick: () => Promise<boolean>, log: Log): BackfillHan
         log.warn(`[${name}] 这一批失败：${String(err)}`)
       }
       if (!worked)
-        await sleep(IDLE_MS, signal)
+        await sleep(IDLE_MS, signal, waker)
     }
   })()
 
-  return { stop: () => controller.abort() }
+  const handle: BackfillHandle = {
+    stop: () => {
+      controller.abort()
+      handles.delete(handle)
+    },
+    wake: () => waker.resolve?.(),
+  }
+  handles.add(handle)
+  return handle
 }
 
 /** 与 `db.ts` 同规则解析出的图库绝对根目录 —— worker 用它校验路径没有逃逸。 */
