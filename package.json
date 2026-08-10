@@ -16,8 +16,9 @@
     "parity:annotations": "node scripts/annotations-parity.mjs",
     "parity:write": "node scripts/write-parity.mjs",
     "parity:tags": "node scripts/tag-writes-parity.mjs",
-    "parity:all": "pnpm parity && pnpm parity:write && pnpm parity:annotations && pnpm parity:tags && pnpm parity:timeline && pnpm parity:queues && pnpm contract:diff",
+    "parity:all": "pnpm parity && pnpm parity:write && pnpm parity:annotations && pnpm parity:tags && pnpm parity:timeline && pnpm parity:queues && pnpm parity:sampling && pnpm contract:diff",
     "parity:timeline": "node scripts/timeline-parity.mjs",
-    "parity:queues": "node scripts/queues-parity.mjs"
+    "parity:queues": "node scripts/queues-parity.mjs",
+    "parity:sampling": "node scripts/sampling-parity.mjs"
   }
 }

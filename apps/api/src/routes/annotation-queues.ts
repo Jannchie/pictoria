@@ -1,8 +1,8 @@
 /**
  * `/v2/annotation-queues` —— 从显式列表建队列、列队列、取下一批。
  *
- * 两个 `generate-*` 仍透传：它们要先跑采样器（`_PairGraph`、并查集、多样性子集、
- * 重访池，约 700 行），那部分还在 Python 侧。
+ * 两个 `generate-*` 先跑采样器（PairGraph、并查集、多样性子集、重访池，见
+ * `@pictoria/db` 的 sampling.ts）再把抽出来的 id / 对写成一个队列。
  */
 import { createRoute, OpenAPIHono, z } from '@hono/zod-openapi'
 import {
@@ -11,9 +11,11 @@ import {
   listQueues,
   nextAbsoluteItems,
   nextPairwiseItems,
+  samplePairs,
+  samplePostIds,
 } from '@pictoria/db'
 import { getDb } from '../db.js'
-import { OK, RESP_400, zodErrorHook } from '../openapi.js'
+import { OK, pyRepr, RESP_400, validationError, zodErrorHook } from '../openapi.js'
 
 const QueueItemPostPublic = z
   .object({
@@ -215,5 +217,108 @@ annotationQueuesRoutes.openapi(
         postB: toQueuePost(r, 'b_'),
       })),
     )
+  },
+)
+
+/** 与 Python 侧 `annotation_queues.py` 的常量一致。 */
+const VALID_DIMENSIONS = ['color', 'finish', 'composition', 'overall'] as const
+const VALID_SCALES = [2, 3, 5]
+const VALID_STRATEGIES = ['random', 'stratified'] as const
+const VALID_PAIRWISE_STRATEGIES = ['random', 'similar', 'close'] as const
+
+const GenerateAbsoluteIn = z
+  .object({
+    dimensions: z.array(z.string()),
+    scale: z.int(),
+    count: z.int(),
+    strategy: z.string().default('random'),
+    name: z.union([z.string(), z.null()]).optional(),
+  })
+  .openapi('GenerateAbsoluteIn')
+
+const GeneratePairwiseIn = z
+  .object({
+    dimension: z.string(),
+    count: z.int(),
+    strategy: z.string().default('random'),
+    name: z.union([z.string(), z.null()]).optional(),
+  })
+  .openapi('GeneratePairwiseIn')
+
+annotationQueuesRoutes.openapi(
+  createRoute({
+    method: 'post',
+    path: '/v2/annotation-queues/generate-absolute',
+    operationId: 'v2GenerateAbsolute',
+    summary: 'GenerateAbsolute',
+    description: 'Auto-generate an absolute queue by sampling the library (random / stratified by old score).',
+    request: { body: { required: true, content: { 'application/json': { schema: GenerateAbsoluteIn } } } },
+    responses: {
+      201: { description: 'Document created, URL follows', content: { 'application/json': { schema: QueueSummaryPublic } } },
+      ...RESP_400,
+    },
+  }),
+  (c) => {
+    const d = c.req.valid('json')
+    if (!d.dimensions.length || d.dimensions.some((x: string) => !VALID_DIMENSIONS.includes(x as never)))
+      return validationError(c, `invalid dimensions: ${pyRepr(d.dimensions)}`) as never
+    if (!VALID_SCALES.includes(d.scale))
+      return validationError(c, `invalid scale: ${d.scale}`) as never
+    if (!VALID_STRATEGIES.includes(d.strategy as never))
+      return validationError(c, `invalid strategy: ${pyRepr(d.strategy)}`) as never
+
+    const { sqlite } = getDb()
+    const postIds = samplePostIds(sqlite, { count: d.count, strategy: d.strategy, dimensions: d.dimensions })
+    if (!postIds.length)
+      return validationError(c, 'no eligible candidates (need posts with embeddings, not yet annotated or queued)') as never
+    const name = d.name || `${d.strategy}-${d.dimensions.join('+')}-${postIds.length}`
+    const id = createAbsoluteQueue(sqlite, { name, dimensions: d.dimensions, scale: d.scale, postIds })
+    return c.json({
+      id,
+      name,
+      kind: 'absolute',
+      dimensions: d.dimensions,
+      scale: d.scale,
+      total: postIds.length,
+      done: 0,
+    }, 201)
+  },
+)
+
+annotationQueuesRoutes.openapi(
+  createRoute({
+    method: 'post',
+    path: '/v2/annotation-queues/generate-pairwise',
+    operationId: 'v2GeneratePairwise',
+    summary: 'GeneratePairwise',
+    description: 'Auto-generate a pairwise queue (random disjoint pairs, or content-similar + old-score-band pairs).',
+    request: { body: { required: true, content: { 'application/json': { schema: GeneratePairwiseIn } } } },
+    responses: {
+      201: { description: 'Document created, URL follows', content: { 'application/json': { schema: QueueSummaryPublic } } },
+      ...RESP_400,
+    },
+  }),
+  (c) => {
+    const d = c.req.valid('json')
+    if (!VALID_DIMENSIONS.includes(d.dimension as never))
+      return validationError(c, `invalid dimension: ${pyRepr(d.dimension)}`) as never
+    if (!VALID_PAIRWISE_STRATEGIES.includes(d.strategy as never))
+      return validationError(c, `invalid strategy: ${pyRepr(d.strategy)}`) as never
+
+    const { sqlite } = getDb()
+    const pairs = samplePairs(sqlite, { count: d.count, strategy: d.strategy, dimension: d.dimension })
+    if (!pairs.length)
+      return validationError(c, 'no eligible candidates (need posts with embeddings, not already queued)') as never
+    const name = d.name || `pairs-${d.dimension}-${pairs.length}`
+    const id = createPairwiseQueue(sqlite, { name, dimensions: [d.dimension], pairs })
+    return c.json({
+      id,
+      name,
+      kind: 'pairwise',
+      dimensions: [d.dimension],
+      scale: null,
+      total: pairs.length,
+      done: 0,
+    }, 201)
   },
 )

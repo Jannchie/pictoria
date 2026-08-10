@@ -70,3 +70,28 @@ export function zodErrorHook(result: any, c: any) {
     400,
   )
 }
+
+/**
+ * Litestar 手抛的 `ValidationException` → 400。
+ *
+ * ⚠️ 形状和 **schema 校验失败**不同：手抛的把消息直接放进 `detail` 且**没有 `extra`**，
+ * 而 msgspec 的 schema 校验失败是 `{detail: "Validation failed for …", extra: [...]}`。
+ * 同一个状态码，两种形状，前端分得出来。
+ */
+export function validationError(c: any, message: string) {
+  return c.json({ status_code: 400, detail: message }, 400)
+}
+
+/**
+ * Python `repr()` 的等价物，只覆盖错误消息里真正出现的那几种值。
+ *
+ * 消息文本是契约的一部分（前端会直接显示），而 Python 侧写的是 `f"...: {value!r}"` ——
+ * 字符串带单引号、列表是 `['a', 'b']`。JS 的模板插值会把列表变成 `a,b`，不一样。
+ */
+export function pyRepr(value: unknown): string {
+  if (typeof value === 'string')
+    return `'${value}'`
+  if (Array.isArray(value))
+    return `[${value.map(v => pyRepr(v)).join(', ')}]`
+  return String(value)
+}

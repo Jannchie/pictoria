@@ -312,7 +312,7 @@ Hono 占用 4777，Litestar 挪到 4779（`PICTORIA_PORT` 环境变量，缺省�
 
 每搬完一组：删对应 proxy 规则 → 跑 §4.2 的 schema diff → 跑 web vitest。
 
-**已搬 45/70**：
+**已搬 49/70**：
 
 | 组 | 端点 |
 |---|---|
@@ -322,19 +322,18 @@ Hono 占用 4777，Litestar 挪到 4779（`PICTORIA_PORT` 环境变量，缺省�
 | posts 计数 | 8 个（count / count/{rating,score,extension,waifu,silva,silva-luna} / stats） |
 | posts 读 | `GET /v2/posts`、`GET /v2/posts/{id}`、`{id}/group`、`POST /v2/posts/search` |
 | posts 写 | `score`、`rating`、`caption`、`source`、`touch`、`bulk/score`、`bulk/rating`、`ungroup`、`make-canonical`、tag 增删 2 个 |
-| annotations | 8 个（提交 3 + undo + edit + timeline + count + post 历史） |
-| annotation-queues | 5 个（建队列 2 + 列表 + 取下一批 2） |
+| annotations | 10 个（提交 3 + undo + edit + timeline + count + post 历史 + `sample-absolute` / `sample-pairwise`） |
+| annotation-queues | 7 个（建队列 2 + 列表 + 取下一批 2 + `generate-absolute` / `generate-pairwise`） |
 
-**剩下 25 个，全部有实质阻塞**：
+**剩下 21 个，全部在等 cairnq 或文件系统**：
 
 | 阻塞 | 端点 | 何时能解 |
 |---|---|---|
 | Phase 5/6 的 cairnq worker | `commands` 11 个 | Phase 5 接通 cairnq 之后 |
 | ML / 向量链路 | `posts/search/text`、`posts/{id}/similar` | 同上（§4.6 的文本编码走 cairnq） |
 | 文件系统 | `posts/upload`、`posts/{id}/rotate`、`posts/delete`、`DELETE /v2/folders/{path}`、`images` 4 个 | 缩略图归属定了之后一起（§D3） |
-| 约 700 行采样算法 | `annotations/sample-*` 2 个、`annotation-queues/generate-*` 2 个 | 独立一趟，**无外部依赖**，是剩下里唯一现在就能做的 |
 
-**六个对拍套件**（`pnpm parity:all` 一次跑全部 + 契约 diff）：
+**七个对拍套件**（`pnpm parity:all` 一次跑全部 + 契约 diff）：
 
 | 脚本 | 覆盖 | 关键设计 |
 |---|---|---|
@@ -344,6 +343,7 @@ Hono 占用 4777，Litestar 挪到 4779（`PICTORIA_PORT` 环境变量，缺省�
 | `tag-writes-parity.mjs` | 13 项 | 探针 tag 走完整生命周期。两侧**必须用同一个名字** —— 名字不同会让 post 详情里的 tags 数组排序位置不同，那是测试自身的假差异 |
 | `timeline-parity.mjs` | 11 项 | 含真实游标翻页与三种非法游标 |
 | `queues-parity.mjs` | 8 项 | 队列 id 是自增的，两轮必然不同 —— 比对时抹掉。清理直接开库（没有删队列的端点） |
+| `sampling-parity.mjs` | 83 项 | 采样是**随机**的，同一端点连调两次结果就不同 —— 所以比的是两侧都必须成立的**不变量**（资格、不相交、前缀连通、不重问已判对），直接开库验证而不是信端点自报；错误消息仍逐字比 |
 
 **`images` 整组暂不搬**，理由是一致性而非难度：
 

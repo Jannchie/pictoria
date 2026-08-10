@@ -26,3 +26,6 @@ export { annotationTimeline, countPairwise, editAnnotation, insertAbsolute, inse
 export type { AbsoluteEventIn, PairwiseEventIn, QueueItemPost } from './repositories/annotations.js'
 export { createAbsoluteQueue, createPairwiseQueue, getQueue, listQueues, nextAbsoluteItems, nextPairwiseItems } from './repositories/annotation-queues.js'
 export type { AnnotationQueueRow, QueueWithProgress } from './repositories/annotation-queues.js'
+export { cosine, existingVectors, knn, SIGLIP2_TABLE, unitVectors, vectorExists } from './repositories/vectors.js'
+export { PairGraph, Sampler, samplePairs, samplePostIds } from './repositories/sampling.js'
+export type { Block } from './repositories/sampling.js'

@@ -1,7 +1,6 @@
 /**
- * `/v2/annotations` —— 提交、撤回、更正、timeline、按 post 查历史、pairwise 计数。
- *
- * 两个 `sample-*` 仍透传：它们依赖 1058 行的采样图算法，值得单独一趟。
+ * `/v2/annotations` —— 提交、撤回、更正、timeline、按 post 查历史、pairwise 计数，
+ * 以及两个无队列的 `sample-*` 流式取样。
  */
 import { createRoute, OpenAPIHono, z } from '@hono/zod-openapi'
 import {
@@ -17,10 +16,12 @@ import {
   markQueueItemDone,
   MUTABLE_KINDS,
   postsById,
+  samplePairs,
+  samplePostIds,
   undoAnnotations,
 } from '@pictoria/db'
 import { getDb } from '../db.js'
-import { OK, RESP_400, zodErrorHook } from '../openapi.js'
+import { OK, pyRepr, RESP_400, validationError, zodErrorHook } from '../openapi.js'
 import { toIsoDateTime } from '../schemas.js'
 
 /** 与 Python 侧 `annotations.py` 的常量一致。 */
@@ -125,17 +126,6 @@ const PostAnnotationsPublic = z
   .openapi('PostAnnotationsPublic')
 
 export const annotationsRoutes = new OpenAPIHono({ defaultHook: zodErrorHook })
-
-/**
- * Litestar 的 `ValidationException` → 400。
- *
- * ⚠️ 形状和 **schema 校验失败**不同：手抛的 ValidationException 把消息直接放进
- * `detail` 且**没有 `extra`**，而 msgspec 的 schema 校验失败是
- * `{detail: "Validation failed for …", extra: [...]}`。同一个状态码，两种形状。
- */
-function validationError(c: any, message: string) {
-  return c.json({ status_code: 400, detail: message }, 400)
-}
 
 annotationsRoutes.openapi(
   createRoute({
@@ -476,5 +466,101 @@ annotationsRoutes.openapi(
       items,
       nextCursor: rows.length === page ? makeCursor(rows[rows.length - 1]) : null,
     })
+  },
+)
+
+/** 与 Python 侧 `annotation_queues.py` 的常量一致。 */
+const VALID_STRATEGIES = ['random', 'stratified'] as const
+const VALID_PAIRWISE_STRATEGIES = ['random', 'similar', 'close'] as const
+
+const SampledPairPublic = z
+  .object({ postA: QueueItemPostPublic, postB: QueueItemPostPublic })
+  .openapi('SampledPairPublic')
+
+annotationsRoutes.openapi(
+  createRoute({
+    method: 'get',
+    path: '/v2/annotations/sample-absolute',
+    operationId: 'v2SampleAbsolute',
+    summary: 'SampleAbsolute',
+    description: 'Queue-less streaming: sample candidate posts for absolute annotation. Posts already annotated in any requested dimension are excluded.',
+    request: {
+      query: z.object({
+        dimensions: z.array(z.string())
+          .openapi({ param: { name: 'dimensions', in: 'query', required: true } }),
+        strategy: z.string().default('random')
+          .openapi({ param: { name: 'strategy', in: 'query', required: false } }),
+        limit: z.coerce.number().int().default(10)
+          .openapi({ param: { name: 'limit', in: 'query', required: false }, type: 'integer', default: 10 }),
+      }),
+    },
+    responses: {
+      200: { description: OK, content: { 'application/json': { schema: z.array(QueueItemPostPublic) } } },
+      ...RESP_400,
+    },
+  }),
+  (c) => {
+    const { dimensions, strategy, limit } = c.req.valid('query')
+    if (!dimensions.length || dimensions.some((d: string) => !VALID_DIMENSIONS.includes(d as never)))
+      return validationError(c, `invalid dimensions: ${pyRepr(dimensions)}`) as never
+    if (!VALID_STRATEGIES.includes(strategy as never))
+      return validationError(c, `invalid strategy: ${pyRepr(strategy)}`) as never
+
+    const { sqlite } = getDb()
+    const ids = samplePostIds(sqlite, { count: limit, strategy, dimensions })
+    if (!ids.length)
+      return c.json([]) as never
+    const byId = postsById(sqlite, ids)
+    // 抽取顺序就是采样顺序，队列也按它服务 —— 所以从 `ids` 重建，而不是从
+    // `IN (...)` 返回的行序。
+    return c.json(ids.filter(pid => byId.has(pid)).map(pid => toQueuePost(byId.get(pid)))) as never
+  },
+)
+
+annotationsRoutes.openapi(
+  createRoute({
+    method: 'get',
+    path: '/v2/annotations/sample-pairwise',
+    operationId: 'v2SamplePairwise',
+    summary: 'SamplePairwise',
+    description: 'Queue-less streaming: sample pairs for pairwise annotation. \'close\' (default) = visually similar and hard for the model, extending the comparison graph already collected for this dimension; \'similar\' = model-agnostic content-similar + old-score band; \'random\' = uniform.',
+    request: {
+      query: z.object({
+        limit: z.coerce.number().int().default(10)
+          .openapi({ param: { name: 'limit', in: 'query', required: false }, type: 'integer', default: 10 }),
+        strategy: z.string().default('close')
+          .openapi({ param: { name: 'strategy', in: 'query', required: false } }),
+        dimension: z.string().default('overall')
+          .openapi({ param: { name: 'dimension', in: 'query', required: false } }),
+      }),
+    },
+    responses: {
+      200: { description: OK, content: { 'application/json': { schema: z.array(SampledPairPublic) } } },
+      ...RESP_400,
+    },
+  }),
+  (c) => {
+    const { limit, strategy, dimension } = c.req.valid('query')
+    if (!VALID_PAIRWISE_STRATEGIES.includes(strategy as never))
+      return validationError(c, `invalid strategy: ${pyRepr(strategy)}`) as never
+    if (!VALID_DIMENSIONS.includes(dimension as never))
+      return validationError(c, `invalid dimension: ${pyRepr(dimension)}`) as never
+
+    const { sqlite } = getDb()
+    const pairs = samplePairs(sqlite, { count: limit, strategy, dimension })
+    if (!pairs.length)
+      return c.json([]) as never
+    // 整批一次取图，然后在 JS 里拼对。对的**顺序**是吃重的
+    // （interleaveWithBridges 保证每个前缀都连通），所以从 `pairs` 重建。
+    const byId = postsById(sqlite, pairs.flat())
+    const out = []
+    for (const [a, b] of pairs) {
+      const rowA = byId.get(a)
+      const rowB = byId.get(b)
+      if (!rowA || !rowB)
+        continue // 采样和取图之间 post 被删了
+      out.push({ postA: toQueuePost(rowA), postB: toQueuePost(rowB) })
+    }
+    return c.json(out) as never
   },
 )
