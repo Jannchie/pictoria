@@ -5,6 +5,7 @@ import { compress } from 'hono/compress'
 import { cors } from 'hono/cors'
 import { rebuildGroups } from './dedup.js'
 import { getDb } from './db.js'
+import { httpError } from './openapi.js'
 import { startBasicsBackfill, startEmbeddingBackfill, startSilvaBackfill, startTaggerBackfill, startWaifuBackfill, wakeAllBackfills } from './scheduler.js'
 import { startAutoSync } from './sync.js'
 import { getTasks } from './tasks.js'
@@ -134,7 +135,7 @@ app.get('/schema/openapi.json', async (c) => {
  * `{"status_code":404,"detail":"Not Found"}`。代理还在的时候这个差别被藏住了
  * （未匹配的一律透传），删掉代理才露出来。前端的错误处理认 JSON 那一种。
  */
-app.notFound(c => c.json({ status_code: 404, detail: 'Not Found' }, 404))
+app.notFound(() => httpError(404, 'Not Found'))
 
 serve({ fetch: app.fetch, port: PORT }, (info) => {
   console.warn(`[pictoria-api] listening on http://127.0.0.1:${info.port}`)

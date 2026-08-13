@@ -211,5 +211,3 @@ export const postVectorsSiglip2 = sqliteTable('post_vectors_siglip2', {
 /** SigLIP 2 so400m 的输出维度。 */
 export const SIGLIP2_DIM = 1152
 
-/** Lab dominant color 的维度。 */
-export const DOMINANT_COLOR_DIM = 3

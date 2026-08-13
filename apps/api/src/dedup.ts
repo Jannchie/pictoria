@@ -24,7 +24,7 @@ import {
   exportVectorMatrix,
   replaceAllGroups,
 } from '@pictoria/db'
-import { targetDir } from './scheduler.js'
+import { dedupMatrixPath } from './paths.js'
 
 type SqliteHandle = ReturnType<typeof getDb>['sqlite']
 type Log = Pick<Console, 'info' | 'warn'>
@@ -38,17 +38,6 @@ export { DEDUP_THRESHOLD }
  * 30 分钟给的是余量 —— 超时只代表这一轮不再等它，任务本身照常跑完。
  */
 const REBUILD_TIMEOUT_MS = 30 * 60_000
-
-/**
- * 临时矩阵文件放在库内的 `.pictoria/` 下。
- *
- * 不是随手挑的位置：worker 的 `_resolve_inside` 只接受图库根之内的路径，而
- * `.pictoria/` 本来就是这个库放自己东西的地方（`pictoria.sqlite`、`tasks.sqlite`
- * 都在那儿）。
- */
-function matrixPath(): string {
-  return path.resolve(targetDir(), '.pictoria/dedup-vectors.f32')
-}
 
 /**
  * 序列化全量重建。
@@ -99,7 +88,7 @@ async function doRebuild(
   threshold: number,
   log: Log,
 ): Promise<number> {
-  const file = matrixPath()
+  const file = dedupMatrixPath()
   await fs.mkdir(path.dirname(file), { recursive: true })
 
   const started = Date.now()

@@ -72,15 +72,6 @@ export function createPairwiseQueue(
   return qid
 }
 
-export function getQueue(
-  sqlite: BetterSqlite3.Database,
-  queueId: number,
-): AnnotationQueueRow | undefined {
-  return sqlite
-    .prepare<[number], AnnotationQueueRow>(`SELECT ${QUEUE_COLUMNS} FROM annotation_queues WHERE id = ?`)
-    .get(queueId)
-}
-
 export interface QueueWithProgress {
   queue: AnnotationQueueRow
   total: number

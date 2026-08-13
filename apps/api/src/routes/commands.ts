@@ -44,9 +44,10 @@ import os from 'node:os'
 import path from 'node:path'
 import { DEDUP_THRESHOLD, isRebuilding, rebuildGroups } from '../dedup.js'
 import { getDb } from '../db.js'
-import { OK, RESP_400, zodErrorHook } from '../openapi.js'
+import { OK, RESP_400, domainError, postNotFound, zodErrorHook } from '../openapi.js'
 import { PostDetailPublic, Result, toPostDetail } from '../schemas.js'
-import { targetDir, wakeAllBackfills } from '../scheduler.js'
+import { wakeAllBackfills } from '../scheduler.js'
+import { targetDir } from '../paths.js'
 import { startSync } from '../sync.js'
 import { translateTag } from '../tag-i18n.js'
 import { getTasks } from '../tasks.js'
@@ -70,14 +71,6 @@ export const commandsRoutes = new OpenAPIHono({ defaultHook: zodErrorHook })
 const postIdParam = z.coerce.number().int()
   .openapi({ param: { name: 'post_id', in: 'path', required: true }, type: 'integer' })
 
-/** `server/exceptions.py` 里 `DomainError` 统一的响应形状。 */
-function domainError(detail: string, error: string, status: 404 | 400) {
-  return new Response(JSON.stringify({ detail, error }), {
-    status,
-    headers: { 'content-type': 'application/json' },
-  })
-}
-
 /**
  * 即时命令共用的两道守卫：post 不存在 → 404，不是图片 → 400。
  *
@@ -88,7 +81,7 @@ function requireImage(postId: number):
   | { ok: false, response: Response } {
   const post = getPostPath(getDb().sqlite, postId)
   if (!post)
-    return { ok: false, response: domainError(`Post with id ${postId} not found.`, 'PostNotFoundError', 404) }
+    return { ok: false, response: postNotFound(postId) }
   if (!isImagePath(post.fullPath))
     return { ok: false, response: domainError(`Post ${postId} is not an image.`, 'NotAnImageError', 400) }
   return { ok: true, path: `${targetDir()}/${post.fullPath}` }
@@ -108,7 +101,7 @@ function oneShot(key: string) {
 function detailResponse(postId: number) {
   const detail = getDetail(getDb().sqlite, postId, n => translateTag(n))
   if (!detail)
-    return domainError(`Post with id ${postId} not found.`, 'PostNotFoundError', 404)
+    return postNotFound(postId)
   return Response.json(toPostDetail(detail))
 }
 
@@ -300,7 +293,7 @@ commandsRoutes.openapi(
     const { sqlite } = getDb()
     const post = getPostPath(sqlite, postId)
     if (!post)
-      return domainError(`Post with id ${postId} not found.`, 'PostNotFoundError', 404) as never
+      return postNotFound(postId) as never
 
     const tasks: CairnQ = await getTasks()
     const result = await tasks.call(taggerTask, {
@@ -348,7 +341,7 @@ commandsRoutes.openapi(
     const { sqlite } = getDb()
     const post = getPostPath(sqlite, postId)
     if (!post)
-      return domainError(`Post with id ${postId} not found.`, 'PostNotFoundError', 404) as never
+      return postNotFound(postId) as never
 
     const tasks: CairnQ = await getTasks()
     const result = await tasks.call(captionTask, {

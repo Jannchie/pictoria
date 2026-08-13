@@ -1,14 +1,10 @@
 /**
  * 过滤后的计数与聚合 —— 对应 Python 侧 `PostQueryService` 的 counts/aggregates 段。
  */
+import { placeholders, whereSql } from '../sql.js'
 import type BetterSqlite3 from 'better-sqlite3'
 import { buildWhere, GROUPABLE_COLUMNS, hasActiveFilters, type PostFilter } from '../filters.js'
 import { bucketCaseSql, WAIFU_SCORE_BUCKETS, type ScorerSpec } from '../scorers.js'
-
-/** `WHERE a AND b`，没有子句时是空串。 */
-function whereSql(clauses: string[]): string {
-  return clauses.length ? `WHERE ${clauses.join(' AND ')}` : ''
-}
 
 export function countPosts(sqlite: BetterSqlite3.Database, f: PostFilter): number {
   const { where, params, joins } = buildWhere(f)
@@ -18,10 +14,6 @@ export function countPosts(sqlite: BetterSqlite3.Database, f: PostFilter): numbe
     )
     .get(...params)
   return row ? Number(row.n) : 0
-}
-
-export interface ColumnCount {
-  [column: string]: number
 }
 
 /**
@@ -197,7 +189,7 @@ export function countByTag(
       p.push(escapedLike)
     }
     if (extraNames.length) {
-      parts.push(`${col} IN (${extraNames.map(() => '?').join(',')})`)
+      parts.push(`${col} IN (${placeholders(extraNames.length)})`)
       p.push(...extraNames)
     }
     return parts.length ? { sql: `(${parts.join(' OR ')})`, params: p } : null

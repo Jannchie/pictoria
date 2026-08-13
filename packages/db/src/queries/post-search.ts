@@ -1,10 +1,12 @@
 /**
  * 列表与搜索 —— 对应 Python 侧 `PostQueryService.list_paginated` / `search`。
  */
+import { placeholders, whereSql } from '../sql.js'
 import type BetterSqlite3 from 'better-sqlite3'
 import { Buffer } from 'node:buffer'
 import { buildWhere, ORDERABLE_COLUMNS, type PostFilter } from '../filters.js'
 import { SILVA, SILVA_LUNA } from '../scorers.js'
+import { SIGLIP2_TABLE } from '../repositories/vectors.js'
 import {
   decodeDominantColor,
   fetchAestheticByIds,
@@ -29,14 +31,6 @@ export interface PostFilterWithOrder extends PostFilter {
   order?: 'asc' | 'desc' | 'random' | null
   order_seed?: number | null
   sort_direction?: 'asc' | 'desc' | null
-}
-
-function whereSql(clauses: string[]): string {
-  return clauses.length ? `WHERE ${clauses.join(' AND ')}` : ''
-}
-
-function placeholders(n: number): string {
-  return Array.from({ length: n }, () => '?').join(',')
 }
 
 /** sqlite-vec 的 serialize_float32：小端 float32 blob。 */
@@ -304,11 +298,11 @@ export function searchByTextVector(
   const rows = sqlite
     .prepare<unknown[], Record<string, unknown>>(
       `SELECT ${SIMPLE_BASE_SELECT}, knn.distance AS _knn_distance `
-      + `FROM (SELECT post_id, distance FROM post_vectors_siglip2 `
+      + `FROM (SELECT post_id, distance FROM ${SIGLIP2_TABLE} `
       + `      WHERE embedding MATCH ? AND k = ?) AS knn `
       + `JOIN posts p ON p.id = knn.post_id `
       + `${joins.join('\n')} `
-      + `${where.length ? `WHERE ${where.join(' AND ')}` : ''} `
+      + `${whereSql(where)} `
       + `ORDER BY knn.distance LIMIT ? OFFSET ?`,
     )
     .all(vecBlob, k, ...params, limit, offset)

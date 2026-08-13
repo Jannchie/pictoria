@@ -4,6 +4,7 @@
  * 每个关联（tags / colors / waifu / aesthetic）都是**一次**批量 SQL，再在内存里
  * 缝起来。逐条 N+1 在 22 万行的库上会直接把列表页拖垮。
  */
+import { placeholders } from '../sql.js'
 import type BetterSqlite3 from 'better-sqlite3'
 
 /** `PostDetailPublic` 的列集合，与 Python 侧 `db/entities.POST_COLUMNS` 逐字一致。 */
@@ -53,10 +54,6 @@ export interface PostColor {
 export interface AestheticScore {
   scorer: string
   score: number
-}
-
-function placeholders(n: number): string {
-  return Array.from({ length: n }, () => '?').join(',')
 }
 
 /** 解码 sqlite-vec 的 FLOAT[3] BLOB。 */

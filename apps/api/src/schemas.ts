@@ -95,14 +95,6 @@ export const PostSimplePublic = z
   })
   .openapi('PostSimplePublic')
 
-/** DB 的 snake_case 行 → 对外的 camelCase DTO。 */
-export function toCamel<T extends Record<string, unknown>>(row: T): Record<string, unknown> {
-  const out: Record<string, unknown> = {}
-  for (const [k, v] of Object.entries(row))
-    out[k.replace(/_([a-z])/g, (_, ch: string) => ch.toUpperCase())] = v
-  return out
-}
-
 /**
  * SQLite 存的是 `YYYY-MM-DD HH:MM:SS[.ffffff][±TZ]`，Pydantic 把 datetime 序列化成
  * ISO 8601（日期和时间之间是 `T`）。只换第一个空格 —— 时区偏移里没有空格，其余

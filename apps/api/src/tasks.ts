@@ -5,25 +5,14 @@
  * 而 cairnq 的租约续约和心跳是高频小写 —— 正好是那种会挡在图库正常写前面、让它
  * 排队的流量。分文件之后两者各写各的。
  */
-import process from 'node:process'
-import path from 'node:path'
 import { CairnQ } from 'cairnq'
-import { repoRoot } from './db.js'
+import { tasksDbPath } from './paths.js'
 
 let handle: CairnQ | null = null
 
-/** 与 Python worker 的 `tasks_db_path()` 同规则。 */
-export function resolveTasksDbPath(): string {
-  const override = process.env.TASKS_DB_PATH
-  if (override)
-    return override
-  const targetDir = process.env.PICTORIA_TARGET_DIR ?? 'server/illustration/images'
-  return path.resolve(repoRoot(), targetDir, '.pictoria/tasks.sqlite')
-}
-
 export async function getTasks(): Promise<CairnQ> {
   if (!handle) {
-    handle = CairnQ.sqlite(resolveTasksDbPath())
+    handle = CairnQ.sqlite(tasksDbPath())
     await handle.connect()
   }
   return handle

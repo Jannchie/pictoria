@@ -5,14 +5,12 @@
  * （见 `docs/refactor-monorepo-hono.md` §D1）。这个文件是那条原则里"所有数据库
  * 写入在 TS"的那一半：待办查询挑出要算什么，结果函数把算完的东西写回去。
  */
+import { placeholders } from '../sql.js'
+import { BASICS_WORKER_KEY, EMBEDDING_WORKER_KEY, TAGGER_WORKER_KEY, WAIFU_WORKER_KEY } from '@pictoria/contracts'
 import type BetterSqlite3 from 'better-sqlite3'
 import { Buffer } from 'node:buffer'
 import { AESTHETIC_SCORES_TABLE } from '../scorers.js'
 import { SIGLIP2_TABLE } from './vectors.js'
-
-function placeholders(n: number): string {
-  return Array.from({ length: n }, () => '?').join(',')
-}
 
 /** 一个 worker 的失败黑名单键，例如 `aesthetic:silva`。与 Python 侧同拼法。 */
 export function aestheticWorkerKey(scorer: string): string {
@@ -51,6 +49,11 @@ export function listSilvaPending(
     )
     .all(scorer, aestheticWorkerKey(scorer))
     .map(r => r.id)
+
+  // 全库打完分之后候选恒为空，而下面那次 vec0 全扫要 78 ms —— 两个 scorer 循环
+  // 每 30 秒各白扫一次，永远。没有候选就没有交集可求。
+  if (!candidates.length)
+    return []
 
   const embedded = new Set(
     sqlite.prepare<[], { post_id: number }>(`SELECT post_id FROM ${SIGLIP2_TABLE}`).all().map(r => r.post_id),
@@ -112,9 +115,6 @@ export function upsertAestheticScores(
 const IMAGE_EXTS = ['avif', 'gif', 'jpeg', 'jpg', 'png', 'webp'] as const
 const IMAGE_EXT_WHERE = `LOWER(p.extension) IN (${IMAGE_EXTS.map(e => `'${e}'`).join(', ')})`
 
-/** `post_process_failures.worker` 里 waifu 用的桶名。与 Python 侧同值。 */
-const WAIFU_WORKER = 'waifu'
-
 /** 待办的图片：post id 加上磁盘上的绝对路径。 */
 export interface PendingImage {
   postId: number
@@ -137,7 +137,7 @@ export function listWaifuPending(
       + `LEFT JOIN post_waifu_scores pws ON pws.post_id = p.id `
       + `WHERE pws.post_id IS NULL AND ${IMAGE_EXT_WHERE} AND ${notFailedClause('p')} `
       + `ORDER BY p.id${limit === undefined ? '' : ' LIMIT ?'}`
-  const params: unknown[] = limit === undefined ? [WAIFU_WORKER] : [WAIFU_WORKER, limit]
+  const params: unknown[] = limit === undefined ? [WAIFU_WORKER_KEY] : [WAIFU_WORKER_KEY, limit]
   const rows = sqlite.prepare<unknown[], { id: number, full_path: string }>(sql).all(...params)
 
   return rows.map(r => ({ postId: r.id, path: `${targetDir}/${r.full_path}` }))
@@ -182,9 +182,6 @@ export function recordFailures(
 
 // ─── tagger ───────────────────────────────────────────────────────────
 
-/** `post_process_failures.worker` 里 tagger 用的桶名。 */
-const TAGGER_WORKER = 'tagger'
-
 /**
  * 四个规范 tag 组及其颜色。与 Python 侧 `services/wd_tagging.py` 的
  * `TAG_GROUP_COLORS` 逐字相同 —— 颜色会显示在前端的 tag 徽章上。
@@ -207,7 +204,7 @@ export function listTaggerPending(
       + `WHERE NOT EXISTS (SELECT 1 FROM post_has_tag pht WHERE pht.post_id = p.id AND pht.is_auto = 1) `
       + `AND ${IMAGE_EXT_WHERE} AND ${notFailedClause('p')} `
       + `ORDER BY p.id${limit === undefined ? '' : ' LIMIT ?'}`
-  const params: unknown[] = limit === undefined ? [TAGGER_WORKER] : [TAGGER_WORKER, limit]
+  const params: unknown[] = limit === undefined ? [TAGGER_WORKER_KEY] : [TAGGER_WORKER_KEY, limit]
   const rows = sqlite.prepare<unknown[], { id: number, full_path: string }>(sql).all(...params)
   return rows.map(r => ({ postId: r.id, path: `${targetDir}/${r.full_path}` }))
 }
@@ -310,9 +307,6 @@ export function persistTaggerResults(
 
 // ─── embedding（SigLIP 2 检索向量） ────────────────────────────────────
 
-/** `post_process_failures.worker` 里 embedding 用的桶名。 */
-const EMBEDDING_WORKER = 'embedding:siglip2'
-
 /**
  * 还没有 SigLIP2 向量、且没被拉黑的图片，按 id 升序。
  *
@@ -330,7 +324,7 @@ export function listEmbeddingPending(
       `SELECT p.id, p.full_path FROM posts p `
       + `WHERE ${IMAGE_EXT_WHERE} AND ${notFailedClause('p')} ORDER BY p.id`,
     )
-    .all(EMBEDDING_WORKER)
+    .all(EMBEDDING_WORKER_KEY)
 
   const embedded = new Set(
     sqlite.prepare<[], { post_id: number }>(`SELECT post_id FROM ${SIGLIP2_TABLE}`).all().map(r => r.post_id),
@@ -366,9 +360,6 @@ export function upsertVectors(
 
 // ─── basics（sha256 / arthash / 尺寸 / 调色板 / 主色 / 缩略图） ──────────
 
-/** `post_process_failures.worker` 里 basics 用的桶名。 */
-const BASICS_WORKER = 'basics'
-
 /** basics 待办的一条：路径 + 哪几样已经有了。 */
 export interface BasicsPending {
   postId: number
@@ -395,7 +386,7 @@ export function listBasicsPending(
       + `WHERE (p.sha256 = '' OR p.arthash IS NULL OR p.arthash = '' OR p.dominant_color IS NULL) `
       + `AND ${IMAGE_EXT_WHERE} AND ${notFailedClause('p')} `
       + `ORDER BY p.id${limit === undefined ? '' : ' LIMIT ?'}`
-  const params: unknown[] = limit === undefined ? [BASICS_WORKER] : [BASICS_WORKER, limit]
+  const params: unknown[] = limit === undefined ? [BASICS_WORKER_KEY] : [BASICS_WORKER_KEY, limit]
   return sqlite
     .prepare<unknown[], {
       id: number

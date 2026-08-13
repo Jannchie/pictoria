@@ -20,9 +20,9 @@ import fs from 'node:fs'
 import path from 'node:path'
 import { Readable } from 'node:stream'
 import { getDb } from '../db.js'
-import { RESP_400, zodErrorHook } from '../openapi.js'
+import { RESP_400, httpError, zodErrorHook } from '../openapi.js'
 import { presignGetObject } from '../s3.js'
-import { targetDir } from '../scheduler.js'
+import { resolveInside, targetDir, thumbnailsDir } from '../paths.js'
 import { getTasks } from '../tasks.js'
 
 export const imagesRoutes = new OpenAPIHono({ defaultHook: zodErrorHook })
@@ -54,31 +54,9 @@ function guessType(filePath: string): string | undefined {
   return MIME[path.extname(filePath).slice(1).toLowerCase()]
 }
 
-function thumbnailsDir(): string {
-  return path.resolve(targetDir(), '.pictoria/thumbnails')
-}
-
-/** `{detail}` 形状的 404 —— Litestar `NotFoundException` 的响应体。 */
+/** Litestar `NotFoundException` 的响应体 —— 这个文件里出现 12 次，留个短名字。 */
 function notFound(detail: string) {
-  return new Response(JSON.stringify({ status_code: 404, detail }), {
-    status: 404,
-    headers: { 'content-type': 'application/json' },
-  })
-}
-
-/**
- * 把客户端给的 `{post_path}` 安全地接到 `base` 上。
- *
- * 参数里可能带 `..`，直接 join 会逃出库根去读任意文件。resolve 之后要求结果仍在
- * `base` 之内，否则当作不存在。
- */
-function resolveInside(base: string, postPath: string): string | null {
-  const root = path.resolve(base)
-  const candidate = path.resolve(root, postPath.replace(/^[/\\]+/, ''))
-  // 加分隔符再比前缀：否则 `/lib-secret` 会被判定在 `/lib` 之内。
-  if (candidate !== root && !candidate.startsWith(root + path.sep))
-    return null
-  return candidate
+  return httpError(404, detail)
 }
 
 /** Flask 传下来的那个 adler32，Litestar 的 etag 用它。Node 的 zlib 没有导出。 */

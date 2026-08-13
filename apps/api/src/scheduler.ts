@@ -13,8 +13,6 @@
  */
 import type { CairnQ } from 'cairnq'
 import type { getDb } from './db.js'
-import path from 'node:path'
-import process from 'node:process'
 import {
   BASICS_TASK_BATCH,
   BASICS_WORKER_KEY,
@@ -50,7 +48,7 @@ import {
   upsertVectors,
   upsertWaifuScores,
 } from '@pictoria/db'
-import { repoRoot } from './db.js'
+import { targetDir } from './paths.js'
 
 /** better-sqlite3 的连接类型，从 `getDb()` 借出来 —— apps/api 不直接依赖那个包。 */
 type SqliteHandle = ReturnType<typeof getDb>['sqlite']
@@ -86,16 +84,25 @@ export function wakeAllBackfills(): void {
 
 type Log = Pick<Console, 'info' | 'warn'>
 
+/**
+ * 可被 abort 或 `waker` 提前打断的 sleep。
+ *
+ * `{ once: true }` 只在事件**真的触发**时摘掉监听器，而正常路径是 setTimeout 自己
+ * 到期 —— 那条路径不摘的话，每个空闲周期都往同一个 signal 上堆一个监听器（6 个循环
+ * × 每分钟 2 轮 ≈ 每天 1.7 万个），每个都闭包持有已经过期的 Timeout。所以三条出口
+ * 都走同一个 `finish`，由它负责摘。
+ */
 function sleep(ms: number, signal: AbortSignal, waker: { resolve?: () => void }): Promise<void> {
   return new Promise((resolve) => {
-    const t = setTimeout(resolve, ms)
-    const done = () => {
+    const finish = () => {
       clearTimeout(t)
+      signal.removeEventListener('abort', finish)
       waker.resolve = undefined
       resolve()
     }
-    waker.resolve = done
-    signal.addEventListener('abort', done, { once: true })
+    const t = setTimeout(finish, ms)
+    waker.resolve = finish
+    signal.addEventListener('abort', finish, { once: true })
   })
 }
 
@@ -135,11 +142,6 @@ function loop(name: string, tick: () => Promise<boolean>, log: Log): BackfillHan
   }
   handles.add(handle)
   return handle
-}
-
-/** 与 `db.ts` 同规则解析出的图库绝对根目录 —— worker 用它校验路径没有逃逸。 */
-export function targetDir(): string {
-  return path.resolve(repoRoot(), process.env.PICTORIA_TARGET_DIR ?? 'server/illustration/images')
 }
 
 /**

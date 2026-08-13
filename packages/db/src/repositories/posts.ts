@@ -1,12 +1,9 @@
 /**
  * posts 表的写操作 —— 对应 Python 侧 `db/repositories/posts.py`。
  */
+import { placeholders } from '../sql.js'
 import type BetterSqlite3 from 'better-sqlite3'
 import { BULK_UPDATABLE_FIELDS, UPDATABLE_FIELDS } from '../filters.js'
-
-function placeholders(n: number): string {
-  return Array.from({ length: n }, () => '?').join(',')
-}
 
 const UPDATE_SQL = (field: string, whereSql: string) =>
   `UPDATE posts SET ${field} = ?, updated_at = CURRENT_TIMESTAMP, `

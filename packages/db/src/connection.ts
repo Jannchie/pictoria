@@ -5,14 +5,8 @@
  * `foreign_keys = ON`，级联删除会静默失效（子表留下孤儿行，且没有任何报错）；
  * 少了 `journal_mode = WAL`，读会被写阻塞。
  */
-import process from 'node:process'
 import Database from 'better-sqlite3'
 import * as sqliteVec from 'sqlite-vec'
-import { drizzle } from 'drizzle-orm/better-sqlite3'
-import * as schema from './schema.js'
-
-export type PictoriaDatabase = ReturnType<typeof createDb>['db']
-
 export interface OpenOptions {
   /** SQLite 文件路径。 */
   path: string
@@ -48,17 +42,5 @@ export function createDb({ path, readonly = false }: OpenOptions) {
     sqlite.pragma('mmap_size = 30000000000')
   }
 
-  const db = drizzle(sqlite, { schema })
-  return { db, sqlite }
-}
-
-/**
- * 默认库路径：`<target_dir>/.pictoria/pictoria.sqlite`，可被 `DB_PATH` 覆盖 ——
- * 和 Python 侧 `app.py` 的解析规则一致。
- */
-export function resolveDbPath(targetDir: string): string {
-  const override = process.env.DB_PATH
-  if (override)
-    return override
-  return `${targetDir}/.pictoria/pictoria.sqlite`
+  return { sqlite }
 }

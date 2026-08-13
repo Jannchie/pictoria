@@ -10,8 +10,8 @@ import { decodeVector, INTERACTIVE_QUEUE, textEmbedTask } from '@pictoria/contra
 import { listPaginated, searchByTextVector, searchPosts, type PostFilter as DbPostFilter, type PostFilterWithOrder } from '@pictoria/db'
 import { getDb } from '../db.js'
 import { PostFilterWithOrderSchema, TextSearchRequestSchema as TextSearchRequest } from '../filter-schema.js'
-import { OK, RESP_400, zodErrorHook } from '../openapi.js'
-import { PostDetailPublic, PostSimplePublic, toIsoDateTime, toPostSimple } from '../schemas.js'
+import { OK, RESP_400, domainError, zodErrorHook } from '../openapi.js'
+import { PostSimplePublic, toPostDetail, toPostSimple } from '../schemas.js'
 import { translateTag } from '../tag-i18n.js'
 import { getTasks } from '../tasks.js'
 
@@ -25,54 +25,6 @@ const CursorResponse = z
   .openapi('CursorResponse')
 
 export const postListRoutes = new OpenAPIHono({ defaultHook: zodErrorHook })
-
-/** 详情里的 tag 也要转 camelCase（嵌套的 snake_case 不在 toCamel 的处理范围）。 */
-function camelTag(t: { is_auto: boolean, tag_info: Record<string, unknown> }) {
-  const info = t.tag_info
-  return {
-    isAuto: t.is_auto,
-    tagInfo: {
-      group: info.group,
-      name: info.name,
-      translatedName: info.translated_name,
-      updatedAt: toIsoDateTime(info.updated_at),
-      createdAt: toIsoDateTime(info.created_at),
-    },
-  }
-}
-
-/** 键序照抄 PostDetailPublic 的声明顺序。 */
-function toPostDetail(row: Record<string, any>) {
-  return {
-    id: row.id,
-    filePath: row.file_path,
-    fileName: row.file_name,
-    extension: row.extension,
-    fullPath: row.full_path,
-    width: row.width,
-    height: row.height,
-    aspectRatio: row.aspect_ratio,
-    updatedAt: toIsoDateTime(row.updated_at),
-    createdAt: toIsoDateTime(row.created_at),
-    score: row.score,
-    rating: row.rating,
-    description: row.description,
-    meta: row.meta,
-    sha256: row.sha256,
-    size: row.size,
-    source: row.source,
-    caption: row.caption,
-    colors: row.colors,
-    publishedAt: toIsoDateTime(row.published_at),
-    dominantColor: row.dominant_color,
-    arthash: row.arthash,
-    canonicalPostId: row.canonical_post_id,
-    groupMemberCount: row.group_member_count,
-    waifuScore: row.waifu_score,
-    aestheticScores: row.aesthetic_scores,
-    tags: row.tags.map(camelTag),
-  }
-}
 
 postListRoutes.openapi(
   createRoute({
@@ -101,13 +53,9 @@ postListRoutes.openapi(
   (c) => {
     const { start, limit, lang } = c.req.valid('query')
     if (start < 0 || limit <= 0) {
-      return c.body(
-        JSON.stringify({ detail: 'Start must be >= 0 and limit must be > 0.', error: 'InvalidArgumentError' }),
-        // 409，不是 400 —— InvalidArgumentError 在 server/exceptions.py 里
-        // 声明的就是 409（"值超出允许范围"，不是请求语法错）。
-        409,
-        { 'content-type': 'application/json' },
-      ) as never
+      // 409，不是 400 —— InvalidArgumentError 在 server/exceptions.py 里
+      // 声明的就是 409（"值超出允许范围"，不是请求语法错）。
+      return domainError('Start must be >= 0 and limit must be > 0.', 'InvalidArgumentError', 409) as never
     }
     const { items, nextCursor } = listPaginated(getDb().sqlite, start, limit, n => translateTag(n, lang))
     return c.json({ items: items.map(toPostDetail), nextCursor })
@@ -124,10 +72,17 @@ postListRoutes.openapi(
  * 只补这一条，不做全局的结尾斜杠归一化 —— 那会顺手改掉 `/v2/folders/`
  * （空目录名，Litestar 给的是 400 "不是库目录"）和 `/v2/folders/.` 的语义，
  * 把两个刻意的拒绝分支变成 404。
+ *
+ * 为什么是转发而不是把同一个 handler 再注册一次：`.openapi()` 把 zod 校验和路由
+ * 注册绑成一件事，注册两次就会在 schema 里多出一个 operation，而契约锁死了 70 个。
  */
-postListRoutes.get('/v2/posts/', c => postListRoutes.fetch(
-  new Request(new URL(c.req.url.replace('/v2/posts/', '/v2/posts')), c.req.raw),
-))
+postListRoutes.get('/v2/posts/', (c) => {
+  // 只改 pathname。拿整个 URL 做字符串替换也能work（`replace` 传字符串时只换首个
+  // 匹配，而首个匹配必然在 path 里），但那是在赖一个不显眼的细节。
+  const url = new URL(c.req.url)
+  url.pathname = '/v2/posts'
+  return postListRoutes.fetch(new Request(url, c.req.raw))
+})
 
 postListRoutes.openapi(
   createRoute({

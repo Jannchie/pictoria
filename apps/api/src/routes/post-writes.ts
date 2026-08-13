@@ -7,11 +7,12 @@ import fs from 'node:fs'
 import path from 'node:path'
 import { IO_QUEUE, rotateTask } from '@pictoria/contracts'
 import { Buffer } from 'node:buffer'
-import { bulkUpdateField, clearCanonical, createPost, deleteManyReturningPaths, getDetail, getPostPath, makeCanonical, postExists, touchAccessed, updateField, updateForRotate } from '@pictoria/db'
+import { bulkUpdateField, clearCanonical, createPost, getDetail, getPostPath, makeCanonical, postExists, touchAccessed, updateField, updateForRotate } from '@pictoria/db'
 import { getDb } from '../db.js'
-import { OK, RESP_400, zodErrorHook } from '../openapi.js'
+import { OK, RESP_400, domainError, postNotFound, zodErrorHook } from '../openapi.js'
 import { PostDetailPublic, toPostDetail } from '../schemas.js'
-import { targetDir } from '../scheduler.js'
+import { targetDir, thumbnailsDir } from '../paths.js'
+import { deletePostFiles } from '../post-files.js'
 import { translateTag } from '../tag-i18n.js'
 import { getTasks } from '../tasks.js'
 
@@ -39,21 +40,14 @@ const ScoreUpdate = z
 
 export const postWritesRoutes = new OpenAPIHono({ defaultHook: zodErrorHook })
 
-function domainError(detail: string, error: string, status: 400 | 404 | 409) {
-  return new Response(JSON.stringify({ detail, error }), {
-    status,
-    headers: { 'content-type': 'application/json' },
-  })
-}
-
 /** 更新一个标量列后回读详情 —— 与 Python 侧 `_update_and_return_detail` 同语义。 */
 function updateAndReturnDetail(postId: number, field: string, value: unknown) {
   const { sqlite } = getDb()
   if (!updateField(sqlite, postId, field, value))
-    return domainError(`Post with id ${postId} not found.`, 'PostNotFoundError', 404)
+    return postNotFound(postId)
   const detail = getDetail(sqlite, postId, n => translateTag(n))
   if (!detail)
-    return domainError(`Post with id ${postId} not found.`, 'PostNotFoundError', 404)
+    return postNotFound(postId)
   return Response.json(toPostDetail(detail))
 }
 
@@ -192,7 +186,7 @@ postWritesRoutes.openapi(
   (c) => {
     const { post_id: postId } = c.req.valid('param')
     if (!touchAccessed(getDb().sqlite, postId))
-      return domainError(`Post with id ${postId} not found.`, 'PostNotFoundError', 404) as never
+      return postNotFound(postId) as never
     return c.body(null, 204) as never
   },
 )
@@ -228,11 +222,11 @@ for (const op of groupOps) {
       const { post_id: postId } = c.req.valid('param')
       const { sqlite } = getDb()
       if (!postExists(sqlite, postId))
-        return domainError(`Post with id ${postId} not found.`, 'PostNotFoundError', 404) as never
+        return postNotFound(postId) as never
       op.run(sqlite, postId)
       const detail = getDetail(sqlite, postId, n => translateTag(n))
       if (!detail)
-        return domainError(`Post with id ${postId} not found.`, 'PostNotFoundError', 404) as never
+        return postNotFound(postId) as never
       return Response.json(toPostDetail(detail)) as never
     },
   )
@@ -265,11 +259,7 @@ postWritesRoutes.openapi(
     const raw = c.req.queries('ids') ?? []
     const ids = raw.map(Number).filter(n => Number.isInteger(n))
     const { sqlite } = getDb()
-    const base = targetDir()
-    for (const rel of deleteManyReturningPaths(sqlite, ids)) {
-      fs.rmSync(path.resolve(base, rel), { force: true })
-      fs.rmSync(path.resolve(base, '.pictoria/thumbnails', rel), { force: true })
-    }
+    deletePostFiles(sqlite, ids)
     return c.body(null, 204)
   },
 )
@@ -305,20 +295,20 @@ postWritesRoutes.openapi(
     const { sqlite } = getDb()
     const post = getPostPath(sqlite, postId)
     if (!post)
-      return domainError(`Post with id ${postId} not found.`, 'PostNotFoundError', 404) as never
+      return postNotFound(postId) as never
 
     const base = targetDir()
     const tasks = await getTasks()
     const result = await tasks.call(rotateTask, {
       originalPath: path.resolve(base, post.fullPath),
-      thumbnailPath: path.resolve(base, '.pictoria/thumbnails', post.fullPath),
+      thumbnailPath: path.resolve(thumbnailsDir(), post.fullPath),
       clockwise,
     }, { queue: IO_QUEUE, waitTimeoutMs: 120_000, pollMs: 20, maxAttempts: 1 })
 
     updateForRotate(sqlite, postId, result)
     const detail = getDetail(sqlite, postId, n => translateTag(n))
     if (!detail)
-      return domainError(`Post with id ${postId} not found.`, 'PostNotFoundError', 404) as never
+      return postNotFound(postId) as never
     return c.json(toPostDetail(detail)) as never
   },
 )

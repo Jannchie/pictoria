@@ -72,6 +72,39 @@ export function zodErrorHook(result: any, c: any) {
 }
 
 /**
+ * Litestar 的领域错误形状：`{detail, error}`，**没有** `status_code` 字段
+ * （那是 schema 校验失败 400 的形状）。
+ *
+ * 契约里大多没声明这些状态码，所以返回裸 `Response` 绕开 zod-openapi 的响应类型
+ * 收窄 —— 调用点通常还要再补一个 `as never`。
+ */
+export function domainError(detail: string, error: string, status: 400 | 404 | 409 | 422): Response {
+  return new Response(JSON.stringify({ detail, error }), {
+    status,
+    headers: { 'content-type': 'application/json' },
+  })
+}
+
+/**
+ * Litestar 内建异常的形状：`{status_code, detail}`。
+ *
+ * 和 `domainError` 的 `{detail, error}` 是**两族**，不能混：前者来自 `HTTPException`
+ * 的子类（`NotFoundException`、方法不允许…），后者是业务自己抛的 `DomainError`。
+ * 两族各自只该有一个构造器，否则以后动响应体（比如统一 charset）要在三处找齐。
+ */
+export function httpError(status: number, detail: string, headers?: Record<string, string>): Response {
+  return new Response(JSON.stringify({ status_code: status, detail }), {
+    status,
+    headers: { 'content-type': 'application/json', ...headers },
+  })
+}
+
+/** 最常见的那一条 —— 文案是契约的一部分，前端直接显示。 */
+export function postNotFound(postId: number): Response {
+  return domainError(`Post with id ${postId} not found.`, 'PostNotFoundError', 404)
+}
+
+/**
  * Litestar 手抛的 `ValidationException` → 400。
  *
  * ⚠️ 形状和 **schema 校验失败**不同：手抛的把消息直接放进 `detail` 且**没有 `extra`**，

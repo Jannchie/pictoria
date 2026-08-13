@@ -6,17 +6,15 @@
  * 只是多一个 `canonical_post_id` 指针（所以 Danbooru 去重不会重新下载）。一个簇里
  * id 最小的那个是 canonical，其余都指向它；组只有一层，永远不成链。
  *
- * 两条代码路径的分工和 Python 侧一致：
- *
- * * **全量重建**（`exportVectorMatrix` → worker 矩阵乘 → `assignFromPairs` →
- *   `replaceAllGroups`）：逐个 vec0 KNN 在 17 万行的表上约 1 秒一条，17 万条不可行
- *   （实测约 48 小时），所以只能一次性把全部向量喂给一次分块 `X @ X.T`。
- * * **增量**（`assignGroupForPost`）：一次 KNN 约 1 秒，对一次 sync 新增的那几张图
- *   完全够用，而且直接复用 vec0 索引。
+ * 只有一条代码路径：**全量重建**（`exportVectorMatrix` → worker 矩阵乘 →
+ * `assignFromPairs` → `replaceAllGroups`）。逐个 vec0 KNN 在 17 万行的表上约 1 秒
+ * 一条，17 万条不可行（实测约 48 小时），所以只能一次性把全部向量喂给一次分块
+ * `X @ X.T`。新图不走增量挂载，而是在 embedding backfill 排空后触发一次重建
+ * （见 `apps/api/src/index.ts` 的 `onDrained`）—— 重建是确定性的，增量不是。
  */
 import type BetterSqlite3 from 'better-sqlite3'
 import { closeSync, openSync, writeSync } from 'node:fs'
-import { knn, SIGLIP2_TABLE } from './vectors.js'
+import { SIGLIP2_TABLE } from './vectors.js'
 
 /**
  * 导出全库向量到一个裸 float32 文件，返回与文件行序平行的 post id。
@@ -130,56 +128,4 @@ export function replaceAllGroups(
     clear.run()
     for (const [member, canonical] of assignments) set.run(canonical, member)
   })()
-}
-
-/** 把 `memberIds` 指向 `canonicalId`。调用方保证 canonical 自身是 canonical 且不在成员里。 */
-export function setCanonical(
-  sqlite: BetterSqlite3.Database,
-  memberIds: number[],
-  canonicalId: number,
-): void {
-  if (!memberIds.length)
-    return
-  const ph = memberIds.map(() => '?').join(',')
-  sqlite
-    .prepare(
-      `UPDATE posts SET canonical_post_id = ?, updated_at = CURRENT_TIMESTAMP WHERE id IN (${ph})`,
-    )
-    .run(canonicalId, ...memberIds)
-}
-
-/** 增量路径拉多少个邻居。近重复簇都很小，200 绰绰有余；只用阈值内的那个前缀。 */
-export const DEDUP_KNN_K = 200
-
-/**
- * 把一张刚算完向量的 `postId` 挂到已有的组上，挂不上就返回 `null`。
- *
- * 全量重建才是权威的确定性结果，这个只是尽力而为的增量对应物：把 `postId` 指向
- * 它最近的、阈值内邻居所属的 canonical。假设 `postId` 当前未分组且名下没有成员
- * （对一张刚导入的图成立）。
- */
-export function assignGroupForPost(
-  sqlite: BetterSqlite3.Database,
-  postId: number,
-  { threshold, knnK = DEDUP_KNN_K }: { threshold: number, knnK?: number },
-): number | null {
-  const neighbours = sqlite
-    .prepare<[number], { id: number, canonical_post_id: number | null }>(
-      'SELECT id, canonical_post_id FROM posts WHERE id = ?',
-    )
-  for (const [neighbourId, distance] of knn(sqlite, postId, knnK + 1)) {
-    if (neighbourId === postId)
-      continue
-    if (distance > threshold)
-      break // knn 按距离升序，第一个超阈值之后不会再有更近的
-    const row = neighbours.get(neighbourId)
-    if (!row)
-      continue
-    const canonicalId = row.canonical_post_id ?? row.id
-    if (canonicalId === postId)
-      continue // 永远不让一个 post 指向自己
-    setCanonical(sqlite, [postId], canonicalId)
-    return canonicalId
-  }
-  return null
 }

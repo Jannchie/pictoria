@@ -99,15 +99,52 @@ def library_root() -> Path:
     return _ROOT
 
 
+def pictoria_dir() -> Path:
+    """The library's private directory — both sqlite files, thumbnails, the API key.
+
+    Kept next to ``library_root`` rather than inlined at the two call sites for
+    the same reason the TS side has ``paths.ts``: this layout is duplicated
+    across three processes (``bootstrap.py`` for Litestar, ``paths.ts`` for the
+    API, here for the worker), and a mismatch is silent — thumbnails land where
+    nobody reads them.
+    """
+    return library_root() / ".pictoria"
+
+
+def thumbnails_root() -> Path:
+    """Where thumbnails go. Mirrors ``paths.ts``'s ``thumbnailsDir``."""
+    return pictoria_dir() / "thumbnails"
+
+
 def _resolve_inside(raw: str) -> Path:
     path = Path(raw).resolve()
-    if _ROOT is None:
-        msg = "worker root not configured"
-        raise RuntimeError(msg)
-    if not path.is_relative_to(_ROOT):
+    root = library_root()
+    if not path.is_relative_to(root):
         msg = f"path escapes the library root: {raw}"
         raise ValueError(msg)
     return path
+
+
+def _resolve_items(
+    items_in: list[dict[str, Any]],
+) -> tuple[list[tuple[int, Path]], list[dict[str, Any]]]:
+    """Split incoming ``{postId, path}`` items into resolvable-and-present vs failed.
+
+    Escaping the library root is a per-item failure (it gets blacklisted), not a
+    batch failure. A path that simply no longer exists is neither -- it is dropped
+    silently, because sync will notice the deletion on its own.
+    """
+    items: list[tuple[int, Path]] = []
+    failures: list[dict[str, Any]] = []
+    for item in items_in:
+        try:
+            path = _resolve_inside(item["path"])
+        except ValueError as exc:
+            failures.append({"postId": item["postId"], "error": str(exc)})
+            continue
+        if path.exists():
+            items.append((item["postId"], path))
+    return items, failures
 
 
 async def handle_waifu(payload: dict[str, Any]) -> dict[str, Any]:
@@ -129,16 +166,7 @@ async def handle_waifu(payload: dict[str, Any]) -> dict[str, Any]:
 
     from ai.waifu_scorer import get_waifu_scorer  # noqa: PLC0415  # lazy: defer the ML stack
 
-    items: list[tuple[int, Path]] = []
-    failures: list[dict[str, Any]] = []
-    for item in items_in:
-        try:
-            path = _resolve_inside(item["path"])
-        except ValueError as exc:
-            failures.append({"postId": item["postId"], "error": str(exc)})
-            continue
-        if path.exists():
-            items.append((item["postId"], path))
+    items, failures = _resolve_items(items_in)
 
     # The loader itself touches disk and VRAM, so it goes off-loop too — see
     # the note in handle_silva about the lease.
@@ -177,16 +205,7 @@ async def handle_tagger(payload: dict[str, Any]) -> dict[str, Any]:
 
     from services.wd_tagging import get_tagger  # noqa: PLC0415  # lazy: defer the ML stack
 
-    items: list[tuple[int, Path]] = []
-    failures: list[dict[str, Any]] = []
-    for item in items_in:
-        try:
-            path = _resolve_inside(item["path"])
-        except ValueError as exc:
-            failures.append({"postId": item["postId"], "error": str(exc)})
-            continue
-        if path.exists():
-            items.append((item["postId"], path))
+    items, failures = _resolve_items(items_in)
 
     tagger = await asyncio.to_thread(get_tagger)
     successes, ladder_failures = await run_with_fallback(
@@ -221,16 +240,7 @@ async def handle_embedding(payload: dict[str, Any]) -> dict[str, Any]:
 
     from ai.siglip_embed import calculate_image_features_batch  # noqa: PLC0415  # lazy: defer the ML stack
 
-    items: list[tuple[int, Path]] = []
-    failures: list[dict[str, Any]] = []
-    for item in items_in:
-        try:
-            path = _resolve_inside(item["path"])
-        except ValueError as exc:
-            failures.append({"postId": item["postId"], "error": str(exc)})
-            continue
-        if path.exists():
-            items.append((item["postId"], path))
+    items, failures = _resolve_items(items_in)
 
     def _encode(paths: list[Path]) -> list[np.ndarray]:
         features = calculate_image_features_batch(paths)
@@ -366,10 +376,7 @@ async def handle_caption(payload: dict[str, Any]) -> dict[str, Any]:
     HTTP layer words for itself, not a worker failure to retry.
     """
     image = _resolve_inside(payload["imagePath"])
-    if _ROOT is None:
-        msg = "worker root not configured"
-        raise RuntimeError(msg)
-    key_file = _ROOT / ".pictoria" / "OPENAI_API_KEY"
+    key_file = pictoria_dir() / "OPENAI_API_KEY"
     if not key_file.is_file():
         return {"configured": False, "caption": ""}
     api_key = key_file.read_text().strip()
@@ -383,7 +390,7 @@ async def handle_caption(payload: dict[str, Any]) -> dict[str, Any]:
     return {"configured": True, "caption": caption}
 
 
-def _compute_basics(item: dict[str, Any], thumbnails_root: Path) -> dict[str, Any]:
+def _compute_basics(item: dict[str, Any], thumbs_root: Path) -> dict[str, Any]:
     """One image, one decode: sha256 / arthash / dimensions / palette / thumbnail.
 
     Ported from ``processors/basics.py::_compute_basics_for``. The five outputs
@@ -415,7 +422,7 @@ def _compute_basics(item: dict[str, Any], thumbnails_root: Path) -> dict[str, An
         with Image.open(f) as img:
             width, height = img.size
 
-            thumb_path = thumbnails_root / item["relPath"]
+            thumb_path = thumbs_root / item["relPath"]
             if not thumb_path.exists():
                 thumb_path.parent.mkdir(parents=True, exist_ok=True)
                 create_thumbnail_by_image(img, thumb_path)
@@ -457,14 +464,11 @@ async def handle_basics(payload: dict[str, Any]) -> dict[str, Any]:
     items = payload["items"]
     if not items:
         return {"rows": [], "failures": []}
-    if _ROOT is None:
-        msg = "worker root not configured"
-        raise RuntimeError(msg)
-    thumbnails_root = _ROOT / ".pictoria" / "thumbnails"
+    thumbs = thumbnails_root()
 
     async def _one(item: dict[str, Any]) -> dict[str, Any] | BaseException:
         try:
-            return await asyncio.to_thread(_compute_basics, item, thumbnails_root)
+            return await asyncio.to_thread(_compute_basics, item, thumbs)
         except BaseException as exc:  # reported per item, never fails the whole batch
             return exc
 

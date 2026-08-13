@@ -17,7 +17,6 @@
     "genapi": "pnpm --filter pictoria genapi",
     "contract:diff": "node scripts/openapi-contract-diff.mjs docs/openapi.baseline.json http://127.0.0.1:4777/schema/openapi.json",
     "contract:test": "node scripts/openapi-contract-diff.test.mjs",
-    "migration:status": "node scripts/migration-status.mjs",
     "parity": "node scripts/endpoint-parity.mjs",
     "parity:all": "pnpm parity && pnpm parity:write && pnpm parity:annotations && pnpm parity:tags && pnpm parity:timeline && pnpm parity:queues && pnpm parity:sampling && pnpm parity:commands && pnpm parity:images && pnpm parity:destructive && pnpm parity:s3 && pnpm contract:diff",
     "parity:annotations": "node scripts/annotations-parity.mjs",

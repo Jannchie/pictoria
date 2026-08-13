@@ -14,7 +14,7 @@ import { createHash, createHmac } from 'node:crypto'
 import fs from 'node:fs'
 import path from 'node:path'
 import process from 'node:process'
-import { repoRoot } from './db.js'
+import { repoRoot } from './paths.js'
 
 /** minio 的 `presigned_get_object` 默认有效期：7 天（也是 SigV4 的上限）。 */
 const DEFAULT_EXPIRES_SECONDS = 604800

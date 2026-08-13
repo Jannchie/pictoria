@@ -7,6 +7,7 @@
  *
  * 下面每个常量的取值都是在真实库上测出来的，不是拍脑袋的默认值 —— 改之前先读注释。
  */
+import { placeholders } from '../sql.js'
 import type BetterSqlite3 from 'better-sqlite3'
 import { AESTHETIC_SCORES_TABLE, SILVA } from '../scorers.js'
 import { cosine, existingVectors, knn, unitVectors } from './vectors.js'
@@ -146,10 +147,6 @@ const CALIBRATION_MIN_DECISIVE = 2
 
 /** 已经连在一起的边，加上其它块用来搭桥的 `(post_id, score)`。 */
 export type Block = [Array<[number, number]>, [number, number]]
-
-function placeholders(n: number): string {
-  return Array.from({ length: n }, () => '?').join(',')
-}
 
 /** 无向边表的连通分量：`root -> members`。 */
 function components(edges: Iterable<[number, number]>): Map<number, Set<number>> {

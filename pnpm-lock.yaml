@@ -164,6 +164,9 @@ importers:
 
   packages/db:
     dependencies:
+      '@pictoria/contracts':
+        specifier: workspace:*
+        version: link:../contracts
       better-sqlite3:
         specifier: ^13.0.3
         version: 13.0.3

@@ -1,6 +1,7 @@
 /**
  * tags / tag_groups 的读取 —— 对应 Python 侧 `db/repositories/tags.py`。
  */
+import { placeholders } from '../sql.js'
 import type BetterSqlite3 from 'better-sqlite3'
 
 export interface TagGroupRow {
@@ -120,7 +121,7 @@ export function deleteTag(sqlite: BetterSqlite3.Database, name: string): void {
 export function deleteTags(sqlite: BetterSqlite3.Database, names: string[]): void {
   if (!names.length)
     return
-  const ph = names.map(() => '?').join(',')
+  const ph = placeholders(names.length)
   sqlite.prepare(`DELETE FROM tags WHERE name IN (${ph})`).run(...names)
 }
 

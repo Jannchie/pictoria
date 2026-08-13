@@ -8,7 +8,7 @@
  */
 import fs from 'node:fs'
 import path from 'node:path'
-import { repoRoot } from './db.js'
+import { repoRoot } from './paths.js'
 
 const cache = new Map<string, Record<string, string>>()
 

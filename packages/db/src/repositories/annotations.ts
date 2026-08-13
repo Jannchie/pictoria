@@ -11,6 +11,7 @@
  * 所以撤回或更正后仍留在表里的判决会留在训练集里。改成打标记而不是重写，等于把过滤
  * 义务摊派给每一个读者，漏掉一个会在训练数据里静默出错。
  */
+import { placeholders } from '../sql.js'
 import type BetterSqlite3 from 'better-sqlite3'
 
 export const ABSOLUTE_COLUMNS
@@ -56,10 +57,6 @@ SELECT id, created_at, 'flag', post_id, NULL, NULL,
        NULL, NULL, NULL, flag, NULL
   FROM content_flag_events
 `
-
-function placeholders(n: number): string {
-  return Array.from({ length: n }, () => '?').join(',')
-}
 
 export interface AbsoluteEventIn {
   post_id: number

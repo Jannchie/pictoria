@@ -13,7 +13,7 @@ import Database from 'better-sqlite3'
 import * as sqliteVec from 'sqlite-vec'
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest'
 import { runMigrations } from '../migrate.js'
-import { assignFromPairs, assignGroupForPost, exportVectorMatrix, replaceAllGroups } from './dedup.js'
+import { assignFromPairs, exportVectorMatrix, replaceAllGroups } from './dedup.js'
 
 const here = path.dirname(fileURLToPath(import.meta.url))
 const MIGRATIONS = path.resolve(here, '../../../../server/migrations')
@@ -156,33 +156,5 @@ describe('原子换组', () => {
     // 分成两步做的话，清空已经生效而新指针只写了一半。
     expect(() => replaceAllGroups(sqlite, [[1, 999], [2, 1]])).toThrow()
     expect(canonicalOf(2)).toBe(1)
-  })
-})
-
-describe('增量挂组', () => {
-  it('挂到最近邻居所属的 canonical 上，而不是邻居自己', () => {
-    for (const id of [1, 2, 3]) insertPost(id)
-    // 2 和 3 都用 1 的向量：三张一模一样的图
-    insertVector(1)
-    insertVector(2, unitBlob(1))
-    insertVector(3, unitBlob(1))
-    replaceAllGroups(sqlite, [[2, 1]]) // 1 是 canonical，2 是成员
-
-    // 3 最近的邻居可能是 2，但它该指向 2 的 canonical —— 组不成链
-    expect(assignGroupForPost(sqlite, 3, { threshold: 0.01 })).toBe(1)
-    expect(canonicalOf(3)).toBe(1)
-  })
-
-  it('没有足够近的邻居就不动它', () => {
-    for (const id of [1, 2]) insertPost(id)
-    insertVector(1)
-    insertVector(2)
-    expect(assignGroupForPost(sqlite, 2, { threshold: 0.0001 })).toBeNull()
-    expect(canonicalOf(2)).toBeNull()
-  })
-
-  it('没有向量的 post 什么也不做', () => {
-    insertPost(1)
-    expect(assignGroupForPost(sqlite, 1, { threshold: 0.01 })).toBeNull()
   })
 })

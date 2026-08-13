@@ -5,6 +5,7 @@
  * 保持 snake_case：它直接就是 API 的请求体形状（见 §4.2，这一族模型对外就是
  * snake_case），改成 camelCase 会让 HTTP 层多一次无谓的换名。
  */
+import { placeholders } from './sql.js'
 import {
   SCORE_BUCKET_UNSCORED,
   SILVA,
@@ -66,11 +67,6 @@ export interface WhereParts {
   where: string[]
   params: unknown[]
   joins: string[]
-}
-
-function placeholders(n: number): string {
-  // 无空格 —— 与 Python 侧 sql_placeholders 的 ','.join('?'*n) 逐字符一致
-  return Array.from({ length: n }, () => '?').join(',')
 }
 
 function bucketLevelFilter(

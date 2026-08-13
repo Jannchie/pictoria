@@ -18,8 +18,8 @@ import {
   updateTagGroup,
 } from '@pictoria/db'
 import { getDb } from '../db.js'
-import { OK, RESP_400, zodErrorHook } from '../openapi.js'
-import { PostDetailPublic, Result, toIsoDateTime } from '../schemas.js'
+import { OK, RESP_400, domainError, postNotFound, zodErrorHook } from '../openapi.js'
+import { PostDetailPublic, Result, toPostDetail } from '../schemas.js'
 import { translateTag } from '../tag-i18n.js'
 
 const MAX_TAG_LENGTH = 200
@@ -51,60 +51,6 @@ const TagBatchDelete = z
   .openapi('TagBatchDelete')
 
 export const tagWritesRoutes = new OpenAPIHono({ defaultHook: zodErrorHook })
-
-/** 状态码照抄 `server/exceptions.py`：不同的领域错误声明了不同的码。 */
-function domainError(detail: string, error: string, status: 404 | 409 | 422) {
-  return new Response(JSON.stringify({ detail, error }), {
-    status,
-    headers: { 'content-type': 'application/json' },
-  })
-}
-
-function camelTag(t: { is_auto: boolean, tag_info: Record<string, any> }) {
-  const info = t.tag_info
-  return {
-    isAuto: t.is_auto,
-    tagInfo: {
-      group: info.group,
-      name: info.name,
-      translatedName: info.translated_name,
-      updatedAt: toIsoDateTime(info.updated_at),
-      createdAt: toIsoDateTime(info.created_at),
-    },
-  }
-}
-
-function toPostDetail(row: Record<string, any>) {
-  return {
-    id: row.id,
-    filePath: row.file_path,
-    fileName: row.file_name,
-    extension: row.extension,
-    fullPath: row.full_path,
-    width: row.width,
-    height: row.height,
-    aspectRatio: row.aspect_ratio,
-    updatedAt: toIsoDateTime(row.updated_at),
-    createdAt: toIsoDateTime(row.created_at),
-    score: row.score,
-    rating: row.rating,
-    description: row.description,
-    meta: row.meta,
-    sha256: row.sha256,
-    size: row.size,
-    source: row.source,
-    caption: row.caption,
-    colors: row.colors,
-    publishedAt: toIsoDateTime(row.published_at),
-    dominantColor: row.dominant_color,
-    arthash: row.arthash,
-    canonicalPostId: row.canonical_post_id,
-    groupMemberCount: row.group_member_count,
-    waifuScore: row.waifu_score,
-    aestheticScores: row.aesthetic_scores,
-    tags: row.tags.map(camelTag),
-  }
-}
 
 tagWritesRoutes.openapi(
   createRoute({
@@ -234,7 +180,7 @@ tagWritesRoutes.openapi(
     const { post_id: postId, tag_name: tagName } = c.req.valid('param')
     const { sqlite } = getDb()
     if (!postExists(sqlite, postId))
-      return domainError(`Post with id ${postId} not found.`, 'PostNotFoundError', 404) as never
+      return postNotFound(postId) as never
     if (!addTagToPost(sqlite, postId, tagName))
       return domainError(`Tag ${tagName} already exists in post ${postId}.`, 'TagAlreadyExistsError', 409) as never
     return c.json(toPostDetail(getDetail(sqlite, postId, n => translateTag(n))!)) as never
@@ -257,7 +203,7 @@ tagWritesRoutes.openapi(
     const { post_id: postId, tag_name: tagName } = c.req.valid('param')
     const { sqlite } = getDb()
     if (!postExists(sqlite, postId))
-      return domainError(`Post with id ${postId} not found.`, 'PostNotFoundError', 404) as never
+      return postNotFound(postId) as never
     if (!removeTagFromPost(sqlite, postId, tagName))
       return domainError(`Tag ${tagName} does not exist in post ${postId}.`, 'TagNotOnPostError', 409) as never
     return c.json(toPostDetail(getDetail(sqlite, postId, n => translateTag(n))!)) as never

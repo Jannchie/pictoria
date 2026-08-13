@@ -3,11 +3,12 @@
  */
 import fs from 'node:fs'
 import path from 'node:path'
-import process from 'node:process'
 import { createRoute, OpenAPIHono, z } from '@hono/zod-openapi'
-import { addAgg, deleteManyReturningPaths, emptyAgg, folderScoreAggregates, listIdsInFolder, type FolderScoreAgg } from '@pictoria/db'
-import { getDb, repoRoot } from '../db.js'
-import { OK, RESP_400, zodErrorHook } from '../openapi.js'
+import { addAgg, emptyAgg, folderScoreAggregates, listIdsInFolder, type FolderScoreAgg } from '@pictoria/db'
+import { getDb } from '../db.js'
+import { isInside, pictoriaDir, targetDir, thumbnailsDir } from '../paths.js'
+import { deletePostFiles } from '../post-files.js'
+import { OK, RESP_400, domainError, httpError, zodErrorHook } from '../openapi.js'
 import { Result } from '../schemas.js'
 
 interface DirectorySummary {
@@ -38,10 +39,6 @@ const DirectorySummarySchema: z.ZodType<DirectorySummary> = z.lazy(() =>
   }),
 ).openapi('DirectorySummary')
 
-function targetDir(): string {
-  return path.resolve(repoRoot(), process.env.PICTORIA_TARGET_DIR ?? 'server/illustration/images')
-}
-
 /** 递归统计目录下的文件数，跳过 `.pictoria`。 */
 function walk(absDir: string, base: string): DirectorySummary {
   const rel = path.relative(base, absDir).split(path.sep).join('/')
@@ -60,8 +57,11 @@ function walk(absDir: string, base: string): DirectorySummary {
     children: [],
   }
 
+  // 按**名字**跳过，任意深度都跳 —— 逐字对齐 Litestar 的 `entry.name == ignore_dirs.name`。
+  // 名字从 pictoriaDir() 取，是为了不再在这里留一份 '.pictoria' 字面量。
+  const ignoreName = path.basename(pictoriaDir())
   for (const entry of fs.readdirSync(absDir, { withFileTypes: true })) {
-    if (entry.name === '.pictoria')
+    if (entry.name === ignoreName)
       continue
     if (entry.isDirectory()) {
       const child = walk(path.join(absDir, entry.name), base)
@@ -97,14 +97,6 @@ function attachStats(
   node.rating_avg = total.posts ? total.ratingTotal / total.posts : null
   node.scored_ratio = total.posts ? total.scored / total.posts : null
   return total
-}
-
-/** `server/exceptions.py` 里 `DomainError` 统一的响应形状。 */
-function domainError(detail: string, error: string, status: 400 | 404) {
-  return new Response(JSON.stringify({ detail, error }), {
-    status,
-    headers: { 'content-type': 'application/json' },
-  })
 }
 
 export const foldersRoutes = new OpenAPIHono({ defaultHook: zodErrorHook })
@@ -168,19 +160,14 @@ foldersRoutes.openAPIRegistry.registerPath({
  *
  * `/v2/folders/.` 走的也是这里：fetch 客户端在发出前就把 `/.` 归一成了 `/`。
  */
-foldersRoutes.delete('/v2/folders/', () => new Response(
-  JSON.stringify({ status_code: 405, detail: 'Method Not Allowed' }),
-  { status: 405, headers: { 'content-type': 'application/json', 'allow': 'GET, OPTIONS' } },
-))
+foldersRoutes.delete('/v2/folders/', () => httpError(405, 'Method Not Allowed', { allow: 'GET, OPTIONS' }))
 
 foldersRoutes.delete('/v2/folders/:folder_path{.+}', (c) => {
   const folder = (c.req.param('folder_path') ?? '').replace(/^\/+|\/+$/g, '')
-  const base = path.resolve(targetDir())
+  const base = targetDir()
   const target = path.resolve(base, folder)
-  const pictoria = path.resolve(base, '.pictoria')
-  const inside = (p: string, root: string) => p === root || p.startsWith(root + path.sep)
 
-  if (!folder || folder === '.' || folder === '@' || target === base || !inside(target, base) || inside(target, pictoria))
+  if (!folder || folder === '.' || folder === '@' || target === base || !isInside(target, base) || isInside(target, pictoriaDir()))
     return domainError(`Refusing to delete: '${folder}' is not a library folder.`, 'PathNotADirectoryError', 400)
   if (!fs.existsSync(target))
     return domainError(`Directory not found: ${folder}`, 'DirectoryNotFoundError', 404)
@@ -189,15 +176,11 @@ foldersRoutes.delete('/v2/folders/:folder_path{.+}', (c) => {
 
   const { sqlite } = getDb()
   const ids = listIdsInFolder(sqlite, folder)
-  const removed = deleteManyReturningPaths(sqlite, ids)
-  for (const rel of removed) {
-    fs.rmSync(path.resolve(base, rel), { force: true })
-    fs.rmSync(path.resolve(base, '.pictoria/thumbnails', rel), { force: true })
-  }
+  deletePostFiles(sqlite, ids)
 
   // 缩略图是尽力而为；主树失败要抛出去，好让一个被锁住的文件显示成 500 而不是
   // 悄悄活下来。
-  fs.rmSync(path.resolve(base, '.pictoria/thumbnails', folder), { recursive: true, force: true })
+  fs.rmSync(path.resolve(thumbnailsDir(), folder), { recursive: true, force: true })
   fs.rmSync(target, { recursive: true })
   return c.json({ msg: `Deleted folder ${folder} (${ids.length} posts)` })
 })

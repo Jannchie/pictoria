@@ -6,6 +6,7 @@
  * 表是 vec0 虚表，点查是虚表探测而不是 B-tree 探测（实测约 1.5 ms/条），
  * 所以这里凡是能批量的一律批量。
  */
+import { placeholders } from '../sql.js'
 import type BetterSqlite3 from 'better-sqlite3'
 
 export const SIGLIP2_TABLE = 'post_vectors_siglip2'
@@ -26,7 +27,7 @@ export function existingVectors(
   const found = new Set<number>()
   for (let start = 0; start < postIds.length; start += IN_CHUNK) {
     const chunk = postIds.slice(start, start + IN_CHUNK)
-    const ph = chunk.map(() => '?').join(',')
+    const ph = placeholders(chunk.length)
     for (const row of sqlite
       .prepare<unknown[], { post_id: number }>(
         `SELECT post_id FROM ${SIGLIP2_TABLE} WHERE post_id IN (${ph})`,
@@ -50,7 +51,7 @@ export function unitVectors(
   const out = new Map<number, Float32Array>()
   if (!postIds.length)
     return out
-  const ph = postIds.map(() => '?').join(',')
+  const ph = placeholders(postIds.length)
   for (const row of sqlite
     .prepare<unknown[], { post_id: number, embedding: Buffer }>(
       `SELECT post_id, embedding FROM ${SIGLIP2_TABLE} WHERE post_id IN (${ph})`,
