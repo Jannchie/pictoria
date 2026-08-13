@@ -111,8 +111,8 @@ export function postNotFound(postId: number): Response {
  * 而 msgspec 的 schema 校验失败是 `{detail: "Validation failed for …", extra: [...]}`。
  * 同一个状态码，两种形状，前端分得出来。
  */
-export function validationError(c: any, message: string) {
-  return c.json({ status_code: 400, detail: message }, 400)
+export function validationError(message: string): Response {
+  return httpError(400, message)
 }
 
 /**

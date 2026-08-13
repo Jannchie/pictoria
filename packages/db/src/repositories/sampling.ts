@@ -1,5 +1,5 @@
 /**
- * 标注采样 —— 对应 Python 侧 `db/repositories/annotation_queues.py` 里不涉及 CRUD
+ * 标注采样 —— 形状承自已退役的 Python 侧 `db/repositories/annotation_queues.py` 里不涉及 CRUD
  * 的那一半（约 700 行）。
  *
  * 采样完全跑在 pictoria 自己拥有的数据上：旧的人工评分、SigLIP2 向量、已经收集到的

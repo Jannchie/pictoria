@@ -1,5 +1,5 @@
 /**
- * post 详情读模型 —— 对应 Python 侧 `PostQueryService.get_detail` 及其批量取。
+ * post 详情读模型 —— 形状承自已退役的 Python 侧 `PostQueryService.get_detail` 及其批量取。
  *
  * 每个关联（tags / colors / waifu / aesthetic）都是**一次**批量 SQL，再在内存里
  * 缝起来。逐条 N+1 在 22 万行的库上会直接把列表页拖垮。

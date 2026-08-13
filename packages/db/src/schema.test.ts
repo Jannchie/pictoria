@@ -12,11 +12,11 @@ import { fileURLToPath } from 'node:url'
 import Database from 'better-sqlite3'
 import * as sqliteVec from 'sqlite-vec'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
-import { runMigrations } from './migrate.js'
+import { MIGRATIONS_DIR, runMigrations } from './migrate.js'
 import { undeclaredTables, verifySchema } from './verify-schema.js'
 
 const here = path.dirname(fileURLToPath(import.meta.url))
-const MIGRATIONS = path.resolve(here, '../../../server/migrations')
+
 
 let dbPath: string
 let tmpDir: string
@@ -29,7 +29,7 @@ beforeAll(() => {
   // 迁移里有 vec0 虚表，不加载扩展会直接建表失败。
   sqliteVec.load(sqlite)
   sqlite.pragma('foreign_keys = ON')
-  const applied = runMigrations(sqlite, MIGRATIONS)
+  const applied = runMigrations(sqlite, MIGRATIONS_DIR)
   expect(applied).toBeGreaterThan(0)
   sqlite.close()
 })
@@ -52,7 +52,7 @@ describe('手写 schema 对齐 server/migrations', () => {
   it('迁移可重复执行（第二次应用 0 条）', () => {
     const sqlite = new Database(dbPath)
     sqliteVec.load(sqlite)
-    expect(runMigrations(sqlite, MIGRATIONS)).toBe(0)
+    expect(runMigrations(sqlite, MIGRATIONS_DIR)).toBe(0)
     sqlite.close()
   })
 })

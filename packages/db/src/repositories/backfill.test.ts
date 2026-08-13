@@ -12,7 +12,7 @@ import { fileURLToPath } from 'node:url'
 import Database from 'better-sqlite3'
 import * as sqliteVec from 'sqlite-vec'
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest'
-import { runMigrations } from '../migrate.js'
+import { MIGRATIONS_DIR, runMigrations } from '../migrate.js'
 import {
   aestheticWorkerKey,
   fetchEmbeddingBlobs,
@@ -30,7 +30,7 @@ import {
 } from './backfill.js'
 
 const here = path.dirname(fileURLToPath(import.meta.url))
-const MIGRATIONS = path.resolve(here, '../../../../server/migrations')
+
 
 let sqlite: Database.Database
 let tmpDir: string
@@ -55,7 +55,7 @@ beforeAll(() => {
   sqlite = new Database(path.join(tmpDir, 'test.sqlite'))
   sqliteVec.load(sqlite)
   sqlite.pragma('foreign_keys = ON')
-  runMigrations(sqlite, MIGRATIONS)
+  runMigrations(sqlite, MIGRATIONS_DIR)
 })
 
 afterAll(() => {

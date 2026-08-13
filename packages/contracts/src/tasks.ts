@@ -26,9 +26,21 @@ export interface ScoreItem {
   embedding: string
 }
 
+/**
+ * 两个蒸馏头的名字。**跨进程契约的一部分** —— TS 排活、Python worker 按这个名字
+ * 加载权重，两侧对不上的表现是任务提交成功后被 worker 以 `unknown scorer` 拒掉。
+ *
+ * 放在 contracts 而不是 `packages/db`，是因为需要它的不止数据层：调度循环要遍历，
+ * scheduler 要收窄参数类型。Python 侧的对应物是 `server/src/scorers.py` 的 `SCORERS`，
+ * 那是这条缝在另一侧的唯一定义。
+ */
+export const SILVA_SCORERS = ['silva', 'silva_luna'] as const
+
+export type SilvaScorer = typeof SILVA_SCORERS[number]
+
 export interface SilvaPayload {
   /** 哪一个蒸馏头。两个头共用一条代码路径，只有权重不同。 */
-  scorer: 'silva' | 'silva_luna'
+  scorer: SilvaScorer
   items: ScoreItem[]
 }
 

@@ -1,5 +1,5 @@
 /**
- * 只追加的标注事件仓储（absolute / pairwise / content-flag）—— 对应 Python 侧
+ * 只追加的标注事件仓储（absolute / pairwise / content-flag）—— 形状承自已退役的 Python 侧
  * `db/repositories/annotations.py`。
  *
  * 事件从不更新：对同一个 (post, dimension) 重新标注是**追加**一行，导出时按

@@ -261,16 +261,16 @@ annotationQueuesRoutes.openapi(
   (c) => {
     const d = c.req.valid('json')
     if (!d.dimensions.length || d.dimensions.some((x: string) => !VALID_DIMENSIONS.includes(x as never)))
-      return validationError(c, `invalid dimensions: ${pyRepr(d.dimensions)}`) as never
+      return validationError(`invalid dimensions: ${pyRepr(d.dimensions)}`) as never
     if (!VALID_SCALES.includes(d.scale))
-      return validationError(c, `invalid scale: ${d.scale}`) as never
+      return validationError(`invalid scale: ${d.scale}`) as never
     if (!VALID_STRATEGIES.includes(d.strategy as never))
-      return validationError(c, `invalid strategy: ${pyRepr(d.strategy)}`) as never
+      return validationError(`invalid strategy: ${pyRepr(d.strategy)}`) as never
 
     const { sqlite } = getDb()
     const postIds = samplePostIds(sqlite, { count: d.count, strategy: d.strategy, dimensions: d.dimensions })
     if (!postIds.length)
-      return validationError(c, 'no eligible candidates (need posts with embeddings, not yet annotated or queued)') as never
+      return validationError('no eligible candidates (need posts with embeddings, not yet annotated or queued)') as never
     const name = d.name || `${d.strategy}-${d.dimensions.join('+')}-${postIds.length}`
     const id = createAbsoluteQueue(sqlite, { name, dimensions: d.dimensions, scale: d.scale, postIds })
     return c.json({
@@ -301,14 +301,14 @@ annotationQueuesRoutes.openapi(
   (c) => {
     const d = c.req.valid('json')
     if (!VALID_DIMENSIONS.includes(d.dimension as never))
-      return validationError(c, `invalid dimension: ${pyRepr(d.dimension)}`) as never
+      return validationError(`invalid dimension: ${pyRepr(d.dimension)}`) as never
     if (!VALID_PAIRWISE_STRATEGIES.includes(d.strategy as never))
-      return validationError(c, `invalid strategy: ${pyRepr(d.strategy)}`) as never
+      return validationError(`invalid strategy: ${pyRepr(d.strategy)}`) as never
 
     const { sqlite } = getDb()
     const pairs = samplePairs(sqlite, { count: d.count, strategy: d.strategy, dimension: d.dimension })
     if (!pairs.length)
-      return validationError(c, 'no eligible candidates (need posts with embeddings, not already queued)') as never
+      return validationError('no eligible candidates (need posts with embeddings, not already queued)') as never
     const name = d.name || `pairs-${d.dimension}-${pairs.length}`
     const id = createPairwiseQueue(sqlite, { name, dimensions: [d.dimension], pairs })
     return c.json({

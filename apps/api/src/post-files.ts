@@ -5,7 +5,7 @@
  * 文件没了），三处此前各写一遍同样的循环 —— 于是"缩略图在哪"这个知识被复制了三份，
  * 改一次布局要改三个文件，漏掉的那一份表现是留下一地孤儿缩略图，不报错。
  *
- * 对应 Python 侧 `services/file_management.py`。
+ * 形状承自已删除的 `services/file_management.py`。
  */
 import fs from 'node:fs'
 import path from 'node:path'

@@ -1,5 +1,5 @@
 /**
- * posts 表的写操作 —— 对应 Python 侧 `db/repositories/posts.py`。
+ * posts 表的写操作 —— 形状承自已退役的 Python 侧 `db/repositories/posts.py`。
  */
 import { placeholders } from '../sql.js'
 import type BetterSqlite3 from 'better-sqlite3'

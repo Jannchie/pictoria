@@ -1,5 +1,5 @@
 /**
- * tags / tag_groups 的读取 —— 对应 Python 侧 `db/repositories/tags.py`。
+ * tags / tag_groups 的读取 —— 形状承自已退役的 Python 侧 `db/repositories/tags.py`。
  */
 import { placeholders } from '../sql.js'
 import type BetterSqlite3 from 'better-sqlite3'

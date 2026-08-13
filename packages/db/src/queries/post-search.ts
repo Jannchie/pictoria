@@ -1,5 +1,5 @@
 /**
- * 列表与搜索 —— 对应 Python 侧 `PostQueryService.list_paginated` / `search`。
+ * 列表与搜索 —— 形状承自已退役的 Python 侧 `PostQueryService.list_paginated` / `search`。
  */
 import { placeholders, whereSql } from '../sql.js'
 import type BetterSqlite3 from 'better-sqlite3'

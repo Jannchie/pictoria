@@ -7,7 +7,23 @@
  */
 import fs from 'node:fs'
 import path from 'node:path'
+import { fileURLToPath } from 'node:url'
 import type BetterSqlite3 from 'better-sqlite3'
+
+/**
+ * 迁移文件所在目录。
+ *
+ * 和 `runMigrations` 放在同一个文件，是因为"迁移在哪"和"怎么跑迁移"是同一件知识：
+ * 此前它散在 `apps/api/src/paths.ts` 和三个测试各自手写的 `../../../../server/migrations`
+ * 里，共四份相对路径，挪窝时 API 正常启动而三个测试同时失效。
+ *
+ * 仍在 `server/` 下：15 个迁移是按文件名记在生产库 `_schema_versions` 里的，改名等于
+ * 重跑。目录归属和文件位置是两件事，这里只统一前者。
+ */
+export const MIGRATIONS_DIR = path.resolve(
+  path.dirname(fileURLToPath(import.meta.url)),
+  '../../../server/migrations',
+)
 
 const VERSION_TABLE = `
   CREATE TABLE IF NOT EXISTS _schema_versions (

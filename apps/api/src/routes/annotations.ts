@@ -144,11 +144,11 @@ annotationsRoutes.openapi(
     const data = c.req.valid('json')
     for (const e of data.events) {
       if (!VALID_DIMENSIONS.includes(e.dimension as never))
-        return validationError(c, `invalid dimension: '${e.dimension}'`) as never
+        return validationError(`invalid dimension: '${e.dimension}'`) as never
       if (![2, 3, 5].includes(e.scale))
-        return validationError(c, `invalid scale: ${e.scale}`) as never
+        return validationError(`invalid scale: ${e.scale}`) as never
       if (e.value < 1 || e.value > e.scale)
-        return validationError(c, `value ${e.value} out of range for scale ${e.scale}`) as never
+        return validationError(`value ${e.value} out of range for scale ${e.scale}`) as never
     }
     const { sqlite } = getDb()
     const ids = data.events.map((e: any) => insertAbsolute(sqlite, e))
@@ -174,9 +174,9 @@ annotationsRoutes.openapi(
   (c) => {
     const data = c.req.valid('json')
     if (!VALID_DIMENSIONS.includes(data.dimension as never))
-      return validationError(c, `invalid dimension: '${data.dimension}'`) as never
+      return validationError(`invalid dimension: '${data.dimension}'`) as never
     if (!VALID_WINNERS.includes(data.winner as never))
-      return validationError(c, `invalid winner: '${data.winner}'`) as never
+      return validationError(`invalid winner: '${data.winner}'`) as never
     const { sqlite } = getDb()
     const rowId = insertPairwise(sqlite, data)
     if (data.queue_id != null && data.queue_position != null)
@@ -201,7 +201,7 @@ annotationsRoutes.openapi(
   (c) => {
     const data = c.req.valid('json')
     if (!VALID_FLAGS.includes(data.flag as never))
-      return validationError(c, `invalid flag: '${data.flag}'`) as never
+      return validationError(`invalid flag: '${data.flag}'`) as never
     return c.json({ inserted: 1, ids: [insertContentFlag(getDb().sqlite, data)] }, 201)
   },
 )
@@ -222,7 +222,7 @@ annotationsRoutes.openapi(
   (c) => {
     const data = c.req.valid('json')
     if (!MUTABLE_KINDS.has(data.kind))
-      return validationError(c, `invalid kind: '${data.kind}'`) as never
+      return validationError(`invalid kind: '${data.kind}'`) as never
     const { sqlite } = getDb()
     const deleted = undoAnnotations(sqlite, { kind: data.kind, ids: data.ids, sessionId: data.session_id })
     // 空 ids 是合法的：被跳过的队列项不写事件就标记完成，它的 undo 就只是取消标记。
@@ -256,11 +256,11 @@ annotationsRoutes.openapi(
     const { kind, annotation_id: annotationId } = c.req.valid('param')
     const { verdict } = c.req.valid('json')
     if (!MUTABLE_KINDS.has(kind))
-      return validationError(c, `invalid kind: '${kind}'`) as never
+      return validationError(`invalid kind: '${kind}'`) as never
     if (kind === 'pairwise' && !VALID_WINNERS.includes(verdict as never))
-      return validationError(c, `invalid winner: ${JSON.stringify(verdict)}`) as never
+      return validationError(`invalid winner: ${JSON.stringify(verdict)}`) as never
     if (kind === 'absolute' && !(typeof verdict === 'number' && Number.isInteger(verdict) && verdict >= 1))
-      return validationError(c, `invalid value: ${JSON.stringify(verdict)}`) as never
+      return validationError(`invalid value: ${JSON.stringify(verdict)}`) as never
     const changed = editAnnotation(getDb().sqlite, { kind, annotationId, verdict })
     return c.json({ updated: changed ? 1 : 0 })
   },
@@ -287,7 +287,7 @@ annotationsRoutes.openapi(
   (c) => {
     const { dimension } = c.req.valid('query')
     if (!VALID_DIMENSIONS.includes(dimension as never))
-      return validationError(c, `invalid dimension: '${dimension}'`) as never
+      return validationError(`invalid dimension: '${dimension}'`) as never
     return c.json(countPairwise(getDb().sqlite, dimension))
   },
 )
@@ -438,7 +438,7 @@ annotationsRoutes.openapi(
     const { limit, before } = c.req.valid('query')
     const cursor = parseCursor(before)
     if ((cursor as unknown) === 'malformed')
-      return validationError(c, `malformed cursor: '${before}'`) as never
+      return validationError(`malformed cursor: '${before}'`) as never
 
     const page = Math.min(Math.max(limit, 1), TIMELINE_MAX_LIMIT)
     const { sqlite } = getDb()
@@ -506,9 +506,9 @@ annotationsRoutes.openapi(
   (c) => {
     const { dimensions, strategy, limit } = c.req.valid('query')
     if (!dimensions.length || dimensions.some((d: string) => !VALID_DIMENSIONS.includes(d as never)))
-      return validationError(c, `invalid dimensions: ${pyRepr(dimensions)}`) as never
+      return validationError(`invalid dimensions: ${pyRepr(dimensions)}`) as never
     if (!VALID_STRATEGIES.includes(strategy as never))
-      return validationError(c, `invalid strategy: ${pyRepr(strategy)}`) as never
+      return validationError(`invalid strategy: ${pyRepr(strategy)}`) as never
 
     const { sqlite } = getDb()
     const ids = samplePostIds(sqlite, { count: limit, strategy, dimensions })
@@ -546,9 +546,9 @@ annotationsRoutes.openapi(
   (c) => {
     const { limit, strategy, dimension } = c.req.valid('query')
     if (!VALID_PAIRWISE_STRATEGIES.includes(strategy as never))
-      return validationError(c, `invalid strategy: ${pyRepr(strategy)}`) as never
+      return validationError(`invalid strategy: ${pyRepr(strategy)}`) as never
     if (!VALID_DIMENSIONS.includes(dimension as never))
-      return validationError(c, `invalid dimension: ${pyRepr(dimension)}`) as never
+      return validationError(`invalid dimension: ${pyRepr(dimension)}`) as never
 
     const { sqlite } = getDb()
     const pairs = samplePairs(sqlite, { count: limit, strategy, dimension })

@@ -628,24 +628,39 @@ page cache，约 8 秒，那一次测的是磁盘不是语言），然后 30 轮
 
 ### `server/` 保留清单
 
-按运行时 import 闭包（AST 遍历，排除 `if TYPE_CHECKING:` 块）算出来的是 22 个文件
-/ ~3,480 行。比这份文档早先估的清单**多三样**，照早先那份删会直接起不来：
+删完之后 `server/src` 是 **26 个文件 / 3,130 行**（含 4 个包标记 `__init__.py`）：
 
-* `shared.py` —— `utils.py`、`wd_tagging.py`、`danbooru_import.py`、
-  `gallery_dl_import.py`、`import_persist.py` 都是模块级 `import shared`；
-* `services/import_persist.py` —— 被两个 importer 模块级导入；
-* `db/scorers.py` —— `ai/silva_scorer.py` 要 `SILVA` / `SILVA_LUNA` 两个
-  `ScorerSpec`。它是常量注册表不是数据访问，退役时移到 `src/scorers.py`。
+```
+worker/{main,handlers,importers,dedup,codec,ladder}.py
+ai/{siglip_embed,silva_scorer,waifu_scorer,clip,make_captions,hf_loader,torch_runtime}.py
+services/{danbooru_import,gallery_dl_import,wd_tagging}.py
+danbooru/  tools/{colors,colorthief}.py  utils.py  shared.py  scorers.py
+```
 
-完整清单：`worker/` + `ai/` + `danbooru/` + `tools/colors.py` + `utils.py` +
-`shared.py` + `scorers.py` + `services/(danbooru_import, gallery_dl_import,
-import_persist, wd_tagging)`。
+清单是按运行时 import 闭包算的（AST 遍历，**排除 `if TYPE_CHECKING:` 块，并处理
+相对 import**）。两个坑值得记下来，因为都会让"照清单删"直接起不来：
 
-⚠️ **`import_persist.persist_posts_with_tags` 是写库的**（`INSERT INTO posts` /
-`post_has_tag`）。worker 从不调用它——调用者只有 `danbooru_import` 和
-`gallery_dl_import` 里那两个 Litestar 时代的编排函数。Litestar 一删，树里就留下一个
-没有调用者的**第二写者**，直接违反"所有数据库写入在 TS"。退役时连同它的调用者一起
-剪掉，只留 worker 真正用到的解析/下载 helper。
+* 早先那份手写清单漏了 `shared.py`（`utils.py` / `wd_tagging.py` /
+  `danbooru_import.py` / `gallery_dl_import.py` 都是模块级 `import shared`）和
+  `db/scorers.py`（`ai/silva_scorer.py` 要两个 `ScorerSpec`；它是常量注册表不是
+  数据访问，所以移到了 `src/scorers.py`）。
+* 第一版闭包脚本只处理绝对 import，于是把 `tools/colorthief.py` 判成了孤儿 ——
+  它是被 `tools/colors.py` 的 `from .colorthief import ColorThief` 相对引用的。
+  431 行自定义中位切分，删了颜色筛选就没了。
+
+⚠️ **两个没有调用者的写库路径也在这次一并剪掉**：`import_persist.persist_posts_with_tags`
+（`INSERT INTO posts` / `post_has_tag`）和 `wd_tagging` 的 6 个持久化函数。worker
+从不调用它们——调用者只有 Litestar 时代的编排函数。留着就是树里有个没人调的**第二
+写者**，直接违反"所有数据库写入在 TS"。连同调用者一起剪掉后，`server/src` 的 SQL
+写入归零。
+
+⚠️ **但 `server/scripts/` 下还有三个直接写库的一次性维护脚本**
+（`calculate_color.py` 的 `UPDATE posts`、两个 `clean_*.py` 的 `DELETE FROM posts`），
+它们走裸 `sqlite3` 而从不 import `db/`，所以在"什么还 import db/"这条筛选线下完全
+隐形。它们既是第二写者，也会留下孤儿原图/缩略图（文件删除的知识现在住在
+`apps/api/src/post-files.ts`）。**未处理** —— 要么删掉（活分别由 basics backfill 和
+`DELETE /v2/posts` 承担），要么用 ruff 的 `flake8-tidy-imports.banned-api` 禁掉
+`sqlite3` 并给只读脚本开白名单，让这条不变式由 `ruff check` 回答而不是由注释回答。
 
 **总量粗估**：TS 侧新增 6,000–8,000 行；日历时间 5–7 周（按业余时间会更长）。
 

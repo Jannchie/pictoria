@@ -1,5 +1,5 @@
 /**
- * 导入器共用的两段式落库 —— 对应 Python 侧 `services/import_persist.py`。
+ * 导入器共用的两段式落库 —— 形状承自已退役的 Python 侧 `services/import_persist.py`。
  *
  * Danbooru 和 gallery-dl 落新 post 的方式是同一套：把每条源记录规整成
  * `NormalizedRow`，然后跑两个短事务 —— **先 tags，再 posts + post_has_tag**。

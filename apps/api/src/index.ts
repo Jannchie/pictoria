@@ -4,7 +4,8 @@ import { OpenAPIHono } from '@hono/zod-openapi'
 import { compress } from 'hono/compress'
 import { cors } from 'hono/cors'
 import { rebuildGroups } from './dedup.js'
-import { getDb } from './db.js'
+import { SILVA_SCORERS } from '@pictoria/contracts'
+import { getDb, migrate } from './db.js'
 import { httpError } from './openapi.js'
 import { startBasicsBackfill, startEmbeddingBackfill, startSilvaBackfill, startTaggerBackfill, startWaifuBackfill, wakeAllBackfills } from './scheduler.js'
 import { startAutoSync } from './sync.js'
@@ -25,11 +26,12 @@ import { tagWritesRoutes } from './routes/tag-writes.js'
 /**
  * Pictoria API。
  *
- * 70 个端点全部在这里；反向代理已经删掉 —— 迁移期它把没搬完的路由透传给 4779 的
- * Litestar，现在没有"没搬完的"了（见 docs/refactor-monorepo-hono.md §Phase 6）。
+ * 70 个端点全部在这里。反向代理和 Litestar 参照实现都已删除 —— 迁移期它们分别负责
+ * 透传未搬完的路由、以及给 12 套对拍当基准，两件事在 70/70 之后都失去了意义。
  *
- * Litestar 的代码还在 `server/src/server/`，但只作为对拍脚本的**参照实现**存在：
- * `pnpm ref:litestar` 手动起它，`pnpm parity:all` 拿它当基准。它不再服务任何流量。
+ * 契约现在由 `pnpm contract:diff`（对 `docs/openapi.baseline.json`）单独守着，那是
+ * 唯一还活着的守卫；退役前最后一次全量对拍的记录在 `docs/refactor-monorepo-hono.md`
+ * 的 Phase 7。
  */
 
 const PORT = Number(process.env.PICTORIA_API_PORT ?? 4777)
@@ -40,9 +42,10 @@ const app = new OpenAPIHono()
  *
  * ⚠️ 迁移期间这件事是**隐形**的：响应头由代理从 Litestar 透传回来，所以浏览器一直
  * 是通的；端点搬成原生 Hono 之后就断了。对拍套件全程没发现，因为它们不带 `Origin`
- * 头 —— 下面 `endpoint-parity.mjs` 补了专门的检查。
+ * 头 —— 后来补了专门的检查，但那套脚本已随参照实现一起退役。改这一段没有自动守卫，
+ * 要手测一次预检。
  *
- * 配置对齐 Litestar 的 `CORSConfig(allow_origins=["*"])` 实测输出：预检 204 +
+ * 配置对齐退役前 Litestar 的 `CORSConfig(allow_origins=["*"])` 实测输出：预检 204 +
  * max-age 600 + 七个方法 + 四个安全头。`allowHeaders` 显式列出而不是留空让 Hono
  * 回显请求头 —— 两者在浏览器看来等价，但显式的那份在响应里是稳定的，好对拍。
  */
@@ -81,7 +84,7 @@ app.route('/', postReadsRoutes)
  * 相同。合并唯一的实际效果是在参照实现跑着时用它的组件补上本地缺的，也就是
  * **掩盖** `contract:diff` 本该报出来的缺口。
  */
-app.get('/schema/openapi.json', async (c) => {
+app.get('/schema/openapi.json', (c) => {
   const local = app.getOpenAPI31Document({
     openapi: '3.1.0',
     info: { title: 'Pictoria', version: '0.1.0' },
@@ -107,25 +110,27 @@ app.get('/schema/openapi.json', async (c) => {
  */
 app.notFound(() => httpError(404, 'Not Found'))
 
+// schema 先于流量：迁移失败就不该开始服务，否则第一批请求会打在半旧的 schema 上。
+migrate()
+
 serve({ fetch: app.fetch, port: PORT }, (info) => {
   console.warn(`[pictoria-api] listening on http://127.0.0.1:${info.port}`)
 })
 
 // ---- backfill 调度（§D2：挑活在 TS，干活在 Python worker） ----
-// 默认开着 —— 这是迁移的目标状态。Python 侧对应地用 PICTORIA_SKIP_WORKERS 把同名
-// worker 关掉，两边不会重复算。设 PICTORIA_SCHEDULER=0 可以整个停掉，用来二分定位。
+// 默认开着 —— 这是迁移的目标状态。设 PICTORIA_SCHEDULER=0 可以整个停掉，用来二分定位。
 if (process.env.PICTORIA_SCHEDULER !== '0') {
   void (async () => {
     const tasks = await getTasks()
     const { sqlite } = getDb()
     // basics 排在最前：其余 worker 的输入（尺寸、缩略图）都由它产出。
     startBasicsBackfill(sqlite, tasks)
-    for (const scorer of ['silva', 'silva_luna'] as const)
+    for (const scorer of SILVA_SCORERS)
       startSilvaBackfill(sqlite, tasks, { scorer })
     startWaifuBackfill(sqlite, tasks)
     startTaggerBackfill(sqlite, tasks)
     // embedding 的待办清空之后要重建近重复分组 —— 新图不经过这一步就永远不会被
-    // 认成任何一张老图的重复（对应 Python 侧 EMBEDDING_WORKER 的 on_backfill_complete）。
+    // 认成任何一张老图的重复（形状承自已删除的 EMBEDDING_WORKER.on_backfill_complete）。
     startEmbeddingBackfill(sqlite, tasks, {
       onDrained: async () => {
         await rebuildGroups(sqlite, tasks).catch((err: unknown) =>
@@ -133,7 +138,7 @@ if (process.env.PICTORIA_SCHEDULER !== '0') {
       },
     })
     // 磁盘变化和定时轮询都会触发一次对账，然后把 backfill 循环叫醒 ——
-    // 对应 Python 侧 app.py 里的 watchdog + 10 分钟 poller。
+    // 形状承自已删除的 app.py 里的 watchdog + 10 分钟 poller。
     startAutoSync(sqlite, () => wakeAllBackfills())
     console.warn('[pictoria-api] backfill 调度已启动：basics, silva, silva_luna, waifu, tagger, embedding')
     console.warn('[pictoria-api] 文件监视 + 10 分钟轮询已启动')

@@ -1,5 +1,5 @@
 /**
- * `PostFilter` → SQL 片段 —— 对应 Python 侧 `db/filters.py`。
+ * `PostFilter` → SQL 片段 —— 形状承自已退役的 Python 侧 `db/filters.py`。
  *
  * 这是"一次读取碰哪些 post"的唯一真理，列举、搜索、计数、聚合都消费它。字段名
  * 保持 snake_case：它直接就是 API 的请求体形状（见 §4.2，这一族模型对外就是

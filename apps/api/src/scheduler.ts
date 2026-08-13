@@ -31,6 +31,7 @@ import {
   WAIFU_TASK_BATCH,
   WAIFU_WORKER_KEY,
   waifuTask,
+  type SilvaScorer,
 } from '@pictoria/contracts'
 import { Buffer } from 'node:buffer'
 import {
@@ -153,7 +154,7 @@ function loop(name: string, tick: () => Promise<boolean>, log: Log): BackfillHan
 export function startSilvaBackfill(
   sqlite: SqliteHandle,
   tasks: CairnQ,
-  { scorer, log = console }: { scorer: 'silva' | 'silva_luna', log?: Log },
+  { scorer, log = console }: { scorer: SilvaScorer, log?: Log },
 ): BackfillHandle {
   return loop(scorer, async () => {
     const pending = listSilvaPending(sqlite, scorer, SILVA_TASK_BATCH)
@@ -264,7 +265,7 @@ export function startTaggerBackfill(
 /**
  * embedding：SigLIP 2 检索向量。
  *
- * 唯一带**后置钩子**的 worker，对应 Python 侧 `EMBEDDING_WORKER.on_backfill_complete`：
+ * 唯一带**后置钩子**的 worker，形状承自已删除的 `EMBEDDING_WORKER.on_backfill_complete`：
  * 写进新向量之后要重建近重复分组，否则新图永远不会被认成任何一张老图的重复。
  *
  * 触发时机是**待办清空的那一刻**，不是每一批之后 —— 一次重建是全库分块矩阵乘，

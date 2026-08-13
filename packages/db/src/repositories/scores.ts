@@ -1,5 +1,5 @@
 /**
- * `post_waifu_scores` / `post_aesthetic_scores` 的读取 —— 对应 Python 侧
+ * `post_waifu_scores` / `post_aesthetic_scores` 的读取 —— 形状承自已退役的 Python 侧
  * `db/repositories/scores.py`。
  */
 import type BetterSqlite3 from 'better-sqlite3'

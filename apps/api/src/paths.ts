@@ -30,9 +30,12 @@ export function repoRoot(): string {
 /**
  * 首次调用时算一次，之后复用。
  *
- * 不在模块顶层求值 —— 那会在 dotenv 之前跑，读到的是没加载 `.env` 的 env。
- * 缓存是安全的：这几个变量只在启动时读，运行期没人改。而调用点是热的
- * （删文件的循环里每个文件调一次，一次全库 sync 就是 22 万次）。
+ * 重点是**惰性**而不是缓存：模块顶层求值会在 import 时刻锁死 env，于是任何在
+ * import 之后再设环境变量的调用方（测试、脚本）都拿不到自己设的值。缓存只是顺带，
+ * `path.resolve` 本来就便宜。
+ *
+ * ⚠️ 反过来说，第一次调用之后再改 `process.env` 也不会生效。这几个变量只在启动时
+ * 读，运行期没人改，所以成立；要在测试里改路径就得在首次调用之前改。
  */
 function once(compute: () => string): () => string {
   let cached: string | undefined
@@ -56,7 +59,12 @@ export const pictoriaDir = once(() => path.resolve(targetDir(), '.pictoria'))
 /** 缩略图根。TS 侧布局变了只改这里，不然会留下一地孤儿文件（Python worker 有自己的一份）。 */
 export const thumbnailsDir = once(() => path.resolve(pictoriaDir(), 'thumbnails'))
 
-/** 与 Python 侧 app.py 的解析规则一致：`DB_PATH` 覆盖 `<target_dir>/.pictoria/`。 */
+/**
+ * `DB_PATH` **环境变量**覆盖 `<target_dir>/.pictoria/pictoria.sqlite`。
+ *
+ * ⚠️ 是环境变量，不是 `.env` —— `apps/api` 不加载任何 dotenv（唯一读 `server/.env`
+ * 的是 `s3.ts`，它解析进函数局部变量，从不写回 `process.env`）。写在 `.env` 里静默无效。
+ */
 export const dbPath = once(() => process.env.DB_PATH ?? path.resolve(pictoriaDir(), 'pictoria.sqlite'))
 
 /** cairnq 的队列库。与 Python worker 的 `tasks_db_path()` 同规则。 */
@@ -69,15 +77,6 @@ export const tasksDbPath = once(() => process.env.TASKS_DB_PATH ?? path.resolve(
  * `.pictoria/` 本来就是这个库放自己东西的地方。
  */
 export const dedupMatrixPath = once(() => path.resolve(pictoriaDir(), 'dedup-vectors.f32'))
-
-/**
- * SQL 迁移文件所在目录。
- *
- * 仍在 `server/` 下 —— Litestar 退役之后这里已经没有第二个应用者了，但 15 个迁移
- * 是按文件名记在生产库 `_schema_versions` 里的，挪窝要连着改测试固件和 worker 对拍，
- * 不值得和这次退役捆在一起。
- */
-export const migrationsDir = once(() => path.resolve(REPO_ROOT, 'server/migrations'))
 
 /**
  * `target` 是否落在 `root` 之内（含 `root` 自身）。

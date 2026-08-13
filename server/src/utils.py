@@ -1,7 +1,7 @@
-"""Pure utilities: file walking, hashing, thumbnails, small converters.
+"""Pure utilities: hashing, arthash, thumbnails, small converters.
 
-Startup assembly lives in ``bootstrap``; WDTagger persistence in
-``services.wd_tagging``.
+File walking moved to the TS side (`apps/api/src/sync.ts`) and WDTagger
+persistence with it; what is left here is called from the cairnq handlers.
 """
 
 import base64
@@ -33,7 +33,6 @@ Image.MAX_IMAGE_PIXELS = None
 # the best we can with whatever bytes survived.
 ImageFile.LOAD_TRUNCATED_IMAGES = True
 
-_DirScanCache = dict[str, tuple[int, list[tuple[str, str, str]]]]
 
 
 def calculate_sha256(file: bytes) -> str:

@@ -1,5 +1,8 @@
 /**
- * 打分器注册表 —— 对应 Python 侧 `db/scorers.py`。
+ * 打分器注册表 —— 形状承自已退役的 Python 侧 `server/src/scorers.py`。
+ *
+ * ⚠️ 两边是手工同步的双份，没有任何机制校验它们一致。真正跨进程的只有**名字**
+ * （`SILVA_SCORERS`，定义在 `@pictoria/contracts`）；join SQL 与分档边界只有这一侧在用。
  *
  * `post_aesthetic_scores` 是通用的 per-(post, scorer) 表；每个住在里面的打分器由
  * 一条 `ScorerSpec` 描述一次：DB 里的 `scorer` 名、join 用的别名、A–E 分档边界、

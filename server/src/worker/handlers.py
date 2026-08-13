@@ -23,13 +23,9 @@ from typing import Any
 
 import numpy as np
 
+from scorers import SCORERS
 from worker.codec import decode_vector, encode_vector
 from worker.ladder import run_with_fallback
-
-#: Registered heads. Guarding here rather than passing ``payload["scorer"]``
-#: straight into the loader keeps an arbitrary string out of a filesystem path
-#: — the payload crosses a process boundary, so it is input, not a constant.
-_SILVA_SCORERS = frozenset({"silva", "silva_luna"})
 
 
 async def handle_silva(payload: dict[str, Any]) -> dict[str, Any]:
@@ -45,8 +41,11 @@ async def handle_silva(payload: dict[str, Any]) -> dict[str, Any]:
     of per-worker rule the refactor exists to remove. ``SILVA_TASK_BATCH`` (64)
     is sized for that — see the TS side for the payload-size arithmetic.
     """
+    # 用注册表本身校验，而不是手抄一份名单：payload 跨进程而来，是输入不是常量，
+    # 任意字符串不能进文件系统路径。手抄的那份会是第三处要同步的地方，漏掉的表现
+    # 是任务提交成功、worker 运行时才拒。
     scorer = payload["scorer"]
-    if scorer not in _SILVA_SCORERS:
+    if scorer not in SCORERS:
         msg = f"unknown scorer: {scorer!r}"
         raise ValueError(msg)
 
@@ -104,9 +103,8 @@ def pictoria_dir() -> Path:
 
     Kept next to ``library_root`` rather than inlined at the two call sites for
     the same reason the TS side has ``paths.ts``: this layout is duplicated
-    across three processes (``bootstrap.py`` for Litestar, ``paths.ts`` for the
-    API, here for the worker), and a mismatch is silent — thumbnails land where
-    nobody reads them.
+    across two processes (``paths.ts`` for the API, here for the worker), and a
+    mismatch is silent — thumbnails land where nobody reads them.
     """
     return library_root() / ".pictoria"
 

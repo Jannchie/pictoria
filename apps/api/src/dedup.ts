@@ -44,7 +44,7 @@ const REBUILD_TIMEOUT_MS = 30 * 60_000
  *
  * 重建以一次整体的 canonical 指针替换收尾，所以两个并发的重建就是"后写者赢"外加
  * 一次白烧的 GPU（一次被双击的 /v2/cmd/group-duplicates，或者这个端点撞上调度器
- * 写完向量后的自动重组）。对应 Python 侧的 `services/dedup.py::rebuild_lock`。
+ * 写完向量后的自动重组）。形状承自已删除的 `services/dedup.py::rebuild_lock`。
  */
 let inFlight: Promise<number> | null = null
 

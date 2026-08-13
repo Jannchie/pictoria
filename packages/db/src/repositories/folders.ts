@@ -1,5 +1,5 @@
 /**
- * 文件夹维度的聚合 —— 对应 Python 侧 `PostQueryService.folder_score_aggregates`。
+ * 文件夹维度的聚合 —— 形状承自已退役的 Python 侧 `PostQueryService.folder_score_aggregates`。
  */
 import type BetterSqlite3 from 'better-sqlite3'
 import { SILVA, SILVA_LUNA } from '../scorers.js'

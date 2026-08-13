@@ -1,5 +1,5 @@
 /**
- * SigLIP2 向量表的读取 —— 对应 Python 侧 `db/repositories/vectors.py` 里
+ * SigLIP2 向量表的读取 —— 形状承自已退役的 Python 侧 `db/repositories/vectors.py` 里
  * 采样器真正用到的那几个同步核心（`exists_sync` / `existing_sync` /
  * `unit_vectors_sync` / `knn_sync`）。
  *

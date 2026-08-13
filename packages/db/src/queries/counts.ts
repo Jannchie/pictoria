@@ -1,5 +1,5 @@
 /**
- * 过滤后的计数与聚合 —— 对应 Python 侧 `PostQueryService` 的 counts/aggregates 段。
+ * 过滤后的计数与聚合 —— 形状承自已退役的 Python 侧 `PostQueryService` 的 counts/aggregates 段。
  */
 import { placeholders, whereSql } from '../sql.js'
 import type BetterSqlite3 from 'better-sqlite3'

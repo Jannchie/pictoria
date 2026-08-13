@@ -541,15 +541,6 @@ wheels = [
 ]
 
 [[package]]
-name = "diffusion-prompt-embedder"
-version = "0.4.1"
-source = { registry = "https://pypi.org/simple" }
-sdist = { url = "https://files.pythonhosted.org/packages/12/b3/e95c39bb4cb2e05c366ab947ef3cb8f9a4f98318469291c17c3538183e39/diffusion_prompt_embedder-0.4.1.tar.gz", hash = "sha256:0a60cce33bf44bf97cca347080bb14c1b0e14e18b79a914bbca662f566c6bd0d", size = 68074, upload-time = "2026-06-05T03:31:40.341Z" }
-wheels = [
-    { url = "https://files.pythonhosted.org/packages/b8/9b/431d426a4ca60511f13530d11d50495dbc0796a858a82aa51491ffb5e30a/diffusion_prompt_embedder-0.4.1-py3-none-any.whl", hash = "sha256:3e4b74d8b766d562fc4d0a2d0a584de8ee63bf0ed4540a32bccd5d0e00b78b1f", size = 14335, upload-time = "2026-06-05T03:31:39.342Z" },
-]
-
-[[package]]
 name = "distro"
 version = "1.9.0"
 source = { registry = "https://pypi.org/simple" }
@@ -768,18 +759,6 @@ dependencies = [
 sdist = { url = "https://files.pythonhosted.org/packages/a9/01/15bb152d77b21318514a96f43af312635eb2500c96b55398d020c93d86ea/importlib_metadata-9.0.0.tar.gz", hash = "sha256:a4f57ab599e6a2e3016d7595cfd72eb4661a5106e787a95bcc90c7105b831efc", size = 56405, upload-time = "2026-03-20T06:42:56.999Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/38/3d/2d244233ac4f76e38533cfcb2991c9eb4c7bf688ae0a036d30725b8faafe/importlib_metadata-9.0.0-py3-none-any.whl", hash = "sha256:2d21d1cc5a017bd0559e36150c21c830ab1dc304dedd1b7ea85d20f45ef3edd7", size = 27789, upload-time = "2026-03-20T06:42:55.665Z" },
-]
-
-[[package]]
-name = "inch"
-version = "0.2.0"
-source = { registry = "https://pypi.org/simple" }
-dependencies = [
-    { name = "rich" },
-]
-sdist = { url = "https://files.pythonhosted.org/packages/e0/29/21a1ca50d808efb69877414268bb92e6674718f822be49702498500141a7/inch-0.2.0.tar.gz", hash = "sha256:0d2aa9330094c89121ae043f2272f0b94963ee9b1e89bd7e8aef215e49d3c0d8", size = 16308, upload-time = "2025-05-03T06:44:12.793Z" }
-wheels = [
-    { url = "https://files.pythonhosted.org/packages/78/0d/ce2dd8683e262781750e8fb6d661dc448a14f017afba3c9cf53c5c8385da/inch-0.2.0-py3-none-any.whl", hash = "sha256:ad01d5b6d9268c01b83039060aeaf0e79d6de16b51ad0d87a79c924695378b33", size = 18806, upload-time = "2025-05-03T06:44:11.385Z" },
 ]
 
 [[package]]
@@ -1656,14 +1635,11 @@ dependencies = [
     { name = "arthash" },
     { name = "cairnq" },
     { name = "diffusers" },
-    { name = "diffusion-prompt-embedder" },
     { name = "gallery-dl" },
     { name = "httpx" },
-    { name = "inch" },
     { name = "openai" },
     { name = "pillow-avif-plugin" },
     { name = "python-dotenv" },
-    { name = "pytz" },
     { name = "rich" },
     { name = "scikit-image" },
     { name = "silva-scorer" },
@@ -1690,14 +1666,11 @@ requires-dist = [
     { name = "arthash", specifier = ">=0.2.0" },
     { name = "cairnq", specifier = "==0.6.0" },
     { name = "diffusers", specifier = ">=0.37.1" },
-    { name = "diffusion-prompt-embedder", specifier = ">=0.2.0" },
     { name = "gallery-dl", specifier = ">=1.32.1" },
     { name = "httpx", specifier = ">=0.28.1" },
-    { name = "inch", specifier = ">=0.2.0" },
     { name = "openai", specifier = ">=2.36.0" },
     { name = "pillow-avif-plugin", specifier = ">=1.5.5" },
     { name = "python-dotenv", specifier = ">=1.2.2" },
-    { name = "pytz", specifier = ">=2026.2" },
     { name = "rich", specifier = ">=15.0.0" },
     { name = "scikit-image", specifier = ">=0.26.0" },
     { name = "silva-scorer", specifier = ">=0.2.0" },
@@ -2135,15 +2108,6 @@ source = { registry = "https://pypi.org/simple" }
 sdist = { url = "https://files.pythonhosted.org/packages/82/ed/0301aeeac3e5353ef3d94b6ec08bbcabd04a72018415dcb29e588514bba8/python_dotenv-1.2.2.tar.gz", hash = "sha256:2c371a91fbd7ba082c2c1dc1f8bf89ca22564a087c2c287cd9b662adde799cf3", size = 50135, upload-time = "2026-03-01T16:00:26.196Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/0b/d7/1959b9648791274998a9c3526f6d0ec8fd2233e4d4acce81bbae76b44b2a/python_dotenv-1.2.2-py3-none-any.whl", hash = "sha256:1d8214789a24de455a8b8bd8ae6fe3c6b69a5e3d64aa8a8e5d68e694bbcb285a", size = 22101, upload-time = "2026-03-01T16:00:25.09Z" },
-]
-
-[[package]]
-name = "pytz"
-version = "2026.2"
-source = { registry = "https://pypi.org/simple" }
-sdist = { url = "https://files.pythonhosted.org/packages/ff/46/dd499ec9038423421951e4fad73051febaa13d2df82b4064f87af8b8c0c3/pytz-2026.2.tar.gz", hash = "sha256:0e60b47b29f21574376f218fe21abc009894a2321ea16c6754f3cad6eb7cdd6a", size = 320861, upload-time = "2026-05-04T01:35:29.667Z" }
-wheels = [
-    { url = "https://files.pythonhosted.org/packages/ec/dd/96da98f892250475bdf2328112d7468abdd4acc7b902b6af23f4ed958ea0/pytz-2026.2-py2.py3-none-any.whl", hash = "sha256:04156e608bee23d3792fd45c94ae47fae1036688e75032eea2e3bf0323d1f126", size = 510141, upload-time = "2026-05-04T01:35:27.408Z" },
 ]
 
 [[package]]

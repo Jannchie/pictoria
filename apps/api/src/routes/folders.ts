@@ -24,6 +24,13 @@ interface DirectorySummary {
   children: DirectorySummary[]
 }
 
+/**
+ * walk 跳过的目录名。按**名字**比，任意深度都跳 —— 逐字对齐 Litestar 的
+ * `entry.name == ignore_dirs.name`。从 pictoriaDir() 取而不是写死字面量，这样
+ * `.pictoria` 改名时只有 paths.ts 一处要动。
+ */
+const IGNORED_DIR_NAME = path.basename(pictoriaDir())
+
 const DirectorySummarySchema: z.ZodType<DirectorySummary> = z.lazy(() =>
   z.object({
     name: z.string(),
@@ -57,11 +64,8 @@ function walk(absDir: string, base: string): DirectorySummary {
     children: [],
   }
 
-  // 按**名字**跳过，任意深度都跳 —— 逐字对齐 Litestar 的 `entry.name == ignore_dirs.name`。
-  // 名字从 pictoriaDir() 取，是为了不再在这里留一份 '.pictoria' 字面量。
-  const ignoreName = path.basename(pictoriaDir())
   for (const entry of fs.readdirSync(absDir, { withFileTypes: true })) {
-    if (entry.name === ignoreName)
+    if (entry.name === IGNORED_DIR_NAME)
       continue
     if (entry.isDirectory()) {
       const child = walk(path.join(absDir, entry.name), base)

@@ -1,5 +1,5 @@
 /**
- * 标注队列仓储（CRUD 与取件部分）—— 对应 Python 侧
+ * 标注队列仓储（CRUD 与取件部分）—— 形状承自已退役的 Python 侧
  * `db/repositories/annotation_queues.py` 里不涉及采样的那一半。
  *
  * **采样不在这里**：`sample_post_ids` / `sample_pairs` 及其 `_PairGraph`、并查集、

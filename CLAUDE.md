@@ -58,7 +58,8 @@ uv run ruff format src # Format Python code
 ### Database
 
 SQLite is embedded — there is no separate DB server. The default DB path is
-`<target_dir>/.pictoria/pictoria.sqlite`; override with `DB_PATH` in `.env`.
+`<target_dir>/.pictoria/pictoria.sqlite`; override with the `DB_PATH` **environment
+variable** (`apps/api` loads no dotenv, so putting it in `server/.env` does nothing).
 Schema migrations are plain SQL files in `server/migrations/` and are applied
 automatically on startup by the Hono API (`apps/api/src/db.ts` calls
 `runMigrations`). Nothing else applies them — the Python worker never opens this DB.

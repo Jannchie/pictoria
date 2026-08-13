@@ -2,7 +2,7 @@
  * S3 预签名 URL —— `GET /v2/images/original/id/{post_id}` 的兜底。
  *
  * 本地文件不在了的时候（外置盘没挂、库刚从别处拷来），这条路径去对象存储取一份。
- * 对应 Python 侧 `services/s3.py` 的 `presigned_get_object_from_s3`。
+ * 形状承自已删除的 `services/s3.py::presigned_get_object_from_s3`；凭据仍读同一个 `server/.env`。
  *
  * 为什么手写 SigV4 而不是拉 AWS SDK：签名本身是四十行 HMAC 链，而 `@aws-sdk/client-s3`
  * 加 presigner 是几十个包。真正的风险是**签错**，而那个风险靠对拍消掉 ——

@@ -1,5 +1,5 @@
 /**
- * Tag 显示名的本地化 —— 对应 Python 侧 `services/tag_i18n.py`。
+ * Tag 显示名的本地化 —— 形状承自已删除的 `services/tag_i18n.py`；数据仍由 `server/scripts/tags/build_tag_i18n.py` 生成。
  *
  * `server/data/tag.<lang>.json` 把 DB 里的 tag 名（danbooru 下划线形式，
  * `green_eyes`）映射到本地化显示名。表由 `scripts/tags/build_tag_i18n.py` 离线生成。
