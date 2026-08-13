@@ -33,12 +33,6 @@ import { tagWritesRoutes } from './routes/tag-writes.js'
  */
 
 const PORT = Number(process.env.PICTORIA_API_PORT ?? 4777)
-/**
- * 只有 `/schema/openapi.json` 还会问它一句，而且问不到也无所谓 —— 见下面。
- * 对拍脚本自己直接打 4779，不经过这里。
- */
-const UPSTREAM = process.env.PICTORIA_UPSTREAM ?? 'http://127.0.0.1:4779'
-
 const app = new OpenAPIHono()
 
 /**
@@ -82,10 +76,10 @@ app.route('/', postReadsRoutes)
 /**
  * `/schema/openapi.json` —— 前端 `pnpm genapi` 打的就是这个地址。
  *
- * 迁移期它必须把两侧合起来（只给 Hono 已实现的那几个会让客户端缺掉大半 API）。
- * 现在 70 个端点都在本地，上游那一份只剩一个用处：Litestar 跑着的时候，
- * `contract:diff` 能顺带看出本地有没有漏掉哪个组件 schema。上游不在就直接给本地
- * 这一份，而那才是最终形态。
+ * 迁移期这里要把本地和上游 Litestar 的 schema 合起来。那段已经删掉：退役前实测
+ * 过，把上游指向死端口起一个实例，本地这一份自己就是 70 个操作、与 baseline 逐项
+ * 相同。合并唯一的实际效果是在参照实现跑着时用它的组件补上本地缺的，也就是
+ * **掩盖** `contract:diff` 本该报出来的缺口。
  */
 app.get('/schema/openapi.json', async (c) => {
   const local = app.getOpenAPI31Document({
@@ -101,31 +95,7 @@ app.get('/schema/openapi.json', async (c) => {
     s.title ??= name
   }
 
-  let upstream: any
-  try {
-    upstream = await (await fetch(`${UPSTREAM}/schema/openapi.json`)).json()
-  }
-  catch {
-    // 上游没起来时，至少把本地这份给出去，而不是 502 —— genapi 至少还能跑。
-    return c.json(local)
-  }
-
-  // 必须**按方法**合并，不能按路径。一个路径下的 GET 搬过来了、POST 还在上游是
-  // 常态（/v2/tags 就是），路径级的浅合并会把上游那一整个 path item 挤掉，于是
-  // POST/DELETE 从文档里凭空消失 —— contract-diff 会报，但别等它报。
-  const paths: Record<string, any> = { ...upstream.paths }
-  for (const [route, item] of Object.entries(local.paths ?? {}))
-    paths[route] = { ...paths[route], ...(item as object) }
-
-  const merged = {
-    ...upstream,
-    paths,
-    components: {
-      ...upstream.components,
-      schemas: { ...upstream.components?.schemas, ...local.components?.schemas },
-    },
-  }
-  return c.json(merged)
+  return c.json(local)
 })
 
 /**

@@ -7,11 +7,7 @@
     "dev": "node --watch --import tsx src/index.ts",
     "start": "tsx src/index.ts",
     "typecheck": "tsc --noEmit",
-    "test": "vitest run",
-    "parity:worker": "tsx scripts/worker-parity.mts",
-    "parity:commands": "tsx scripts/commands-parity.mts",
-    "parity:s3": "tsx scripts/s3-presign-parity.mts",
-    "parity:destructive": "tsx scripts/destructive-parity.mts"
+    "test": "vitest run"
   },
   "dependencies": {
     "@hono/node-server": "^1.15.0",

@@ -9,11 +9,7 @@ from __future__ import annotations
 
 from types import SimpleNamespace
 
-from services.danbooru_import import (
-    _build_tag_to_group,
-    _safe_dir_name,
-    _settled_page_stopper,
-)
+from services.danbooru_import import _build_tag_to_group, _settled_page_stopper
 
 
 def _post(post_id: int, *, ext: str = "jpg", url: str | None = "https://cdn/x") -> SimpleNamespace:
@@ -38,16 +34,6 @@ def test_build_tag_to_group_keeps_highest_priority_group() -> None:
 def test_build_tag_to_group_handles_empty_fields() -> None:
     post = SimpleNamespace(tag_string_artist="", tag_string_general="  a   b ")
     assert _build_tag_to_group(post, {"artist": 1, "general": 2}) == {"a": 2, "b": 2}
-
-
-def test_safe_dir_name_sanitises_filesystem_illegal_chars() -> None:
-    assert _safe_dir_name("re:rin") == "re_rin"
-    assert _safe_dir_name("a/b\\c") == "a_b_c"
-
-
-def test_safe_dir_name_never_returns_empty() -> None:
-    assert _safe_dir_name("...") == "_"
-    assert _safe_dir_name("") == "_"
 
 
 def test_settled_pages_stop_paging_after_the_streak() -> None:

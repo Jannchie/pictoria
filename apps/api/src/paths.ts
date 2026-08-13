@@ -71,6 +71,15 @@ export const tasksDbPath = once(() => process.env.TASKS_DB_PATH ?? path.resolve(
 export const dedupMatrixPath = once(() => path.resolve(pictoriaDir(), 'dedup-vectors.f32'))
 
 /**
+ * SQL 迁移文件所在目录。
+ *
+ * 仍在 `server/` 下 —— Litestar 退役之后这里已经没有第二个应用者了，但 15 个迁移
+ * 是按文件名记在生产库 `_schema_versions` 里的，挪窝要连着改测试固件和 worker 对拍，
+ * 不值得和这次退役捆在一起。
+ */
+export const migrationsDir = once(() => path.resolve(REPO_ROOT, 'server/migrations'))
+
+/**
  * `target` 是否落在 `root` 之内（含 `root` 自身）。
  *
  * 加分隔符再比前缀：否则 `/lib-secret` 会被判定在 `/lib` 之内。两个调用方

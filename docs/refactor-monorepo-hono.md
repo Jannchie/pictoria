@@ -544,13 +544,108 @@ worker 只回传标签名和 rating 字符串，而"这个标签属于哪个组"
   这依赖 pnpm 的 `script-shell` 是 POSIX shell —— 它是（msys bash），根脚本要保持
   POSIX 兼容。
 
-待定：删 Litestar 本体和 Python `db/` 层。挡在前面的不是代码而是**验证**：12 个对拍
-套件全部拿 Litestar 当基准（`pnpm ref:litestar` 起它），删了它这些套件就一起失效。
-`worker_direct.py`（worker 对拍的参照）和 `dump_query_golden.py`（golden fixture 的
-生成器）也都要 `db/` 层。
+### 退役前的最后一次全量对拍（2026-08-13）
 
-真删的时候 `server/` 要留下的是：`ai/` + `tools/` + `danbooru/` +
-`services/(danbooru_import, gallery_dl_import, wd_tagging)` + `utils.py` + `worker/`。
+删 Litestar 挡在前面的从来不是代码而是**验证**：12 个对拍套件全部拿它当基准，删了
+就一起失效。所以退役的第一步是把预言机还在时的结论**记下来**——下面这份是最后一次
+全绿运行，之后再没有任何机制能重新得出它。
+
+环境：Litestar 4779（`PICTORIA_SKIP_WORKERS` 全禁）、Hono 4780
+（`PICTORIA_SCHEDULER=0`）、cairnq worker 六队列在线、库 223,063 个文件对账一致。
+
+| 套件 | 项数 | 覆盖 |
+| --- | --- | --- |
+| `parity` | 146 | 142 个端点用例 + 4 项 CORS |
+| `contract:diff` | 70 | operationId 与请求/响应结构逐项相同 |
+| `parity:write` | 21 | 写路径（每步还原） |
+| `parity:annotations` | 21 | 标注提交/撤销 |
+| `parity:tags` | 13 | tag 写 |
+| `parity:queues` | 8 | 标注队列 |
+| `parity:sampling` | 83 | 四个采样端点的不变量 |
+| `parity:images` | 20 | 头 + 字节 |
+| `parity:timeline` | 11 | 游标翻页与错误路径 |
+| `parity:commands` | 21 | 即时命令 |
+| `parity:s3` | 4 | 预签名 URL 与 minio-py 逐字符相同 |
+| `parity:destructive` | 47 | delete / rotate / delete-folder（沙箱样本） |
+| `parity:worker` | 54 | 新链路与旧路径逐位相同 |
+
+顺带证伪了一个一直没人验证的假设：`/schema/openapi.json` 里"抓上游 schema 再按方法
+合并"那 25 行是**纯死重**。把 `PICTORIA_UPSTREAM` 指向死端口起一个实例，本地那份
+自己就是 70 个操作、与 baseline 逐项相同。合并唯一的实际效果是在 `ref:litestar`
+跑着时用上游组件补上本地缺的那些，也就是**掩盖** `contract:diff` 本该报出来的缺口。
+随本次退役一并删除。
+
+### 端点延迟：Hono vs Litestar（2026-08-13，退役当天补测）
+
+12 套对拍比的是**响应内容**，从来没比过耗时。这个数字在 Litestar 删掉之后才补——
+从 `git worktree` 拉出退役前的那个 commit 跑起来测的，所以以后想复现同样可行。
+
+方法：只打只读 GET；每个用例先预热 5 轮丢弃（vec0 KNN 首次要把 2.2 GB 向量读进
+page cache，约 8 秒，那一次测的是磁盘不是语言），然后 30 轮 **A/B 交替**并每轮换
+先后手——先把一侧打完再打另一侧会把机器状态漂移全记到后一侧头上。两侧同一个库、
+同一个 Python 解释器，backfill 全部禁用。Litestar 的 uvicorn access log 关掉了
+（开着约 +1 ms/请求，见下）。
+
+| 端点 | Hono p50 | Litestar p50 | 比值 | Hono p95 | Litestar p95 |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| `/v2/folders` | 311.8 | 309.1 | **0.99×** | 331.3 | 330.7 |
+| `/v2/statistics` | 54.9 | 63.4 | 1.16× | 62.4 | 74.2 |
+| `/v2/posts/{id}/similar` (vec0 KNN) | 303.1 | 487.2 | 1.61× | 328.0 | 518.4 |
+| `/v2/annotations/pairwise/count` | 2.5 | 4.1 | 1.67× | 3.0 | 5.1 |
+| `/v2/posts/{id}/group` | 0.8 | 1.7 | 2.09× | 1.1 | 2.4 |
+| `/v2/annotations/timeline?limit=50` | 4.1 | 8.5 | 2.09× | 5.7 | 9.8 |
+| `/v2/posts/{id}` | 1.5 | 3.3 | 2.11× | 2.1 | 4.3 |
+| `/v2/annotation-queues` | 1.5 | 3.2 | 2.16× | 1.9 | 3.8 |
+| `/v2/tags/groups` | 0.8 | 1.8 | 2.19× | 1.0 | 2.0 |
+| `/v2/posts?limit=50` | 11.4 | 31.5 | 2.76× | 14.9 | 88.2 |
+| `/v2/posts?limit=50&rating&score` | 11.2 | 31.0 | 2.78× | 11.9 | 77.7 |
+| `/v2/posts?limit=50&tags=1girl` | 11.1 | 31.5 | 2.84× | 13.0 | 83.1 |
+| `/v2/posts?limit=200` | 38.6 | 169.8 | 4.40× | 45.5 | 193.1 |
+| `/v2/tags` | 159.2 | 1039.8 | **6.53×** | 169.1 | 1067.8 |
+
+几何平均 **2.25×**。
+
+**这推翻了迁移期的一个假设。** §4.1 的 spike 测出向量层两侧持平（KNN 952 vs 990 ms），
+于是一直默认"端点层也会被 SQLite 主导，语言开销看不出来"。看不出来的只是**向量层**。
+
+规律很干净，两条：
+
+* **活在 SQLite 里干 → 持平。** `/v2/folders` 是 0.99×——它 300 ms 全花在走 2.2 万个
+  目录的 `readdir` 上，两种语言都只是在等文件系统。`/v2/statistics` 1.16×，聚合查询
+  在引擎里算完只回几行。
+* **活在语言里按行干 → 差 2–7 倍，且随行数放大。** 同一个端点 `limit=50` 是 2.76×、
+  `limit=200` 是 4.40×；`/v2/tags` 要把几千行各自构造成 Pydantic entity，6.53×。单行
+  端点稳定在 2.1–2.2×，那是每请求的固定开销（ASGI + DI + `asyncio.to_thread` 的线程
+  跳转 + 序列化）。
+
+**p95 的差距比 p50 更值得看。** 列表端点上 Litestar 的 p95 炸到 78–88 ms 而 p50 只有
+31 ms（2.8 倍的尾巴），Hono 是 11 → 13 ms（1.2 倍）。这是 GC 与线程池调度的抖动，
+瀑布流滚动时用户感觉到的正是这个尾巴，不是中位数。
+
+附带测到的一件事：uvicorn 的 access log（经 `rich` 渲染）约 **1 ms/请求**——小端点上
+`/v2/posts/{id}/group` 从 2.7 降到 1.7 ms。生产配置里它是开着的，所以用户实际体验到
+的差距比上表还大一点。
+
+### `server/` 保留清单
+
+按运行时 import 闭包（AST 遍历，排除 `if TYPE_CHECKING:` 块）算出来的是 22 个文件
+/ ~3,480 行。比这份文档早先估的清单**多三样**，照早先那份删会直接起不来：
+
+* `shared.py` —— `utils.py`、`wd_tagging.py`、`danbooru_import.py`、
+  `gallery_dl_import.py`、`import_persist.py` 都是模块级 `import shared`；
+* `services/import_persist.py` —— 被两个 importer 模块级导入；
+* `db/scorers.py` —— `ai/silva_scorer.py` 要 `SILVA` / `SILVA_LUNA` 两个
+  `ScorerSpec`。它是常量注册表不是数据访问，退役时移到 `src/scorers.py`。
+
+完整清单：`worker/` + `ai/` + `danbooru/` + `tools/colors.py` + `utils.py` +
+`shared.py` + `scorers.py` + `services/(danbooru_import, gallery_dl_import,
+import_persist, wd_tagging)`。
+
+⚠️ **`import_persist.persist_posts_with_tags` 是写库的**（`INSERT INTO posts` /
+`post_has_tag`）。worker 从不调用它——调用者只有 `danbooru_import` 和
+`gallery_dl_import` 里那两个 Litestar 时代的编排函数。Litestar 一删，树里就留下一个
+没有调用者的**第二写者**，直接违反"所有数据库写入在 TS"。退役时连同它的调用者一起
+剪掉，只留 worker 真正用到的解析/下载 helper。
 
 **总量粗估**：TS 侧新增 6,000–8,000 行；日历时间 5–7 周（按业余时间会更长）。
 

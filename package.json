@@ -10,26 +10,12 @@
     "dev:worker": "cd server && uv run ./src/worker/main.py --target_dir ./illustration/images",
     "dev:web": "pnpm --filter pictoria dev",
     "dev:api-quiet": "PICTORIA_SCHEDULER=0 pnpm --filter @pictoria/api dev",
-    "ref:litestar": "cd server && PICTORIA_PORT=4779 PICTORIA_SKIP_WORKERS=basics,silva,silva_luna,waifu,tagger,embedding uv run ./src/app.py --target_dir ./illustration/images",
     "build": "pnpm -r build",
     "test": "pnpm -r test",
     "lint": "pnpm -r lint",
     "genapi": "pnpm --filter pictoria genapi",
     "contract:diff": "node scripts/openapi-contract-diff.mjs docs/openapi.baseline.json http://127.0.0.1:4777/schema/openapi.json",
-    "contract:test": "node scripts/openapi-contract-diff.test.mjs",
-    "parity": "node scripts/endpoint-parity.mjs",
-    "parity:all": "pnpm parity && pnpm parity:write && pnpm parity:annotations && pnpm parity:tags && pnpm parity:timeline && pnpm parity:queues && pnpm parity:sampling && pnpm parity:commands && pnpm parity:images && pnpm parity:destructive && pnpm parity:s3 && pnpm contract:diff",
-    "parity:annotations": "node scripts/annotations-parity.mjs",
-    "parity:commands": "pnpm --filter @pictoria/api parity:commands",
-    "parity:destructive": "pnpm --filter @pictoria/api parity:destructive",
-    "parity:images": "node scripts/images-parity.mjs",
-    "parity:queues": "node scripts/queues-parity.mjs",
-    "parity:s3": "pnpm --filter @pictoria/api parity:s3",
-    "parity:sampling": "node scripts/sampling-parity.mjs",
-    "parity:tags": "node scripts/tag-writes-parity.mjs",
-    "parity:timeline": "node scripts/timeline-parity.mjs",
-    "parity:worker": "pnpm --filter @pictoria/api parity:worker",
-    "parity:write": "node scripts/write-parity.mjs"
+    "contract:test": "node scripts/openapi-contract-diff.test.mjs"
   },
   "devDependencies": {
     "concurrently": "^10.0.4"

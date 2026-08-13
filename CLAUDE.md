@@ -8,7 +8,8 @@ Pictoria is a full-stack image gallery application for managing and displaying i
 
 ## Tech Stack
 
-- **Backend**: Python 3.11+ (dev pins 3.12) with Litestar framework, embedded SQLite (WAL) + `sqlite-vec` (vec0 virtual tables for vector search), Pydantic entities, hand-written Repository + query-service layer (no ORM)
+- **API**: TypeScript on Hono (`apps/api`), embedded SQLite (WAL) + `sqlite-vec` (vec0 virtual tables for vector search), hand-written repositories in `packages/db` (raw SQL, no ORM)
+- **Worker**: Python 3.11+ (dev pins 3.12) running under [cairnq](https://pypi.org/project/cairnq/) (`server/src/worker`). It **computes only** — torch / wdtagger / gallery-dl are the reason it exists. It never opens `pictoria.sqlite`
 - **Frontend**: Vue 3 with Composition API, Vite, UnoCSS, TypeScript
 - **Package Managers**: `uv` for Python, `pnpm` for JavaScript
 
@@ -59,7 +60,8 @@ uv run ruff format src # Format Python code
 SQLite is embedded — there is no separate DB server. The default DB path is
 `<target_dir>/.pictoria/pictoria.sqlite`; override with `DB_PATH` in `.env`.
 Schema migrations are plain SQL files in `server/migrations/` and are applied
-automatically on startup by `db.migrator.run_migrations`.
+automatically on startup by the Hono API (`apps/api/src/db.ts` calls
+`runMigrations`). Nothing else applies them — the Python worker never opens this DB.
 
 ```bash
 cd server
@@ -76,24 +78,32 @@ uv run python scripts/inspect_db.py
 
 ### Backend Structure
 
-- **src/app.py**: Main Litestar application entry point (DI wires repositories per request)
-- **src/db/**: Data access layer:
-  - `connection.py`: `DB` class — owns thread-local SQLite connections (each with `sqlite-vec` loaded + WAL), hands out per-thread cursors
-  - `entities.py`: Pydantic models that map 1:1 to DB rows (Post, Tag, TagGroup, ...)
-  - `migrator.py`: SQL-file migration runner; tracks applied versions in `_schema_versions`
-  - `filters.py`: `PostFilter` / `PostFilterWithOrder` value objects, `build_where()`, and the centralized column allowlists (orderable / updatable / groupable)
-  - `repositories/`: Focused async row repositories (`PostRepo` = posts-table CRUD, `TagRepo`, `TagGroupRepo`, `ScoreRepo`, `ColorRepo`, `FailureRepo`, `VectorRepo`); each public method wraps a sync SQLite call in `asyncio.to_thread`
-  - `queries/`: `PostQueryService` — the read side (detail/list/search assembly + filtered counts/aggregates), composing the focused repos for per-table batch fetches
-- **migrations/**: Hand-written, ordered SQL migration files (`0001_initial.sql`, ...)
-- **src/server/**: API controllers organized by resource:
-  - `posts.py`: Image CRUD operations, batch updates
-  - `commands.py`: Imperative `/v2/cmd/*` operations (metadata sync, Danbooru import, waifu/SILVA scoring, embedding backfill, auto-caption/auto-tags, DB snapshot)
-  - `tags.py`: Tag management and grouping
-  - `images.py`: Image serving and thumbnails
-  - `folders.py`: Directory traversal and sync
-  - `statistics.py`: Analytics and metrics
-- **src/ai/**: AI integration for tagging and scoring
-- **src/services/**: Business logic layer (file sync, waifu scorer, S3 client)
+> **The one rule everything else follows: all computation in the Python worker, all
+> database writes in TS. No exceptions.** The Litestar HTTP server and the Python
+> `db/` layer were retired on 2026-08-13; `docs/refactor-monorepo-hono.md` Phase 7
+> records the last full parity run that licensed it.
+
+#### `apps/api` — the HTTP server (Hono, port 4777)
+
+- **src/index.ts**: app assembly — CORS, compression, route mounting, `/schema/openapi.json`, the 404 shape, and the backfill scheduler boot
+- **src/paths.ts**: single source of truth for *where things are* (`targetDir`, `pictoriaDir`, `thumbnailsDir`, `dbPath`, `tasksDbPath`, `migrationsDir`) plus the `isInside`/`resolveInside` containment primitives. The Python worker has its own copy (`worker/handlers.py`'s `library_root()` / `pictoria_dir()` / `thumbnails_root()`) — a mismatch between them is silent
+- **src/db.ts**: the process-wide SQLite handle; **runs `runMigrations` on first open**
+- **src/routes/**: one file per resource (posts read/write/list/counts, tags, images, folders, annotations, annotation-queues, commands, statistics)
+- **src/scheduler.ts**: picks pending work per worker and submits cairnq tasks; **src/sync.ts**: disk↔`posts` reconciliation + file watching; **src/dedup.ts**: near-duplicate grouping
+- **src/openapi.ts**: the two Litestar-compatible error shapes — `domainError` (`{detail, error}`) and `httpError` (`{status_code, detail}`). There are exactly two; do not hand-roll a third
+
+#### `packages/db` — data access (the only writer)
+
+- `connection.ts` (sqlite-vec + WAL + FK pragma), `schema.ts`, `migrate.ts`, `filters.ts` (`buildWhere` + column allowlists), `scorers.ts`, `repositories/`, `queries/`
+
+#### `server/` — the Python worker, and nothing else
+
+- **src/worker/**: cairnq entry point (`main.py`), task handlers, the vector codec, the OOM fallback ladder, and the importers
+- **src/ai/**: SigLIP 2 embedding, CLIP backbone, waifu / SILVA scorers, captioning
+- **src/services/**: `danbooru_import`, `gallery_dl_import`, `wd_tagging` — fetch/parse helpers only; the worker returns rows and TS writes them
+- **src/scorers.py**: the `ScorerSpec` registry. ⚠️ hand-synced twin of `packages/db/src/scorers.ts`
+- **src/tools/**, **src/utils.py**, **src/shared.py**: colour quantisation, hashing/thumbnails, logging
+- **migrations/**: hand-written ordered SQL (`0001_initial.sql`, ...). Applied by **`apps/api`** on boot
 
 ### Frontend Structure
 
@@ -108,7 +118,8 @@ uv run python scripts/inspect_db.py
 
 ### Key Patterns
 
-- **Backend**: Litestar `async def` handlers; reads inject `PostQueryService`, writes inject the focused repos. Sync DB methods bridged by `asyncio.to_thread`; raw SQL strings, no ORM. FK `ON DELETE CASCADE` is real and enforced (`PRAGMA foreign_keys = ON` per connection) — the manual cascade is `post_vectors_siglip2` (a `vec0` virtual table that doesn't participate in FK cascades; `PostRepo.delete_many` clears it explicitly)
+- **API**: Hono route handlers call `packages/db` repositories directly; `better-sqlite3` is synchronous, so one connection per process is enough (no pool). Raw SQL strings, no ORM. FK `ON DELETE CASCADE` is real and enforced (`PRAGMA foreign_keys = ON`) — the manual cascade is `post_vectors_siglip2` (a `vec0` virtual table that doesn't participate in FK cascades; `deleteManyReturningPaths` clears it explicitly)
+- **Worker**: a cairnq handler takes a payload with absolute paths, computes, and returns plain data. It opens no connection to `pictoria.sqlite` — that invariant is what keeps a single writer
 - **Frontend**: Composition API, TanStack Query for server state, composables for logic reuse
 - **Database**: Embedded SQLite (WAL) with `sqlite-vec`; `post_vectors_siglip2` (`FLOAT[1152]`, SigLIP 2) is a `vec0` virtual table (cosine); `posts.dominant_color` is a serialized `FLOAT[3]` BLOB queried by brute-force `vec_distance_L2` (no index — a 3-d scan is sub-millisecond); `GENERATED ALWAYS AS ... VIRTUAL` columns for `posts.full_path` and `posts.aspect_ratio`; `INTEGER PRIMARY KEY AUTOINCREMENT` IDs
 - **API**: OpenAPI-based code generation for type-safe client-server communication
@@ -119,25 +130,33 @@ uv run python scripts/inspect_db.py
 - **tags** & **tag_groups**: Hierarchical tagging system; `tags.post_count` is a denormalised per-tag count maintained by AFTER INSERT/DELETE triggers on `post_has_tag` (migration `0008`), backing the tag-filter facet counts
 - **post_has_tag**: Many-to-many relationship (FK `ON DELETE CASCADE` to `posts.id` / `tags.name`)
 - **post_vectors_siglip2**: 1152-dim SigLIP 2 image embeddings (`vec0` virtual table, `FLOAT[1152]`, cosine); the sole search/retrieval embedding (image-to-image + text-to-image). CLIP retrieval and its `post_vectors` table were removed (see migration `0007_drop_post_vectors.sql`). CLIP ViT-L/14 survives only as the waifu-scorer backbone (`ai/clip.py` → `ai/waifu_scorer.py`)
-- **post_waifu_scores**: legacy single-scorer quality scores; **post_aesthetic_scores**: generic per-(post, scorer) scores. Every scorer living in it is declared once as a `ScorerSpec` in `src/db/scorers.py` (`silva`, `silva_luna` — two distilled judges sharing `ai/silva_scorer.py`, the same [0,1] domain and the same A–E bucket edges); adding one is a registry entry plus a worker, never a migration
+- **post_waifu_scores**: legacy single-scorer quality scores; **post_aesthetic_scores**: generic per-(post, scorer) scores. Every scorer living in it is declared once as a `ScorerSpec` in `server/src/scorers.py` (+ its TS twin `packages/db/src/scorers.ts`) (`silva`, `silva_luna` — two distilled judges sharing `ai/silva_scorer.py`, the same [0,1] domain and the same A–E bucket edges); adding one is a registry entry plus a worker, never a migration
 - **post_has_color**: Dominant color palette (per-post `INT` colors with order)
 - **post_process_failures**: per-(post, worker) one-shot failure blacklist
-- **_schema_versions**: internal table used by `db.migrator` to track applied migrations
+- **_schema_versions**: internal table used by `packages/db`'s `runMigrations` to track applied migrations
 
 ## Development Guidelines
 
 ### When modifying the backend
 
 1. If the schema changes: add a new numbered SQL file to `server/migrations/` (e.g. `NNNN_add_foo.sql`, using the next free number). It is applied on the next process boot; do not edit existing migration files.
-2. Update the matching Pydantic entity in `src/db/entities.py`. Put **write** logic on the relevant focused repo (`PostRepo`/`ScoreRepo`/`ColorRepo`/`TagRepo`/...); put **read** logic (assembly, filtered counts/aggregates) on `PostQueryService`; add filter fields / column allowlists in `db/filters.py`.
-3. Update API endpoints in `src/server/` (reads inject `PostQueryService`, writes inject the focused repo).
+2. Update `packages/db/src/schema.ts`, the relevant file under `packages/db/src/repositories/` or `queries/`, and any filter fields / column allowlists in `packages/db/src/filters.ts`.
+3. Update or add the endpoint under `apps/api/src/routes/`. Errors go through `domainError` / `httpError` from `src/openapi.ts`; paths go through `src/paths.ts`.
 4. Regenerate frontend API client: `pnpm genapi`
-5. Run checks: `uv run ruff check src` and `uv run pytest`.
+5. Run checks: `pnpm -r test` and `pnpm --filter @pictoria/api typecheck`, plus `pnpm contract:diff` against a running API if the contract moved.
+
+### When modifying the worker
+
+1. Compute in the handler, return plain data — **never** write to `pictoria.sqlite`. The
+   caller in `apps/api` persists it.
+2. Task payload shapes are declared once in `packages/contracts/src/tasks.ts` and mirrored
+   in the Python handler; change both.
+3. Run checks: `uv run ruff check src` and `uv run pytest` (from `server/`).
 
 Notes when writing SQL for SQLite:
 - FK `ON DELETE CASCADE` works and is enforced per-connection (`PRAGMA foreign_keys = ON`); rely on it for child tables. The exception is `post_vectors_siglip2` (a `vec0` virtual table) — delete its rows explicitly.
 - IDs use `INTEGER PRIMARY KEY AUTOINCREMENT`.
-- The `sqlite-vec` extension is loaded on every connection by `DB._new_connection`, so `vec0` virtual tables and `vec_distance_L2` / `MATCH ... k = N` KNN queries are available.
+- The `sqlite-vec` extension is loaded on every connection by `packages/db/src/connection.ts`, so `vec0` virtual tables and `vec_distance_L2` / `MATCH ... k = N` KNN queries are available.
 
 ### When modifying the frontend
 
@@ -161,7 +180,9 @@ This ensures type safety between frontend and backend.
 ### Testing
 
 - Frontend tests use Vitest: `cd apps/web && pnpm test` (or `pnpm test` from the root)
-- Backend: `uv run ruff check src` (lint), Pyright (types), and `uv run pytest` — a golden-master characterization suite in `server/tests/` pins the data-access layer's behaviour (run it before/after any repository or query change)
+- API / db: `pnpm -r test` (vitest). `packages/db/src/filters.test.ts` pins `buildWhere`'s SQL text against a **frozen** golden dumped from the retired Python reference — it is deterministic, so it never goes stale; it also cannot be regenerated
+- Worker: `uv run ruff check src` (lint), Pyright (types), and `uv run pytest` from `server/`
+- Contract: `pnpm contract:diff` compares a running API's `/schema/openapi.json` against `docs/openapi.baseline.json`. This is now the only guard on the 70-endpoint contract — the 12 parity suites that compared against Litestar retired with it
 
 ## Important Configuration Files
 

@@ -11,6 +11,16 @@ fragments.
 
 Note: ``post_waifu_scores`` is a *separate legacy single-scorer table* with its
 own join shape and 0-10 native scale; it is deliberately NOT in this registry.
+
+⚠️ **This file has a TS twin: ``packages/db/src/scorers.ts``.** They are two
+hand-maintained copies of one registry, and nothing checks that they agree —
+adding a scorer to one side only means the worker scores posts the API never
+selects (or the reverse), silently. Change both or neither.
+
+It lives at ``src/`` rather than ``src/db/`` because it is a registry of
+constants, not data access: ``ai/silva_scorer.py`` needs it, and the Python
+``db/`` layer it used to live in was retired with the Litestar reference
+implementation.
 """
 
 from __future__ import annotations

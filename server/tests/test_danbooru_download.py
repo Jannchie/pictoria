@@ -125,7 +125,7 @@ def test_stop_paging_is_consulted_once_per_page() -> None:
 
     def stop(page: list) -> bool:
         seen.append(page)
-        return len(seen) == 2  # noqa: PLR2004 — stop on the second page
+        return len(seen) == 2
 
     client.get_posts(tags="artist", limit=1000, stop_paging=stop)
 
@@ -210,7 +210,7 @@ def test_a_rate_limited_listing_also_gets_the_separate_budget() -> None:
     client = _make_client(handler)
 
     # Budget exhausted → the 429 is handed back for raise_for_status to surface.
-    assert client._get_with_retry("/posts.json", {}, retries=3).status_code == 429  # noqa: PLR2004
+    assert client._get_with_retry("/posts.json", {}, retries=3).status_code == 429
     assert 3 < calls["n"] < _LOOSE_WAIT_CEILING
 
 

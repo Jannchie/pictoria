@@ -5,11 +5,8 @@ from __future__ import annotations
 import json
 import subprocess
 from pathlib import Path
-from types import SimpleNamespace
 
-import shared
 from services import gallery_dl_import as gdl
-from services.danbooru_import import _insert_posts_and_links_tx
 from utils import resolve_source
 
 
@@ -24,20 +21,6 @@ def test_resolve_source_falls_back_on_empty_string() -> None:
 
 def test_resolve_source_falls_back_on_none() -> None:
     assert resolve_source(None, "https://gelbooru.com/x") == "https://gelbooru.com/x"
-
-
-def test_danbooru_insert_uses_registered_source_then_falls_back(db) -> None:
-    cur = db.cursor()
-    with_src = SimpleNamespace(id=111, file_ext="jpg", source="https://pixiv.net/i/111",
-                               rating="general", created_at="2026-01-01 00:00:00+00:00")
-    without_src = SimpleNamespace(id=222, file_ext="png", source="",
-                                  rating="general", created_at="2026-01-01 00:00:00+00:00")
-    _insert_posts_and_links_tx(cur, "danbooru/test", [with_src, without_src], [{}, {}])
-
-    cur.execute("SELECT source FROM posts WHERE file_name = '111'")
-    assert cur.fetchone()[0] == "https://pixiv.net/i/111"
-    cur.execute("SELECT source FROM posts WHERE file_name = '222'")
-    assert cur.fetchone()[0] == "https://danbooru.donmai.us/posts/222"
 
 
 def test_run_gallery_dl_json_extracts_url_message(monkeypatch) -> None:
@@ -197,98 +180,3 @@ def test_download_items_excludes_failures(tmp_path, monkeypatch) -> None:
     ok = gdl.download_items(
         [_item(download_url="https://f/1.jpg", file_name="1", extension="jpg")], tmp_path)
     assert ok == []
-
-
-def test_persist_gallery_items_writes_posts_and_tags(db) -> None:
-    # conftest seeds groups artist=1 / general=2 and tags artist_a / tag_general.
-    type_to_group = {"artist": 1, "general": 2}
-    items = [_item(file_name="g1", extension="jpg", source="https://pixiv.net/i/1",
-                   rating=2, published_at="2026-03-03 00:00:00+00:00",
-                   tags_by_category={"artist": ["artist_a"], "general": ["tag_general"]})]
-    gdl._persist_gallery_items(db, "gelbooru/hews", items, type_to_group)
-
-    cur = db.cursor()
-    cur.execute("SELECT extension, source, rating, published_at FROM posts WHERE file_name='g1'")
-    assert tuple(cur.fetchone()) == ("jpg", "https://pixiv.net/i/1", 2, "2026-03-03 00:00:00+00:00")
-    cur.execute("SELECT tag_name FROM post_has_tag pht "
-                "JOIN posts p ON p.id = pht.post_id WHERE p.file_name='g1' ORDER BY tag_name")
-    assert [r[0] for r in cur.fetchall()] == ["artist_a", "tag_general"]
-
-
-def test_import_from_url_dry_run_does_not_write(db, monkeypatch, tmp_path) -> None:
-    monkeypatch.setattr(shared, "target_dir", tmp_path)
-    monkeypatch.setattr(gdl, "run_gallery_dl_json", lambda url, **k: [
-        ("https://f/g1.jpg", {"category": "gelbooru", "id": "g1", "filename": "g1",
-                               "extension": "jpg", "search_tags": "hews", "rating": "general"}),
-    ])
-    called = {"downloaded": False}
-    monkeypatch.setattr(gdl, "download_items",
-                        lambda *a, **k: called.__setitem__("downloaded", True) or {})
-    stats = gdl.import_from_url("https://gelbooru.com/x", db=db,
-                                type_to_group_id={"artist": 1, "general": 2}, apply=False)
-    assert stats.new == 1
-    assert called["downloaded"] is False
-    cur = db.cursor()
-    cur.execute("SELECT COUNT(*) FROM posts WHERE file_name='g1'")
-    assert cur.fetchone()[0] == 0
-
-
-def test_import_from_url_persists_only_downloaded_items(db, monkeypatch, tmp_path) -> None:
-    # Live incident (kemono mirrors unreachable): every download failed but all
-    # 139 items were persisted anyway -> phantom posts with no file on disk,
-    # relying on a later sync-metadata to clean them up. Failed downloads must
-    # not be persisted at all; they stay "new" and get retried next run.
-    monkeypatch.setattr(shared, "target_dir", tmp_path)
-    monkeypatch.setattr(gdl, "run_gallery_dl_json", lambda url, **k: [
-        ("https://f/ok.jpg", {"category": "gelbooru", "id": "ok", "filename": "ok",
-                              "extension": "jpg", "search_tags": "hews", "rating": "general"}),
-        ("https://f/bad.jpg", {"category": "gelbooru", "id": "bad", "filename": "bad",
-                               "extension": "jpg", "search_tags": "hews", "rating": "general"}),
-    ])
-
-    class _FakeResp:
-        content = b"\x89PNG"
-
-        def raise_for_status(self) -> None:
-            """No-op: the fake response is always OK."""
-
-    def fake_get(url, **k):
-        if "bad" in url:
-            msg = "connect timeout"
-            raise RuntimeError(msg)
-        return _FakeResp()
-
-    monkeypatch.setattr(gdl.httpx, "get", fake_get)
-    stats = gdl.import_from_url("https://gelbooru.com/x", db=db,
-                                type_to_group_id={"artist": 1, "general": 2}, apply=True)
-    assert stats.new == 2
-    assert stats.downloaded == 1
-    assert stats.failed == 1
-    cur = db.cursor()
-    cur.execute("SELECT file_name FROM posts WHERE file_path = 'gelbooru/hews' ORDER BY file_name")
-    assert [r[0] for r in cur.fetchall()] == ["ok"]      # "bad" must NOT be persisted
-    assert (tmp_path / "gelbooru" / "hews" / "ok.jpg").exists()
-    assert not (tmp_path / "gelbooru" / "hews" / "bad.jpg").exists()
-
-
-def test_import_from_url_apply_downloads_and_persists(db, monkeypatch, tmp_path) -> None:
-    monkeypatch.setattr(shared, "target_dir", tmp_path)
-    monkeypatch.setattr(gdl, "run_gallery_dl_json", lambda url, **k: [
-        ("https://f/g1.jpg", {"category": "gelbooru", "id": "g1", "filename": "g1",
-                               "extension": "jpg", "search_tags": "hews", "rating": "general",
-                               "source": "https://pixiv.net/i/1"}),
-    ])
-    monkeypatch.setattr(gdl, "download_items",
-                        lambda items, save_dir, **k: list(items))
-    stats = gdl.import_from_url("https://gelbooru.com/x", db=db,
-                                type_to_group_id={"artist": 1, "general": 2}, apply=True)
-    assert stats.new == 1
-    assert stats.downloaded == 1
-    cur = db.cursor()
-    cur.execute("SELECT file_path, source FROM posts WHERE file_name='g1'")
-    assert tuple(cur.fetchone()) == ("gelbooru/hews", "https://pixiv.net/i/1")
-
-
-def test_parse_creators_file_strips_comments_and_blanks() -> None:
-    text = "# comment\n\nhttps://gelbooru.com/a\n  https://kemono.cr/b  \n# end\n"
-    assert gdl.parse_creators_file(text) == ["https://gelbooru.com/a", "https://kemono.cr/b"]
