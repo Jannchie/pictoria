@@ -148,13 +148,21 @@ describe('原子换组', () => {
     expect([canonicalOf(1), canonicalOf(2), canonicalOf(3)]).toEqual([null, null, null])
   })
 
-  it('一条写不进去就整体回滚 —— 读者永远看不到半成品', () => {
-    for (const id of [1, 2]) insertPost(id)
+  it('canonical 在计算期间被删掉时丢弃那一组，其余照常写入', () => {
+    for (const id of [1, 2, 3]) insertPost(id)
     replaceAllGroups(sqlite, [[2, 1]])
 
-    // canonical_post_id 有 FK；指向不存在的 post 会在 executemany 中途炸掉。
-    // 分成两步做的话，清空已经生效而新指针只写了一半。
-    expect(() => replaceAllGroups(sqlite, [[1, 999], [2, 1]])).toThrow()
+    // `assignments` 基于几分钟前的快照，期间 999 被 sync / 用户删掉了。
+    // canonical_post_id 有 FK，硬写会让整个事务回滚、分钟级的 GPU 白算 ——
+    // 所以死 canonical 的组被丢弃（成员保持独立），活着的照常。
+    replaceAllGroups(sqlite, [[1, 999], [2, 999], [3, 1]])
+    expect([canonicalOf(1), canonicalOf(2), canonicalOf(3)]).toEqual([null, null, 1])
+  })
+
+  it('member 在计算期间被删掉时那条 UPDATE 是空操作', () => {
+    for (const id of [1, 2]) insertPost(id)
+    // 999 是快照里有、现在没了的成员：UPDATE 匹配 0 行，天然无害，不需要过滤。
+    expect(() => replaceAllGroups(sqlite, [[999, 1], [2, 1]])).not.toThrow()
     expect(canonicalOf(2)).toBe(1)
   })
 })

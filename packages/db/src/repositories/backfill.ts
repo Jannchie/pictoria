@@ -10,6 +10,7 @@ import { BASICS_WORKER_KEY, EMBEDDING_WORKER_KEY, TAGGER_WORKER_KEY, WAIFU_WORKE
 import type BetterSqlite3 from 'better-sqlite3'
 import { Buffer } from 'node:buffer'
 import { AESTHETIC_SCORES_TABLE } from '../scorers.js'
+import { postExists } from './posts.js'
 import { SIGLIP2_TABLE } from './vectors.js'
 
 /** 一个 worker 的失败黑名单键，例如 `aesthetic:silva`。与 Python 侧同拼法。 */
@@ -183,8 +184,11 @@ export function recordFailures(
 // ─── tagger ───────────────────────────────────────────────────────────
 
 /**
- * 四个规范 tag 组及其颜色。与 Python 侧 `services/wd_tagging.py` 的
+ * WDTagger 产出的四个组的颜色。与 Python 侧 `services/wd_tagging.py` 的
  * `TAG_GROUP_COLORS` 逐字相同 —— 颜色会显示在前端的 tag 徽章上。
+ *
+ * ⚠️ 这是**颜色表**，不是规范组的清单。规范组多一个 `meta`（见
+ * `CANONICAL_TAG_GROUPS`）：tagger 不产出它，但两个导入器都往里写。
  */
 export const TAG_GROUP_COLORS: Record<string, string> = {
   general: '#006192',
@@ -192,6 +196,27 @@ export const TAG_GROUP_COLORS: Record<string, string> = {
   artist: '#f30000',
   copyright: '#00b300',
 }
+
+/**
+ * 五个规范 tag 组，**按优先级排序**。承自已删除的
+ * `server/commands.py::CANONICAL_TAG_GROUPS`，逐字相同（顺序也是）。
+ *
+ * 两件事都靠它：
+ *
+ * * **组必须存在**。两个导入器都拿 `ensureCanonicalTagGroups` 的结果当映射用
+ *   （danbooru 侧 `for t, gid in type_to_group_id.items(): tag_string_{t}`，
+ *   gallery-dl 侧 `type_to_group_id.get(group_name)`），组不在这张表里 = 那一类
+ *   标签**根本不会被读**。少了 `meta` 的后果是每次 danbooru 导入静默丢掉
+ *   `highres` / `absurdres` / `commentary` / `bad_id`，而读侧还在按它排序
+ *   （`post-detail.ts`）和过滤（`filters.ts`）。
+ * * **顺序即优先级**。一个标签同时出现在多个 `tag_string_*` 里时，先列的组赢
+ *   （Python 侧 `_build_tag_to_group` 的 `setdefault`）。JS 的对象和 Python 的
+ *   dict 都保插入顺序，JSON 也是，所以这个顺序一路传到 worker 都还在。
+ */
+export const CANONICAL_TAG_GROUPS: readonly string[] = ['artist', 'character', 'copyright', 'general', 'meta']
+
+/** 规范组的颜色；`meta` 不在 tagger 的颜色表里，取 Python 侧同款的黑色兜底。 */
+const CANONICAL_GROUP_COLOR = '#000000'
 
 /** 还没有任何自动标签、且没被拉黑的图片，按 id 升序。 */
 export function listTaggerPending(
@@ -209,7 +234,7 @@ export function listTaggerPending(
   return rows.map(r => ({ postId: r.id, path: `${targetDir}/${r.full_path}` }))
 }
 
-/** 确保四个规范 tag 组存在，返回 `{组名: id}`。 */
+/** 确保五个规范 tag 组存在，返回 `{组名: id}`，键序即 `CANONICAL_TAG_GROUPS` 的优先级序。 */
 export function ensureCanonicalTagGroups(sqlite: BetterSqlite3.Database): Record<string, number> {
   const insert = sqlite.prepare(
     'INSERT INTO tag_groups(name, color) VALUES (?, ?) ON CONFLICT (name) DO NOTHING',
@@ -217,8 +242,8 @@ export function ensureCanonicalTagGroups(sqlite: BetterSqlite3.Database): Record
   const select = sqlite.prepare<[string], { id: number }>('SELECT id FROM tag_groups WHERE name = ?')
   const out: Record<string, number> = {}
   sqlite.transaction(() => {
-    for (const [name, color] of Object.entries(TAG_GROUP_COLORS)) {
-      insert.run(name, color)
+    for (const name of CANONICAL_TAG_GROUPS) {
+      insert.run(name, TAG_GROUP_COLORS[name] ?? CANONICAL_GROUP_COLOR)
       out[name] = select.get(name)!.id
     }
   })()
@@ -314,11 +339,45 @@ export function persistTaggerResults(
  * `LEFT JOIN ... IS NULL` —— vec0 的点查是虚表探测不是 B-tree 探测，join 会让它
  * 每行 posts 跑一次（17 万行时是几十秒）。
  */
+/**
+ * 上一次扫描的指纹，用来跳过"扫了也是空"的那些轮次。
+ *
+ * `listEmbeddingPending` 是六个待办查询里唯一没法用 SQL 做反连接的：`vec0` 是虚表，
+ * `NOT EXISTS (SELECT 1 FROM vec WHERE post_id = p.id)` 不会走 rowid 点查而是**每行
+ * 都全扫一遍虚表** —— 实测 7,335 ms，比现在这个"两次全扫 + JS 差集"的 401 ms 还慢
+ * 18 倍。所以那两次全扫留着，改成能跳过它们。
+ *
+ * 指纹是 `posts` 的 `MAX(id)` —— 一次 O(log n) 的主键探测，亚毫秒。新 post 是
+ * 待办的唯一来源，而 id 是 AUTOINCREMENT、永不复用，所以任何能产生待办的事件都
+ * 严格增大 MAX(id)：指纹没变 + 上一轮扫出来是空 ⇒ 这一轮也是空。库全算完之后，
+ * 这条循环每 30 秒的开销就从 401 ms 的同步阻塞降到忽略不计。
+ *
+ * 有意**不**掺 `COUNT(*)`：它多检测到的只有删除，而删除永远不产生待办，却会击穿
+ * 这道门 —— 每 tick 删一张图的工作流会让全库已算完的库每 30 秒白付一次 401 ms 的
+ * 全量双扫描；且稳态下 COUNT 本身就是一次全表扫。
+ *
+ * ⚠️ 不能用"`count(posts) == count(vec0)` 就返回空"那种门控：两边的差不只是待办，
+ * 还有孤儿向量（迁移 0015 清了 67 条存量，`upsertVectors` 堵了源头）。只要有一条
+ * 孤儿，那个门控就永远不命中。
+ *
+ * 按**连接**存而不是整个模块存一份：这个包里其它函数都是 `(sqlite, args)` 的纯形式，
+ * 一份模块级单例会让同进程里的两条连接（测试、脚本、将来的只读副本）共用一个指纹，
+ * 而两个库恰好同 max id 时的表现是"待办被永久判成空"。`WeakMap` 让它
+ * 跟着连接一起消失。
+ */
+const embeddingScanMemo = new WeakMap<BetterSqlite3.Database, number>()
+
 export function listEmbeddingPending(
   sqlite: BetterSqlite3.Database,
   targetDir: string,
   limit?: number,
 ): PendingImage[] {
+  const fp = sqlite
+    .prepare<[], { max_id: number }>('SELECT COALESCE(MAX(id), 0) AS max_id FROM posts')
+    .get()!
+  if (embeddingScanMemo.get(sqlite) === fp.max_id)
+    return []
+
   const candidates = sqlite
     .prepare<[string], { id: number, full_path: string }>(
       `SELECT p.id, p.full_path FROM posts p `
@@ -330,8 +389,25 @@ export function listEmbeddingPending(
     sqlite.prepare<[], { post_id: number }>(`SELECT post_id FROM ${SIGLIP2_TABLE}`).all().map(r => r.post_id),
   )
   const pending = candidates.filter(r => !embedded.has(r.id))
+  // 只有"这一轮确实一条待办都没有"才记指纹。有待办时清掉 —— 下一轮还得回来接着扫。
+  if (pending.length === 0)
+    embeddingScanMemo.set(sqlite, fp.max_id)
+  else
+    embeddingScanMemo.delete(sqlite)
   const slice = limit === undefined ? pending : pending.slice(0, limit)
   return slice.map(r => ({ postId: r.id, path: `${targetDir}/${r.full_path}` }))
+}
+
+/**
+ * 丢掉这条连接的待办指纹，强制下一次重新全扫。
+ *
+ * 指纹只认"有没有新 post"。清空 `post_process_failures` 会让一批被拉黑的图
+ * 重新变成待办，而那个动作不改 posts 的 count / max id —— 那是唯一需要显式告知的
+ * 场景。目前代码库里没有那样的写点，所以现存的调用方只有测试；哪天加上"清空
+ * 黑名单"的端点时记得带上这一句。
+ */
+export function resetEmbeddingScanMemo(sqlite: BetterSqlite3.Database): void {
+  embeddingScanMemo.delete(sqlite)
 }
 
 /**
@@ -343,19 +419,37 @@ export function listEmbeddingPending(
  * vec0 不支持 `ON CONFLICT`，所以 upsert 是 DELETE + INSERT 手工模拟，两条语句在
  * 一个事务里 —— 中间被打断会留下一个没有向量的 post，而它在待办查询里看起来是
  * "从没算过"，于是整批白算一次。
+ *
+ * 返回**真正写进去**的条数：post 已经被删掉的那些会被跳过，调用方拿它计数才不会
+ * 把跳过的也算成写入（`scheduler.ts` 用这个数决定要不要触发近重复重组）。
  */
 export function upsertVectors(
   sqlite: BetterSqlite3.Database,
   rows: Array<{ postId: number, embedding: Buffer }>,
-): void {
+): number {
   if (!rows.length)
-    return
+    return 0
   const del = sqlite.prepare(`DELETE FROM ${SIGLIP2_TABLE} WHERE post_id = ?`)
   const ins = sqlite.prepare(`INSERT INTO ${SIGLIP2_TABLE}(post_id, embedding) VALUES (?, ?)`)
+  // post 还在不在 —— vec0 是虚表，不参与 FK 级联，所以这一层得自己判。
+  //
+  // 竞态是真实发生过的（迁移 0015 清掉了 67 条存量）：待办查询选中一个 post，任务
+  // 提交出去算几秒到几分钟，这期间 sync 发现文件没了把行删掉，结果回来照写不误。
+  // 写进去就再没人删得掉它 —— 删除路径按 post id 清 vec0，而那个 post 已经没了。
+  //
+  // 逐行问而不是一次 `IN (...)`：一批最多 16 条（`EMBEDDING_TASK_BATCH`），实测
+  // 32 次 rowid 点查合计 0.1 ms，省不出第二条代码路径的钱。
+  let written = 0
   sqlite.transaction(() => {
-    for (const r of rows) del.run(BigInt(r.postId))
-    for (const r of rows) ins.run(BigInt(r.postId), r.embedding)
+    for (const r of rows) {
+      if (!postExists(sqlite, r.postId))
+        continue
+      del.run(BigInt(r.postId))
+      ins.run(BigInt(r.postId), r.embedding)
+      written += 1
+    }
   })()
+  return written
 }
 
 // ─── basics（sha256 / arthash / 尺寸 / 调色板 / 主色 / 缩略图） ──────────

@@ -291,9 +291,15 @@ export function searchByTextVector(
   const { where, params, joins } = buildWhere(f)
   const vecBlob = Buffer.from(vec.buffer, vec.byteOffset, vec.byteLength)
   const want = limit + offset
-  // vec0 的 KNN 开销由 O(N) 的距离扫描主导，所以 k 大一点几乎不花钱；带过滤器时
   // 超采，让后置过滤器有足够候选凑满 limit。
-  const k = where.length ? Math.max(want, 1000) : want
+  //
+  // 这里原本写成 `where.length ? Math.max(want, 1000) : want`，但那个三元恒真 ——
+  // `buildWhere` 在 `only_canonical ?? true` 时无条件 push 一条 `canonical_post_id IS NULL`，
+  // 所以 `where` 永远非空。留着那个分支等于在说一件不成立的事。
+  //
+  // 直接超采也没有代价：vec0 的 KNN 开销由 O(N) 的距离扫描主导（22 万条向量，1–2 秒），
+  // k 从 100 抬到 1000 只多维护堆里 900 个元素，淹没在噪声里。
+  const k = Math.max(want, 1000)
 
   const rows = sqlite
     .prepare<unknown[], Record<string, unknown>>(

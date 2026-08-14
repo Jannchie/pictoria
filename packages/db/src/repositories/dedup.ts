@@ -37,9 +37,18 @@ export function exportVectorMatrix(
   let dim = 0
   const fd = openSync(filePath, 'w')
   try {
+    // join posts：vec0 不参与 FK 级联，孤儿向量（post 已删、向量还在）会跟着进矩阵。
+    // 后果不是多算几行而已 —— `assignFromPairs` 取组内最小 id 当 canonical，孤儿一旦
+    // 当上 canonical，`replaceAllGroups` 的 UPDATE 就会撞 `REFERENCES posts(id)`，
+    // 整个重建事务回滚。join 的代价实测 +3.4%（9.34 s → 9.66 s，22.3 万行 / 1.03 GB）：
+    // 只多一次 rowid 点查，而这一步本来就是分钟级重建里的一小段。
+    //
+    // join 只挡得住**此刻**的孤儿。导出到落库之间隔着几分钟的 GPU 计算，期间被删的
+    // post 照样在快照里 —— 那一半由 `replaceAllGroups` 在自己的事务里按存活 id 过滤。
     const rows = sqlite
       .prepare<[], { post_id: number, embedding: Buffer }>(
-        `SELECT post_id, embedding FROM ${SIGLIP2_TABLE} ORDER BY post_id ASC`,
+        `SELECT v.post_id, v.embedding FROM ${SIGLIP2_TABLE} v `
+        + `JOIN posts p ON p.id = v.post_id ORDER BY v.post_id ASC`,
       )
       .iterate()
     for (const row of rows) {
@@ -111,6 +120,14 @@ export function assignFromPairs(
  * 清空 + 重设必须在**同一个事务**里：分开做的话，从清空到写完之间（一次 GPU
  * 计算加上两万多条 UPDATE，分钟级）每个成员都会在列表里冒出来。
  *
+ * ⚠️ `assignments` 基于的是**几分钟前**的快照（`exportVectorMatrix` → GPU 计算），
+ * 期间 sync 或用户删掉的 post 可能还挂在里面。member 已删无所谓 —— UPDATE 匹配
+ * 0 行是空操作；canonical 已删则会撞 `REFERENCES posts(id)`，让整个事务回滚、
+ * 几分钟的 GPU 白算。所以在**事务内**逐个探测 canonical 的存活再过滤：distinct
+ * canonical 只有组数那么多（几千），逐个 rowid 点查是毫秒级，比在写事务里物化
+ * 全表 22 万个 id 便宜得多；而这层过滤和 UPDATE 同处一个事务，中间不可能再有
+ * 删除挤进来。
+ *
  * UPDATE 照常触发 canonical 分组触发器，`tags.post_count` 仍然只数可见的
  * canonical post。
  */
@@ -124,8 +141,18 @@ export function replaceAllGroups(
   const set = sqlite.prepare(
     'UPDATE posts SET canonical_post_id = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?',
   )
+  const exists = sqlite.prepare('SELECT 1 FROM posts WHERE id = ?')
   sqlite.transaction(() => {
+    const canonicals = new Set(assignments.map(([, c]) => c))
+    const live = new Set<number>()
+    for (const c of canonicals) {
+      if (exists.get(c) !== undefined)
+        live.add(c)
+    }
     clear.run()
-    for (const [member, canonical] of assignments) set.run(canonical, member)
+    for (const [member, canonical] of assignments) {
+      if (live.has(canonical))
+        set.run(canonical, member)
+    }
   })()
 }

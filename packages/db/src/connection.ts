@@ -5,6 +5,8 @@
  * `foreign_keys = ON`，级联删除会静默失效（子表留下孤儿行，且没有任何报错）；
  * 少了 `journal_mode = WAL`，读会被写阻塞。
  */
+import fs from 'node:fs'
+import nodePath from 'node:path'
 import Database from 'better-sqlite3'
 import * as sqliteVec from 'sqlite-vec'
 export interface OpenOptions {
@@ -21,6 +23,14 @@ export interface OpenOptions {
  * （它不是数据库级持久设置）；`journal_mode = WAL` 是持久的，但重复设置无害。
  */
 export function createDb({ path, readonly = false }: OpenOptions) {
+  // 父目录不存在时 better-sqlite3 直接抛 "Cannot open database because the
+  // directory does not exist" —— 而库目录本来就是这个进程负责建的。承自 Python 侧
+  // `DB.__init__` 的 `self.path.parent.mkdir(parents=True, exist_ok=True)`，迁移时
+  // 漏掉了这一行，表现是新 clone 或换一个 `PICTORIA_TARGET_DIR` 就起不来。
+  // 只读连接不建：那是"打开一个已存在的库"的语义，目录不在就该报错。
+  if (!readonly)
+    fs.mkdirSync(nodePath.dirname(nodePath.resolve(path)), { recursive: true })
+
   const sqlite = new Database(path, { readonly, fileMustExist: readonly })
 
   // vec0 虚表和 vec_distance_L2 都依赖它，必须最先加载。

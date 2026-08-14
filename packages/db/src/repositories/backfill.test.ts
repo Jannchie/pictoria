@@ -15,6 +15,7 @@ import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest'
 import { MIGRATIONS_DIR, runMigrations } from '../migrate.js'
 import {
   aestheticWorkerKey,
+  CANONICAL_TAG_GROUPS,
   fetchEmbeddingBlobs,
   listSilvaPending,
   ensureCanonicalTagGroups,
@@ -24,6 +25,7 @@ import {
   persistTaggerResults,
   ratingToInt,
   recordFailures,
+  resetEmbeddingScanMemo,
   upsertAestheticScores,
   upsertVectors,
   upsertWaifuScores,
@@ -249,12 +251,25 @@ describe('tagger 落库', () => {
     return ensureCanonicalTagGroups(sqlite)
   }
 
-  it('四个规范组是幂等创建的', () => {
+  // 断言**键序**而不是集合：顺序即优先级，一个标签同时出现在多个 `tag_string_*` 里
+  // 时先列的组赢（worker 侧 `_build_tag_to_group` 的 `setdefault` 靠的就是这个）。
+  // 顺带也就把"五个都在"钉住了 —— `meta` 少一个都不行，导入器只读这张表里有的类别，
+  // 缺了就静默丢掉 highres / commentary 那一类标签。
+  it('五个规范组按优先级序幂等创建', () => {
     const first = groups()
-    const second = groups()
-    expect(second).toEqual(first)
-    expect(Object.keys(first).sort()).toEqual(['artist', 'character', 'copyright', 'general'])
-    expect(sqlite.prepare<[], { n: number }>('SELECT COUNT(*) AS n FROM tag_groups').get()!.n).toBe(4)
+    expect(groups()).toEqual(first)
+    expect(Object.keys(first)).toEqual([...CANONICAL_TAG_GROUPS])
+    expect(sqlite.prepare<[], { n: number }>('SELECT COUNT(*) AS n FROM tag_groups').get()!.n)
+      .toBe(CANONICAL_TAG_GROUPS.length)
+  })
+
+  // 颜色本身不重要，"每个组都有颜色"重要 —— 前端拿它画 tag 徽章，NULL 会渲染成透明。
+  it('每个规范组都有颜色', () => {
+    groups()
+    const rows = sqlite
+      .prepare<[], { name: string, color: string | null }>('SELECT name, color FROM tag_groups')
+      .all()
+    expect(rows.filter(r => r.color === null)).toEqual([])
   })
 
   it('general 与 character 落到各自的组', () => {
@@ -387,5 +402,55 @@ describe('embedding 向量落库', () => {
 
   it('空列表是空操作', () => {
     expect(() => upsertVectors(sqlite, [])).not.toThrow()
+  })
+
+  // post 已经被删掉了还写向量 = 一条谁也删不掉的孤儿：删除路径按 post id 清 vec0，
+  // 而那个 post 已经不在了。生产库上攒出过 67 条（迁移 0015 清的就是它们），来源是
+  // 待办查询选中 → 任务算几分钟 → 这期间 sync 把行删了 → 结果回来照写。
+  it('不给已经不存在的 post 写向量', () => {
+    insertPost(1)
+    upsertVectors(sqlite, [{ postId: 1, embedding: vectorBlob(1) }, { postId: 999, embedding: vectorBlob(2) }])
+    expect(sqlite.prepare<[], { n: number }>('SELECT COUNT(*) AS n FROM post_vectors_siglip2').get()!.n).toBe(1)
+    expect(fetchEmbeddingBlobs(sqlite, [999]).size).toBe(0)
+  })
+})
+
+// 这条循环的两次全扫要 401 ms（真实库实测），而它每 30 秒跑一次、库全算完之后也照跑。
+// vec0 是虚表，`NOT EXISTS (SELECT 1 FROM vec WHERE post_id = p.id)` 不走 rowid 点查
+// 而是每行全扫一遍虚表（实测 7,335 ms，反而慢 18 倍），所以只能靠跳过整轮来省。
+describe('embedding 待办扫描的指纹门控', () => {
+  beforeEach(() => {
+    resetEmbeddingScanMemo(sqlite)
+  })
+
+  it('待办清空后重复调用直接短路', () => {
+    insertPost(1)
+    upsertVectors(sqlite, [{ postId: 1, embedding: vectorBlob(1) }])
+    expect(listEmbeddingPending(sqlite, '/lib')).toEqual([])
+
+    // 指纹已记下。把向量删掉但不动 posts —— 门控看不到这个变化，仍然短路。
+    // 这正是设计意图：待办只会因为**新 post** 而出现，没有别的来源。
+    sqlite.exec('DELETE FROM post_vectors_siglip2')
+    expect(listEmbeddingPending(sqlite, '/lib')).toEqual([])
+
+    resetEmbeddingScanMemo(sqlite)
+    expect(listEmbeddingPending(sqlite, '/lib').map(p => p.postId)).toEqual([1])
+  })
+
+  it('有新 post 时指纹失效，重新扫出来', () => {
+    insertPost(1)
+    upsertVectors(sqlite, [{ postId: 1, embedding: vectorBlob(1) }])
+    expect(listEmbeddingPending(sqlite, '/lib')).toEqual([])
+
+    insertPost(2)
+    expect(listEmbeddingPending(sqlite, '/lib').map(p => p.postId)).toEqual([2])
+  })
+
+  it('这一轮有待办就不记指纹（下一轮还得接着扫）', () => {
+    insertPost(1)
+    insertPost(2)
+    expect(listEmbeddingPending(sqlite, '/lib').map(p => p.postId)).toEqual([1, 2])
+    // 没有任何东西变，但因为上一轮非空，这一轮照样得跑完整查询
+    expect(listEmbeddingPending(sqlite, '/lib').map(p => p.postId)).toEqual([1, 2])
   })
 })
