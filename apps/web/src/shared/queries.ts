@@ -12,8 +12,35 @@ import { postFilter, postSort, postSortColor, postSortOrder, randomSeed } from '
 const postSortColorDebounce = useDebounce(postSortColor, 1000)
 const toLab = converter('lab')
 
+/**
+ * 一页多少条。**这是一个双向的权衡，不是纯粹的优化。**
+ *
+ * 换来的：筛选条件是 queryKey 的一部分，所以每一次筛选变化都会重取第一页。1000 条
+ * 那会儿是几百 KB 到 1 MB 的 JSON，加上解析和 Vue 的响应式转换，还让所有下游 O(n)
+ * 逻辑（每次 mutation 给已加载页打补丁、虚拟滚动的高度累加）都乘以 5。这条路径是
+ * 交互式的，每次点筛选都走。
+ *
+ * 付出的：分页是 offset-based，而**没有可用索引的排序，每页成本与 limit 无关** ——
+ * 整表 22.3 万行都要排一遍。在真实库上实测（深偏移，按 score 排序）：
+ *
+ *     limit=1000  231.7 ms/页        limit=200  243.4 ms/页
+ *
+ * 也就是说滚动同样的深度，服务端排序工作变成 5 倍（滚 5000 条：1.2 s → 6.1 s 的
+ * 事件循环占用，better-sqlite3 是同步的）。受影响的是 score / rating / file_name /
+ * created_at 和几个虚拟分数列；默认的 `id` 排序和 `/recently`（迁移 0015 的复合索引）
+ * 都走索引，不受影响。
+ *
+ * 200 的取法：4K 屏铺满一屏约 60–80 张缩略图，留两屏多的预取余量；`getNextPageParam`
+ * 按页长累加，改这个数不需要动滚动逻辑。
+ *
+ * 真正的解法是 keyset/cursor 分页 —— 让深翻页的成本不再随 offset 增长，那样两边就
+ * 都不用让步了。在那之前这个数就是在"每次筛选的客户端成本"和"深翻页的服务端成本"
+ * 之间选一头。
+ */
+const PAGE_SIZE = 200
+
 export function useInfinityPostsQuery() {
-  const limit = 1000
+  const limit = PAGE_SIZE
   const route = useRoute()
 
   const isRandomPage = computed(() => route.path === '/random')
