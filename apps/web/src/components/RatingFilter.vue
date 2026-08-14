@@ -7,7 +7,7 @@ import { RATING_LEVEL_COLORS, RATING_LEVEL_ICONS, RATING_LEVEL_LABEL_KEYS, RATIN
 
 const { t } = useI18n()
 
-const { selected: ratingFilterData, has: hasRating, toggle, countQuery, pct } = useFacetFilter<number, { rating: number, count: number }>({
+const { selected: ratingFilterData, has: hasRating, toggle, countQuery, pct, opened } = useFacetFilter<number, { rating: number, count: number }>({
   field: 'rating',
   countKind: 'rating',
   fetchCounts: async (filter) => {
@@ -55,7 +55,7 @@ function getRatingName(rating: number) {
 
 <template>
   <div class="relative">
-    <PPopover position="bottom-start">
+    <PPopover v-model="opened" position="bottom-start">
       <PButton
         size="sm"
       >

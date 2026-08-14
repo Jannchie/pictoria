@@ -6,7 +6,7 @@ import { useFacetFilter } from '@/composables/useFacetFilter'
 
 const { t } = useI18n()
 
-const { selected: scoreFilterData, has: hasScore, toggle, countQuery, pct } = useFacetFilter<number, { score: number, count: number }>({
+const { selected: scoreFilterData, has: hasScore, toggle, countQuery, pct, opened } = useFacetFilter<number, { score: number, count: number }>({
   field: 'score',
   countKind: 'score',
   fetchCounts: async (filter) => {
@@ -33,7 +33,7 @@ const btnText = computed(() => {
 
 <template>
   <div class="relative">
-    <PPopover position="bottom-start">
+    <PPopover v-model="opened" position="bottom-start">
       <PButton
         size="sm"
       >

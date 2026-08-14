@@ -1,6 +1,6 @@
 import type { CountKind } from '@/shared'
-import { useQuery } from '@tanstack/vue-query'
-import { computed } from 'vue'
+import { keepPreviousData, useQuery } from '@tanstack/vue-query'
+import { computed, ref } from 'vue'
 import { postFilter, queryKeys } from '@/shared'
 
 /**
@@ -53,9 +53,24 @@ export function useFacetFilter<T extends string | number, TRow extends { count: 
   // facet were cleared, so zero out only this field before counting.
   const filterWithoutSelf = computed(() => ({ ...postFilter.value, [opts.field]: [] }) as PostFilterValue)
 
+  // Popover-open gate (same pattern as TagFilter). Without it, toggling ANY
+  // facet changes every other facet's filterWithoutSelf, so one click used to
+  // fan out into 6–8 aggregate queries at once — each a full-table GROUP BY
+  // (~85–100 ms measured on the 223k library) queueing on the API's single
+  // synchronous better-sqlite3 connection: ~850 ms of blocked event loop per
+  // filter switch. Counts are only visible inside the popover, so only fetch
+  // while it is open; the component binds this to PPopover's v-model.
+  const opened = ref(false)
+
   const countQuery = useQuery({
     queryKey: queryKeys.count(opts.countKind, filterWithoutSelf),
     queryFn: async () => opts.fetchCounts(filterWithoutSelf.value),
+    enabled: opened,
+    // Reopening the popover with an unchanged filter within 30 s reuses the
+    // cached rows; keepPreviousData stops the rows flashing to zero while a
+    // changed filter refetches under an open popover.
+    staleTime: 30_000,
+    placeholderData: keepPreviousData,
   })
 
   // The facet's options are mutually exclusive, so the rows sum to the post
@@ -65,5 +80,5 @@ export function useFacetFilter<T extends string | number, TRow extends { count: 
     return formatPct(count, total.value)
   }
 
-  return { selected, has, toggle, filterWithoutSelf, countQuery, total, pct }
+  return { selected, has, toggle, filterWithoutSelf, countQuery, total, pct, opened }
 }

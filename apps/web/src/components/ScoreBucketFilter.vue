@@ -32,7 +32,7 @@ const LEVEL_DOT_RGB: Record<string, string> = {
   UNSCORED: 'var(--p-fg-muted-rgb)',
 }
 
-const { selected: selectedLevels, has: hasLevel, toggle, countQuery, pct } = useFacetFilter<string, { bucket: string, count: number }>({
+const { selected: selectedLevels, has: hasLevel, toggle, countQuery, pct, opened } = useFacetFilter<string, { bucket: string, count: number }>({
   field: props.field,
   countKind: props.countKind,
   fetchCounts: props.fetchCounts,
@@ -57,7 +57,7 @@ const btnText = computed(() => {
 
 <template>
   <div class="relative">
-    <PPopover position="bottom-start">
+    <PPopover v-model="opened" position="bottom-start">
       <PButton
         size="sm"
       >

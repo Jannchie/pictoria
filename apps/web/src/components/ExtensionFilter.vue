@@ -6,7 +6,7 @@ import { useFacetFilter } from '@/composables/useFacetFilter'
 
 const { t } = useI18n()
 
-const { selected: ratingFilterData, has: hasExt, toggle, countQuery, pct } = useFacetFilter<string, { extension: string, count: number }>({
+const { selected: ratingFilterData, has: hasExt, toggle, countQuery, pct, opened } = useFacetFilter<string, { extension: string, count: number }>({
   field: 'extension',
   countKind: 'extension',
   fetchCounts: async (filter) => {
@@ -49,7 +49,7 @@ function getExtensionName(extension: string) {
 
 <template>
   <div class="relative">
-    <PPopover position="bottom-start">
+    <PPopover v-model="opened" position="bottom-start">
       <PButton
         size="sm"
       >

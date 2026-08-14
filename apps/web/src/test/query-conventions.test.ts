@@ -81,3 +81,25 @@ describe('no stray console.error', () => {
     expect(violations, 'bare console.error (route failures through useAPIError().handle)').toEqual([])
   })
 })
+
+// 3. Facet count queries must be popover-gated. A `queryKeys.count(...)` query
+//    with no `enabled:` gate refires for every facet whenever ANY filter
+//    changes (each one's filterWithoutSelf embeds all the others), fanning a
+//    single click into 6–8 full-table aggregates that queue on the API's one
+//    synchronous sqlite connection — measured at ~850 ms of blocked event loop
+//    per filter switch on the 223k library. The counts are only visible inside
+//    an open popover, so every consumer must pass an `enabled` ref bound to it.
+describe('facet count queries are gated', () => {
+  it('every usequery keyed by querykeys.count also sets enabled', () => {
+    const offenders: string[] = []
+    for (const [file, text] of Object.entries(sources)) {
+      if (!/queryKeys\.count\(/.test(text) || !/useQuery\(/.test(text)) {
+        continue
+      }
+      if (!/enabled:/.test(text)) {
+        offenders.push(shortName(file))
+      }
+    }
+    expect(offenders, 'count query without an enabled: gate (bind it to the popover open state)').toEqual([])
+  })
+})
