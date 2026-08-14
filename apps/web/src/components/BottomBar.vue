@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { useQuery } from '@tanstack/vue-query'
+import { keepPreviousData, useQuery } from '@tanstack/vue-query'
 import { computed } from 'vue'
 import { useRoute } from 'vue-router'
 import { v2GetPostsStats } from '@/api'
@@ -19,6 +19,8 @@ const statsQuery = useQuery({
   },
   enabled: inGalleryView,
   staleTime: 1000 * 30,
+  // 切筛选时底栏保持上一组数字，新聚合到了再换 —— 不闪空。
+  placeholderData: keepPreviousData,
 })
 
 const ratingCounts = computed(() => {

@@ -1,6 +1,6 @@
 import type { QueryClient } from '@tanstack/vue-query'
 import type { PostSimplePublic } from '@/api'
-import { useInfiniteQuery, useQuery } from '@tanstack/vue-query'
+import { keepPreviousData, useInfiniteQuery, useQuery } from '@tanstack/vue-query'
 import { useDebounce } from '@vueuse/core'
 import { converter, parse } from 'culori'
 import { computed } from 'vue'
@@ -125,6 +125,11 @@ export function useInfinityPostsQuery() {
     ),
     initialPageParam: 0,
     staleTime: 1000 * 60 * 60,
+    // 换到一个**新**筛选组合时保留上一组的页面，等新的第一页到了再整体换掉：
+    // 切筛选不再闪骨架屏、不重置布局，感知上是即时的（stale-while-revalidate）。
+    // MainSection 的骨架条件本来就是 isLoading && posts.length === 0，天然兼容。
+    // 切回用过的组合仍走上面 1 小时的 staleTime 缓存，连请求都不发。
+    placeholderData: keepPreviousData,
     getNextPageParam: (lastPage, allPages) => {
       if (!lastPage || lastPage.length < limit) {
         return
