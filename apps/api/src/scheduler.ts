@@ -81,7 +81,7 @@ const CALL_TIMEOUT_MS = 300_000
  * 有了"key 即批次内容"，`conflict: 'reuse-succeeded'` 才是安全的：同 key 的
  * succeeded 任务算的就是同一批输入，复用它是超时恢复（`CALL_TIMEOUT_MS` 的注释），
  * 不是拿陈旧数据。残余的例外只有"成员没变、图的内容变了"（转图后又清掉产物），
- * 窗口被 `tasks.ts` 的 retention 24 小时封顶，且交互式重算路径
+ * 窗口被 `tasks.ts` 对 succeeded 的 retention 1 小时封顶，且交互式重算路径
  * （`routes/commands.ts` 的 `oneShot`）用默认 `reuse`、不复用成功任务。
  */
 function batchKey(prefix: string, ids: number[]): string {

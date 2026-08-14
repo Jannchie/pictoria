@@ -351,7 +351,7 @@ commandsRoutes.openapi(
     const tasks: CairnQ = await getTasks()
     const result = await tasks.call(captionTask, {
       imagePath: `${targetDir()}/${post.fullPath}`,
-    }, { queue: IO_QUEUE, waitTimeoutMs: 120_000, pollMs: 20, maxAttempts: 1 })
+    }, { queue: IO_QUEUE, waitTimeoutMs: 120_000, pollMs: 20, maxPollMs: 50, maxAttempts: 1 })
 
     if (!result.configured)
       return domainError('OpenAI API key is not set.', 'MissingConfigError', 400) as never

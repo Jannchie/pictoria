@@ -108,14 +108,14 @@ wheels = [
 
 [[package]]
 name = "cairnq"
-version = "0.7.0"
+version = "0.8.0"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "aiosqlite" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/4b/df/3ce16c5e3648b1d33e4c19c940f024f21c63235a88b5e88f51be5be86b85/cairnq-0.7.0.tar.gz", hash = "sha256:0a05130b7a16d208b7c8d445f031ac9eadd7cfa8c7a8150f7ab64b275ce7edd7", size = 130726, upload-time = "2026-08-14T08:44:04.34Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/33/22/168b332cdce5de04610e76aaa5d4a4ad7d1bd0737f43502a1b379d033b34/cairnq-0.8.0.tar.gz", hash = "sha256:babb9251b642d203cd31915dc6f1dd679432e508ae2fae54d12d6797e980799e", size = 135469, upload-time = "2026-08-14T13:16:26.968Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/ba/1c/aea43308bc72c059818244c405384029f1e2f4825dfc6be685cabdc77cc9/cairnq-0.7.0-py3-none-any.whl", hash = "sha256:991a9e3aeb35b5a7388101ff457e0398de2cbcec53bcb3d723a1f1aba6a3bdcf", size = 107250, upload-time = "2026-08-14T08:44:02.941Z" },
+    { url = "https://files.pythonhosted.org/packages/a8/48/1c678bfd8ca0c1a520cb86cb74577565531a729cdc2e6f6b1a8f7c409328/cairnq-0.8.0-py3-none-any.whl", hash = "sha256:5314f87b1752e145c451b90549fede4dad00e77ef79018250f5d76f645661ab8", size = 113009, upload-time = "2026-08-14T13:16:25.485Z" },
 ]
 
 [[package]]
@@ -1664,7 +1664,7 @@ dev = [
 requires-dist = [
     { name = "accelerate", specifier = ">=1.13.0" },
     { name = "arthash", specifier = ">=0.2.0" },
-    { name = "cairnq", specifier = "==0.7.0" },
+    { name = "cairnq", specifier = "==0.8.0" },
     { name = "diffusers", specifier = ">=0.37.1" },
     { name = "gallery-dl", specifier = ">=1.32.1" },
     { name = "httpx", specifier = ">=0.28.1" },

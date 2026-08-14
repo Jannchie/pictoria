@@ -153,8 +153,10 @@ postListRoutes.openapi(
       // 真缓存。失败的那个仍然会被换掉，否则一次 worker OOM 会让这个词从此搜不了。
       conflict: 'reuse-succeeded',
       waitTimeoutMs: 60_000,
-      // 有人在等，不能用默认的 500ms 轮询（§4.6）。
+      // 有人在等，不能用默认的 500ms 轮询（§4.6）；maxPollMs 把退避也按住 ——
+      // 0.8 起轮询是纯状态探针（不回读 payload），50ms 一拍便宜到可以忽略。
       pollMs: 20,
+      maxPollMs: 50,
       maxAttempts: 1,
     })
 

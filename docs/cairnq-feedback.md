@@ -1,9 +1,10 @@
 # cairnq 上游反馈
 
-> **状态**：§1-5 已在 cairnq 0.7.0（2026-08-14）落地，pictoria 已升级并删除对应绕行
-> （`callKeyed` / `startTaskPurge`，见 tasks.ts 头注）。仍开放：§6（轮询每拍
-> `select *` 全量 parse）、§7（`call` 不透传 `maxPollMs` —— 0.7.0 内部 `poll()` 已有
-> 该参数但 CallOptions 未暴露）、§8（保留策略无 per-status 粒度）。
+> **状态**：全部落地。§1-5 在 cairnq 0.7.0（2026-08-14）修复，§6-8 在同日的
+> 0.8.0 修复（status-only 探针、`CallOptions.maxPollMs`、per-status/per-name
+> retention + 配套索引）。pictoria 两侧均已升级到 0.8.0：交互路径加了
+> `maxPollMs: 50`，retention 改为分层（succeeded 1h / failed·canceled 24h）。
+> 本文档保留作为行为参照，无开放项。
 
 Pictoria 是 cairnq 的重度双语言用户（TS 提交 + Python worker，六条 GPU/IO 队列）。
 以下问题都在生产库上真实踩到过，按严重程度排序；每条附本仓库的绕行实现，可作为
@@ -90,7 +91,7 @@ GPU forward 把循环挡住，租约过期，任务被判死并交给另一个 w
 | 定期 purge | `apps/api/src/tasks.ts` `startTaskPurge` |
 | 超时不停任务的文件占用后果 | `apps/api/src/dedup.ts`（Windows EBUSY，per-run 文件名 + 回收） |
 
-## 6. `pollWait` 每拍 `select *` + 全量 JSON.parse
+## 6. `pollWait` 每拍 `select *` + 全量 JSON.parse ✅ 0.8.0 已修（status-only 探针 `get_status.sql`，终态才取整行）
 
 `wait.js` 的轮询路径每拍调 `store.get`（`select *`）并对 payload/result/error
 全量 `JSON.parse`（`models.js` 的 `rowToTask`）——但任务未终态时只需要 `status`
@@ -99,14 +100,14 @@ GPU forward 把循环挡住，租约过期，任务被判死并交给另一个 w
 
 **建议**：轮询用 status-only 查询，终态才取整行。
 
-## 7. `client.call` 不透传轮询上限
+## 7. `client.call` 不透传轮询上限 ✅ 0.8.0 已修（`WaitOptions`/`CallOptions` 暴露 `maxPollMs`）
 
 `client.js` 的 `call` 不透传 `maxPollMs`，退避封顶写死 500 ms。对秒级冷启动的
 任务（首次载模型），最后一拍平均晚 ~250 ms 才发现完成。
 
 **建议**：`CallOptions` 暴露 `maxPollMs`（或让 `pollMs` 同时约束封顶）。
 
-## 8. `purge` 无 per-status / per-name 保留策略（0.7.0 的 `retention` 仍是一刀切，此条保留）
+## 8. `purge` 无 per-status / per-name 保留策略 ✅ 0.8.0 已修（`purge({status?, name?})` + retention 收 per-status map，migration 0007 加 `(status, completed_at_ms)` 索引）
 
 `purge({ olderThanMs, limit })` 是唯一的粒度。实际需求是分层的：succeeded 行在
 结果被消费后只需要分钟级保留（去重/超时恢复窗口），failed 行才值得留 24 h 供

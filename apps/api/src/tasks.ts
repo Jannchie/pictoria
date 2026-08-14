@@ -23,14 +23,18 @@ import { CairnQ } from 'cairnq'
 import { tasksDbPath } from './paths.js'
 
 /**
- * 终态任务保留 24 小时。
+ * 终态任务分层保留（cairnq ≥ 0.8 的 per-status retention，`docs/cairnq-feedback.md` §8）。
  *
  * cairnq 不自动删行（文档原话：不配 retention 就是永远累积），而这个队列扛的全是
  * 大 payload —— silva 每任务约 384 KB × 2 个 scorer、每批 embedding 的结果、每个
- * 搜索 prompt。24 小时足够事后翻失败任务的错误信息。内置 sweeper 先睡满一个
- * interval（默认 1h）再扫，天不会在启动高峰期扫（上游有意如此）。
+ * 搜索 prompt。大头恰好全在 succeeded：结果被调度器写库之后行就只剩缓存价值，
+ * 1 小时足够覆盖 `'reuse-succeeded'` 的两个用途（批次超时恢复在下一轮调度就发生，
+ * 文本搜索的 prompt 缓存也只对一个活跃会话有意义）。failed / canceled 是事后翻
+ * 错误信息用的，留 24 小时，但它们没有 result payload，便宜。内置 sweeper 先睡满
+ * 一个 interval（默认 1h）再扫，不会在启动高峰期扫（上游有意如此）。
  */
-const RETENTION_MS = 24 * 3_600_000
+const HOUR_MS = 3_600_000
+const RETENTION = { succeeded: HOUR_MS, failed: 24 * HOUR_MS, canceled: 24 * HOUR_MS } as const
 
 let handle: CairnQ | null = null
 
@@ -38,7 +42,7 @@ export async function getTasks(): Promise<CairnQ> {
   if (!handle) {
     // retention 随句柄启停：谁打开队列谁维护它。挂在 index.ts 的调度开关下不行：
     // PICTORIA_SCHEDULER=0 的进程照样通过交互端点往 tasks.sqlite 塞大 payload。
-    handle = CairnQ.sqlite(tasksDbPath(), { retention: { olderThanMs: RETENTION_MS } })
+    handle = CairnQ.sqlite(tasksDbPath(), { retention: { olderThanMs: RETENTION } })
     await handle.connect()
   }
   return handle

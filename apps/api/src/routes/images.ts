@@ -132,6 +132,7 @@ async function ensureThumbnail(originalPath: string, thumbPath: string): Promise
     // 重复生成是幂等的、几十毫秒的 CPU，比这个陷阱便宜得多。
     waitTimeoutMs: 60_000,
     pollMs: 20,
+    maxPollMs: 50,
     maxAttempts: 1,
   })
   if (!result.ok) {
