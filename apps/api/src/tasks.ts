@@ -14,7 +14,7 @@
  * `batchKey`），对后者它是超时恢复：算完但 `call` 已超时返回的批次，下一轮直接
  * 捡回结果而不是重算。复用决策在 store 侧原子完成，无 check-then-submit 竞态。
  * 0.6 时代这些语义要靠本文件的 `callKeyed` 手工绕（getByKey + 进程内合流），
- * 反馈给上游后在 0.7 落地，绕行已删（`docs/cairnq-feedback.md` §1-2）。
+ * 反馈给上游后在 0.7 落地，绕行已删。
  *
  * 不需要幂等的路径就**别传 key**（`routes/images.ts` 的缩略图、`dedup.ts` 的矩阵
  * 都是这么做的，各自的注释有原因）。
@@ -23,7 +23,7 @@ import { CairnQ } from 'cairnq'
 import { tasksDbPath } from './paths.js'
 
 /**
- * 终态任务分层保留（cairnq ≥ 0.8 的 per-status retention，`docs/cairnq-feedback.md` §8）。
+ * 终态任务分层保留（cairnq ≥ 0.8 的 per-status retention）。
  *
  * cairnq 不自动删行（文档原话：不配 retention 就是永远累积），而这个队列扛的全是
  * 大 payload —— silva 每任务约 384 KB × 2 个 scorer、每批 embedding 的结果、每个

@@ -263,4 +263,4 @@
 - **T14** dedup 矩阵导出逐行 writeSync(223k 次系统调用);处在 30 min 级流程里,收益 <1%,不做
 - **T15** 队列写放大实测无问题(心跳 10s 一拍批量续约,空转轮询全是只读探测,WAL 仅 4.77 MB);tasks.sqlite freelist 99.5% 空页从不回收,在意体积可开 `auto_vacuum=INCREMENTAL`
 - **T16** ⚠️ 附带发现: `pictoria.sqlite-wal` 实测 **211 MB**(主库 2.29 GB),远超默认 autocheckpoint ~4 MB 水位 —— 提示长活读游标或 checkpoint 饥饿,值得单独查一次
-- cairnq 上游问题(pollWait 每拍 `select *` + 全量 JSON.parse、`client.call` 不透传 maxPollMs、purge 无 per-status retention)已并入 `docs/cairnq-feedback.md`
+- cairnq 上游问题(pollWait 每拍 `select *` + 全量 JSON.parse、`client.call` 不透传 maxPollMs、purge 无 per-status retention)已全部在 cairnq 0.7.0/0.8.0 落地并升级完毕(2026-08-15),反馈文档已随之删除
