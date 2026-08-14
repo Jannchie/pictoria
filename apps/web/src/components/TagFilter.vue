@@ -5,7 +5,7 @@ import { useDebounce } from '@vueuse/core'
 import { computed, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { v2GetPostsCount, v2GetTagCount } from '@/api'
-import { formatPct } from '@/composables/useFacetFilter'
+import { formatPct, gatedCountOptions } from '@/composables/useFacetFilter'
 import { resolvedLocale } from '@/locale'
 import { postFilter, queryKeys } from '@/shared'
 import { naturalizeTagName } from '@/utils'
@@ -43,9 +43,9 @@ const filterWithoutSelf = computed(() => ({ ...postFilter.value, tags: [] }))
 const search = ref('')
 const debouncedSearch = useDebounce(search, 250)
 
-// The tag-count GROUP BY is heavier than the other (single-column) facet
-// counts, so bind this to the PPopover's open state (v-model below) and only
-// run the queries while the dropdown is actually open.
+// Only run the count queries while the dropdown is actually open — the same
+// `opened` gate every facet uses (shared options from useFacetFilter's
+// `gatedCountOptions`); bind it to the PPopover's v-model below.
 const opened = ref(false)
 
 const countQuery = useQuery({
@@ -58,7 +58,7 @@ const countQuery = useQuery({
     const resp = await v2GetTagCount({ body })
     return resp.data
   },
-  enabled: opened,
+  ...gatedCountOptions(opened),
 })
 
 // Denominator for the per-tag percentage: the number of posts matching the
@@ -71,7 +71,7 @@ const postTotalQuery = useQuery({
     const resp = await v2GetPostsCount({ body: filterWithoutSelf.value })
     return resp.data?.count ?? 0
   },
-  enabled: opened,
+  ...gatedCountOptions(opened),
 })
 
 const countMap = computed(() => {

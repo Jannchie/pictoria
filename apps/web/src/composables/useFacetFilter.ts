@@ -1,3 +1,4 @@
+import type { Ref } from 'vue'
 import type { CountKind } from '@/shared'
 import { keepPreviousData, useQuery } from '@tanstack/vue-query'
 import { computed, ref } from 'vue'
@@ -23,6 +24,18 @@ type ArrayFilterField = 'rating' | 'score' | 'extension' | 'waifu_score_levels' 
  */
 export function formatPct(count: number, total: number): string {
   return total > 0 ? ((count / total) * 100).toFixed(1) : '0.0'
+}
+
+/**
+ * 弹层门控的计数查询共用选项 —— 每个 facet 计数查询（这里的 countQuery 和
+ * TagFilter 的两个）都必须 spread 它，`query-conventions.test.ts` 有静态守卫。
+ *
+ * `enabled`：数字只在弹层里可见，弹层没开就不发请求（门控的性能理由见下面
+ * `opened` 的注释）。`staleTime`：30s 内重开同一筛选不重发。`keepPreviousData`：
+ * 弹层开着切筛选时保留旧行，不闪零。
+ */
+export function gatedCountOptions(opened: Ref<boolean>) {
+  return { enabled: opened, staleTime: 30_000, placeholderData: keepPreviousData } as const
 }
 
 export function useFacetFilter<T extends string | number, TRow extends { count: number }>(opts: {
@@ -53,24 +66,19 @@ export function useFacetFilter<T extends string | number, TRow extends { count: 
   // facet were cleared, so zero out only this field before counting.
   const filterWithoutSelf = computed(() => ({ ...postFilter.value, [opts.field]: [] }) as PostFilterValue)
 
-  // Popover-open gate (same pattern as TagFilter). Without it, toggling ANY
-  // facet changes every other facet's filterWithoutSelf, so one click used to
-  // fan out into 6–8 aggregate queries at once — each a full-table GROUP BY
-  // (~85–100 ms measured on the 223k library) queueing on the API's single
-  // synchronous better-sqlite3 connection: ~850 ms of blocked event loop per
-  // filter switch. Counts are only visible inside the popover, so only fetch
-  // while it is open; the component binds this to PPopover's v-model.
+  // Popover-open gate. Without it, toggling ANY facet changes every other
+  // facet's filterWithoutSelf, so one click used to fan out into 6–8 aggregate
+  // queries at once — each a full-table GROUP BY (~85–100 ms measured on the
+  // 223k library) queueing on the API's single synchronous better-sqlite3
+  // connection: ~850 ms of blocked event loop per filter switch. Counts are
+  // only visible inside the popover, so only fetch while it is open; the
+  // component binds this to PPopover's v-model.
   const opened = ref(false)
 
   const countQuery = useQuery({
     queryKey: queryKeys.count(opts.countKind, filterWithoutSelf),
     queryFn: async () => opts.fetchCounts(filterWithoutSelf.value),
-    enabled: opened,
-    // Reopening the popover with an unchanged filter within 30 s reuses the
-    // cached rows; keepPreviousData stops the rows flashing to zero while a
-    // changed filter refetches under an open popover.
-    staleTime: 30_000,
-    placeholderData: keepPreviousData,
+    ...gatedCountOptions(opened),
   })
 
   // The facet's options are mutually exclusive, so the rows sum to the post
