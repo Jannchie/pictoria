@@ -116,6 +116,17 @@ export function validationError(message: string): Response {
 }
 
 /**
+ * 布尔查询参数的真值解析。
+ *
+ * 不能用 `z.coerce.boolean()`：它把任何非空串都当 true，`?flag=false` 会静默变成
+ * true —— 语义反了还不报错。所以自己认 `false` / `0`（大小写不敏感），其余非空值
+ * 为 true，缺省时取 `dflt`。
+ */
+export function queryFlag(raw: string | undefined, dflt = false): boolean {
+  return raw === undefined ? dflt : !/^(?:false|0)$/i.test(raw)
+}
+
+/**
  * Python `repr()` 的等价物，只覆盖错误消息里真正出现的那几种值。
  *
  * 消息文本是契约的一部分（前端会直接显示），而 Python 侧写的是 `f"...: {value!r}"` ——

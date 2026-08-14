@@ -110,6 +110,18 @@ app.get('/schema/openapi.json', (c) => {
  */
 app.notFound(() => httpError(404, 'Not Found'))
 
+/**
+ * 没被路由自己接住的异常。
+ *
+ * Hono 默认回纯文本 `Internal Server Error`，两种契约错误形状都不是，前端一律
+ * 解析失败。Litestar 的 500 是 `{"status_code":500,"detail":"Internal Server
+ * Error"}`，这里对齐它。细节进日志不进响应 —— 和 Litestar 的 debug=False 一致。
+ */
+app.onError((err) => {
+  console.error(`[pictoria-api] 未处理的异常：${err.stack ?? String(err)}`)
+  return httpError(500, 'Internal Server Error')
+})
+
 // schema 先于流量：迁移失败就不该开始服务，否则第一批请求会打在半旧的 schema 上。
 migrate()
 
@@ -142,5 +154,12 @@ if (process.env.PICTORIA_SCHEDULER !== '0') {
     startAutoSync(sqlite, () => wakeAllBackfills())
     console.warn('[pictoria-api] backfill 调度已启动：basics, silva, silva_luna, waifu, tagger, embedding')
     console.warn('[pictoria-api] 文件监视 + 10 分钟轮询已启动')
-  })()
+  })().catch((err: unknown) => {
+    // ⚠️ 这个 catch 不能省。上面整段是 fire-and-forget，而 `getTasks()` 会 reject
+    // （cairnq 协议版本和 worker 建的 tasks.sqlite 对不上、文件被锁）—— Node 默认
+    // `--unhandled-rejections=throw`，于是一个**已经绑好端口、70 个端点都能正常服务**
+    // 的进程会被一个后台初始化失败直接干掉。退役掉的 app.py 每条后台循环都包了
+    // try/except，就是这个原因。
+    console.error(`[pictoria-api] 后台调度启动失败，HTTP 服务继续：${String(err)}`)
+  })
 }

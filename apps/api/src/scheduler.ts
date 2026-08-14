@@ -8,8 +8,11 @@
  *   就是这个进程；
  * * **干活**在 Python worker —— 通过 cairnq，一次一批，GPU 的排队交给队列。
  *
- * 幂等由 cairnq 的 `key` + `conflict: 'reuse'` 提供：同一批重复提交拿回的是同一个
- * 任务而不是第二次计算，这正好取代原来那把 `backfill_lock`。
+ * 幂等由 `callKeyed`（`tasks.ts`）提供：同一批重复提交拿回的是同一个**在跑的**任务
+ * 而不是第二次计算，这正好取代原来那把 `backfill_lock`。裸的 `conflict: 'reuse'`
+ * 在这里是致命的 —— 待办查询 `ORDER BY p.id`，一批失败之后下一轮选出的是同一批、
+ * 算出的是同一个 key，而 reuse 会把那个终态失败的任务原样递回来并重抛，于是循环
+ * 永久卡在这一批上。`callKeyed` 只复用还在跑的那个。
  */
 import type { CairnQ } from 'cairnq'
 import type { getDb } from './db.js'
@@ -50,6 +53,7 @@ import {
   upsertWaifuScores,
 } from '@pictoria/db'
 import { targetDir } from './paths.js'
+import { callKeyed } from './tasks.js'
 
 /** better-sqlite3 的连接类型，从 `getDb()` 借出来 —— apps/api 不直接依赖那个包。 */
 type SqliteHandle = ReturnType<typeof getDb>['sqlite']
@@ -61,9 +65,30 @@ const IDLE_MS = 30_000
  *
  * 计算本身是秒级的，但**第一批**要等 worker 把 torch 和权重载进显存，冷启动几十秒
  * 是正常的。5 分钟给的是冷启动的余量。超时不代表任务失败，只是这一轮不再等它；
- * cairnq 那边照常跑完并落在结果里，下一轮的待办查询自然就看不到这些 id 了。
+ * worker 照常把它跑完。落库在 TS，超时的那一轮没落，所以下一轮的待办查询选出的
+ * 还是同一批 —— 算出同一个 key，`reuseSucceeded` 直接捡回那个已完成任务的结果，
+ * 不用重算（见 `batchKey` 和 `tasks.ts`）。
  */
 const CALL_TIMEOUT_MS = 300_000
+
+/**
+ * 一批待办的任务 key：`前缀:成员id列表`。
+ *
+ * key 列出全部成员 id，让"同 key ⇔ 同一批成员"成立。只有首 id + 条数的话，两批
+ * **不同**的成员可能撞出同一个 key（比如中间某个成员被单独处理掉之后重选的一批），
+ * 而 key 相同意味着 reuse —— 上一批的结果会被错还给这一批。批大小上限 64
+ * （`SILVA_TASK_BATCH`），join 出来最多几百字符，不值得为省这点长度引入摘要和
+ * 它的碰撞概率。
+ *
+ * 有了"key 即批次内容"，`reuseSucceeded: true` 才是安全的：同 key 的 succeeded
+ * 任务算的就是同一批输入，复用它是超时恢复（`CALL_TIMEOUT_MS` 的注释），不是拿
+ * 陈旧数据。残余的例外只有"成员没变、图的内容变了"（转图后又清掉产物），窗口被
+ * `tasks.ts` 的 purge 24 小时封顶，且交互式重算路径（`routes/commands.ts` 的
+ * `oneShot`）用的是另一套 key、不复用成功任务。
+ */
+function batchKey(prefix: string, ids: number[]): string {
+  return `${prefix}:${ids.join(',')}`
+}
 
 export interface BackfillHandle {
   stop: () => void
@@ -146,6 +171,20 @@ function loop(name: string, tick: () => Promise<boolean>, log: Log): BackfillHan
 }
 
 /**
+ * 这一批推进了吗 —— 所有产物都空就是**一步没动**。
+ *
+ * 空结果不等于"干完了"：worker 会把文件已经不在盘上的项静默丢掉（`handlers.py` 的
+ * `_resolve_items`），整批都这样时回来的就是空 scores + 空 failures。当成"干了活"
+ * 就是一个不睡觉的死循环 —— 待办查询按 id 排序，下一轮选出的还是同一批。
+ *
+ * 五个 worker 共用这一条规则。写在各自的 tick 里意味着加第六个 worker 时要重新推导
+ * 一遍，而推错的表现是 CPU 空转。
+ */
+function progressed(...produced: Array<{ length: number }>): boolean {
+  return produced.some(p => p.length > 0)
+}
+
+/**
  * SILVA / SILVA-Luna：输入是已存的向量，输出一个标量。
  *
  * 失败不拉黑 —— 能取到向量就应该能打分，所以失败是暂时的/代码的问题，值得下一轮
@@ -169,16 +208,16 @@ export function startSilvaBackfill(
     if (!items.length)
       return false
 
-    const result = await tasks.call(silvaTask, { scorer, items }, {
+    const result = await callKeyed(tasks, silvaTask, { scorer, items }, {
       queue: GPU_QUEUE,
-      // 同一批重复提交拿回同一个任务，而不是第二次 GPU 计算
-      key: `${scorer}:${items[0]!.postId}:${items.length}`,
-      conflict: 'reuse',
+      // 同一批重复提交拿回同一个在跑的任务（或超时后已完成的结果），而不是第二次 GPU 计算
+      key: batchKey(scorer, items.map(i => i.postId)),
+      reuseSucceeded: true,
       waitTimeoutMs: CALL_TIMEOUT_MS,
     })
     upsertAestheticScores(sqlite, scorer, result.scores)
     log.info(`[${scorer}] 落库 ${result.scores.length} 条，起始 id ${items[0]!.postId}`)
-    return true
+    return progressed(result.scores)
   }, log)
 }
 
@@ -200,10 +239,10 @@ export function startWaifuBackfill(
     if (!items.length)
       return false
 
-    const result = await tasks.call(waifuTask, { items }, {
+    const result = await callKeyed(tasks, waifuTask, { items }, {
       queue: GPU_QUEUE,
-      key: `waifu:${items[0]!.postId}:${items.length}`,
-      conflict: 'reuse',
+      key: batchKey('waifu', items.map(i => i.postId)),
+      reuseSucceeded: true,
       waitTimeoutMs: CALL_TIMEOUT_MS,
     })
     upsertWaifuScores(sqlite, result.scores)
@@ -213,9 +252,8 @@ export function startWaifuBackfill(
       + (result.failures.length ? `，拉黑 ${result.failures.length} 条` : '')
       + `，起始 id ${items[0]!.postId}`,
     )
-    // 整批都失败时仍然算"干了活"：黑名单已经写下，下一轮的待办查询不会再选它们，
-    // 所以立刻继续而不是空等 30 秒。
-    return true
+    // 整批都失败时仍然算"干了活"：黑名单已经写下，下一轮的待办查询不会再选它们。
+    return progressed(result.scores, result.failures)
   }, log)
 }
 
@@ -236,10 +274,10 @@ export function startTaggerBackfill(
     if (!items.length)
       return false
 
-    const result = await tasks.call(taggerTask, { items }, {
+    const result = await callKeyed(tasks, taggerTask, { items }, {
       queue: GPU_QUEUE,
-      key: `tagger:${items[0]!.postId}:${items.length}`,
-      conflict: 'reuse',
+      key: batchKey('tagger', items.map(i => i.postId)),
+      reuseSucceeded: true,
       waitTimeoutMs: CALL_TIMEOUT_MS,
     })
 
@@ -258,7 +296,7 @@ export function startTaggerBackfill(
         : '')
       + `，起始 id ${items[0]!.postId}`,
     )
-    return true
+    return progressed(result.results, result.failures)
   }, log)
 }
 
@@ -297,24 +335,28 @@ export function startEmbeddingBackfill(
       return false
     }
 
-    const result = await tasks.call(embeddingTask, { items }, {
+    const result = await callKeyed(tasks, embeddingTask, { items }, {
       queue: GPU_QUEUE,
-      key: `embedding:${items[0]!.postId}:${items.length}`,
-      conflict: 'reuse',
+      key: batchKey('embedding', items.map(i => i.postId)),
+      reuseSucceeded: true,
       waitTimeoutMs: CALL_TIMEOUT_MS,
     })
-    upsertVectors(sqlite, result.embeddings.map(e => ({
+    // 用真正写进去的条数，不是回来的条数：算完的这段时间里 post 可能已经被 sync
+    // 删掉了，那种会被 upsertVectors 跳过。拿回来的条数计数会让"这一轮写过向量"
+    // 在一批全被跳过时也成立，白触发一次分钟级的重组。
+    const written = upsertVectors(sqlite, result.embeddings.map(e => ({
       postId: e.postId,
       embedding: Buffer.from(e.embedding, 'base64'),
     })))
     recordFailures(sqlite, EMBEDDING_WORKER_KEY, result.failures)
-    writtenSinceIdle += result.embeddings.length
+    writtenSinceIdle += written
     log.info(
-      `[embedding] 落库 ${result.embeddings.length} 条`
+      `[embedding] 落库 ${written} 条`
+      + (written < result.embeddings.length ? `（${result.embeddings.length - written} 条的 post 已被删除）` : '')
       + (result.failures.length ? `，拉黑 ${result.failures.length} 条` : '')
       + `，起始 id ${items[0]!.postId}`,
     )
-    return true
+    return progressed(result.embeddings, result.failures)
   }, log)
 }
 
@@ -337,10 +379,10 @@ export function startBasicsBackfill(
     if (!items.length)
       return false
 
-    const result = await tasks.call(basicsTask, { items }, {
+    const result = await callKeyed(tasks, basicsTask, { items }, {
       queue: IO_QUEUE,
-      key: `basics:${items[0]!.postId}:${items.length}`,
-      conflict: 'reuse',
+      key: batchKey('basics', items.map(i => i.postId)),
+      reuseSucceeded: true,
       waitTimeoutMs: CALL_TIMEOUT_MS,
     })
     upsertBasics(sqlite, result.rows)
@@ -350,6 +392,6 @@ export function startBasicsBackfill(
       + (result.failures.length ? `，拉黑 ${result.failures.length} 条` : '')
       + `，起始 id ${items[0]!.postId}`,
     )
-    return true
+    return progressed(result.rows, result.failures)
   }, log)
 }

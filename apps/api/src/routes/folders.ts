@@ -103,6 +103,36 @@ function attachStats(
   return total
 }
 
+/**
+ * "这个路径得是个存在的目录" —— 两条错误照抄 Python 侧（`exists()` → 404、
+ * `is_dir()` → 400），GET 和 DELETE 共用。
+ *
+ * 少了它们，一个没挂上或被挪走的库根会让 `readdirSync` 抛 ENOENT 冒成 500，响应体
+ * 既不是 `{detail, error}` 也不是 `{status_code, detail}` —— 前端两种都不认。
+ *
+ * 一次 `statSync` 而不是 `existsSync` + `statSync`：后者是两次系统调用，而且
+ * "先问在不在、再问是什么"本来就有竞态。`label` 是给用户看的那半边路径。
+ *
+ * ⚠️ `throwIfNoEntry: false` 只吞 ENOENT。EINVAL（Windows 上路径里带 `<>"|` 这类
+ * 非法字符）、ENOTDIR（POSIX 上路径穿过一个文件）、EACCES 照样抛 —— 而被换掉的
+ * `existsSync` 对这些一律返回 false。stat 不出来就是"没有这个目录"，所以任何
+ * 失败都归到 404，别让它们冒成上面说的那种裸 500。
+ */
+function requireDirectory(abs: string, label: string): Response | null {
+  let st: fs.Stats | undefined
+  try {
+    st = fs.statSync(abs, { throwIfNoEntry: false })
+  }
+  catch {
+    st = undefined
+  }
+  if (!st)
+    return domainError(`Directory not found: ${label}`, 'DirectoryNotFoundError', 404)
+  if (!st.isDirectory())
+    return domainError(`Not a directory: ${label}`, 'PathNotADirectoryError', 400)
+  return null
+}
+
 export const foldersRoutes = new OpenAPIHono({ defaultHook: zodErrorHook })
 
 foldersRoutes.openapi(
@@ -117,6 +147,12 @@ foldersRoutes.openapi(
   }),
   (c) => {
     const base = targetDir()
+    // `as never`：这两条错误不在 `responses` 里声明（baseline 的 GET /v2/folders 只有
+    // 200，声明进去 `contract:diff` 就会报），但错误体照样要发出去。
+    const bad = requireDirectory(base, base)
+    if (bad)
+      return bad as never
+
     // Python 侧把磁盘遍历和 DB 聚合并行跑；这里 better-sqlite3 是同步的，遍历也
     // 是同步的，并行没有意义 —— 顺序执行，语义完全一样。
     const summary = walk(base, base)
@@ -173,10 +209,9 @@ foldersRoutes.delete('/v2/folders/:folder_path{.+}', (c) => {
 
   if (!folder || folder === '.' || folder === '@' || target === base || !isInside(target, base) || isInside(target, pictoriaDir()))
     return domainError(`Refusing to delete: '${folder}' is not a library folder.`, 'PathNotADirectoryError', 400)
-  if (!fs.existsSync(target))
-    return domainError(`Directory not found: ${folder}`, 'DirectoryNotFoundError', 404)
-  if (!fs.statSync(target).isDirectory())
-    return domainError(`Not a directory: ${folder}`, 'PathNotADirectoryError', 400)
+  const bad = requireDirectory(target, folder)
+  if (bad)
+    return bad
 
   const { sqlite } = getDb()
   const ids = listIdsInFolder(sqlite, folder)

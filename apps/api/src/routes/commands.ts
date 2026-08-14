@@ -44,13 +44,13 @@ import os from 'node:os'
 import path from 'node:path'
 import { DEDUP_THRESHOLD, isRebuilding, rebuildGroups } from '../dedup.js'
 import { getDb } from '../db.js'
-import { OK, RESP_400, domainError, postNotFound, zodErrorHook } from '../openapi.js'
+import { OK, RESP_400, domainError, postNotFound, queryFlag, zodErrorHook } from '../openapi.js'
 import { PostDetailPublic, Result, toPostDetail } from '../schemas.js'
 import { wakeAllBackfills } from '../scheduler.js'
 import { targetDir } from '../paths.js'
 import { startSync } from '../sync.js'
 import { translateTag } from '../tag-i18n.js'
-import { getTasks } from '../tasks.js'
+import { callKeyed, getTasks } from '../tasks.js'
 
 const SnapshotResult = z.object({ path: z.string(), dir: z.string() }).openapi('SnapshotResult')
 
@@ -90,11 +90,16 @@ function requireImage(postId: number):
 /**
  * 一张图的即时任务共用的提交参数。
  *
- * `conflict: 'reuse'` + 带 id 的 key：用户连点两下拿回的是同一个任务，而不是
- * 两次 GPU 计算。`maxAttempts: 1` —— 有人在等这个响应，重试只会让他多等一轮。
+ * 带 id 的 key：用户连点两下拿回的是同一个**在跑的**任务，而不是两次 GPU 计算。
+ * `maxAttempts: 1` —— 有人在等这个响应，重试只会让他多等一轮。
+ *
+ * ⚠️ 必须配 `callKeyed` 用，不能直接 `tasks.call` + `conflict: 'reuse'`：这些 key
+ * 里只有 post id，而 post 的**内容**会变。裸 reuse 的话，转过一次的图再点"自动
+ * 标签"回来的还是转之前的标签，而一次偶发的 worker OOM 会让这张图的这个端点从此
+ * 永久 500（key 行留在 `tasks.sqlite` 里，重启也不清）。原因见 `tasks.ts`。
  */
 function oneShot(key: string) {
-  return { queue: GPU_QUEUE, key, conflict: 'reuse', waitTimeoutMs: 300_000, maxAttempts: 1 } as const
+  return { queue: GPU_QUEUE, key, waitTimeoutMs: 300_000, maxAttempts: 1 } as const
 }
 
 /** 回读详情。命令端点算完之后一律返回最新的 PostDetailPublic。 */
@@ -177,7 +182,7 @@ commandsRoutes.openapi(
       return c.json(existing)
 
     const tasks: CairnQ = await getTasks()
-    const result = await tasks.call(waifuTask, {
+    const result = await callKeyed(tasks, waifuTask, {
       items: [{ postId, path: guard.path }],
     }, oneShot(`waifu:one:${postId}`))
     upsertWaifuScores(sqlite, result.scores)
@@ -210,7 +215,7 @@ function silvaOneShot(scorer: 'silva' | 'silva_luna') {
     const tasks: CairnQ = await getTasks()
     let blobs = fetchEmbeddingBlobs(sqlite, [postId])
     if (!blobs.has(postId)) {
-      const embedded = await tasks.call(embeddingTask, {
+      const embedded = await callKeyed(tasks, embeddingTask, {
         items: [{ postId, path: guard.path }],
       }, oneShot(`embedding:one:${postId}`))
       upsertVectors(sqlite, embedded.embeddings.map(e => ({
@@ -223,7 +228,7 @@ function silvaOneShot(scorer: 'silva' | 'silva_luna') {
     if (!blobs.has(postId))
       return domainError(`Post ${postId} is not an image.`, 'NotAnImageError', 400)
 
-    const result = await tasks.call(silvaTask, {
+    const result = await callKeyed(tasks, silvaTask, {
       scorer,
       items: [{ postId, embedding: encodeVectorBlob(blobs.get(postId)!) }],
     }, oneShot(`${scorer}:one:${postId}`))
@@ -296,7 +301,7 @@ commandsRoutes.openapi(
       return postNotFound(postId) as never
 
     const tasks: CairnQ = await getTasks()
-    const result = await tasks.call(taggerTask, {
+    const result = await callKeyed(tasks, taggerTask, {
       items: [{ postId, path: `${targetDir()}/${post.fullPath}` }],
     }, oneShot(`tagger:one:${postId}`))
 
@@ -389,6 +394,11 @@ commandsRoutes.openapi(
  *
  * fire-and-forget：立刻返回，不让 HTTP 客户端干等一次几分钟的扫描。忙检查让
  * 连点这个按钮（或在上一次还没跑完时再点）成为空操作，而不是启动重复的活。
+ *
+ * `?allow_mass_delete=1` 按次放行超比例删除（`sync.ts` 的第二道闸门）—— 这是
+ * 那道闸门的警告日志里指的确认动作。裸 `c.req.query` 读而不进 createRoute 的
+ * schema：契约冻结在 baseline，声明进去 `contract:diff` 就会报；不声明的查询参数
+ * Hono 不校验、schema 不变。
  */
 commandsRoutes.openapi(
   createRoute({
@@ -402,12 +412,13 @@ commandsRoutes.openapi(
     },
   }),
   (c) => {
+    const allowMassDelete = queryFlag(c.req.query('allow_mass_delete'))
     const started = startSync(getDb().sqlite, (r) => {
       console.warn(`[sync] 完成：新增 ${r.added}，删除 ${r.removed}`)
       // 新行的空列由 backfill 循环去填。Python 侧在这里同步跑完
       // run_all_backfill，这边只是把空转的循环叫醒 —— 同一批 worker，同样的活。
       wakeAllBackfills()
-    })
+    }, { allowMassDelete })
     return c.json({ msg: started ? 'Sync started' : 'Sync already running' }, 201)
   },
 )
@@ -454,9 +465,7 @@ commandsRoutes.openapi(
   }),
   async (c) => {
     const { tags } = c.req.valid('query')
-    // z.coerce.boolean() 把 "false" 当成 true，自己解析（同 rotate 的 clockwise）。
-    const rawFullScan = c.req.query('full_scan')
-    const fullScan = rawFullScan !== undefined && !/^(?:false|0)$/i.test(rawFullScan)
+    const fullScan = queryFlag(c.req.query('full_scan'))
 
     const { sqlite } = getDb()
     const filePathStr = `danbooru/${safeDirName(tags)}`

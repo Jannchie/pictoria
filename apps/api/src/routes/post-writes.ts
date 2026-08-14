@@ -9,7 +9,7 @@ import { IO_QUEUE, rotateTask } from '@pictoria/contracts'
 import { Buffer } from 'node:buffer'
 import { bulkUpdateField, clearCanonical, createPost, getDetail, getPostPath, makeCanonical, postExists, touchAccessed, updateField, updateForRotate } from '@pictoria/db'
 import { getDb } from '../db.js'
-import { OK, RESP_400, domainError, postNotFound, zodErrorHook } from '../openapi.js'
+import { OK, RESP_400, domainError, postNotFound, queryFlag, zodErrorHook } from '../openapi.js'
 import { PostDetailPublic, toPostDetail } from '../schemas.js'
 import { targetDir, thumbnailsDir } from '../paths.js'
 import { deletePostFiles } from '../post-files.js'
@@ -287,10 +287,7 @@ postWritesRoutes.openapi(
   }),
   async (c) => {
     const { post_id: postId } = c.req.valid('param')
-    // `?clockwise=false` 必须是 false。z.coerce.boolean() 把任何非空串当成 true
-    // （包括 "false"），所以这里自己解析。
-    const rawClockwise = c.req.query('clockwise')
-    const clockwise = rawClockwise === undefined ? true : !/^(?:false|0)$/i.test(rawClockwise)
+    const clockwise = queryFlag(c.req.query('clockwise'), true)
 
     const { sqlite } = getDb()
     const post = getPostPath(sqlite, postId)

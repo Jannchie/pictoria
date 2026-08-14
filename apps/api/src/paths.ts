@@ -67,16 +67,50 @@ export const thumbnailsDir = once(() => path.resolve(pictoriaDir(), 'thumbnails'
  */
 export const dbPath = once(() => process.env.DB_PATH ?? path.resolve(pictoriaDir(), 'pictoria.sqlite'))
 
-/** cairnq 的队列库。与 Python worker 的 `tasks_db_path()` 同规则。 */
-export const tasksDbPath = once(() => process.env.TASKS_DB_PATH ?? path.resolve(pictoriaDir(), 'tasks.sqlite'))
+/**
+ * cairnq 的队列库。与 Python worker 的 `tasks_db_path()` 同规则。
+ *
+ * 覆盖值**锚到仓库根**解析（和 `PICTORIA_TARGET_DIR` 同规则），不能原样交给
+ * better-sqlite3：那样相对路径按各自进程的 cwd 解析，而 worker 的 cwd 是
+ * `server/`（`pnpm dev:worker` cd 过去的）—— 两个进程会静默打开两个不同的
+ * `tasks.sqlite`，每次 `tasks.call` 干等满超时，什么都不报。
+ */
+export const tasksDbPath = once(() =>
+  process.env.TASKS_DB_PATH
+    ? path.resolve(REPO_ROOT, process.env.TASKS_DB_PATH)
+    : path.resolve(pictoriaDir(), 'tasks.sqlite'),
+)
 
 /**
  * dedup 全量重建时落地的临时矩阵。
  *
  * 位置不是随手挑的：worker 的 `_resolve_inside` 只接受图库根之内的路径，而
  * `.pictoria/` 本来就是这个库放自己东西的地方。
+ *
+ * 每轮一个新名字（`tag` 由 `dedup.ts` 给，pid + 时间戳）。固定名字不行：一次超时
+ * 之后 worker 还 mmap 着那个文件，下一轮以同名重开在 Windows 上直接 EBUSY —— 于是
+ * 还要认得出上几轮的残留来回收，这就是 `isDedupMatrix` 存在的理由。**造名字和认
+ * 名字必须挨着**：分开写两处（一个模板串、一个正则）时改了前缀只会让回收静默停摆，
+ * 表现是 `.pictoria/` 下堆积 1 GB 一个的文件，没有任何报错。
  */
-export const dedupMatrixPath = once(() => path.resolve(pictoriaDir(), 'dedup-vectors.f32'))
+const DEDUP_MATRIX_PREFIX = 'dedup-vectors-'
+const DEDUP_MATRIX_EXT = '.f32'
+
+export function dedupMatrixPath(tag: string): string {
+  return path.resolve(pictoriaDir(), `${DEDUP_MATRIX_PREFIX}${tag}${DEDUP_MATRIX_EXT}`)
+}
+
+/**
+ * 这个文件名是不是某一轮的临时矩阵 —— `dedup.ts` 拿它回收残留。
+ *
+ * `dedup-vectors.f32`（无 tag 的旧固定名）也要认：改成带 tag 的命名之前，超时 /
+ * 被杀的重建会以这个名字留下约 1 GB 的残留，而删它的旧代码路径已经不在了 ——
+ * 不认的话它就永远躺在 `.pictoria/` 里。
+ */
+export function isDedupMatrix(name: string): boolean {
+  return name === 'dedup-vectors.f32'
+    || (name.startsWith(DEDUP_MATRIX_PREFIX) && name.endsWith(DEDUP_MATRIX_EXT))
+}
 
 /**
  * `target` 是否落在 `root` 之内（含 `root` 自身）。

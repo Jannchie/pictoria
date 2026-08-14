@@ -13,7 +13,7 @@ import { PostFilterWithOrderSchema, TextSearchRequestSchema as TextSearchRequest
 import { OK, RESP_400, domainError, zodErrorHook } from '../openapi.js'
 import { PostSimplePublic, toPostDetail, toPostSimple } from '../schemas.js'
 import { translateTag } from '../tag-i18n.js'
-import { getTasks } from '../tasks.js'
+import { callKeyed, getTasks } from '../tasks.js'
 
 const CursorResponse = z
   .object({
@@ -145,11 +145,13 @@ postListRoutes.openapi(
       return c.json([])
 
     const tasks = await getTasks()
-    const { embedding, scale, bias } = await tasks.call(textEmbedTask, { prompt }, {
+    const { embedding, scale, bias } = await callKeyed(tasks, textEmbedTask, { prompt }, {
       queue: INTERACTIVE_QUEUE,
       // 同一个 prompt 复用同一个任务：连打字带防抖也会重复提交同一串。
       key: `text-embed:${prompt}`,
-      conflict: 'reuse',
+      // key 就是 prompt 本身，同一串编码出来的向量是确定的 —— 复用成功的结果是
+      // 真缓存。失败的那个仍然会被换掉，否则一次 worker OOM 会让这个词从此搜不了。
+      reuseSucceeded: true,
       waitTimeoutMs: 60_000,
       // 有人在等，不能用默认的 500ms 轮询（§4.6）。
       pollMs: 20,

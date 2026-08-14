@@ -18,6 +18,7 @@ blacklist table for everything except the one-shot cases basics owns.
 from __future__ import annotations
 
 import asyncio
+import logging
 from pathlib import Path
 from typing import Any
 
@@ -26,6 +27,8 @@ import numpy as np
 from scorers import SCORERS
 from worker.codec import decode_vector, encode_vector
 from worker.ladder import run_with_fallback
+
+log = logging.getLogger("worker.handlers")
 
 
 async def handle_silva(payload: dict[str, Any]) -> dict[str, Any]:
@@ -130,10 +133,19 @@ def _resolve_items(
 
     Escaping the library root is a per-item failure (it gets blacklisted), not a
     batch failure. A path that simply no longer exists is neither -- it is dropped
-    silently, because sync will notice the deletion on its own.
+    rather than failed, because the row is not bad data, the file is gone, and
+    sync will notice the deletion on its own. Blacklisting it would be permanent,
+    and a file can come back (an unmounted drive, a move in progress).
+
+    Dropped is not the same as silent, though: a batch where *every* item is gone
+    comes back with empty scores and empty failures, which on the TS side used to
+    read as "this batch did work" and spin the scheduler loop without sleeping.
+    So the count is logged here, and ``scheduler.ts`` treats an all-empty result
+    as "no progress" and backs off.
     """
     items: list[tuple[int, Path]] = []
     failures: list[dict[str, Any]] = []
+    missing = 0
     for item in items_in:
         try:
             path = _resolve_inside(item["path"])
@@ -142,6 +154,10 @@ def _resolve_items(
             continue
         if path.exists():
             items.append((item["postId"], path))
+        else:
+            missing += 1
+    if missing:
+        log.warning("%d/%d item(s) no longer on disk, dropped from this batch", missing, len(items_in))
     return items, failures
 
 

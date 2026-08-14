@@ -24,7 +24,8 @@ import {
   exportVectorMatrix,
   replaceAllGroups,
 } from '@pictoria/db'
-import { dedupMatrixPath } from './paths.js'
+import process from 'node:process'
+import { dedupMatrixPath, isDedupMatrix, pictoriaDir } from './paths.js'
 
 type SqliteHandle = ReturnType<typeof getDb>['sqlite']
 type Log = Pick<Console, 'info' | 'warn'>
@@ -88,12 +89,21 @@ async function doRebuild(
   threshold: number,
   log: Log,
 ): Promise<number> {
-  const file = dedupMatrixPath()
-  await fs.mkdir(path.dirname(file), { recursive: true })
-
+  // 每次一个新文件名，不复用固定路径。超时的那一轮**不会**停掉 worker（cairnq 的
+  // `pollWait` 明说了 waitTimeoutMs 只是不再等），它还 mmap 着这个文件 —— 固定路径
+  // 下一轮的 `openSync(file, 'w')` 在 Windows 上会撞 EBUSY 撞到重建根本起不来。
   const started = Date.now()
-  const { ids, count, dim } = exportVectorMatrix(sqlite, file)
+  const file = dedupMatrixPath(`${process.pid}-${started}`)
+  const dir = pictoriaDir()
+  await fs.mkdir(dir, { recursive: true })
+  // 上一次超时留下的（删不掉的那个）在这里回收。删不掉就跳过 —— 说明还有人拿着它。
+  // 本轮的文件此刻还不存在（下面的 exportVectorMatrix 才创建），所以不必排除它。
+  await sweepStaleMatrices(dir, log)
+
   try {
+    // 导出也在 try 里：它中途失败（磁盘满）会留下一个半截的 1 GB 文件，
+    // 而 finally 是唯一会去删它的地方。
+    const { ids, count, dim } = exportVectorMatrix(sqlite, file)
     // 少于两条向量就没有"对"可言。仍然要 replaceAllGroups —— 库被清空之后
     // 残留的分组指针得跟着清掉，而不是留在那儿指向已经不存在的东西。
     if (count < 2) {
@@ -123,7 +133,38 @@ async function doRebuild(
     return assignments.length
   }
   finally {
-    // 1 GB 的临时文件，成功失败都不留下
-    await fs.rm(file, { force: true })
+    // 1 GB 的临时文件，成功失败都不留下。
+    //
+    // ⚠️ 删不掉不能往外抛。超时那一路 worker 还 mmap 着它，Windows 上 `fs.rm` 会
+    // 得到 EBUSY（`force: true` 只吞 ENOENT），抛出去就把真正的 `TaskTimeout` 换成
+    // 一个看不懂的文件错误。留给下一轮的 `sweepStaleMatrices` 收。
+    await fs.rm(file, { force: true }).catch((err: unknown) =>
+      log.warn(`[dedup] 临时矩阵删不掉，留给下一轮回收：${file}（${String(err)}）`))
+  }
+}
+
+/**
+ * 回收 `.pictoria/` 下别的 `dedup-vectors-*.f32`。
+ *
+ * 来源有两种：上一轮超时后 worker 还占着的那个，以及进程被杀时留下的。同一个库
+ * 只有一个 API 进程、重建又由 `inFlight` 串行化，所以走到这里时**每一个**匹配的
+ * 文件都是垃圾；还占着的删不掉，跳过就是了，反正下一轮还会再来一次。
+ */
+async function sweepStaleMatrices(dir: string, log: Log): Promise<void> {
+  let names: string[]
+  try {
+    names = await fs.readdir(dir)
+  }
+  catch {
+    return
+  }
+  for (const name of names) {
+    // 认名字的那一半在 paths.ts，和造名字的挨着 —— 分开写迟早漂移，而漂移的表现是
+    // 回收静默停摆、`.pictoria/` 下堆 1 GB 一个的文件。
+    if (!isDedupMatrix(name))
+      continue
+    await fs.rm(path.join(dir, name), { force: true })
+      .then(() => log.info(`[dedup] 回收了残留的临时矩阵 ${name}`))
+      .catch(() => {})
   }
 }

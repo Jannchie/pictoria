@@ -39,7 +39,14 @@ tagsRoutes.openapi(
           .openapi({ param: { name: 'prev', in: 'query', required: false } }),
         // type 覆盖必须带上 null —— coerce 会让 schema 变成 number，但直接写
         // { type: 'integer' } 会把 nullable 一起覆盖掉，contract-diff 会报。
+        //
+        // `refine` 而不是 `.positive()`：Litestar 那边是 `Parameter(gt=0)`，但 baseline
+        // 的 schema 里没有 exclusiveMinimum，`.positive()` 会加上去从而破坏契约。
+        // refine 不可内省，zod-openapi 不产出任何约束，校验却照跑（失败走 defaultHook
+        // → 400，和 Python 同款）。少了它 `?limit=0` 会让 `if (limit)` 判否、整条 LIMIT
+        // 子句消失，于是整张 tags 表连同每行一次 translateTag 一起序列化出去。
         limit: z.coerce.number().int().nullable().optional()
+          .refine((v: number | null | undefined) => v == null || v > 0, { message: 'limit must be greater than 0' })
           .openapi({ param: { name: 'limit', in: 'query', required: false }, type: ['integer', 'null'] }),
         lang: z.string().default('zh-Hans')
           .openapi({ param: { name: 'lang', in: 'query', required: false } }),
