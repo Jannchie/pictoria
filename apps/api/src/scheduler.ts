@@ -8,11 +8,10 @@
  *   就是这个进程；
  * * **干活**在 Python worker —— 通过 cairnq，一次一批，GPU 的排队交给队列。
  *
- * 幂等由 `callKeyed`（`tasks.ts`）提供：同一批重复提交拿回的是同一个**在跑的**任务
- * 而不是第二次计算，这正好取代原来那把 `backfill_lock`。裸的 `conflict: 'reuse'`
- * 在这里是致命的 —— 待办查询 `ORDER BY p.id`，一批失败之后下一轮选出的是同一批、
- * 算出的是同一个 key，而 reuse 会把那个终态失败的任务原样递回来并重抛，于是循环
- * 永久卡在这一批上。`callKeyed` 只复用还在跑的那个。
+ * 幂等由 key + `conflict: 'reuse-succeeded'` 提供（cairnq ≥ 0.7 的状态感知
+ * 语义，见 `tasks.ts` 头注）：同一批重复提交拿回同一个在跑的任务或已完成的结果，
+ * 失败/取消的任务绝不复用 —— 这正好取代原来那把 `backfill_lock`，也堵死了
+ * 0.6 时代"终态失败被 reuse 原样重抛、循环永久卡死"的坑。
  */
 import type { CairnQ } from 'cairnq'
 import type { getDb } from './db.js'
@@ -53,7 +52,6 @@ import {
   upsertWaifuScores,
 } from '@pictoria/db'
 import { targetDir } from './paths.js'
-import { callKeyed } from './tasks.js'
 
 /** better-sqlite3 的连接类型，从 `getDb()` 借出来 —— apps/api 不直接依赖那个包。 */
 type SqliteHandle = ReturnType<typeof getDb>['sqlite']
@@ -66,8 +64,8 @@ const IDLE_MS = 30_000
  * 计算本身是秒级的，但**第一批**要等 worker 把 torch 和权重载进显存，冷启动几十秒
  * 是正常的。5 分钟给的是冷启动的余量。超时不代表任务失败，只是这一轮不再等它；
  * worker 照常把它跑完。落库在 TS，超时的那一轮没落，所以下一轮的待办查询选出的
- * 还是同一批 —— 算出同一个 key，`reuseSucceeded` 直接捡回那个已完成任务的结果，
- * 不用重算（见 `batchKey` 和 `tasks.ts`）。
+ * 还是同一批 —— 算出同一个 key，`'reuse-succeeded'` 直接捡回那个已完成任务的
+ * 结果，不用重算（见 `batchKey` 和 `tasks.ts`）。
  */
 const CALL_TIMEOUT_MS = 300_000
 
@@ -80,11 +78,11 @@ const CALL_TIMEOUT_MS = 300_000
  * （`SILVA_TASK_BATCH`），join 出来最多几百字符，不值得为省这点长度引入摘要和
  * 它的碰撞概率。
  *
- * 有了"key 即批次内容"，`reuseSucceeded: true` 才是安全的：同 key 的 succeeded
- * 任务算的就是同一批输入，复用它是超时恢复（`CALL_TIMEOUT_MS` 的注释），不是拿
- * 陈旧数据。残余的例外只有"成员没变、图的内容变了"（转图后又清掉产物），窗口被
- * `tasks.ts` 的 purge 24 小时封顶，且交互式重算路径（`routes/commands.ts` 的
- * `oneShot`）用的是另一套 key、不复用成功任务。
+ * 有了"key 即批次内容"，`conflict: 'reuse-succeeded'` 才是安全的：同 key 的
+ * succeeded 任务算的就是同一批输入，复用它是超时恢复（`CALL_TIMEOUT_MS` 的注释），
+ * 不是拿陈旧数据。残余的例外只有"成员没变、图的内容变了"（转图后又清掉产物），
+ * 窗口被 `tasks.ts` 的 retention 24 小时封顶，且交互式重算路径
+ * （`routes/commands.ts` 的 `oneShot`）用默认 `reuse`、不复用成功任务。
  */
 function batchKey(prefix: string, ids: number[]): string {
   return `${prefix}:${ids.join(',')}`
@@ -208,11 +206,11 @@ export function startSilvaBackfill(
     if (!items.length)
       return false
 
-    const result = await callKeyed(tasks, silvaTask, { scorer, items }, {
+    const result = await tasks.call(silvaTask, { scorer, items }, {
       queue: GPU_QUEUE,
       // 同一批重复提交拿回同一个在跑的任务（或超时后已完成的结果），而不是第二次 GPU 计算
       key: batchKey(scorer, items.map(i => i.postId)),
-      reuseSucceeded: true,
+      conflict: 'reuse-succeeded',
       waitTimeoutMs: CALL_TIMEOUT_MS,
     })
     upsertAestheticScores(sqlite, scorer, result.scores)
@@ -239,10 +237,10 @@ export function startWaifuBackfill(
     if (!items.length)
       return false
 
-    const result = await callKeyed(tasks, waifuTask, { items }, {
+    const result = await tasks.call(waifuTask, { items }, {
       queue: GPU_QUEUE,
       key: batchKey('waifu', items.map(i => i.postId)),
-      reuseSucceeded: true,
+      conflict: 'reuse-succeeded',
       waitTimeoutMs: CALL_TIMEOUT_MS,
     })
     upsertWaifuScores(sqlite, result.scores)
@@ -274,10 +272,10 @@ export function startTaggerBackfill(
     if (!items.length)
       return false
 
-    const result = await callKeyed(tasks, taggerTask, { items }, {
+    const result = await tasks.call(taggerTask, { items }, {
       queue: GPU_QUEUE,
       key: batchKey('tagger', items.map(i => i.postId)),
-      reuseSucceeded: true,
+      conflict: 'reuse-succeeded',
       waitTimeoutMs: CALL_TIMEOUT_MS,
     })
 
@@ -335,10 +333,10 @@ export function startEmbeddingBackfill(
       return false
     }
 
-    const result = await callKeyed(tasks, embeddingTask, { items }, {
+    const result = await tasks.call(embeddingTask, { items }, {
       queue: GPU_QUEUE,
       key: batchKey('embedding', items.map(i => i.postId)),
-      reuseSucceeded: true,
+      conflict: 'reuse-succeeded',
       waitTimeoutMs: CALL_TIMEOUT_MS,
     })
     // 用真正写进去的条数，不是回来的条数：算完的这段时间里 post 可能已经被 sync
@@ -379,10 +377,10 @@ export function startBasicsBackfill(
     if (!items.length)
       return false
 
-    const result = await callKeyed(tasks, basicsTask, { items }, {
+    const result = await tasks.call(basicsTask, { items }, {
       queue: IO_QUEUE,
       key: batchKey('basics', items.map(i => i.postId)),
-      reuseSucceeded: true,
+      conflict: 'reuse-succeeded',
       waitTimeoutMs: CALL_TIMEOUT_MS,
     })
     upsertBasics(sqlite, result.rows)

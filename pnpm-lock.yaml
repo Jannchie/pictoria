@@ -27,8 +27,8 @@ importers:
         specifier: workspace:*
         version: link:../../packages/db
       cairnq:
-        specifier: 0.6.0
-        version: 0.6.0
+        specifier: 0.7.0
+        version: 0.7.0
       hono:
         specifier: ^4.13.1
         version: 4.13.1
@@ -149,8 +149,8 @@ importers:
   packages/contracts:
     dependencies:
       cairnq:
-        specifier: 0.6.0
-        version: 0.6.0
+        specifier: 0.7.0
+        version: 0.7.0
     devDependencies:
       '@types/node':
         specifier: ^25.7.0
@@ -1995,8 +1995,8 @@ packages:
     resolution: {integrity: sha512-tixWYgm5ZoOD+3g6UTea91eow5z6AAHaho3g0V9CNSNb45gM8SmflpAc+GRd1InC4AqN/07Unrgp56Y94N9hJQ==}
     engines: {node: '>=20.19.0'}
 
-  cairnq@0.6.0:
-    resolution: {integrity: sha512-cb8yH/t9g3Kyff42fF6WUY6hoAeG/bw2G/XnPTJ8XNnx42E66VoS1+NSIJp36lMtAYdOgteyK8XXE3piKJp0dQ==}
+  cairnq@0.7.0:
+    resolution: {integrity: sha512-c49sOD6lqpqnoksR0bjLquLUiNFlz6j6b9jvfU/YXfexYdYoA3XKuRhrn8HOIl6+Xq0OIvV0mrelg/w9RcAREw==}
     engines: {node: '>=22'}
     peerDependencies:
       pg: ^8.13.0
@@ -5403,7 +5403,7 @@ snapshots:
 
   cac@7.0.0: {}
 
-  cairnq@0.6.0:
+  cairnq@0.7.0:
     dependencies:
       better-sqlite3: 13.0.3
 

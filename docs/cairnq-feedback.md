@@ -1,10 +1,15 @@
 # cairnq 上游反馈
 
+> **状态**：§1-5 已在 cairnq 0.7.0（2026-08-14）落地，pictoria 已升级并删除对应绕行
+> （`callKeyed` / `startTaskPurge`，见 tasks.ts 头注）。仍开放：§6（轮询每拍
+> `select *` 全量 parse）、§7（`call` 不透传 `maxPollMs` —— 0.7.0 内部 `poll()` 已有
+> 该参数但 CallOptions 未暴露）、§8（保留策略无 per-status 粒度）。
+
 Pictoria 是 cairnq 的重度双语言用户（TS 提交 + Python worker，六条 GPU/IO 队列）。
 以下问题都在生产库上真实踩到过，按严重程度排序；每条附本仓库的绕行实现，可作为
 上游修复的行为参照。
 
-## 1. `conflict: 'reuse'` 不检查任务状态
+## 1. `conflict: 'reuse'` 不检查任务状态 ✅ 0.7.0 已修（状态感知 reuse + `reuse-succeeded`）
 
 `store/base.js` 的 reuse 分支是 `if (conflict === "reuse") return rowToTask(current)` ——
 不看 `current` 的状态。后果：
@@ -23,7 +28,7 @@ Pictoria 是 cairnq 的重度双语言用户（TS 提交 + Python worker，六�
 绕行：`apps/api/src/tasks.ts` 的 `callKeyed` —— 先 `getByKey` 看一眼状态，
 终态选 `replace`，在跑选 `reuse`，另配 `reuseSucceeded` 开关给内容寻址的 key。
 
-## 2. check-then-submit 竞态下 `replace` 会互相 cancel
+## 2. check-then-submit 竞态下 `replace` 会互相 cancel ✅ 0.7.0 已消除（复用决策移入 store 侧原子完成）
 
 因为 (1) 需要先查状态再选 conflict，检查和提交之间隔着 await。两个并发的同 key
 调用会双双看到同一个终态任务、双双选 `replace`，而 replace 会把**对方刚建出来**
@@ -37,7 +42,7 @@ Pictoria 是 cairnq 的重度双语言用户（TS 提交 + Python worker，六�
 绕行：`callKeyed` 在进程内按 key 合流在途调用（`inFlightByKey`）。单提交进程
 够用，多提交进程就不够了。
 
-## 3. `waitTimeoutMs` 超时后没有重新挂接结果的路径
+## 3. `waitTimeoutMs` 超时后没有重新挂接结果的路径 ✅ 0.7.0 已修（`wait(id)` 续等 + `waitByKey`）
 
 `pollWait` 的文档说清了 `waitTimeoutMs` 只是不再等、任务照常跑完 —— 这个语义
 本身没问题。问题是超时之后**没有干净的办法拿回那个结果**：唯一的路径是
@@ -49,7 +54,7 @@ key + reuse，而那正好撞上 (1) 的所有坑。
 绕行：批次 key 完整列出成员 id + `reuseSucceeded`（`scheduler.ts` 的
 `batchKey`），把「捡回超时批次的结果」伪装成一次复用。
 
-## 4. 终态任务无保留策略，大 payload 无限累积
+## 4. 终态任务无保留策略，大 payload 无限累积 ✅ 0.7.0 已修（客户端 `retention` 选项，先睡后扫）
 
 文档明确说 cairnq 不自动删任何行、长生命周期需要按计划调 `purge()`。但对大
 payload 队列这几乎是必然被踩的坑：我们每个 silva 任务约 384 KB × 2 个 scorer，
@@ -62,7 +67,7 @@ payload 队列这几乎是必然被踩的坑：我们每个 silva 任务约 384 
 绕行：`tasks.ts` 的 `startTaskPurge`（随句柄启动，每小时清 24 小时前的终态行，
 分批 + 批间让出事件循环）。
 
-## 5. 租约续约和 handler 共用一个事件循环（Python worker）
+## 5. 租约续约和 handler 共用一个事件循环（Python worker）✅ 0.7.0 已修（续约脱离 handler）
 
 worker 在自己的事件循环上跑 handler，同一个循环负责续租约。一次几秒的**同步**
 GPU forward 把循环挡住，租约过期，任务被判死并交给另一个 worker —— 而原来那个
@@ -101,7 +106,7 @@ GPU forward 把循环挡住，租约过期，任务被判死并交给另一个 w
 
 **建议**：`CallOptions` 暴露 `maxPollMs`（或让 `pollMs` 同时约束封顶）。
 
-## 8. `purge` 无 per-status / per-name 保留策略
+## 8. `purge` 无 per-status / per-name 保留策略（0.7.0 的 `retention` 仍是一刀切，此条保留）
 
 `purge({ olderThanMs, limit })` 是唯一的粒度。实际需求是分层的：succeeded 行在
 结果被消费后只需要分钟级保留（去重/超时恢复窗口），failed 行才值得留 24 h 供

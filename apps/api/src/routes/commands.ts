@@ -50,7 +50,7 @@ import { wakeAllBackfills } from '../scheduler.js'
 import { targetDir } from '../paths.js'
 import { startSync } from '../sync.js'
 import { translateTag } from '../tag-i18n.js'
-import { callKeyed, getTasks } from '../tasks.js'
+import { getTasks } from '../tasks.js'
 
 const SnapshotResult = z.object({ path: z.string(), dir: z.string() }).openapi('SnapshotResult')
 
@@ -93,10 +93,10 @@ function requireImage(postId: number):
  * 带 id 的 key：用户连点两下拿回的是同一个**在跑的**任务，而不是两次 GPU 计算。
  * `maxAttempts: 1` —— 有人在等这个响应，重试只会让他多等一轮。
  *
- * ⚠️ 必须配 `callKeyed` 用，不能直接 `tasks.call` + `conflict: 'reuse'`：这些 key
- * 里只有 post id，而 post 的**内容**会变。裸 reuse 的话，转过一次的图再点"自动
- * 标签"回来的还是转之前的标签，而一次偶发的 worker OOM 会让这张图的这个端点从此
- * 永久 500（key 行留在 `tasks.sqlite` 里，重启也不清）。原因见 `tasks.ts`。
+ * 不写 conflict 就是默认的 `'reuse'`（cairnq ≥ 0.7 状态感知：只复用在跑的，
+ * 终态一律重新提交）—— 正是这里要的：这些 key 里只有 post id，而 post 的**内容**
+ * 会变，成功结果不能当缓存（转过的图再点"自动标签"必须重算）；失败的更不能复用
+ * （0.6 时代那会让这张图的这个端点永久 500）。语义细节见 `tasks.ts` 头注。
  */
 function oneShot(key: string) {
   return { queue: GPU_QUEUE, key, waitTimeoutMs: 300_000, maxAttempts: 1 } as const
@@ -182,7 +182,7 @@ commandsRoutes.openapi(
       return c.json(existing)
 
     const tasks: CairnQ = await getTasks()
-    const result = await callKeyed(tasks, waifuTask, {
+    const result = await tasks.call(waifuTask, {
       items: [{ postId, path: guard.path }],
     }, oneShot(`waifu:one:${postId}`))
     upsertWaifuScores(sqlite, result.scores)
@@ -215,7 +215,7 @@ function silvaOneShot(scorer: 'silva' | 'silva_luna') {
     const tasks: CairnQ = await getTasks()
     let blobs = fetchEmbeddingBlobs(sqlite, [postId])
     if (!blobs.has(postId)) {
-      const embedded = await callKeyed(tasks, embeddingTask, {
+      const embedded = await tasks.call(embeddingTask, {
         items: [{ postId, path: guard.path }],
       }, oneShot(`embedding:one:${postId}`))
       upsertVectors(sqlite, embedded.embeddings.map(e => ({
@@ -228,7 +228,7 @@ function silvaOneShot(scorer: 'silva' | 'silva_luna') {
     if (!blobs.has(postId))
       return domainError(`Post ${postId} is not an image.`, 'NotAnImageError', 400)
 
-    const result = await callKeyed(tasks, silvaTask, {
+    const result = await tasks.call(silvaTask, {
       scorer,
       items: [{ postId, embedding: encodeVectorBlob(blobs.get(postId)!) }],
     }, oneShot(`${scorer}:one:${postId}`))
@@ -301,7 +301,7 @@ commandsRoutes.openapi(
       return postNotFound(postId) as never
 
     const tasks: CairnQ = await getTasks()
-    const result = await callKeyed(tasks, taggerTask, {
+    const result = await tasks.call(taggerTask, {
       items: [{ postId, path: `${targetDir()}/${post.fullPath}` }],
     }, oneShot(`tagger:one:${postId}`))
 
