@@ -26,6 +26,10 @@ withDefaults(defineProps<{
 }>(), {
   size: 'md',
   type: 'text',
+  // 这是图库管理界面，没有任何字段是凭据。不显式关掉的话，密码管理器扩展
+  // （iCloud Passwords 等）会按启发式把普通文本框认作账号/密码框，往里注入
+  // 自己的图标和内边距 —— 表现是输入框上凭空多出横向滚动条、布局被撑破。
+  autocomplete: 'off',
 })
 
 const model = defineModel<string | number | null | undefined>()
@@ -46,6 +50,9 @@ const hasRight = !!slots.rightSection
     <span v-if="hasLeft" class="p-input__slot p-input__slot--left" aria-hidden="true">
       <slot name="leftSection" />
     </span>
+    <!-- data-*：主流密码管理器各自的忽略标记（1Password / LastPass /
+         Bitwarden / Dashlane）。iCloud Passwords 没有文档化的忽略属性，
+         对它靠 autocomplete="off" + 无凭据式 name 降低误判。 -->
     <input
       class="p-input__field"
       :type="type"
@@ -55,6 +62,10 @@ const hasRight = !!slots.rightSection
       :readonly="readonly"
       :name="name"
       :autocomplete="autocomplete"
+      data-1p-ignore
+      data-lpignore="true"
+      data-bwignore
+      data-form-type="other"
       :inputmode="inputmode"
       :spellcheck="spellcheck"
       :aria-label="ariaLabel"
@@ -79,6 +90,8 @@ const hasRight = !!slots.rightSection
   color: var(--p-fg);
   border: 1px solid var(--p-border);
   border-radius: var(--p-radius-md);
+  /* 密码管理器扩展会往输入框里注入图标/内边距，撑出横向滚动条 —— 裁掉。 */
+  overflow: hidden;
   padding: 0 var(--p-control-px-sm);
   transition:
     border-color var(--p-transition-fast),
