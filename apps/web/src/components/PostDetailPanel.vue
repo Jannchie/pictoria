@@ -196,10 +196,53 @@ const sectionTitleClass
     <!-- px-3: the pane has no padding of its own (the scrollbar hugs its
          edge), so the scrolled content owns the 12px gutter. -->
     <div class="px-3 flex flex-col">
-      <!-- Ratings first, always expanded, never below the fold: scoring is the
-           core loop (manual 1–5 vs the model's SILVA/waifu), so it must be
-           reachable with zero scrolling and zero clicks. Everything below is
-           reference material and collapses. -->
+      <!-- Preview first (user preference): thumbnail + dominant/palette colour
+           band. Still collapsed by default — the same image is already the
+           subject of the main view — and the open state persists, so opening
+           it once keeps it on top permanently. -->
+      <PDisclosure
+        v-if="isImage(post.extension) || post.dominantColor || (post.colors && post.colors.length > 0)"
+        storage-key="post.preview"
+        icon="i-tabler-photo"
+        :title="$t('post.preview')"
+        :default-open="false"
+      >
+        <div class="flex flex-col gap-3">
+          <div
+            v-if="isImage(post.extension)"
+            class="flex justify-center"
+          >
+            <img
+              :src="getPostThumbnailURL(post)"
+              class="rounded-lg h-40 max-w-full ring-1 ring-border-default shadow-sm object-contain"
+              :class="{
+                blur: (post?.rating ?? 0) >= 3 && hideNSFW,
+              }"
+            >
+          </div>
+          <div
+            v-if="post.dominantColor || (post.colors && post.colors.length > 0)"
+            class="flex flex-wrap gap-1 items-center justify-center"
+          >
+            <PColorSwatch
+              v-if="post.dominantColor"
+              :size="28"
+              bordered
+              :color="labToRgbaString(post.dominantColor[0], post.dominantColor[1], post.dominantColor[2]) ?? '#000000'"
+            />
+            <PColorSwatch
+              v-for="color in post.colors"
+              :key="color.color"
+              :color="colorNumToHex(color.color)"
+            />
+          </div>
+        </div>
+      </PDisclosure>
+
+      <!-- Ratings next, always expanded: scoring is the core loop (manual 1–5
+           vs the model's SILVA/waifu), so it stays reachable with minimal
+           scrolling and zero clicks. Everything below is reference material
+           and collapses. -->
       <section class="pb-3 pt-3 p-divider">
         <div
           :class="sectionTitleClass"
@@ -280,47 +323,6 @@ const sectionTitleClass
           </div>
         </div>
       </section>
-
-      <!-- Preview: thumbnail + dominant/palette colour band. Collapsed by
-           default — the same image is already the subject of the main view. -->
-      <PDisclosure
-        v-if="isImage(post.extension) || post.dominantColor || (post.colors && post.colors.length > 0)"
-        storage-key="post.preview"
-        icon="i-tabler-photo"
-        :title="$t('post.preview')"
-        :default-open="false"
-      >
-        <div class="flex flex-col gap-3">
-          <div
-            v-if="isImage(post.extension)"
-            class="flex justify-center"
-          >
-            <img
-              :src="getPostThumbnailURL(post)"
-              class="rounded-lg h-40 max-w-full ring-1 ring-border-default shadow-sm object-contain"
-              :class="{
-                blur: (post?.rating ?? 0) >= 3 && hideNSFW,
-              }"
-            >
-          </div>
-          <div
-            v-if="post.dominantColor || (post.colors && post.colors.length > 0)"
-            class="flex flex-wrap gap-1 items-center justify-center"
-          >
-            <PColorSwatch
-              v-if="post.dominantColor"
-              :size="28"
-              bordered
-              :color="labToRgbaString(post.dominantColor[0], post.dominantColor[1], post.dominantColor[2]) ?? '#000000'"
-            />
-            <PColorSwatch
-              v-for="color in post.colors"
-              :key="color.color"
-              :color="colorNumToHex(color.color)"
-            />
-          </div>
-        </div>
-      </PDisclosure>
 
       <!-- Near-duplicate group: members hidden behind this canonical post -->
       <section
