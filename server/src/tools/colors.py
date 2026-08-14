@@ -1,11 +1,8 @@
 import math
 from io import BufferedReader
 from os import PathLike
-from pathlib import Path
 
-import numpy as np
 import PIL.Image
-from matplotlib import pyplot as plt
 
 from .colorthief import ColorThief
 
@@ -35,23 +32,3 @@ def get_dominant_color(image: ImageSource) -> tuple[int, int, int]:
 
 def rgb2int(rgb: tuple[int, int, int]) -> int:
     return (rgb[0] << 16) + (rgb[1] << 8) + rgb[2]
-
-
-def show_palette(palette: tuple[tuple[int, int, int]]) -> None:
-    # Convert the list of tuples into a numpy array
-    np_palette = np.array(palette, dtype=np.uint8)
-
-    # Add an additional dimension to represent a row of colors
-    np_palette = np_palette[np.newaxis, :, :]
-
-    # Display the palette
-    _, ax = plt.subplots()
-    ax.imshow(np_palette)
-    ax.axis("off")  # Turn off the axis
-    plt.show()
-
-
-if __name__ == "__main__":
-    p2 = get_palette(Path(R"E:\pictoria-server\demo\88f94319dd02b296c7658ae364009484.jpg"), colors=5)
-    color_ints = [rgb2int(rgb) for rgb in p2]
-    show_palette(p2)
