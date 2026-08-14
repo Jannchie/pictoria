@@ -1,11 +1,12 @@
 <script setup lang="ts">
 import type { PostSimplePublic } from '@/api'
 import { useElementBounding, useMouse } from '@vueuse/core'
-import { computed, ref, watchEffect } from 'vue'
+import { computed, ref, watch, watchEffect } from 'vue'
 import { useRouter } from 'vue-router'
+import { useAdjacentImagePreload } from '@/composables/useAdjacentImagePreload'
 import { useKeyScope } from '@/composables/useKeyScope'
 import { currentPostList, showPostDetail } from '@/shared'
-import { getPostImageURL } from '@/utils'
+import { getPostImageURL, getPostThumbnailURL } from '@/utils'
 
 const props = defineProps<{
   post: PostSimplePublic
@@ -15,6 +16,19 @@ const router = useRouter()
 
 const post = computed(() => props.post)
 const imgSrc = computed(() => getPostImageURL(post.value))
+const thumbSrc = computed(() => getPostThumbnailURL(post.value))
+
+// 原图是否已到。没到之前用缩略图占位（网格浏览过，几乎必中浏览器缓存），
+// 左右切换不再出现空白等待；原图 onload 后无缝盖上。
+const mainLoaded = ref(false)
+watch(imgSrc, () => {
+  mainLoaded.value = false
+})
+
+// 预载相邻原图（和 views/Post.vue 同一个 composable）。这个覆盖层是列表里
+// ←→ 浏览的主路径，此前只有 /post/:id 独立页有预载 —— 在这里切图每张都是
+// 冷加载，大图要等一拍。
+useAdjacentImagePreload(() => post.value.id)
 const imgWrapperRef = ref<HTMLDivElement | null>(null)
 const { width: imgWrapperWidth, height: imgWrapperHeight, left: imgWrapperLeft, top: imgWrapperTop } = useElementBounding(imgWrapperRef)
 const imgContentWidth = computed(() => {
@@ -447,8 +461,29 @@ onUnmounted(() => {
       @pointerup.stop="onPointerUp"
       @wheel.stop="onWheel"
     >
+      <!-- 缩略图占位：与原图同几何叠放在下层，原图 onload 前顶着画面。 -->
+      <img
+        v-if="!mainLoaded"
+        class="absolute object-contain"
+        alt=""
+        aria-hidden="true"
+        :draggable="false"
+        :width="imgContentWidth"
+        :height="imgContentHeight"
+        :style="{
+          minWidth: `${imgContentWidth * scale}px`,
+          minHeight: `${imgContentHeight * scale}px`,
+          width: `${scaledWidth}px`,
+          height: `${scaledHeight}px`,
+          left: `${x}px`,
+          top: `${y}px`,
+          transform: `scaleX(${flipHorizontal ? -1 : 1})`,
+        }"
+        :src="thumbSrc"
+      >
       <img
         class="absolute object-contain"
+        :class="{ 'opacity-0': !mainLoaded }"
         :alt="`${post.fileName}.${post.extension}`"
         :draggable="false"
         :width="imgContentWidth"
@@ -463,6 +498,7 @@ onUnmounted(() => {
           transform: `scaleX(${flipHorizontal ? -1 : 1})`,
         }"
         :src="imgSrc"
+        @load="mainLoaded = true"
       >
       <div
         ref="miniMapRef"
