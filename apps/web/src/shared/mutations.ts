@@ -90,16 +90,53 @@ async function inBatches(ids: number[], run: (chunk: number[]) => Promise<unknow
   }
 }
 
+/**
+ * 乐观补详情缓存。detail key 是 `['post', id, locale]`（`queryKeys.post`），
+ * 用谓词按 id 匹配，locale 维度全部照打。
+ *
+ * 这一步和 `patchPostsInListCache` 一起挪到了 **await 之前**：原来是「等更新
+ * 请求返回 → 补列表 → 失效详情 → 再等一次重取」两个串行往返，backfill 落库
+ * 占着 API 那条同步 sqlite 连接时，点星到生效有可感知的延迟。现在缓存先行、
+ * 请求随后，失败路径以服务端为准重取覆盖（见各 write* 的 catch）。
+ */
+function patchPostDetailCaches(qc: QueryClient, ids: number[], patch: Record<string, unknown>): void {
+  const idSet = new Set(ids)
+  qc.setQueriesData<Record<string, unknown>>(
+    {
+      predicate: (q) => {
+        const k = q.queryKey
+        return Array.isArray(k) && k[0] === 'post' && typeof k[1] === 'number' && idSet.has(k[1])
+      },
+    },
+    old => (old ? { ...old, ...patch } : old),
+  )
+}
+
+/** 乐观写失败后的回滚：本地假值已经上屏，只能以服务端为准全部重取。 */
+function refetchTruth(qc: QueryClient, ids: number[]): void {
+  qc.invalidateQueries({ queryKey: queryKeys.postsRoot })
+  for (const id of ids) {
+    qc.invalidateQueries({ queryKey: queryKeys.postRoot(id) })
+  }
+}
+
 async function writeScore(qc: QueryClient, ids: number[], score: number): Promise<void> {
   if (ids.length === 0) {
     return
   }
-  await (ids.length === 1
-    ? v2UpdatePostScore({ path: { post_id: ids[0] }, body: { score } })
-    : inBatches(ids, chunk => v2BulkUpdatePostScore({ query: { ids: chunk, score } })))
   // When the gallery is sorted by this very field, the per-item sort badge
   // echoes sortValue — patch it too so the badge doesn't show the stale value.
   patchPostsInListCache(qc, ids, postSort.value === 'score' ? { score, sortValue: score } : { score })
+  patchPostDetailCaches(qc, ids, { score })
+  try {
+    await (ids.length === 1
+      ? v2UpdatePostScore({ path: { post_id: ids[0] }, body: { score } })
+      : inBatches(ids, chunk => v2BulkUpdatePostScore({ query: { ids: chunk, score } })))
+  }
+  catch (error) {
+    refetchTruth(qc, ids)
+    throw error
+  }
   const idSet = new Set(ids)
   qc.invalidateQueries({
     predicate: (q) => {
@@ -125,10 +162,18 @@ async function writeRating(qc: QueryClient, ids: number[], rating: number): Prom
   if (ids.length === 0) {
     return
   }
-  await (ids.length === 1
-    ? v2UpdatePostRating({ path: { post_id: ids[0] }, query: { rating } })
-    : inBatches(ids, chunk => v2BulkUpdatePostRating({ query: { ids: chunk, rating } })))
+  // 乐观顺序同 writeScore：缓存先行，请求随后，失败重取覆盖。
   patchPostsInListCache(qc, ids, postSort.value === 'rating' ? { rating, sortValue: rating } : { rating })
+  patchPostDetailCaches(qc, ids, { rating })
+  try {
+    await (ids.length === 1
+      ? v2UpdatePostRating({ path: { post_id: ids[0] }, query: { rating } })
+      : inBatches(ids, chunk => v2BulkUpdatePostRating({ query: { ids: chunk, rating } })))
+  }
+  catch (error) {
+    refetchTruth(qc, ids)
+    throw error
+  }
   const idSet = new Set(ids)
   qc.invalidateQueries({
     predicate: (q) => {
