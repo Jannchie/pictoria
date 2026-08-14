@@ -4,8 +4,9 @@ gallery-dl is used purely as a multi-site metadata extractor: `gallery-dl -j`
 dumps every entry's metadata to stdout (nothing written to disk). We filter to
 images, dedupe against the DB, download the new ones ourselves (httpx, into
 target_dir/<category>/<creator>/), then persist posts + tags reusing the
-danbooru_import transaction skeleton. See
-docs/superpowers/specs/2026-06-03-gallery-dl-creator-fetch-design.md.
+danbooru_import transaction skeleton. (Original design doc:
+2026-06-03-gallery-dl-creator-fetch-design.md, retired from docs/ once
+implemented -- recover it from git history if needed.)
 """
 
 from __future__ import annotations
