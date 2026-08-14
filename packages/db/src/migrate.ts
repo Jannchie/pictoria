@@ -50,6 +50,12 @@ export function listMigrations(dir: string): string[] {
  *
  * 每个文件在自己的事务里跑：一个迁移要么整体生效，要么整体不生效。注意
  * better-sqlite3 的 `exec()` 允许多语句，但不隐式开事务 —— 得自己包。
+ *
+ * 迁移期间 `foreign_keys` 整体关掉 —— 这是 SQLite 文档对"重建被外键引用的表"给出的
+ * 唯一流程（改 CHECK 只能重建；事务内改不了 foreign_keys，deferred 计数器又会被
+ * DROP 旧父表时的隐式删除卡死，2026-08 实测两条弯路都走不通）。换来的保护不是没了
+ * 而是换了位置：每个迁移提交后立即 `foreign_key_check`，有悬空引用就抛错 —— 违规的
+ * 迁移被点名，而不是靠逐行约束在中途拦截。结束后恢复调用方原来的设置。
  */
 export function runMigrations(sqlite: BetterSqlite3.Database, dir: string): number {
   sqlite.exec(VERSION_TABLE)
@@ -64,17 +70,28 @@ export function runMigrations(sqlite: BetterSqlite3.Database, dir: string): numb
   const record = sqlite.prepare('INSERT INTO _schema_versions (version) VALUES (?)')
   let count = 0
 
-  for (const file of listMigrations(dir)) {
-    const version = versionOf(file)
-    if (applied.has(version))
-      continue
+  const fkWasOn = (sqlite.pragma('foreign_keys', { simple: true }) as number) === 1
+  sqlite.pragma('foreign_keys = OFF')
+  try {
+    for (const file of listMigrations(dir)) {
+      const version = versionOf(file)
+      if (applied.has(version))
+        continue
 
-    const script = fs.readFileSync(file, 'utf8')
-    sqlite.transaction(() => {
-      sqlite.exec(script)
-      record.run(version)
-    })()
-    count++
+      const script = fs.readFileSync(file, 'utf8')
+      sqlite.transaction(() => {
+        sqlite.exec(script)
+        record.run(version)
+      })()
+      const dangling = sqlite.pragma('foreign_key_check') as unknown[]
+      if (dangling.length)
+        throw new Error(`migration ${version} left dangling foreign keys: ${JSON.stringify(dangling.slice(0, 3))}`)
+      count++
+    }
+  }
+  finally {
+    if (fkWasOn)
+      sqlite.pragma('foreign_keys = ON')
   }
 
   return count

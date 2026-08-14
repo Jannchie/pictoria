@@ -13,6 +13,7 @@ export const QUEUE_COLUMNS = 'id, name, kind, dimensions, scale, created_at'
 const ITEM_TABLES: Record<string, string> = {
   absolute: 'absolute_queue_items',
   pairwise: 'pairwise_queue_items',
+  listwise: 'listwise_queue_items',
 }
 
 /** timeline / 队列取件共用的七个图片列。 */
@@ -29,7 +30,7 @@ function aliasedPostCols(tableAlias: string, outPrefix: string): string {
 export interface AnnotationQueueRow {
   id: number
   name: string
-  kind: 'absolute' | 'pairwise'
+  kind: 'absolute' | 'pairwise' | 'listwise'
   /** JSON 数组字符串。 */
   dimensions: string
   scale: number | null
@@ -68,6 +69,24 @@ export function createPairwiseQueue(
       .run(name, JSON.stringify(dimensions))
     qid = Number(lastInsertRowid)
     pairs.forEach(([a, b], pos) => insertItem.run(qid, pos, a, b))
+  })()
+  return qid
+}
+
+export function createListwiseQueue(
+  sqlite: BetterSqlite3.Database,
+  { name, dimensions, groups }: { name: string, dimensions: string[], groups: number[][] },
+): number {
+  const insertItem = sqlite.prepare(
+    'INSERT INTO listwise_queue_items (queue_id, position, post_ids) VALUES (?, ?, ?)',
+  )
+  let qid = 0
+  sqlite.transaction(() => {
+    const { lastInsertRowid } = sqlite
+      .prepare("INSERT INTO annotation_queues (name, kind, dimensions, scale) VALUES (?, 'listwise', ?, NULL)")
+      .run(name, JSON.stringify(dimensions))
+    qid = Number(lastInsertRowid)
+    groups.forEach((ids, pos) => insertItem.run(qid, pos, JSON.stringify(ids)))
   })()
   return qid
 }
@@ -117,6 +136,25 @@ export function nextAbsoluteItems(
       + 'WHERE i.queue_id = ? AND i.done = 0 ORDER BY i.position LIMIT ?',
     )
     .all(queueId, limit)
+}
+
+/**
+ * 未完成的 listwise 队列项，`post_ids` 已解析成数组。
+ *
+ * 不在这里 join posts：一项有 ~8 个成员，成员的图片行由调用方拿着扁平 id 列表经
+ * `postsById` 一次取齐（与 timeline 同一份查询），而不是在 SQL 里对 JSON 展开。
+ */
+export function nextListwiseItems(
+  sqlite: BetterSqlite3.Database,
+  queueId: number,
+  limit = 20,
+): Array<{ position: number, post_ids: number[] }> {
+  return sqlite
+    .prepare<[number, number], { position: number, post_ids: string }>(
+      'SELECT position, post_ids FROM listwise_queue_items WHERE queue_id = ? AND done = 0 ORDER BY position LIMIT ?',
+    )
+    .all(queueId, limit)
+    .map(r => ({ position: r.position, post_ids: JSON.parse(r.post_ids) as number[] }))
 }
 
 export function nextPairwiseItems(

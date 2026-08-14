@@ -45,6 +45,7 @@ declare global {
   const formatNumber: typeof import('./locale/index').formatNumber
   const formatPct: typeof import('./composables/useFacetFilter').formatPct
   const formatRelativeTime: typeof import('./locale/index').formatRelativeTime
+  const gatedCountOptions: typeof import('./composables/useFacetFilter').gatedCountOptions
   const getCurrentInstance: typeof import('vue').getCurrentInstance
   const getCurrentScope: typeof import('vue').getCurrentScope
   const getCurrentWatcher: typeof import('vue').getCurrentWatcher

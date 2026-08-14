@@ -8,6 +8,7 @@ import {
   editAnnotation,
   insertAbsolute,
   insertContentFlag,
+  insertListwise,
   insertPairwise,
   latestContentFlag,
   listAbsoluteForPost,
@@ -16,6 +17,7 @@ import {
   markQueueItemDone,
   MUTABLE_KINDS,
   postsById,
+  sampleGroups,
   samplePairs,
   samplePostIds,
   undoAnnotations,
@@ -70,6 +72,19 @@ const PairwiseEventIn = z
     queue_position: z.int().nullable().optional(),
   })
   .openapi('PairwiseEventIn')
+
+const ListwiseEventIn = z
+  .object({
+    post_ids: z.array(z.int()),
+    ranking: z.array(z.int()),
+    dimension: z.string(),
+    rubric_version: z.string(),
+    session_id: z.string(),
+    elapsed_ms: z.int().nullable().optional(),
+    queue_id: z.int().nullable().optional(),
+    queue_position: z.int().nullable().optional(),
+  })
+  .openapi('ListwiseEventIn')
 
 const ContentFlagIn = z
   .object({ post_id: z.int(), flag: z.string(), session_id: z.string() })
@@ -181,6 +196,40 @@ annotationsRoutes.openapi(
     const rowId = insertPairwise(sqlite, data)
     if (data.queue_id != null && data.queue_position != null)
       markQueueItemDone(sqlite, data.queue_id, { kind: 'pairwise', position: data.queue_position })
+    return c.json({ inserted: 1, ids: [rowId] }, 201)
+  },
+)
+
+annotationsRoutes.openapi(
+  createRoute({
+    method: 'post',
+    path: '/v2/annotations/listwise',
+    operationId: 'v2SubmitListwise',
+    summary: 'SubmitListwise',
+    description: 'Submit one group ranking (best first; empty ranking = skip). Optionally marks a queue item done.',
+    request: { body: { required: true, content: { 'application/json': { schema: ListwiseEventIn } } } },
+    responses: {
+      201: { description: 'Document created, URL follows', content: { 'application/json': { schema: InsertedPublic } } },
+      ...RESP_400,
+    },
+  }),
+  (c) => {
+    const data = c.req.valid('json')
+    if (!VALID_DIMENSIONS.includes(data.dimension as never))
+      return validationError(`invalid dimension: '${data.dimension}'`) as never
+    if (data.post_ids.length < 2 || new Set(data.post_ids).size !== data.post_ids.length)
+      return validationError(`post_ids must be >=2 distinct ids, got ${pyRepr(data.post_ids)}`) as never
+    // 排序必须是这组成员的一个排列 —— 少一张、多一张、排到别的组的图，都是客户端 bug，
+    // 拦在这里比拦在训练导出里便宜四个数量级。空数组 = skip，合法。
+    const sameMembers = data.ranking.length === data.post_ids.length
+      && new Set(data.ranking).size === data.ranking.length
+      && data.ranking.every((pid: number) => data.post_ids.includes(pid))
+    if (data.ranking.length && !sameMembers)
+      return validationError(`ranking must be a permutation of post_ids (or [] to skip)`) as never
+    const { sqlite } = getDb()
+    const rowId = insertListwise(sqlite, data)
+    if (data.queue_id != null && data.queue_position != null)
+      markQueueItemDone(sqlite, data.queue_id, { kind: 'listwise', position: data.queue_position })
     return c.json({ inserted: 1, ids: [rowId] }, 201)
   },
 )
@@ -372,6 +421,8 @@ const TimelineEntryPublic = z
     scale: z.int().nullable().optional(),
     value: z.int().nullable().optional(),
     flag: z.string().nullable().optional(),
+    /** listwise：post_id JSON 数组（最好在前；`[]` = skip）。post 是其中的赢家。 */
+    ranking: z.string().nullable().optional(),
     editedAt: z.iso.datetime().nullable().optional(),
   })
   .openapi('TimelineEntryPublic')
@@ -459,6 +510,7 @@ annotationsRoutes.openapi(
         scale: r.scale,
         value: r.value,
         flag: r.flag,
+        ranking: r.ranking ?? null,
         editedAt: toIsoDateTime(r.edited_at),
       }))
 
@@ -566,5 +618,49 @@ annotationsRoutes.openapi(
       out.push({ postA: toQueuePost(rowA), postB: toQueuePost(rowB) })
     }
     return c.json(out) as never
+  },
+)
+
+const SampledGroupPublic = z
+  .object({ posts: z.array(QueueItemPostPublic) })
+  .openapi('SampledGroupPublic')
+
+annotationsRoutes.openapi(
+  createRoute({
+    method: 'get',
+    path: '/v2/annotations/sample-listwise',
+    operationId: 'v2SampleListwise',
+    summary: 'SampleListwise',
+    description: 'Queue-less streaming: sample groups of ~size posts whose silva scores sit in one close window, visually spread. Ranking one group yields C(size,2) boundary comparisons.',
+    request: {
+      query: z.object({
+        limit: z.coerce.number().int().default(5)
+          .openapi({ param: { name: 'limit', in: 'query', required: false }, type: 'integer', default: 5 }),
+        size: z.coerce.number().int().default(8)
+          .openapi({ param: { name: 'size', in: 'query', required: false }, type: 'integer', default: 8 }),
+        dimension: z.string().default('overall')
+          .openapi({ param: { name: 'dimension', in: 'query', required: false } }),
+      }),
+    },
+    responses: {
+      200: { description: OK, content: { 'application/json': { schema: z.array(SampledGroupPublic) } } },
+      ...RESP_400,
+    },
+  }),
+  (c) => {
+    const { limit, size, dimension } = c.req.valid('query')
+    if (!VALID_DIMENSIONS.includes(dimension as never))
+      return validationError(`invalid dimension: ${pyRepr(dimension)}`) as never
+    if (size < 3 || size > 16)
+      return validationError(`invalid size: ${size} (want 3..16)`) as never
+
+    const { sqlite } = getDb()
+    const groups = sampleGroups(sqlite, { count: limit, size, dimension })
+    const byId = postsById(sqlite, groups.flat())
+    return c.json(
+      groups
+        .map(g => ({ posts: g.filter(pid => byId.has(pid)).map(pid => toQueuePost(byId.get(pid)!)) }))
+        .filter(g => g.posts.length >= 3),
+    ) as never
   },
 )

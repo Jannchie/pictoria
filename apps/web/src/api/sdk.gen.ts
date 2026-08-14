@@ -2,7 +2,7 @@
 
 import { type Client, formDataBodySerializer, type Options as Options2, type TDataShape } from './client';
 import { client } from './client.gen';
-import type { V2AddTagToPostData, V2AddTagToPostErrors, V2AddTagToPostResponses, V2AnnotationTimelineData, V2AnnotationTimelineErrors, V2AnnotationTimelineResponses, V2AutoCaptionData, V2AutoCaptionErrors, V2AutoCaptionResponses, V2AutoTagsData, V2AutoTagsErrors, V2AutoTagsResponses, V2BulkUpdatePostRatingData, V2BulkUpdatePostRatingErrors, V2BulkUpdatePostRatingResponses, V2BulkUpdatePostScoreData, V2BulkUpdatePostScoreErrors, V2BulkUpdatePostScoreResponses, V2CountPairwiseData, V2CountPairwiseErrors, V2CountPairwiseResponses, V2CreateAbsoluteData, V2CreateAbsoluteErrors, V2CreateAbsoluteResponses, V2CreatePairwiseData, V2CreatePairwiseErrors, V2CreatePairwiseResponses, V2CreateTagData, V2CreateTagErrors, V2CreateTagResponses, V2DbSnapshotData, V2DbSnapshotResponses, V2DeleteFolderData, V2DeleteFolderErrors, V2DeleteFolderResponses, V2DeletePostsData, V2DeletePostsErrors, V2DeletePostsResponses, V2DeleteTagData, V2DeleteTagErrors, V2DeleteTagResponses, V2DeleteTagsData, V2DeleteTagsErrors, V2DeleteTagsResponses, V2DownloadFromDanbooruData, V2DownloadFromDanbooruErrors, V2DownloadFromDanbooruResponses, V2EditAnnotationData, V2EditAnnotationErrors, V2EditAnnotationResponses, V2GenerateAbsoluteData, V2GenerateAbsoluteErrors, V2GenerateAbsoluteResponses, V2GeneratePairwiseData, V2GeneratePairwiseErrors, V2GeneratePairwiseResponses, V2GetExtensionCountData, V2GetExtensionCountErrors, V2GetExtensionCountResponses, V2GetFoldersData, V2GetFoldersResponses, V2GetOriginalByIdData, V2GetOriginalByIdErrors, V2GetOriginalByIdResponses, V2GetOriginalData, V2GetOriginalErrors, V2GetOriginalResponses, V2GetPostData, V2GetPostErrors, V2GetPostGroupData, V2GetPostGroupErrors, V2GetPostGroupResponses, V2GetPostResponses, V2GetPostsCountData, V2GetPostsCountErrors, V2GetPostsCountResponses, V2GetPostsStatsData, V2GetPostsStatsErrors, V2GetPostsStatsResponses, V2GetRatingCountData, V2GetRatingCountErrors, V2GetRatingCountResponses, V2GetScoreCountData, V2GetScoreCountErrors, V2GetScoreCountResponses, V2GetSilvaBucketCountData, V2GetSilvaBucketCountErrors, V2GetSilvaBucketCountResponses, V2GetSilvaLunaBucketCountData, V2GetSilvaLunaBucketCountErrors, V2GetSilvaLunaBucketCountResponses, V2GetSilvaLunaScorerOneData, V2GetSilvaLunaScorerOneErrors, V2GetSilvaLunaScorerOneResponses, V2GetSilvaScorerOneData, V2GetSilvaScorerOneErrors, V2GetSilvaScorerOneResponses, V2GetSimilarPostsData, V2GetSimilarPostsErrors, V2GetSimilarPostsResponses, V2GetTagCountData, V2GetTagCountErrors, V2GetTagCountResponses, V2GetThumbnailByIdData, V2GetThumbnailByIdErrors, V2GetThumbnailByIdResponses, V2GetThumbnailData, V2GetThumbnailErrors, V2GetThumbnailResponses, V2GetWaifuBucketCountData, V2GetWaifuBucketCountErrors, V2GetWaifuBucketCountResponses, V2GetWaifuScorerOneData, V2GetWaifuScorerOneErrors, V2GetWaifuScorerOneResponses, V2GetWaifuScorerStatisticsData, V2GetWaifuScorerStatisticsResponses, V2GroupDuplicatesData, V2GroupDuplicatesErrors, V2GroupDuplicatesResponses, V2ImportFromUrlEndpointData, V2ImportFromUrlEndpointErrors, V2ImportFromUrlEndpointResponses, V2ImportFromUrlStatusData, V2ImportFromUrlStatusResponses, V2ListPostsData, V2ListPostsErrors, V2ListPostsResponses, V2ListQueuesData, V2ListQueuesResponses, V2ListTagGroupData, V2ListTagGroupResponses, V2ListTagsData, V2ListTagsErrors, V2ListTagsResponses, V2MakePostCanonicalData, V2MakePostCanonicalErrors, V2MakePostCanonicalResponses, V2NextAbsoluteData, V2NextAbsoluteErrors, V2NextAbsoluteResponses, V2NextPairwiseData, V2NextPairwiseErrors, V2NextPairwiseResponses, V2PostHistoryData, V2PostHistoryErrors, V2PostHistoryResponses, V2RemoveTagFromPostData, V2RemoveTagFromPostErrors, V2RemoveTagFromPostResponses, V2RotatePostImageData, V2RotatePostImageErrors, V2RotatePostImageResponses, V2SampleAbsoluteData, V2SampleAbsoluteErrors, V2SampleAbsoluteResponses, V2SamplePairwiseData, V2SamplePairwiseErrors, V2SamplePairwiseResponses, V2SearchPostsByTextData, V2SearchPostsByTextErrors, V2SearchPostsByTextResponses, V2SearchPostsData, V2SearchPostsErrors, V2SearchPostsResponses, V2SubmitAbsoluteData, V2SubmitAbsoluteErrors, V2SubmitAbsoluteResponses, V2SubmitContentFlagData, V2SubmitContentFlagErrors, V2SubmitContentFlagResponses, V2SubmitPairwiseData, V2SubmitPairwiseErrors, V2SubmitPairwiseResponses, V2SyncMetadataEndpointData, V2SyncMetadataEndpointResponses, V2TouchPostData, V2TouchPostErrors, V2TouchPostResponses, V2UndoAnnotationsData, V2UndoAnnotationsErrors, V2UndoAnnotationsResponses, V2UngroupPostData, V2UngroupPostErrors, V2UngroupPostResponses, V2UpdatePostCaptionData, V2UpdatePostCaptionErrors, V2UpdatePostCaptionResponses, V2UpdatePostRatingData, V2UpdatePostRatingErrors, V2UpdatePostRatingResponses, V2UpdatePostScoreData, V2UpdatePostScoreErrors, V2UpdatePostScoreResponses, V2UpdatePostSourceData, V2UpdatePostSourceErrors, V2UpdatePostSourceResponses, V2UpdateTagData, V2UpdateTagErrors, V2UpdateTagResponses, V2UploadFileData, V2UploadFileErrors, V2UploadFileResponses } from './types.gen';
+import type { V2AddTagToPostData, V2AddTagToPostErrors, V2AddTagToPostResponses, V2AnnotationTimelineData, V2AnnotationTimelineErrors, V2AnnotationTimelineResponses, V2AutoCaptionData, V2AutoCaptionErrors, V2AutoCaptionResponses, V2AutoTagsData, V2AutoTagsErrors, V2AutoTagsResponses, V2BulkUpdatePostRatingData, V2BulkUpdatePostRatingErrors, V2BulkUpdatePostRatingResponses, V2BulkUpdatePostScoreData, V2BulkUpdatePostScoreErrors, V2BulkUpdatePostScoreResponses, V2CountPairwiseData, V2CountPairwiseErrors, V2CountPairwiseResponses, V2CreateAbsoluteData, V2CreateAbsoluteErrors, V2CreateAbsoluteResponses, V2CreateListwiseData, V2CreateListwiseErrors, V2CreateListwiseResponses, V2CreatePairwiseData, V2CreatePairwiseErrors, V2CreatePairwiseResponses, V2CreateTagData, V2CreateTagErrors, V2CreateTagResponses, V2DbSnapshotData, V2DbSnapshotResponses, V2DeleteFolderData, V2DeleteFolderErrors, V2DeleteFolderResponses, V2DeletePostsData, V2DeletePostsErrors, V2DeletePostsResponses, V2DeleteTagData, V2DeleteTagErrors, V2DeleteTagResponses, V2DeleteTagsData, V2DeleteTagsErrors, V2DeleteTagsResponses, V2DownloadFromDanbooruData, V2DownloadFromDanbooruErrors, V2DownloadFromDanbooruResponses, V2EditAnnotationData, V2EditAnnotationErrors, V2EditAnnotationResponses, V2GenerateAbsoluteData, V2GenerateAbsoluteErrors, V2GenerateAbsoluteResponses, V2GenerateListwiseData, V2GenerateListwiseErrors, V2GenerateListwiseResponses, V2GeneratePairwiseData, V2GeneratePairwiseErrors, V2GeneratePairwiseResponses, V2GetExtensionCountData, V2GetExtensionCountErrors, V2GetExtensionCountResponses, V2GetFoldersData, V2GetFoldersResponses, V2GetOriginalByIdData, V2GetOriginalByIdErrors, V2GetOriginalByIdResponses, V2GetOriginalData, V2GetOriginalErrors, V2GetOriginalResponses, V2GetPostData, V2GetPostErrors, V2GetPostGroupData, V2GetPostGroupErrors, V2GetPostGroupResponses, V2GetPostResponses, V2GetPostsCountData, V2GetPostsCountErrors, V2GetPostsCountResponses, V2GetPostsStatsData, V2GetPostsStatsErrors, V2GetPostsStatsResponses, V2GetRatingCountData, V2GetRatingCountErrors, V2GetRatingCountResponses, V2GetScoreCountData, V2GetScoreCountErrors, V2GetScoreCountResponses, V2GetSilvaBucketCountData, V2GetSilvaBucketCountErrors, V2GetSilvaBucketCountResponses, V2GetSilvaLunaBucketCountData, V2GetSilvaLunaBucketCountErrors, V2GetSilvaLunaBucketCountResponses, V2GetSilvaLunaScorerOneData, V2GetSilvaLunaScorerOneErrors, V2GetSilvaLunaScorerOneResponses, V2GetSilvaScorerOneData, V2GetSilvaScorerOneErrors, V2GetSilvaScorerOneResponses, V2GetSimilarPostsData, V2GetSimilarPostsErrors, V2GetSimilarPostsResponses, V2GetTagCountData, V2GetTagCountErrors, V2GetTagCountResponses, V2GetThumbnailByIdData, V2GetThumbnailByIdErrors, V2GetThumbnailByIdResponses, V2GetThumbnailData, V2GetThumbnailErrors, V2GetThumbnailResponses, V2GetWaifuBucketCountData, V2GetWaifuBucketCountErrors, V2GetWaifuBucketCountResponses, V2GetWaifuScorerOneData, V2GetWaifuScorerOneErrors, V2GetWaifuScorerOneResponses, V2GetWaifuScorerStatisticsData, V2GetWaifuScorerStatisticsResponses, V2GroupDuplicatesData, V2GroupDuplicatesErrors, V2GroupDuplicatesResponses, V2ImportFromUrlEndpointData, V2ImportFromUrlEndpointErrors, V2ImportFromUrlEndpointResponses, V2ImportFromUrlStatusData, V2ImportFromUrlStatusResponses, V2ListPostsData, V2ListPostsErrors, V2ListPostsResponses, V2ListQueuesData, V2ListQueuesResponses, V2ListTagGroupData, V2ListTagGroupResponses, V2ListTagsData, V2ListTagsErrors, V2ListTagsResponses, V2MakePostCanonicalData, V2MakePostCanonicalErrors, V2MakePostCanonicalResponses, V2NextAbsoluteData, V2NextAbsoluteErrors, V2NextAbsoluteResponses, V2NextListwiseData, V2NextListwiseErrors, V2NextListwiseResponses, V2NextPairwiseData, V2NextPairwiseErrors, V2NextPairwiseResponses, V2PostHistoryData, V2PostHistoryErrors, V2PostHistoryResponses, V2RemoveTagFromPostData, V2RemoveTagFromPostErrors, V2RemoveTagFromPostResponses, V2RotatePostImageData, V2RotatePostImageErrors, V2RotatePostImageResponses, V2SampleAbsoluteData, V2SampleAbsoluteErrors, V2SampleAbsoluteResponses, V2SampleListwiseData, V2SampleListwiseErrors, V2SampleListwiseResponses, V2SamplePairwiseData, V2SamplePairwiseErrors, V2SamplePairwiseResponses, V2SearchPostsByTextData, V2SearchPostsByTextErrors, V2SearchPostsByTextResponses, V2SearchPostsData, V2SearchPostsErrors, V2SearchPostsResponses, V2SubmitAbsoluteData, V2SubmitAbsoluteErrors, V2SubmitAbsoluteResponses, V2SubmitContentFlagData, V2SubmitContentFlagErrors, V2SubmitContentFlagResponses, V2SubmitListwiseData, V2SubmitListwiseErrors, V2SubmitListwiseResponses, V2SubmitPairwiseData, V2SubmitPairwiseErrors, V2SubmitPairwiseResponses, V2SyncMetadataEndpointData, V2SyncMetadataEndpointResponses, V2TouchPostData, V2TouchPostErrors, V2TouchPostResponses, V2UndoAnnotationsData, V2UndoAnnotationsErrors, V2UndoAnnotationsResponses, V2UngroupPostData, V2UngroupPostErrors, V2UngroupPostResponses, V2UpdatePostCaptionData, V2UpdatePostCaptionErrors, V2UpdatePostCaptionResponses, V2UpdatePostRatingData, V2UpdatePostRatingErrors, V2UpdatePostRatingResponses, V2UpdatePostScoreData, V2UpdatePostScoreErrors, V2UpdatePostScoreResponses, V2UpdatePostSourceData, V2UpdatePostSourceErrors, V2UpdatePostSourceResponses, V2UpdateTagData, V2UpdateTagErrors, V2UpdateTagResponses, V2UploadFileData, V2UploadFileErrors, V2UploadFileResponses } from './types.gen';
 
 export type Options<TData extends TDataShape = TDataShape, ThrowOnError extends boolean = boolean, TResponse = unknown> = Options2<TData, ThrowOnError, TResponse> & {
     /**
@@ -19,492 +19,42 @@ export type Options<TData extends TDataShape = TDataShape, ThrowOnError extends 
 };
 
 /**
- * RemoveTagFromPost
+ * GetWaifuScorerStatistics
+ *
+ * Histogram of waifu scores in 10 integer-wide buckets ``[0,1), …, [9,10]``.
  */
-export const v2RemoveTagFromPost = <ThrowOnError extends boolean = false>(options: Options<V2RemoveTagFromPostData, ThrowOnError>) => (options.client ?? client).delete<V2RemoveTagFromPostResponses, V2RemoveTagFromPostErrors, ThrowOnError>({
+export const v2GetWaifuScorerStatistics = <ThrowOnError extends boolean = false>(options?: Options<V2GetWaifuScorerStatisticsData, ThrowOnError>) => (options?.client ?? client).get<V2GetWaifuScorerStatisticsResponses, unknown, ThrowOnError>({
     responseType: 'json',
-    url: '/v2/posts/{post_id}/tags/{tag_name}',
+    url: '/v2/statistics',
     ...options
 });
 
 /**
- * AddTagToPost
+ * GetFolders
  */
-export const v2AddTagToPost = <ThrowOnError extends boolean = false>(options: Options<V2AddTagToPostData, ThrowOnError>) => (options.client ?? client).put<V2AddTagToPostResponses, V2AddTagToPostErrors, ThrowOnError>({
+export const v2GetFolders = <ThrowOnError extends boolean = false>(options?: Options<V2GetFoldersData, ThrowOnError>) => (options?.client ?? client).get<V2GetFoldersResponses, unknown, ThrowOnError>({
     responseType: 'json',
-    url: '/v2/posts/{post_id}/tags/{tag_name}',
+    url: '/v2/folders',
     ...options
 });
 
 /**
- * BulkUpdatePostRating
- */
-export const v2BulkUpdatePostRating = <ThrowOnError extends boolean = false>(options: Options<V2BulkUpdatePostRatingData, ThrowOnError>) => (options.client ?? client).put<V2BulkUpdatePostRatingResponses, V2BulkUpdatePostRatingErrors, ThrowOnError>({ url: '/v2/posts/bulk/rating', ...options });
-
-/**
- * BulkUpdatePostScore
- */
-export const v2BulkUpdatePostScore = <ThrowOnError extends boolean = false>(options: Options<V2BulkUpdatePostScoreData, ThrowOnError>) => (options.client ?? client).put<V2BulkUpdatePostScoreResponses, V2BulkUpdatePostScoreErrors, ThrowOnError>({ url: '/v2/posts/bulk/score', ...options });
-
-/**
- * DeletePosts
- */
-export const v2DeletePosts = <ThrowOnError extends boolean = false>(options: Options<V2DeletePostsData, ThrowOnError>) => (options.client ?? client).delete<V2DeletePostsResponses, V2DeletePostsErrors, ThrowOnError>({ url: '/v2/posts/delete', ...options });
-
-/**
- * GetExtensionCount
+ * DeleteFolder
  *
- * Count posts by extension.
+ * Delete a library folder: its posts (DB + files + thumbnails) and the dir tree.
+ *
+ * Refuses the library root and anything resolving outside the library
+ * (or into ``.pictoria``). DB rows go through ``PostRepo.delete_many`` so
+ * the FK cascade, the manual vec0 cascade and the per-file unlink all
+ * apply; the remaining tree (non-image files, empty dirs) is then removed
+ * from disk. If the disk removal partially fails, the next sync re-imports
+ * whatever survived — no orphaned DB rows either way.
  */
-export const v2GetExtensionCount = <ThrowOnError extends boolean = false>(options: Options<V2GetExtensionCountData, ThrowOnError>) => (options.client ?? client).post<V2GetExtensionCountResponses, V2GetExtensionCountErrors, ThrowOnError>({
+export const v2DeleteFolder = <ThrowOnError extends boolean = false>(options: Options<V2DeleteFolderData, ThrowOnError>) => (options.client ?? client).delete<V2DeleteFolderResponses, V2DeleteFolderErrors, ThrowOnError>({
     responseType: 'json',
-    url: '/v2/posts/count/extension',
-    ...options,
-    headers: {
-        'Content-Type': 'application/json',
-        ...options.headers
-    }
-});
-
-/**
- * GetPost
- */
-export const v2GetPost = <ThrowOnError extends boolean = false>(options: Options<V2GetPostData, ThrowOnError>) => (options.client ?? client).get<V2GetPostResponses, V2GetPostErrors, ThrowOnError>({
-    responseType: 'json',
-    url: '/v2/posts/{post_id}',
+    url: '/v2/folders/{folder_path}',
     ...options
 });
-
-/**
- * GetPostGroup
- *
- * List the hidden near-duplicate members of this post's group.
- */
-export const v2GetPostGroup = <ThrowOnError extends boolean = false>(options: Options<V2GetPostGroupData, ThrowOnError>) => (options.client ?? client).get<V2GetPostGroupResponses, V2GetPostGroupErrors, ThrowOnError>({
-    responseType: 'json',
-    url: '/v2/posts/{post_id}/group',
-    ...options
-});
-
-/**
- * GetPostsCount
- *
- * Count posts by filters.
- */
-export const v2GetPostsCount = <ThrowOnError extends boolean = false>(options: Options<V2GetPostsCountData, ThrowOnError>) => (options.client ?? client).post<V2GetPostsCountResponses, V2GetPostsCountErrors, ThrowOnError>({
-    responseType: 'json',
-    url: '/v2/posts/count',
-    ...options,
-    headers: {
-        'Content-Type': 'application/json',
-        ...options.headers
-    }
-});
-
-/**
- * GetPostsStats
- *
- * Aggregate quality stats (avg score, avg waifu, rating distribution) for posts matching filter.
- */
-export const v2GetPostsStats = <ThrowOnError extends boolean = false>(options: Options<V2GetPostsStatsData, ThrowOnError>) => (options.client ?? client).post<V2GetPostsStatsResponses, V2GetPostsStatsErrors, ThrowOnError>({
-    responseType: 'json',
-    url: '/v2/posts/stats',
-    ...options,
-    headers: {
-        'Content-Type': 'application/json',
-        ...options.headers
-    }
-});
-
-/**
- * GetRatingCount
- *
- * Count posts by rating.
- */
-export const v2GetRatingCount = <ThrowOnError extends boolean = false>(options: Options<V2GetRatingCountData, ThrowOnError>) => (options.client ?? client).post<V2GetRatingCountResponses, V2GetRatingCountErrors, ThrowOnError>({
-    responseType: 'json',
-    url: '/v2/posts/count/rating',
-    ...options,
-    headers: {
-        'Content-Type': 'application/json',
-        ...options.headers
-    }
-});
-
-/**
- * GetScoreCount
- *
- * Count posts by score.
- */
-export const v2GetScoreCount = <ThrowOnError extends boolean = false>(options: Options<V2GetScoreCountData, ThrowOnError>) => (options.client ?? client).post<V2GetScoreCountResponses, V2GetScoreCountErrors, ThrowOnError>({
-    responseType: 'json',
-    url: '/v2/posts/count/score',
-    ...options,
-    headers: {
-        'Content-Type': 'application/json',
-        ...options.headers
-    }
-});
-
-/**
- * GetSilvaBucketCount
- *
- * Count posts by SILVA aesthetic bucket (A/B/C/D/E/UNSCORED).
- */
-export const v2GetSilvaBucketCount = <ThrowOnError extends boolean = false>(options: Options<V2GetSilvaBucketCountData, ThrowOnError>) => (options.client ?? client).post<V2GetSilvaBucketCountResponses, V2GetSilvaBucketCountErrors, ThrowOnError>({
-    responseType: 'json',
-    url: '/v2/posts/count/silva',
-    ...options,
-    headers: {
-        'Content-Type': 'application/json',
-        ...options.headers
-    }
-});
-
-/**
- * GetSilvaLunaBucketCount
- *
- * Count posts by SILVA-Luna aesthetic bucket (A/B/C/D/E/UNSCORED).
- */
-export const v2GetSilvaLunaBucketCount = <ThrowOnError extends boolean = false>(options: Options<V2GetSilvaLunaBucketCountData, ThrowOnError>) => (options.client ?? client).post<V2GetSilvaLunaBucketCountResponses, V2GetSilvaLunaBucketCountErrors, ThrowOnError>({
-    responseType: 'json',
-    url: '/v2/posts/count/silva-luna',
-    ...options,
-    headers: {
-        'Content-Type': 'application/json',
-        ...options.headers
-    }
-});
-
-/**
- * GetSimilarPosts
- */
-export const v2GetSimilarPosts = <ThrowOnError extends boolean = false>(options: Options<V2GetSimilarPostsData, ThrowOnError>) => (options.client ?? client).get<V2GetSimilarPostsResponses, V2GetSimilarPostsErrors, ThrowOnError>({
-    responseType: 'json',
-    url: '/v2/posts/{post_id}/similar',
-    ...options
-});
-
-/**
- * GetTagCount
- *
- * Count posts per tag (searchable, top-N by count).
- */
-export const v2GetTagCount = <ThrowOnError extends boolean = false>(options: Options<V2GetTagCountData, ThrowOnError>) => (options.client ?? client).post<V2GetTagCountResponses, V2GetTagCountErrors, ThrowOnError>({
-    responseType: 'json',
-    url: '/v2/posts/count/tags',
-    ...options,
-    headers: {
-        'Content-Type': 'application/json',
-        ...options.headers
-    }
-});
-
-/**
- * GetWaifuBucketCount
- *
- * Count posts by waifu-score bucket (A/B/C/D/E/UNSCORED).
- */
-export const v2GetWaifuBucketCount = <ThrowOnError extends boolean = false>(options: Options<V2GetWaifuBucketCountData, ThrowOnError>) => (options.client ?? client).post<V2GetWaifuBucketCountResponses, V2GetWaifuBucketCountErrors, ThrowOnError>({
-    responseType: 'json',
-    url: '/v2/posts/count/waifu',
-    ...options,
-    headers: {
-        'Content-Type': 'application/json',
-        ...options.headers
-    }
-});
-
-/**
- * ListPosts
- *
- * Get all posts.
- */
-export const v2ListPosts = <ThrowOnError extends boolean = false>(options?: Options<V2ListPostsData, ThrowOnError>) => (options?.client ?? client).get<V2ListPostsResponses, V2ListPostsErrors, ThrowOnError>({
-    responseType: 'json',
-    url: '/v2/posts',
-    ...options
-});
-
-/**
- * MakePostCanonical
- *
- * Promote this group member to be the group's canonical representative.
- */
-export const v2MakePostCanonical = <ThrowOnError extends boolean = false>(options: Options<V2MakePostCanonicalData, ThrowOnError>) => (options.client ?? client).put<V2MakePostCanonicalResponses, V2MakePostCanonicalErrors, ThrowOnError>({
-    responseType: 'json',
-    url: '/v2/posts/{post_id}/make-canonical',
-    ...options
-});
-
-/**
- * RotatePostImage
- *
- * Rotate post image by id; updates sha256/width/height/arthash.
- */
-export const v2RotatePostImage = <ThrowOnError extends boolean = false>(options: Options<V2RotatePostImageData, ThrowOnError>) => (options.client ?? client).put<V2RotatePostImageResponses, V2RotatePostImageErrors, ThrowOnError>({
-    responseType: 'json',
-    url: '/v2/posts/{post_id}/rotate',
-    ...options
-});
-
-/**
- * SearchPosts
- *
- * Search for posts by filters.
- */
-export const v2SearchPosts = <ThrowOnError extends boolean = false>(options: Options<V2SearchPostsData, ThrowOnError>) => (options.client ?? client).post<V2SearchPostsResponses, V2SearchPostsErrors, ThrowOnError>({
-    responseType: 'json',
-    url: '/v2/posts/search',
-    ...options,
-    headers: {
-        'Content-Type': 'application/json',
-        ...options.headers
-    }
-});
-
-/**
- * SearchPostsByText
- *
- * Search posts by SigLIP 2 text embedding, combinable with the standard post filters.
- */
-export const v2SearchPostsByText = <ThrowOnError extends boolean = false>(options: Options<V2SearchPostsByTextData, ThrowOnError>) => (options.client ?? client).post<V2SearchPostsByTextResponses, V2SearchPostsByTextErrors, ThrowOnError>({
-    responseType: 'json',
-    url: '/v2/posts/search/text',
-    ...options,
-    headers: {
-        'Content-Type': 'application/json',
-        ...options.headers
-    }
-});
-
-/**
- * TouchPost
- *
- * Record a view by bumping last_accessed_at.
- */
-export const v2TouchPost = <ThrowOnError extends boolean = false>(options: Options<V2TouchPostData, ThrowOnError>) => (options.client ?? client).post<V2TouchPostResponses, V2TouchPostErrors, ThrowOnError>({ url: '/v2/posts/{post_id}/touch', ...options });
-
-/**
- * UngroupPost
- *
- * Detach this post from its near-duplicate group (make it standalone).
- */
-export const v2UngroupPost = <ThrowOnError extends boolean = false>(options: Options<V2UngroupPostData, ThrowOnError>) => (options.client ?? client).put<V2UngroupPostResponses, V2UngroupPostErrors, ThrowOnError>({
-    responseType: 'json',
-    url: '/v2/posts/{post_id}/ungroup',
-    ...options
-});
-
-/**
- * UpdatePostCaption
- */
-export const v2UpdatePostCaption = <ThrowOnError extends boolean = false>(options: Options<V2UpdatePostCaptionData, ThrowOnError>) => (options.client ?? client).put<V2UpdatePostCaptionResponses, V2UpdatePostCaptionErrors, ThrowOnError>({
-    responseType: 'json',
-    url: '/v2/posts/{post_id}/caption',
-    ...options
-});
-
-/**
- * UpdatePostRating
- */
-export const v2UpdatePostRating = <ThrowOnError extends boolean = false>(options: Options<V2UpdatePostRatingData, ThrowOnError>) => (options.client ?? client).put<V2UpdatePostRatingResponses, V2UpdatePostRatingErrors, ThrowOnError>({
-    responseType: 'json',
-    url: '/v2/posts/{post_id}/rating',
-    ...options
-});
-
-/**
- * UpdatePostScore
- */
-export const v2UpdatePostScore = <ThrowOnError extends boolean = false>(options: Options<V2UpdatePostScoreData, ThrowOnError>) => (options.client ?? client).put<V2UpdatePostScoreResponses, V2UpdatePostScoreErrors, ThrowOnError>({
-    responseType: 'json',
-    url: '/v2/posts/{post_id}/score',
-    ...options,
-    headers: {
-        'Content-Type': 'application/json',
-        ...options.headers
-    }
-});
-
-/**
- * UpdatePostSource
- */
-export const v2UpdatePostSource = <ThrowOnError extends boolean = false>(options: Options<V2UpdatePostSourceData, ThrowOnError>) => (options.client ?? client).put<V2UpdatePostSourceResponses, V2UpdatePostSourceErrors, ThrowOnError>({
-    responseType: 'json',
-    url: '/v2/posts/{post_id}/source',
-    ...options
-});
-
-/**
- * UploadFile
- */
-export const v2UploadFile = <ThrowOnError extends boolean = false>(options: Options<V2UploadFileData, ThrowOnError>) => (options.client ?? client).post<V2UploadFileResponses, V2UploadFileErrors, ThrowOnError>({
-    ...formDataBodySerializer,
-    url: '/v2/posts/upload',
-    ...options,
-    headers: {
-        'Content-Type': null,
-        ...options.headers
-    }
-});
-
-/**
- * AutoCaption
- */
-export const v2AutoCaption = <ThrowOnError extends boolean = false>(options: Options<V2AutoCaptionData, ThrowOnError>) => (options.client ?? client).put<V2AutoCaptionResponses, V2AutoCaptionErrors, ThrowOnError>({
-    responseType: 'json',
-    url: '/v2/cmd/auto-caption/{post_id}',
-    ...options
-});
-
-/**
- * AutoTags
- *
- * Auto tag a post
- */
-export const v2AutoTags = <ThrowOnError extends boolean = false>(options: Options<V2AutoTagsData, ThrowOnError>) => (options.client ?? client).put<V2AutoTagsResponses, V2AutoTagsErrors, ThrowOnError>({
-    responseType: 'json',
-    url: '/v2/cmd/auto-tags/{post_id}',
-    ...options
-});
-
-/**
- * DbSnapshot
- *
- * Create a point-in-time SQLite snapshot for offline tooling
- */
-export const v2DbSnapshot = <ThrowOnError extends boolean = false>(options?: Options<V2DbSnapshotData, ThrowOnError>) => (options?.client ?? client).post<V2DbSnapshotResponses, unknown, ThrowOnError>({
-    responseType: 'json',
-    url: '/v2/cmd/db/snapshot',
-    ...options
-});
-
-/**
- * DownloadFromDanbooru
- *
- * Download posts from Danbooru
- */
-export const v2DownloadFromDanbooru = <ThrowOnError extends boolean = false>(options: Options<V2DownloadFromDanbooruData, ThrowOnError>) => (options.client ?? client).post<V2DownloadFromDanbooruResponses, V2DownloadFromDanbooruErrors, ThrowOnError>({
-    responseType: 'json',
-    url: '/v2/cmd/download-from-danbooru',
-    ...options
-});
-
-/**
- * GetSilvaLunaScorerOne
- *
- * Compute (and persist) the SILVA-Luna score for one post from its embedding.
- */
-export const v2GetSilvaLunaScorerOne = <ThrowOnError extends boolean = false>(options: Options<V2GetSilvaLunaScorerOneData, ThrowOnError>) => (options.client ?? client).get<V2GetSilvaLunaScorerOneResponses, V2GetSilvaLunaScorerOneErrors, ThrowOnError>({
-    responseType: 'json',
-    url: '/v2/cmd/silva-luna-scorer/{post_id}',
-    ...options
-});
-
-/**
- * GetSilvaScorerOne
- *
- * Compute (and persist) the SILVA score for one post from its embedding.
- */
-export const v2GetSilvaScorerOne = <ThrowOnError extends boolean = false>(options: Options<V2GetSilvaScorerOneData, ThrowOnError>) => (options.client ?? client).get<V2GetSilvaScorerOneResponses, V2GetSilvaScorerOneErrors, ThrowOnError>({
-    responseType: 'json',
-    url: '/v2/cmd/silva-scorer/{post_id}',
-    ...options
-});
-
-/**
- * GetWaifuScorerOne
- *
- * Compute (and persist) the waifu score for a single post.
- *
- * Delegates the compute + persist to the backfill worker's batch function
- * (single-element id list), the same path ``process_post`` uses, instead
- * of re-inlining the lazy model load / upsert. The guards keep the HTTP
- * contract: missing post -> 404, non-image -> 400, already-scored ->
- * return the stored score without recomputing.
- */
-export const v2GetWaifuScorerOne = <ThrowOnError extends boolean = false>(options: Options<V2GetWaifuScorerOneData, ThrowOnError>) => (options.client ?? client).get<V2GetWaifuScorerOneResponses, V2GetWaifuScorerOneErrors, ThrowOnError>({
-    responseType: 'json',
-    url: '/v2/cmd/waifu-scorer/{post_id}',
-    ...options
-});
-
-/**
- * GroupDuplicates
- *
- * Rebuild near-duplicate groups (posts.canonical_post_id) from SigLIP2 similarity.
- */
-export const v2GroupDuplicates = <ThrowOnError extends boolean = false>(options?: Options<V2GroupDuplicatesData, ThrowOnError>) => (options?.client ?? client).post<V2GroupDuplicatesResponses, V2GroupDuplicatesErrors, ThrowOnError>({
-    responseType: 'json',
-    url: '/v2/cmd/group-duplicates',
-    ...options
-});
-
-/**
- * ImportFromUrlEndpoint
- *
- * Fetch a creator/tag URL via gallery-dl in the background and persist new images
- */
-export const v2ImportFromUrlEndpoint = <ThrowOnError extends boolean = false>(options: Options<V2ImportFromUrlEndpointData, ThrowOnError>) => (options.client ?? client).post<V2ImportFromUrlEndpointResponses, V2ImportFromUrlEndpointErrors, ThrowOnError>({
-    responseType: 'json',
-    url: '/v2/cmd/import-from-url',
-    ...options
-});
-
-/**
- * ImportFromUrlStatus
- *
- * Status of the current/last background URL import
- */
-export const v2ImportFromUrlStatus = <ThrowOnError extends boolean = false>(options?: Options<V2ImportFromUrlStatusData, ThrowOnError>) => (options?.client ?? client).get<V2ImportFromUrlStatusResponses, unknown, ThrowOnError>({
-    responseType: 'json',
-    url: '/v2/cmd/import-from-url/status',
-    ...options
-});
-
-/**
- * SyncMetadataEndpoint
- *
- * Rescan target_dir and run every backfill worker
- */
-export const v2SyncMetadataEndpoint = <ThrowOnError extends boolean = false>(options?: Options<V2SyncMetadataEndpointData, ThrowOnError>) => (options?.client ?? client).post<V2SyncMetadataEndpointResponses, unknown, ThrowOnError>({
-    responseType: 'json',
-    url: '/v2/cmd/sync-metadata',
-    ...options
-});
-
-/**
- * GetOriginal
- *
- * Get original image by file path.
- */
-export const v2GetOriginal = <ThrowOnError extends boolean = false>(options: Options<V2GetOriginalData, ThrowOnError>) => (options.client ?? client).get<V2GetOriginalResponses, V2GetOriginalErrors, ThrowOnError>({ url: '/v2/images/original/{post_path}', ...options });
-
-/**
- * GetOriginalById
- *
- * Get original image by post id, falling back to S3 if missing locally.
- */
-export const v2GetOriginalById = <ThrowOnError extends boolean = false>(options: Options<V2GetOriginalByIdData, ThrowOnError>) => (options.client ?? client).get<V2GetOriginalByIdResponses, V2GetOriginalByIdErrors, ThrowOnError>({
-    responseType: 'json',
-    url: '/v2/images/original/id/{post_id}',
-    ...options
-});
-
-/**
- * GetThumbnail
- *
- * Get thumbnail image by file path (creates one if missing).
- */
-export const v2GetThumbnail = <ThrowOnError extends boolean = false>(options: Options<V2GetThumbnailData, ThrowOnError>) => (options.client ?? client).get<V2GetThumbnailResponses, V2GetThumbnailErrors, ThrowOnError>({ url: '/v2/images/thumbnails/{post_path}', ...options });
-
-/**
- * GetThumbnailById
- *
- * Get thumbnail image by post id (creates one if missing).
- */
-export const v2GetThumbnailById = <ThrowOnError extends boolean = false>(options: Options<V2GetThumbnailByIdData, ThrowOnError>) => (options.client ?? client).get<V2GetThumbnailByIdResponses, V2GetThumbnailByIdErrors, ThrowOnError>({ url: '/v2/images/thumbnails/id/{post_id}', ...options });
 
 /**
  * DeleteTags
@@ -547,6 +97,17 @@ export const v2CreateTag = <ThrowOnError extends boolean = false>(options: Optio
 });
 
 /**
+ * ListTagGroup
+ *
+ * List all tag groups.
+ */
+export const v2ListTagGroup = <ThrowOnError extends boolean = false>(options?: Options<V2ListTagGroupData, ThrowOnError>) => (options?.client ?? client).get<V2ListTagGroupResponses, unknown, ThrowOnError>({
+    responseType: 'json',
+    url: '/v2/tags/groups',
+    ...options
+});
+
+/**
  * DeleteTag
  *
  * Delete a tag by name (also removes its post associations).
@@ -569,74 +130,96 @@ export const v2UpdateTag = <ThrowOnError extends boolean = false>(options: Optio
 });
 
 /**
- * ListTagGroup
- *
- * List all tag groups.
+ * RemoveTagFromPost
  */
-export const v2ListTagGroup = <ThrowOnError extends boolean = false>(options?: Options<V2ListTagGroupData, ThrowOnError>) => (options?.client ?? client).get<V2ListTagGroupResponses, unknown, ThrowOnError>({
+export const v2RemoveTagFromPost = <ThrowOnError extends boolean = false>(options: Options<V2RemoveTagFromPostData, ThrowOnError>) => (options.client ?? client).delete<V2RemoveTagFromPostResponses, V2RemoveTagFromPostErrors, ThrowOnError>({
     responseType: 'json',
-    url: '/v2/tags/groups',
+    url: '/v2/posts/{post_id}/tags/{tag_name}',
     ...options
 });
 
 /**
- * DeleteFolder
- *
- * Delete a library folder: its posts (DB + files + thumbnails) and the dir tree.
- *
- * Refuses the library root and anything resolving outside the library
- * (or into ``.pictoria``). DB rows go through ``PostRepo.delete_many`` so
- * the FK cascade, the manual vec0 cascade and the per-file unlink all
- * apply; the remaining tree (non-image files, empty dirs) is then removed
- * from disk. If the disk removal partially fails, the next sync re-imports
- * whatever survived — no orphaned DB rows either way.
+ * AddTagToPost
  */
-export const v2DeleteFolder = <ThrowOnError extends boolean = false>(options: Options<V2DeleteFolderData, ThrowOnError>) => (options.client ?? client).delete<V2DeleteFolderResponses, V2DeleteFolderErrors, ThrowOnError>({
+export const v2AddTagToPost = <ThrowOnError extends boolean = false>(options: Options<V2AddTagToPostData, ThrowOnError>) => (options.client ?? client).put<V2AddTagToPostResponses, V2AddTagToPostErrors, ThrowOnError>({
     responseType: 'json',
-    url: '/v2/folders/{folder_path}',
+    url: '/v2/posts/{post_id}/tags/{tag_name}',
     ...options
 });
 
 /**
- * GetFolders
+ * SubmitAbsolute
+ *
+ * Submit a batch of absolute annotation events (one image, several dimensions). Optionally marks a queue item done.
  */
-export const v2GetFolders = <ThrowOnError extends boolean = false>(options?: Options<V2GetFoldersData, ThrowOnError>) => (options?.client ?? client).get<V2GetFoldersResponses, unknown, ThrowOnError>({
+export const v2SubmitAbsolute = <ThrowOnError extends boolean = false>(options: Options<V2SubmitAbsoluteData, ThrowOnError>) => (options.client ?? client).post<V2SubmitAbsoluteResponses, V2SubmitAbsoluteErrors, ThrowOnError>({
     responseType: 'json',
-    url: '/v2/folders',
-    ...options
+    url: '/v2/annotations/absolute',
+    ...options,
+    headers: {
+        'Content-Type': 'application/json',
+        ...options.headers
+    }
 });
 
 /**
- * GetWaifuScorerStatistics
+ * SubmitPairwise
  *
- * Histogram of waifu scores in 10 integer-wide buckets ``[0,1), …, [9,10]``.
+ * Submit one pairwise judgement. Optionally marks a queue item done.
  */
-export const v2GetWaifuScorerStatistics = <ThrowOnError extends boolean = false>(options?: Options<V2GetWaifuScorerStatisticsData, ThrowOnError>) => (options?.client ?? client).get<V2GetWaifuScorerStatisticsResponses, unknown, ThrowOnError>({
+export const v2SubmitPairwise = <ThrowOnError extends boolean = false>(options: Options<V2SubmitPairwiseData, ThrowOnError>) => (options.client ?? client).post<V2SubmitPairwiseResponses, V2SubmitPairwiseErrors, ThrowOnError>({
     responseType: 'json',
-    url: '/v2/statistics',
-    ...options
+    url: '/v2/annotations/pairwise',
+    ...options,
+    headers: {
+        'Content-Type': 'application/json',
+        ...options.headers
+    }
 });
 
 /**
- * AnnotationTimeline
+ * SubmitListwise
  *
- * Everything submitted so far, newest first, across all three event kinds. Cursor-paged: pass the previous page's nextCursor as 'before'. Cursor rather than offset because the head of this list grows while it is being scrolled.
+ * Submit one group ranking (best first; empty ranking = skip). Optionally marks a queue item done.
  */
-export const v2AnnotationTimeline = <ThrowOnError extends boolean = false>(options?: Options<V2AnnotationTimelineData, ThrowOnError>) => (options?.client ?? client).get<V2AnnotationTimelineResponses, V2AnnotationTimelineErrors, ThrowOnError>({
+export const v2SubmitListwise = <ThrowOnError extends boolean = false>(options: Options<V2SubmitListwiseData, ThrowOnError>) => (options.client ?? client).post<V2SubmitListwiseResponses, V2SubmitListwiseErrors, ThrowOnError>({
     responseType: 'json',
-    url: '/v2/annotations/timeline',
-    ...options
+    url: '/v2/annotations/listwise',
+    ...options,
+    headers: {
+        'Content-Type': 'application/json',
+        ...options.headers
+    }
 });
 
 /**
- * CountPairwise
+ * SubmitContentFlag
  *
- * Cumulative pairwise judgement counts for a dimension (total = decisive + tie, skips excluded).
+ * Record a content taste flag for a post ('none' = retract).
  */
-export const v2CountPairwise = <ThrowOnError extends boolean = false>(options?: Options<V2CountPairwiseData, ThrowOnError>) => (options?.client ?? client).get<V2CountPairwiseResponses, V2CountPairwiseErrors, ThrowOnError>({
+export const v2SubmitContentFlag = <ThrowOnError extends boolean = false>(options: Options<V2SubmitContentFlagData, ThrowOnError>) => (options.client ?? client).post<V2SubmitContentFlagResponses, V2SubmitContentFlagErrors, ThrowOnError>({
     responseType: 'json',
-    url: '/v2/annotations/pairwise/count',
-    ...options
+    url: '/v2/annotations/content-flag',
+    ...options,
+    headers: {
+        'Content-Type': 'application/json',
+        ...options.headers
+    }
+});
+
+/**
+ * UndoAnnotations
+ *
+ * Retract annotation events this session just submitted (a mis-click). Deletes the rows outright rather than flagging them, so they never reach training exports or the sampler's comparison graph. Only events whose session_id matches are touched. Also re-opens the queue item, if one was given.
+ */
+export const v2UndoAnnotations = <ThrowOnError extends boolean = false>(options: Options<V2UndoAnnotationsData, ThrowOnError>) => (options.client ?? client).post<V2UndoAnnotationsResponses, V2UndoAnnotationsErrors, ThrowOnError>({
+    responseType: 'json',
+    url: '/v2/annotations/undo',
+    ...options,
+    headers: {
+        'Content-Type': 'application/json',
+        ...options.headers
+    }
 });
 
 /**
@@ -655,6 +238,17 @@ export const v2EditAnnotation = <ThrowOnError extends boolean = false>(options: 
 });
 
 /**
+ * CountPairwise
+ *
+ * Cumulative pairwise judgement counts for a dimension (total = decisive + tie, skips excluded).
+ */
+export const v2CountPairwise = <ThrowOnError extends boolean = false>(options?: Options<V2CountPairwiseData, ThrowOnError>) => (options?.client ?? client).get<V2CountPairwiseResponses, V2CountPairwiseErrors, ThrowOnError>({
+    responseType: 'json',
+    url: '/v2/annotations/pairwise/count',
+    ...options
+});
+
+/**
  * PostHistory
  *
  * Full annotation history for a post.
@@ -662,6 +256,17 @@ export const v2EditAnnotation = <ThrowOnError extends boolean = false>(options: 
 export const v2PostHistory = <ThrowOnError extends boolean = false>(options: Options<V2PostHistoryData, ThrowOnError>) => (options.client ?? client).get<V2PostHistoryResponses, V2PostHistoryErrors, ThrowOnError>({
     responseType: 'json',
     url: '/v2/annotations/post/{post_id}',
+    ...options
+});
+
+/**
+ * AnnotationTimeline
+ *
+ * Everything submitted so far, newest first, across all three event kinds. Cursor-paged: pass the previous page's nextCursor as 'before'. Cursor rather than offset because the head of this list grows while it is being scrolled.
+ */
+export const v2AnnotationTimeline = <ThrowOnError extends boolean = false>(options?: Options<V2AnnotationTimelineData, ThrowOnError>) => (options?.client ?? client).get<V2AnnotationTimelineResponses, V2AnnotationTimelineErrors, ThrowOnError>({
+    responseType: 'json',
+    url: '/v2/annotations/timeline',
     ...options
 });
 
@@ -688,63 +293,14 @@ export const v2SamplePairwise = <ThrowOnError extends boolean = false>(options?:
 });
 
 /**
- * SubmitAbsolute
+ * SampleListwise
  *
- * Submit a batch of absolute annotation events (one image, several dimensions). Optionally marks a queue item done.
+ * Queue-less streaming: sample groups of ~size posts whose silva scores sit in one close window, visually spread. Ranking one group yields C(size,2) boundary comparisons.
  */
-export const v2SubmitAbsolute = <ThrowOnError extends boolean = false>(options: Options<V2SubmitAbsoluteData, ThrowOnError>) => (options.client ?? client).post<V2SubmitAbsoluteResponses, V2SubmitAbsoluteErrors, ThrowOnError>({
+export const v2SampleListwise = <ThrowOnError extends boolean = false>(options?: Options<V2SampleListwiseData, ThrowOnError>) => (options?.client ?? client).get<V2SampleListwiseResponses, V2SampleListwiseErrors, ThrowOnError>({
     responseType: 'json',
-    url: '/v2/annotations/absolute',
-    ...options,
-    headers: {
-        'Content-Type': 'application/json',
-        ...options.headers
-    }
-});
-
-/**
- * SubmitContentFlag
- *
- * Record a content taste flag for a post ('none' = retract).
- */
-export const v2SubmitContentFlag = <ThrowOnError extends boolean = false>(options: Options<V2SubmitContentFlagData, ThrowOnError>) => (options.client ?? client).post<V2SubmitContentFlagResponses, V2SubmitContentFlagErrors, ThrowOnError>({
-    responseType: 'json',
-    url: '/v2/annotations/content-flag',
-    ...options,
-    headers: {
-        'Content-Type': 'application/json',
-        ...options.headers
-    }
-});
-
-/**
- * SubmitPairwise
- *
- * Submit one pairwise judgement. Optionally marks a queue item done.
- */
-export const v2SubmitPairwise = <ThrowOnError extends boolean = false>(options: Options<V2SubmitPairwiseData, ThrowOnError>) => (options.client ?? client).post<V2SubmitPairwiseResponses, V2SubmitPairwiseErrors, ThrowOnError>({
-    responseType: 'json',
-    url: '/v2/annotations/pairwise',
-    ...options,
-    headers: {
-        'Content-Type': 'application/json',
-        ...options.headers
-    }
-});
-
-/**
- * UndoAnnotations
- *
- * Retract annotation events this session just submitted (a mis-click). Deletes the rows outright rather than flagging them, so they never reach training exports or the sampler's comparison graph. Only events whose session_id matches are touched. Also re-opens the queue item, if one was given.
- */
-export const v2UndoAnnotations = <ThrowOnError extends boolean = false>(options: Options<V2UndoAnnotationsData, ThrowOnError>) => (options.client ?? client).post<V2UndoAnnotationsResponses, V2UndoAnnotationsErrors, ThrowOnError>({
-    responseType: 'json',
-    url: '/v2/annotations/undo',
-    ...options,
-    headers: {
-        'Content-Type': 'application/json',
-        ...options.headers
-    }
+    url: '/v2/annotations/sample-listwise',
+    ...options
 });
 
 /**
@@ -778,28 +334,13 @@ export const v2CreatePairwise = <ThrowOnError extends boolean = false>(options: 
 });
 
 /**
- * GenerateAbsolute
+ * CreateListwise
  *
- * Auto-generate an absolute queue by sampling the library (random / stratified by old score).
+ * Create a listwise queue from an ordered list of post-id groups.
  */
-export const v2GenerateAbsolute = <ThrowOnError extends boolean = false>(options: Options<V2GenerateAbsoluteData, ThrowOnError>) => (options.client ?? client).post<V2GenerateAbsoluteResponses, V2GenerateAbsoluteErrors, ThrowOnError>({
+export const v2CreateListwise = <ThrowOnError extends boolean = false>(options: Options<V2CreateListwiseData, ThrowOnError>) => (options.client ?? client).post<V2CreateListwiseResponses, V2CreateListwiseErrors, ThrowOnError>({
     responseType: 'json',
-    url: '/v2/annotation-queues/generate-absolute',
-    ...options,
-    headers: {
-        'Content-Type': 'application/json',
-        ...options.headers
-    }
-});
-
-/**
- * GeneratePairwise
- *
- * Auto-generate a pairwise queue (random disjoint pairs, or content-similar + old-score-band pairs).
- */
-export const v2GeneratePairwise = <ThrowOnError extends boolean = false>(options: Options<V2GeneratePairwiseData, ThrowOnError>) => (options.client ?? client).post<V2GeneratePairwiseResponses, V2GeneratePairwiseErrors, ThrowOnError>({
-    responseType: 'json',
-    url: '/v2/annotation-queues/generate-pairwise',
+    url: '/v2/annotation-queues/listwise',
     ...options,
     headers: {
         'Content-Type': 'application/json',
@@ -837,5 +378,531 @@ export const v2NextAbsolute = <ThrowOnError extends boolean = false>(options: Op
 export const v2NextPairwise = <ThrowOnError extends boolean = false>(options: Options<V2NextPairwiseData, ThrowOnError>) => (options.client ?? client).get<V2NextPairwiseResponses, V2NextPairwiseErrors, ThrowOnError>({
     responseType: 'json',
     url: '/v2/annotation-queues/{queue_id}/next-pairwise',
+    ...options
+});
+
+/**
+ * NextListwise
+ *
+ * Next undone items of a listwise queue, each a group of posts to rank.
+ */
+export const v2NextListwise = <ThrowOnError extends boolean = false>(options: Options<V2NextListwiseData, ThrowOnError>) => (options.client ?? client).get<V2NextListwiseResponses, V2NextListwiseErrors, ThrowOnError>({
+    responseType: 'json',
+    url: '/v2/annotation-queues/{queue_id}/next-listwise',
+    ...options
+});
+
+/**
+ * GenerateAbsolute
+ *
+ * Auto-generate an absolute queue by sampling the library (random / stratified by old score).
+ */
+export const v2GenerateAbsolute = <ThrowOnError extends boolean = false>(options: Options<V2GenerateAbsoluteData, ThrowOnError>) => (options.client ?? client).post<V2GenerateAbsoluteResponses, V2GenerateAbsoluteErrors, ThrowOnError>({
+    responseType: 'json',
+    url: '/v2/annotation-queues/generate-absolute',
+    ...options,
+    headers: {
+        'Content-Type': 'application/json',
+        ...options.headers
+    }
+});
+
+/**
+ * GeneratePairwise
+ *
+ * Auto-generate a pairwise queue (random disjoint pairs, or content-similar + old-score-band pairs).
+ */
+export const v2GeneratePairwise = <ThrowOnError extends boolean = false>(options: Options<V2GeneratePairwiseData, ThrowOnError>) => (options.client ?? client).post<V2GeneratePairwiseResponses, V2GeneratePairwiseErrors, ThrowOnError>({
+    responseType: 'json',
+    url: '/v2/annotation-queues/generate-pairwise',
+    ...options,
+    headers: {
+        'Content-Type': 'application/json',
+        ...options.headers
+    }
+});
+
+/**
+ * GenerateListwise
+ *
+ * Auto-generate a listwise queue: groups of ~size posts whose silva scores sit in one close window, visually spread. Ranking one group yields C(size,2) boundary comparisons.
+ */
+export const v2GenerateListwise = <ThrowOnError extends boolean = false>(options: Options<V2GenerateListwiseData, ThrowOnError>) => (options.client ?? client).post<V2GenerateListwiseResponses, V2GenerateListwiseErrors, ThrowOnError>({
+    responseType: 'json',
+    url: '/v2/annotation-queues/generate-listwise',
+    ...options,
+    headers: {
+        'Content-Type': 'application/json',
+        ...options.headers
+    }
+});
+
+/**
+ * GroupDuplicates
+ *
+ * Rebuild near-duplicate groups (posts.canonical_post_id) from SigLIP2 similarity.
+ */
+export const v2GroupDuplicates = <ThrowOnError extends boolean = false>(options?: Options<V2GroupDuplicatesData, ThrowOnError>) => (options?.client ?? client).post<V2GroupDuplicatesResponses, V2GroupDuplicatesErrors, ThrowOnError>({
+    responseType: 'json',
+    url: '/v2/cmd/group-duplicates',
+    ...options
+});
+
+/**
+ * GetWaifuScorerOne
+ *
+ * Compute (and persist) the waifu score for a single post.
+ *
+ * Delegates the compute + persist to the backfill worker's batch function
+ * (single-element id list), the same path ``process_post`` uses, instead
+ * of re-inlining the lazy model load / upsert. The guards keep the HTTP
+ * contract: missing post -> 404, non-image -> 400, already-scored ->
+ * return the stored score without recomputing.
+ */
+export const v2GetWaifuScorerOne = <ThrowOnError extends boolean = false>(options: Options<V2GetWaifuScorerOneData, ThrowOnError>) => (options.client ?? client).get<V2GetWaifuScorerOneResponses, V2GetWaifuScorerOneErrors, ThrowOnError>({
+    responseType: 'json',
+    url: '/v2/cmd/waifu-scorer/{post_id}',
+    ...options
+});
+
+/**
+ * GetSilvaScorerOne
+ *
+ * Compute (and persist) the SILVA score for one post from its embedding.
+ */
+export const v2GetSilvaScorerOne = <ThrowOnError extends boolean = false>(options: Options<V2GetSilvaScorerOneData, ThrowOnError>) => (options.client ?? client).get<V2GetSilvaScorerOneResponses, V2GetSilvaScorerOneErrors, ThrowOnError>({
+    responseType: 'json',
+    url: '/v2/cmd/silva-scorer/{post_id}',
+    ...options
+});
+
+/**
+ * GetSilvaLunaScorerOne
+ *
+ * Compute (and persist) the SILVA-Luna score for one post from its embedding.
+ */
+export const v2GetSilvaLunaScorerOne = <ThrowOnError extends boolean = false>(options: Options<V2GetSilvaLunaScorerOneData, ThrowOnError>) => (options.client ?? client).get<V2GetSilvaLunaScorerOneResponses, V2GetSilvaLunaScorerOneErrors, ThrowOnError>({
+    responseType: 'json',
+    url: '/v2/cmd/silva-luna-scorer/{post_id}',
+    ...options
+});
+
+/**
+ * AutoTags
+ *
+ * Auto tag a post
+ */
+export const v2AutoTags = <ThrowOnError extends boolean = false>(options: Options<V2AutoTagsData, ThrowOnError>) => (options.client ?? client).put<V2AutoTagsResponses, V2AutoTagsErrors, ThrowOnError>({
+    responseType: 'json',
+    url: '/v2/cmd/auto-tags/{post_id}',
+    ...options
+});
+
+/**
+ * AutoCaption
+ */
+export const v2AutoCaption = <ThrowOnError extends boolean = false>(options: Options<V2AutoCaptionData, ThrowOnError>) => (options.client ?? client).put<V2AutoCaptionResponses, V2AutoCaptionErrors, ThrowOnError>({
+    responseType: 'json',
+    url: '/v2/cmd/auto-caption/{post_id}',
+    ...options
+});
+
+/**
+ * DbSnapshot
+ *
+ * Create a point-in-time SQLite snapshot for offline tooling
+ */
+export const v2DbSnapshot = <ThrowOnError extends boolean = false>(options?: Options<V2DbSnapshotData, ThrowOnError>) => (options?.client ?? client).post<V2DbSnapshotResponses, unknown, ThrowOnError>({
+    responseType: 'json',
+    url: '/v2/cmd/db/snapshot',
+    ...options
+});
+
+/**
+ * SyncMetadataEndpoint
+ *
+ * Rescan target_dir and run every backfill worker
+ */
+export const v2SyncMetadataEndpoint = <ThrowOnError extends boolean = false>(options?: Options<V2SyncMetadataEndpointData, ThrowOnError>) => (options?.client ?? client).post<V2SyncMetadataEndpointResponses, unknown, ThrowOnError>({
+    responseType: 'json',
+    url: '/v2/cmd/sync-metadata',
+    ...options
+});
+
+/**
+ * DownloadFromDanbooru
+ *
+ * Download posts from Danbooru
+ */
+export const v2DownloadFromDanbooru = <ThrowOnError extends boolean = false>(options: Options<V2DownloadFromDanbooruData, ThrowOnError>) => (options.client ?? client).post<V2DownloadFromDanbooruResponses, V2DownloadFromDanbooruErrors, ThrowOnError>({
+    responseType: 'json',
+    url: '/v2/cmd/download-from-danbooru',
+    ...options
+});
+
+/**
+ * ImportFromUrlEndpoint
+ *
+ * Fetch a creator/tag URL via gallery-dl in the background and persist new images
+ */
+export const v2ImportFromUrlEndpoint = <ThrowOnError extends boolean = false>(options: Options<V2ImportFromUrlEndpointData, ThrowOnError>) => (options.client ?? client).post<V2ImportFromUrlEndpointResponses, V2ImportFromUrlEndpointErrors, ThrowOnError>({
+    responseType: 'json',
+    url: '/v2/cmd/import-from-url',
+    ...options
+});
+
+/**
+ * ImportFromUrlStatus
+ *
+ * Status of the current/last background URL import
+ */
+export const v2ImportFromUrlStatus = <ThrowOnError extends boolean = false>(options?: Options<V2ImportFromUrlStatusData, ThrowOnError>) => (options?.client ?? client).get<V2ImportFromUrlStatusResponses, unknown, ThrowOnError>({
+    responseType: 'json',
+    url: '/v2/cmd/import-from-url/status',
+    ...options
+});
+
+/**
+ * GetOriginalById
+ *
+ * Get original image by post id, falling back to S3 if missing locally.
+ */
+export const v2GetOriginalById = <ThrowOnError extends boolean = false>(options: Options<V2GetOriginalByIdData, ThrowOnError>) => (options.client ?? client).get<V2GetOriginalByIdResponses, V2GetOriginalByIdErrors, ThrowOnError>({
+    responseType: 'json',
+    url: '/v2/images/original/id/{post_id}',
+    ...options
+});
+
+/**
+ * GetThumbnailById
+ *
+ * Get thumbnail image by post id (creates one if missing).
+ */
+export const v2GetThumbnailById = <ThrowOnError extends boolean = false>(options: Options<V2GetThumbnailByIdData, ThrowOnError>) => (options.client ?? client).get<V2GetThumbnailByIdResponses, V2GetThumbnailByIdErrors, ThrowOnError>({ url: '/v2/images/thumbnails/id/{post_id}', ...options });
+
+/**
+ * GetOriginal
+ *
+ * Get original image by file path.
+ */
+export const v2GetOriginal = <ThrowOnError extends boolean = false>(options: Options<V2GetOriginalData, ThrowOnError>) => (options.client ?? client).get<V2GetOriginalResponses, V2GetOriginalErrors, ThrowOnError>({ url: '/v2/images/original/{post_path}', ...options });
+
+/**
+ * GetThumbnail
+ *
+ * Get thumbnail image by file path (creates one if missing).
+ */
+export const v2GetThumbnail = <ThrowOnError extends boolean = false>(options: Options<V2GetThumbnailData, ThrowOnError>) => (options.client ?? client).get<V2GetThumbnailResponses, V2GetThumbnailErrors, ThrowOnError>({ url: '/v2/images/thumbnails/{post_path}', ...options });
+
+/**
+ * GetPostsCount
+ *
+ * Count posts by filters.
+ */
+export const v2GetPostsCount = <ThrowOnError extends boolean = false>(options: Options<V2GetPostsCountData, ThrowOnError>) => (options.client ?? client).post<V2GetPostsCountResponses, V2GetPostsCountErrors, ThrowOnError>({
+    responseType: 'json',
+    url: '/v2/posts/count',
+    ...options,
+    headers: {
+        'Content-Type': 'application/json',
+        ...options.headers
+    }
+});
+
+/**
+ * GetRatingCount
+ *
+ * Count posts by rating.
+ */
+export const v2GetRatingCount = <ThrowOnError extends boolean = false>(options: Options<V2GetRatingCountData, ThrowOnError>) => (options.client ?? client).post<V2GetRatingCountResponses, V2GetRatingCountErrors, ThrowOnError>({
+    responseType: 'json',
+    url: '/v2/posts/count/rating',
+    ...options,
+    headers: {
+        'Content-Type': 'application/json',
+        ...options.headers
+    }
+});
+
+/**
+ * GetScoreCount
+ *
+ * Count posts by score.
+ */
+export const v2GetScoreCount = <ThrowOnError extends boolean = false>(options: Options<V2GetScoreCountData, ThrowOnError>) => (options.client ?? client).post<V2GetScoreCountResponses, V2GetScoreCountErrors, ThrowOnError>({
+    responseType: 'json',
+    url: '/v2/posts/count/score',
+    ...options,
+    headers: {
+        'Content-Type': 'application/json',
+        ...options.headers
+    }
+});
+
+/**
+ * GetExtensionCount
+ *
+ * Count posts by extension.
+ */
+export const v2GetExtensionCount = <ThrowOnError extends boolean = false>(options: Options<V2GetExtensionCountData, ThrowOnError>) => (options.client ?? client).post<V2GetExtensionCountResponses, V2GetExtensionCountErrors, ThrowOnError>({
+    responseType: 'json',
+    url: '/v2/posts/count/extension',
+    ...options,
+    headers: {
+        'Content-Type': 'application/json',
+        ...options.headers
+    }
+});
+
+/**
+ * GetWaifuBucketCount
+ *
+ * Count posts by waifu-score bucket (A/B/C/D/E/UNSCORED).
+ */
+export const v2GetWaifuBucketCount = <ThrowOnError extends boolean = false>(options: Options<V2GetWaifuBucketCountData, ThrowOnError>) => (options.client ?? client).post<V2GetWaifuBucketCountResponses, V2GetWaifuBucketCountErrors, ThrowOnError>({
+    responseType: 'json',
+    url: '/v2/posts/count/waifu',
+    ...options,
+    headers: {
+        'Content-Type': 'application/json',
+        ...options.headers
+    }
+});
+
+/**
+ * GetSilvaBucketCount
+ *
+ * Count posts by SILVA aesthetic bucket (A/B/C/D/E/UNSCORED).
+ */
+export const v2GetSilvaBucketCount = <ThrowOnError extends boolean = false>(options: Options<V2GetSilvaBucketCountData, ThrowOnError>) => (options.client ?? client).post<V2GetSilvaBucketCountResponses, V2GetSilvaBucketCountErrors, ThrowOnError>({
+    responseType: 'json',
+    url: '/v2/posts/count/silva',
+    ...options,
+    headers: {
+        'Content-Type': 'application/json',
+        ...options.headers
+    }
+});
+
+/**
+ * GetSilvaLunaBucketCount
+ *
+ * Count posts by SILVA-Luna aesthetic bucket (A/B/C/D/E/UNSCORED).
+ */
+export const v2GetSilvaLunaBucketCount = <ThrowOnError extends boolean = false>(options: Options<V2GetSilvaLunaBucketCountData, ThrowOnError>) => (options.client ?? client).post<V2GetSilvaLunaBucketCountResponses, V2GetSilvaLunaBucketCountErrors, ThrowOnError>({
+    responseType: 'json',
+    url: '/v2/posts/count/silva-luna',
+    ...options,
+    headers: {
+        'Content-Type': 'application/json',
+        ...options.headers
+    }
+});
+
+/**
+ * GetPostsStats
+ *
+ * Aggregate quality stats (avg score, avg waifu, rating distribution) for posts matching filter.
+ */
+export const v2GetPostsStats = <ThrowOnError extends boolean = false>(options: Options<V2GetPostsStatsData, ThrowOnError>) => (options.client ?? client).post<V2GetPostsStatsResponses, V2GetPostsStatsErrors, ThrowOnError>({
+    responseType: 'json',
+    url: '/v2/posts/stats',
+    ...options,
+    headers: {
+        'Content-Type': 'application/json',
+        ...options.headers
+    }
+});
+
+/**
+ * GetTagCount
+ *
+ * Count posts per tag (searchable, top-N by count).
+ */
+export const v2GetTagCount = <ThrowOnError extends boolean = false>(options: Options<V2GetTagCountData, ThrowOnError>) => (options.client ?? client).post<V2GetTagCountResponses, V2GetTagCountErrors, ThrowOnError>({
+    responseType: 'json',
+    url: '/v2/posts/count/tags',
+    ...options,
+    headers: {
+        'Content-Type': 'application/json',
+        ...options.headers
+    }
+});
+
+/**
+ * BulkUpdatePostScore
+ */
+export const v2BulkUpdatePostScore = <ThrowOnError extends boolean = false>(options: Options<V2BulkUpdatePostScoreData, ThrowOnError>) => (options.client ?? client).put<V2BulkUpdatePostScoreResponses, V2BulkUpdatePostScoreErrors, ThrowOnError>({ url: '/v2/posts/bulk/score', ...options });
+
+/**
+ * BulkUpdatePostRating
+ */
+export const v2BulkUpdatePostRating = <ThrowOnError extends boolean = false>(options: Options<V2BulkUpdatePostRatingData, ThrowOnError>) => (options.client ?? client).put<V2BulkUpdatePostRatingResponses, V2BulkUpdatePostRatingErrors, ThrowOnError>({ url: '/v2/posts/bulk/rating', ...options });
+
+/**
+ * UpdatePostScore
+ */
+export const v2UpdatePostScore = <ThrowOnError extends boolean = false>(options: Options<V2UpdatePostScoreData, ThrowOnError>) => (options.client ?? client).put<V2UpdatePostScoreResponses, V2UpdatePostScoreErrors, ThrowOnError>({
+    responseType: 'json',
+    url: '/v2/posts/{post_id}/score',
+    ...options,
+    headers: {
+        'Content-Type': 'application/json',
+        ...options.headers
+    }
+});
+
+/**
+ * UpdatePostRating
+ */
+export const v2UpdatePostRating = <ThrowOnError extends boolean = false>(options: Options<V2UpdatePostRatingData, ThrowOnError>) => (options.client ?? client).put<V2UpdatePostRatingResponses, V2UpdatePostRatingErrors, ThrowOnError>({
+    responseType: 'json',
+    url: '/v2/posts/{post_id}/rating',
+    ...options
+});
+
+/**
+ * UpdatePostCaption
+ */
+export const v2UpdatePostCaption = <ThrowOnError extends boolean = false>(options: Options<V2UpdatePostCaptionData, ThrowOnError>) => (options.client ?? client).put<V2UpdatePostCaptionResponses, V2UpdatePostCaptionErrors, ThrowOnError>({
+    responseType: 'json',
+    url: '/v2/posts/{post_id}/caption',
+    ...options
+});
+
+/**
+ * UpdatePostSource
+ */
+export const v2UpdatePostSource = <ThrowOnError extends boolean = false>(options: Options<V2UpdatePostSourceData, ThrowOnError>) => (options.client ?? client).put<V2UpdatePostSourceResponses, V2UpdatePostSourceErrors, ThrowOnError>({
+    responseType: 'json',
+    url: '/v2/posts/{post_id}/source',
+    ...options
+});
+
+/**
+ * TouchPost
+ *
+ * Record a view by bumping last_accessed_at.
+ */
+export const v2TouchPost = <ThrowOnError extends boolean = false>(options: Options<V2TouchPostData, ThrowOnError>) => (options.client ?? client).post<V2TouchPostResponses, V2TouchPostErrors, ThrowOnError>({ url: '/v2/posts/{post_id}/touch', ...options });
+
+/**
+ * UngroupPost
+ *
+ * Detach this post from its near-duplicate group (make it standalone).
+ */
+export const v2UngroupPost = <ThrowOnError extends boolean = false>(options: Options<V2UngroupPostData, ThrowOnError>) => (options.client ?? client).put<V2UngroupPostResponses, V2UngroupPostErrors, ThrowOnError>({
+    responseType: 'json',
+    url: '/v2/posts/{post_id}/ungroup',
+    ...options
+});
+
+/**
+ * MakePostCanonical
+ *
+ * Promote this group member to be the group's canonical representative.
+ */
+export const v2MakePostCanonical = <ThrowOnError extends boolean = false>(options: Options<V2MakePostCanonicalData, ThrowOnError>) => (options.client ?? client).put<V2MakePostCanonicalResponses, V2MakePostCanonicalErrors, ThrowOnError>({
+    responseType: 'json',
+    url: '/v2/posts/{post_id}/make-canonical',
+    ...options
+});
+
+/**
+ * DeletePosts
+ */
+export const v2DeletePosts = <ThrowOnError extends boolean = false>(options: Options<V2DeletePostsData, ThrowOnError>) => (options.client ?? client).delete<V2DeletePostsResponses, V2DeletePostsErrors, ThrowOnError>({ url: '/v2/posts/delete', ...options });
+
+/**
+ * RotatePostImage
+ *
+ * Rotate post image by id; updates sha256/width/height/arthash.
+ */
+export const v2RotatePostImage = <ThrowOnError extends boolean = false>(options: Options<V2RotatePostImageData, ThrowOnError>) => (options.client ?? client).put<V2RotatePostImageResponses, V2RotatePostImageErrors, ThrowOnError>({
+    responseType: 'json',
+    url: '/v2/posts/{post_id}/rotate',
+    ...options
+});
+
+/**
+ * UploadFile
+ */
+export const v2UploadFile = <ThrowOnError extends boolean = false>(options: Options<V2UploadFileData, ThrowOnError>) => (options.client ?? client).post<V2UploadFileResponses, V2UploadFileErrors, ThrowOnError>({
+    ...formDataBodySerializer,
+    url: '/v2/posts/upload',
+    ...options,
+    headers: {
+        'Content-Type': null,
+        ...options.headers
+    }
+});
+
+/**
+ * ListPosts
+ *
+ * Get all posts.
+ */
+export const v2ListPosts = <ThrowOnError extends boolean = false>(options?: Options<V2ListPostsData, ThrowOnError>) => (options?.client ?? client).get<V2ListPostsResponses, V2ListPostsErrors, ThrowOnError>({
+    responseType: 'json',
+    url: '/v2/posts',
+    ...options
+});
+
+/**
+ * SearchPosts
+ *
+ * Search for posts by filters.
+ */
+export const v2SearchPosts = <ThrowOnError extends boolean = false>(options: Options<V2SearchPostsData, ThrowOnError>) => (options.client ?? client).post<V2SearchPostsResponses, V2SearchPostsErrors, ThrowOnError>({
+    responseType: 'json',
+    url: '/v2/posts/search',
+    ...options,
+    headers: {
+        'Content-Type': 'application/json',
+        ...options.headers
+    }
+});
+
+/**
+ * SearchPostsByText
+ *
+ * Search posts by SigLIP 2 text embedding, combinable with the standard post filters.
+ */
+export const v2SearchPostsByText = <ThrowOnError extends boolean = false>(options: Options<V2SearchPostsByTextData, ThrowOnError>) => (options.client ?? client).post<V2SearchPostsByTextResponses, V2SearchPostsByTextErrors, ThrowOnError>({
+    responseType: 'json',
+    url: '/v2/posts/search/text',
+    ...options,
+    headers: {
+        'Content-Type': 'application/json',
+        ...options.headers
+    }
+});
+
+/**
+ * GetPost
+ */
+export const v2GetPost = <ThrowOnError extends boolean = false>(options: Options<V2GetPostData, ThrowOnError>) => (options.client ?? client).get<V2GetPostResponses, V2GetPostErrors, ThrowOnError>({
+    responseType: 'json',
+    url: '/v2/posts/{post_id}',
+    ...options
+});
+
+/**
+ * GetPostGroup
+ *
+ * List the hidden near-duplicate members of this post's group.
+ */
+export const v2GetPostGroup = <ThrowOnError extends boolean = false>(options: Options<V2GetPostGroupData, ThrowOnError>) => (options.client ?? client).get<V2GetPostGroupResponses, V2GetPostGroupErrors, ThrowOnError>({
+    responseType: 'json',
+    url: '/v2/posts/{post_id}/group',
+    ...options
+});
+
+/**
+ * GetSimilarPosts
+ */
+export const v2GetSimilarPosts = <ThrowOnError extends boolean = false>(options: Options<V2GetSimilarPostsData, ThrowOnError>) => (options.client ?? client).get<V2GetSimilarPostsResponses, V2GetSimilarPostsErrors, ThrowOnError>({
+    responseType: 'json',
+    url: '/v2/posts/{post_id}/similar',
     ...options
 });

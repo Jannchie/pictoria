@@ -127,8 +127,8 @@ export const postProcessFailures = sqliteTable('post_process_failures', {
 export const annotationQueues = sqliteTable('annotation_queues', {
   id: integer('id').primaryKey(),
   name: text('name').notNull(),
-  /** SQL 侧有 CHECK (kind IN ('absolute','pairwise'))。 */
-  kind: text('kind').$type<'absolute' | 'pairwise'>().notNull(),
+  /** SQL 侧有 CHECK (kind IN ('absolute','pairwise','listwise'))。 */
+  kind: text('kind').$type<'absolute' | 'pairwise' | 'listwise'>().notNull(),
   /** dimension key 的 JSON 数组。 */
   dimensions: text('dimensions').notNull(),
   /** absolute 队列用；pairwise 为 NULL。 */
@@ -177,6 +177,28 @@ export const pairwiseQueueItems = sqliteTable('pairwise_queue_items', {
   position: integer('position').notNull(),
   postA: integer('post_a').notNull(),
   postB: integer('post_b').notNull(),
+  done: integer('done').notNull().default(0),
+}, t => [primaryKey({ columns: [t.queueId, t.position] })])
+
+export const listwiseAnnotations = sqliteTable('listwise_annotations', {
+  id: integer('id').primaryKey(),
+  createdAt: text('created_at').notNull().default(sql`(datetime('now'))`),
+  /** post_id 的 JSON 数组，呈现顺序 —— 留着让顺序效应可审计。 */
+  postIds: text('post_ids').notNull(),
+  /** post_id 的 JSON 数组，最好在前；`[]` = skip。 */
+  ranking: text('ranking').notNull(),
+  dimension: text('dimension').notNull(),
+  rubricVersion: text('rubric_version').notNull(),
+  sessionId: text('session_id').notNull(),
+  elapsedMs: integer('elapsed_ms'),
+  editedAt: text('edited_at'),
+})
+
+export const listwiseQueueItems = sqliteTable('listwise_queue_items', {
+  queueId: integer('queue_id').notNull().references(() => annotationQueues.id),
+  position: integer('position').notNull(),
+  /** 这一屏的组成员，post_id 的 JSON 数组。 */
+  postIds: text('post_ids').notNull(),
   done: integer('done').notNull().default(0),
 }, t => [primaryKey({ columns: [t.queueId, t.position] })])
 

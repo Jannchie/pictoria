@@ -466,6 +466,42 @@ export class Sampler {
     return out
   }
 
+  /**
+   * listwise 组：每组 `size` 张 silva 分落在同一窗口、视觉上铺开的图。
+   *
+   * 一组 n 张的全序买到 C(n,2) 个成对约束（8 张 = 28 对），而窗口约束（任意两成员
+   * silva 分差 ≤ CLOSE_PAIR_MAX_SILVA_DIFF）保证这些约束几乎全落在 head 分不开的
+   * 边界上 —— 与 close 成对采样同一逻辑，只是把"环"换成"整组排序"。复用同一套
+   * 窗口机器：种子按库的实际分布抽，窗口内先塞 1~2 张已判但比较不足的图（把这组
+   * 缝进已有比较图），其余用最远点铺开（转载/近重复被 MAX_PAIR_COSINE 硬停挡住）。
+   *
+   * 成员在返回前打乱：呈现顺序必须与任何有意义的量（分数、度数、抽样次序）无关，
+   * 否则顺序效应与真实偏好在导出的数据里不可分。
+   */
+  sampleGroups({ count, size = 8, dimension = 'overall' }: { count: number, size?: number, dimension?: string }): number[][] {
+    const graph = this.judgedGraph(dimension)
+    const revisit = this.revisitPool(graph, dimension)
+    const spent = new Set<number>()
+    const groups: number[][] = []
+    for (const seed of this.windowSeeds(Math.max(CLOSE_SEED_DRAW, count * 2))) {
+      if (groups.length >= count)
+        break
+      if (spent.has(seed.id))
+        continue
+      const seeds = Sampler.revisitSeeds(revisit, graph, seed.score, spent, CLOSE_REVISIT_MEMBERS)
+      const members = this.diverseSubset(this.windowCandidates(seed.score, spent), size, seeds)
+      if (members.length < MIN_CYCLE_MEMBERS)
+        continue // 一屏排 2 张不如一次 pairwise；窗口太稀就换个中心
+      for (const pid of members) spent.add(pid)
+      for (let i = members.length - 1; i > 0; i--) {
+        const j = Math.floor(Math.random() * (i + 1));
+        [members[i], members[j]] = [members[j]!, members[i]!]
+      }
+      groups.push(members)
+    }
+    return groups
+  }
+
   // ─── similar：内容相似 + 旧分档位 ─────────────────────────────────
   //
   // 一次覆盖全库的 vec0 KNN 约 1.5 s（暴力扫，没有 ANN 索引），所以负担不起一对一次 KNN。
@@ -987,4 +1023,12 @@ export function samplePairs(
   opts: { count: number, strategy?: string, dimension?: string },
 ): Array<[number, number]> {
   return new Sampler(sqlite).samplePairs(opts)
+}
+
+/** 为 listwise 标注抽分数相近、视觉铺开的组。 */
+export function sampleGroups(
+  sqlite: BetterSqlite3.Database,
+  opts: { count: number, size?: number, dimension?: string },
+): number[][] {
+  return new Sampler(sqlite).sampleGroups(opts)
 }

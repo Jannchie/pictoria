@@ -56,6 +56,17 @@ function rowKey(e: TimelineEntryPublic) {
   return `${e.kind}-${e.id}`
 }
 
+/** listwise 行的判定标签：缩略图是组内赢家，这里说明组的规模；空排序 = 跳过。 */
+function listwiseLabel(ranking: string | null | undefined): string {
+  try {
+    const n = (JSON.parse(ranking ?? '[]') as number[]).length
+    return n ? `排序 ${n} 张` : '跳过一组'
+  }
+  catch {
+    return '排序'
+  }
+}
+
 // Selecting a row hands it to the session, which shows the pictures full size and
 // re-judges with the same keys used to judge them in the first place. Editing from
 // a 34px thumbnail in this list was the wrong surface for the one decision this is:
@@ -153,6 +164,7 @@ useIntersectionObserver(
               <span class="text-fg font-medium truncate">
                 <template v-if="e.kind === 'pairwise'">{{ winnerLabel(e.winner) }}</template>
                 <template v-else-if="e.kind === 'absolute'">{{ e.value }} / {{ e.scale }}</template>
+                <template v-else-if="e.kind === 'listwise'">{{ listwiseLabel(e.ranking) }}</template>
                 <template v-else>{{ flagGlyph(e.flag) }}</template>
               </span>
               <span class="text-fg-muted truncate">

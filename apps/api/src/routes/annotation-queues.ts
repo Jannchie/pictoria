@@ -7,10 +7,14 @@
 import { createRoute, OpenAPIHono, z } from '@hono/zod-openapi'
 import {
   createAbsoluteQueue,
+  createListwiseQueue,
   createPairwiseQueue,
   listQueues,
   nextAbsoluteItems,
+  nextListwiseItems,
   nextPairwiseItems,
+  postsById,
+  sampleGroups,
   samplePairs,
   samplePostIds,
 } from '@pictoria/db'
@@ -60,6 +64,14 @@ const PairwiseQueueCreate = z
   })
   .openapi('PairwiseQueueCreate')
 
+const ListwiseQueueCreate = z
+  .object({
+    name: z.string(),
+    dimensions: z.array(z.string()),
+    groups: z.array(z.array(z.int())),
+  })
+  .openapi('ListwiseQueueCreate')
+
 const AbsoluteQueueItemPublic = z
   .object({ position: z.int(), post: QueueItemPostPublic })
   .openapi('AbsoluteQueueItemPublic')
@@ -67,6 +79,10 @@ const AbsoluteQueueItemPublic = z
 const PairwiseQueueItemPublic = z
   .object({ position: z.int(), postA: QueueItemPostPublic, postB: QueueItemPostPublic })
   .openapi('PairwiseQueueItemPublic')
+
+const ListwiseQueueItemPublic = z
+  .object({ position: z.int(), posts: z.array(QueueItemPostPublic) })
+  .openapi('ListwiseQueueItemPublic')
 
 export const annotationQueuesRoutes = new OpenAPIHono({ defaultHook: zodErrorHook })
 
@@ -127,6 +143,30 @@ annotationQueuesRoutes.openapi(
       name: d.name,
       dimensions: d.dimensions,
       pairs: d.pairs as Array<[number, number]>,
+    })
+    return c.json({ id }, 201)
+  },
+)
+
+annotationQueuesRoutes.openapi(
+  createRoute({
+    method: 'post',
+    path: '/v2/annotation-queues/listwise',
+    operationId: 'v2CreateListwise',
+    summary: 'CreateListwise',
+    description: 'Create a listwise queue from an ordered list of post-id groups.',
+    request: { body: { required: true, content: { 'application/json': { schema: ListwiseQueueCreate } } } },
+    responses: {
+      201: { description: 'Document created, URL follows', content: { 'application/json': { schema: QueueCreatedPublic } } },
+      ...RESP_400,
+    },
+  }),
+  (c) => {
+    const d = c.req.valid('json')
+    const id = createListwiseQueue(getDb().sqlite, {
+      name: d.name,
+      dimensions: d.dimensions,
+      groups: d.groups,
     })
     return c.json({ id }, 201)
   },
@@ -220,6 +260,41 @@ annotationQueuesRoutes.openapi(
   },
 )
 
+annotationQueuesRoutes.openapi(
+  createRoute({
+    method: 'get',
+    path: '/v2/annotation-queues/{queue_id}/next-listwise',
+    operationId: 'v2NextListwise',
+    summary: 'NextListwise',
+    description: 'Next undone items of a listwise queue, each a group of posts to rank.',
+    request: {
+      params: z.object({ queue_id: queueIdParam }),
+      query: z.object({ limit: limitParam }),
+    },
+    responses: {
+      200: { description: OK, content: { 'application/json': { schema: z.array(ListwiseQueueItemPublic) } } },
+      ...RESP_400,
+    },
+  }),
+  (c) => {
+    const { queue_id: queueId } = c.req.valid('param')
+    const { limit } = c.req.valid('query')
+    const { sqlite } = getDb()
+    const items = nextListwiseItems(sqlite, queueId, limit)
+    // 一次取齐所有成员的图片行；已删除的图从组里静默消失，剩下的仍然可排。
+    const posts = postsById(sqlite, items.flatMap(i => i.post_ids))
+    return c.json(
+      items.map(i => ({
+        position: i.position,
+        posts: i.post_ids.filter(pid => posts.has(pid)).map((pid) => {
+          const p = posts.get(pid)!
+          return { id: p.post_id, filePath: p.file_path, fileName: p.file_name, extension: p.extension, sha256: p.sha256, width: p.width, height: p.height }
+        }),
+      })),
+    )
+  },
+)
+
 /** 与 Python 侧 `annotation_queues.py` 的常量一致。 */
 const VALID_DIMENSIONS = ['color', 'finish', 'composition', 'overall'] as const
 const VALID_SCALES = [2, 3, 5]
@@ -244,6 +319,15 @@ const GeneratePairwiseIn = z
     name: z.union([z.string(), z.null()]).optional(),
   })
   .openapi('GeneratePairwiseIn')
+
+const GenerateListwiseIn = z
+  .object({
+    dimension: z.string(),
+    count: z.int(),
+    size: z.int().default(8),
+    name: z.union([z.string(), z.null()]).optional(),
+  })
+  .openapi('GenerateListwiseIn')
 
 annotationQueuesRoutes.openapi(
   createRoute({
@@ -318,6 +402,44 @@ annotationQueuesRoutes.openapi(
       dimensions: [d.dimension],
       scale: null,
       total: pairs.length,
+      done: 0,
+    }, 201)
+  },
+)
+
+annotationQueuesRoutes.openapi(
+  createRoute({
+    method: 'post',
+    path: '/v2/annotation-queues/generate-listwise',
+    operationId: 'v2GenerateListwise',
+    summary: 'GenerateListwise',
+    description: 'Auto-generate a listwise queue: groups of ~size posts whose silva scores sit in one close window, visually spread. Ranking one group yields C(size,2) boundary comparisons.',
+    request: { body: { required: true, content: { 'application/json': { schema: GenerateListwiseIn } } } },
+    responses: {
+      201: { description: 'Document created, URL follows', content: { 'application/json': { schema: QueueSummaryPublic } } },
+      ...RESP_400,
+    },
+  }),
+  (c) => {
+    const d = c.req.valid('json')
+    if (!VALID_DIMENSIONS.includes(d.dimension as never))
+      return validationError(`invalid dimension: ${pyRepr(d.dimension)}`) as never
+    if (d.size < 3 || d.size > 16)
+      return validationError(`invalid size: ${d.size} (want 3..16)`) as never
+
+    const { sqlite } = getDb()
+    const groups = sampleGroups(sqlite, { count: d.count, size: d.size, dimension: d.dimension })
+    if (!groups.length)
+      return validationError('no eligible candidates (need silva-scored posts with embeddings)') as never
+    const name = d.name || `listwise-${d.dimension}-${groups.length}x${d.size}`
+    const id = createListwiseQueue(sqlite, { name, dimensions: [d.dimension], groups })
+    return c.json({
+      id,
+      name,
+      kind: 'listwise',
+      dimensions: [d.dimension],
+      scale: null,
+      total: groups.length,
       done: 0,
     }, 201)
   },

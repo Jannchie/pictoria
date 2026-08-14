@@ -18,6 +18,8 @@ export const ABSOLUTE_COLUMNS
   = 'id, created_at, post_id, dimension, scale, value, rubric_version, session_id, elapsed_ms, edited_at'
 export const PAIRWISE_COLUMNS
   = 'id, created_at, post_a, post_b, dimension, winner, rubric_version, session_id, elapsed_ms, edited_at'
+export const LISTWISE_COLUMNS
+  = 'id, created_at, post_ids, ranking, dimension, rubric_version, session_id, elapsed_ms, edited_at'
 export const FLAG_COLUMNS = 'id, created_at, post_id, flag, session_id'
 
 /**
@@ -31,6 +33,7 @@ export const FLAG_COLUMNS = 'id, created_at, post_id, flag, session_id'
 const MUTABLE: Record<string, { table: string, column: string }> = {
   absolute: { table: 'absolute_annotations', column: 'value' },
   pairwise: { table: 'pairwise_annotations', column: 'winner' },
+  listwise: { table: 'listwise_annotations', column: 'ranking' },
 }
 
 export const MUTABLE_KINDS = new Set(Object.keys(MUTABLE))
@@ -46,15 +49,20 @@ export const MUTABLE_KINDS = new Set(Object.keys(MUTABLE))
  */
 const TIMELINE_SQL = `
 SELECT id, created_at, 'pairwise' AS kind, post_a AS post, post_b, dimension,
-       winner, NULL AS scale, NULL AS value, NULL AS flag, edited_at
+       winner, NULL AS scale, NULL AS value, NULL AS flag, NULL AS ranking, edited_at
   FROM pairwise_annotations
 UNION ALL
 SELECT id, created_at, 'absolute', post_id, NULL, dimension,
-       NULL, scale, value, NULL, edited_at
+       NULL, scale, value, NULL, NULL, edited_at
   FROM absolute_annotations
 UNION ALL
+SELECT id, created_at, 'listwise',
+       COALESCE(json_extract(ranking, '$[0]'), json_extract(post_ids, '$[0]')), NULL, dimension,
+       NULL, NULL, NULL, NULL, ranking, edited_at
+  FROM listwise_annotations
+UNION ALL
 SELECT id, created_at, 'flag', post_id, NULL, NULL,
-       NULL, NULL, NULL, flag, NULL
+       NULL, NULL, NULL, flag, NULL, NULL
   FROM content_flag_events
 `
 
@@ -93,6 +101,25 @@ export function insertPairwise(sqlite: BetterSqlite3.Database, e: PairwiseEventI
       'INSERT INTO pairwise_annotations (post_a, post_b, dimension, winner, rubric_version, session_id, elapsed_ms) VALUES (?, ?, ?, ?, ?, ?, ?)',
     )
     .run(e.post_a, e.post_b, e.dimension, e.winner, e.rubric_version, e.session_id, e.elapsed_ms ?? null)
+  return Number(lastInsertRowid)
+}
+
+export interface ListwiseEventIn {
+  post_ids: number[]
+  /** post_id 最好在前；空数组 = skip。非空时必须是 post_ids 的一个排列（应用层校验）。 */
+  ranking: number[]
+  dimension: string
+  rubric_version: string
+  session_id: string
+  elapsed_ms?: number | null
+}
+
+export function insertListwise(sqlite: BetterSqlite3.Database, e: ListwiseEventIn): number {
+  const { lastInsertRowid } = sqlite
+    .prepare(
+      'INSERT INTO listwise_annotations (post_ids, ranking, dimension, rubric_version, session_id, elapsed_ms) VALUES (?, ?, ?, ?, ?, ?)',
+    )
+    .run(JSON.stringify(e.post_ids), JSON.stringify(e.ranking), e.dimension, e.rubric_version, e.session_id, e.elapsed_ms ?? null)
   return Number(lastInsertRowid)
 }
 
@@ -195,6 +222,23 @@ export function listPairwiseForPost(
     .all(postId, postId)
 }
 
+/**
+ * 含有某张图的 listwise 事件。JSON 数组列上没有等值索引可用，`LIKE` 先粗筛（把扫描
+ * 面从全表压到含这个数字串的行），再在 JS 里精确核对成员身份 —— post_id 12 不能命中
+ * [112, 5]。这个查询只喂单图详情页，行数是"这张图被排过几次"，个位数。
+ */
+export function listListwiseForPost(
+  sqlite: BetterSqlite3.Database,
+  postId: number,
+): Array<Record<string, unknown>> {
+  return sqlite
+    .prepare<[string], Record<string, unknown>>(
+      `SELECT ${LISTWISE_COLUMNS} FROM listwise_annotations WHERE post_ids LIKE ? ORDER BY id`,
+    )
+    .all(`%${postId}%`)
+    .filter(r => (JSON.parse(r.post_ids as string) as number[]).includes(postId))
+}
+
 export function latestContentFlag(
   sqlite: BetterSqlite3.Database,
   postId: number,
@@ -231,6 +275,7 @@ export function countPairwise(
 const ITEM_TABLES: Record<string, string> = {
   absolute: 'absolute_queue_items',
   pairwise: 'pairwise_queue_items',
+  listwise: 'listwise_queue_items',
 }
 
 /** 翻转一个队列项的 done 标记。`done=false` 是 undo 放回去用的。 */

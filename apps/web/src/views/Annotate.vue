@@ -3,8 +3,9 @@ import type { QueueSummaryPublic } from '@/api'
 import type { StreamConfig } from '@/components/annotate/AbsoluteAnnotationSession.vue'
 import { useQuery } from '@tanstack/vue-query'
 import { computed, ref } from 'vue'
-import { v2GenerateAbsolute, v2GeneratePairwise, v2ListQueues } from '@/api'
+import { v2GenerateAbsolute, v2GenerateListwise, v2GeneratePairwise, v2ListQueues } from '@/api'
 import AbsoluteAnnotationSession from '@/components/annotate/AbsoluteAnnotationSession.vue'
+import ListwiseAnnotationSession from '@/components/annotate/ListwiseAnnotationSession.vue'
 import PairwiseAnnotationSession from '@/components/annotate/PairwiseAnnotationSession.vue'
 import { useAPIError } from '@/composables/useAPIError'
 import { queryKeys } from '@/shared/queryKeys'
@@ -15,6 +16,7 @@ type Session
   = | { mode: 'queue', queue: QueueSummaryPublic }
     | { mode: 'stream-absolute', config: StreamConfig }
     | { mode: 'stream-pairwise', dimension: string, strategy: 'random' | 'similar' | 'close' }
+    | { mode: 'stream-listwise', dimension: string, size: number }
 
 const session = ref<Session | null>(null)
 
@@ -54,13 +56,14 @@ const DIMENSIONS: DimensionMeta[] = [
 // 默认 = 双图对比 + 难分对：比较判断绕开绝对分的天花板/通胀/漂移，
 // 难分对把标注花在模型自己分不开的边界上。
 const form = ref({
-  kind: 'pairwise' as 'absolute' | 'pairwise',
+  kind: 'pairwise' as 'absolute' | 'pairwise' | 'listwise',
   dimensions: ['overall'] as string[], // 仅单图评分使用
   scale: 2,
   strategy: 'stratified' as 'random' | 'stratified', // 单图评分采样
   pairwiseStrategy: 'close' as 'random' | 'similar' | 'close',
 })
-const canStart = computed(() => form.value.kind === 'pairwise' || form.value.dimensions.length > 0)
+const LISTWISE_SIZE = 8
+const canStart = computed(() => form.value.kind !== 'absolute' || form.value.dimensions.length > 0)
 
 function toggleDimension(d: string) {
   const dims = form.value.dimensions
@@ -95,7 +98,9 @@ function startStream() {
           strategy: form.value.strategy,
         },
       }
-    : { mode: 'stream-pairwise', dimension: PAIRWISE_DIMENSION, strategy: form.value.pairwiseStrategy }
+    : form.value.kind === 'listwise'
+      ? { mode: 'stream-listwise', dimension: PAIRWISE_DIMENSION, size: LISTWISE_SIZE }
+      : { mode: 'stream-pairwise', dimension: PAIRWISE_DIMENSION, strategy: form.value.pairwiseStrategy }
 }
 
 // ── 队列（固定批次：形态对比实验 / intra-rater 复测用）──────────
@@ -118,9 +123,13 @@ async function generateQueue() {
             strategy: form.value.strategy,
           },
         })
-      : v2GeneratePairwise({
-          body: { dimension: PAIRWISE_DIMENSION, count: queueCount.value, strategy: form.value.pairwiseStrategy },
-        }))
+      : form.value.kind === 'listwise'
+        ? v2GenerateListwise({
+            body: { dimension: PAIRWISE_DIMENSION, count: queueCount.value, size: LISTWISE_SIZE },
+          })
+        : v2GeneratePairwise({
+            body: { dimension: PAIRWISE_DIMENSION, count: queueCount.value, strategy: form.value.pairwiseStrategy },
+          }))
     await refetch()
   }
   catch (error) {
@@ -144,6 +153,11 @@ async function generateQueue() {
       :queue="session.queue"
       @exit="exitSession"
     />
+    <ListwiseAnnotationSession
+      v-else-if="session?.mode === 'queue' && session.queue.kind === 'listwise'"
+      :queue="session.queue"
+      @exit="exitSession"
+    />
     <AbsoluteAnnotationSession
       v-else-if="session?.mode === 'stream-absolute'"
       :config="session.config"
@@ -153,6 +167,12 @@ async function generateQueue() {
       v-else-if="session?.mode === 'stream-pairwise'"
       :dimension="session.dimension"
       :strategy="session.strategy"
+      @exit="exitSession"
+    />
+    <ListwiseAnnotationSession
+      v-else-if="session?.mode === 'stream-listwise'"
+      :dimension="session.dimension"
+      :size="session.size"
       @exit="exitSession"
     />
 
@@ -172,7 +192,7 @@ async function generateQueue() {
         <div class="annotate-section-title">
           模式
         </div>
-        <div class="gap-2.5 grid grid-cols-2">
+        <div class="gap-2.5 grid grid-cols-3">
           <button
             class="annotate-mode-card"
             :class="{ 'annotate-mode-card--active': form.kind === 'absolute' }"
@@ -200,6 +220,21 @@ async function generateQueue() {
               </div>
               <div class="text-xs text-fg-muted mt-0.5">
                 两张图选更好的一边 · 只问总分
+              </div>
+            </div>
+          </button>
+          <button
+            class="annotate-mode-card"
+            :class="{ 'annotate-mode-card--active': form.kind === 'listwise' }"
+            @click="form.kind = 'listwise'"
+          >
+            <i class="i-tabler-layout-grid text-lg" />
+            <div class="min-w-0">
+              <div class="text-sm font-medium">
+                组内排序
+              </div>
+              <div class="text-xs text-fg-muted mt-0.5">
+                8 张相近图排全序 · 一屏 = 28 对
               </div>
             </div>
           </button>
@@ -336,7 +371,7 @@ async function generateQueue() {
                 {{ q.name }}
               </div>
               <div class="text-xs text-fg-muted mt-0.5">
-                {{ q.kind === 'absolute' ? '单图评分' : '双图对比' }} · {{ q.dimensions.join(' / ') }}<template v-if="q.scale">
+                {{ q.kind === 'absolute' ? '单图评分' : q.kind === 'listwise' ? '组内排序' : '双图对比' }} · {{ q.dimensions.join(' / ') }}<template v-if="q.scale">
                   · {{ q.scale }} 级
                 </template>
               </div>
