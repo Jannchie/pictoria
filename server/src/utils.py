@@ -1,12 +1,11 @@
-"""Pure utilities: file walking, hashing, thumbnails, small converters.
+"""Pure utilities: hashing, arthash, thumbnails, small converters.
 
-Startup assembly lives in ``bootstrap``; WDTagger persistence in
-``services.wd_tagging``.
+File walking moved to the TS side (`apps/api/src/sync.ts`) and WDTagger
+persistence with it; what is left here is called from the cairnq handlers.
 """
 
 import base64
 import hashlib
-import os
 import warnings
 from pathlib import Path
 
@@ -14,7 +13,6 @@ from arthash import Codec
 from arthash import encode as arthash_encode
 from PIL import Image, ImageFile
 
-import shared
 from shared import logger
 
 # PIL emits a UserWarning ("Corrupt EXIF data. Expecting to read N bytes but
@@ -35,104 +33,6 @@ Image.MAX_IMAGE_PIXELS = None
 # the best we can with whatever bytes survived.
 ImageFile.LOAD_TRUNCATED_IMAGES = True
 
-_DirScanCache = dict[str, tuple[int, list[tuple[str, str, str]]]]
-
-
-def find_files_in_directory(  # noqa: C901, PLR0915
-    target_dir: Path,
-    cache: _DirScanCache | None = None,
-) -> list[tuple[str, str, str]]:
-    """Walk ``target_dir`` and return (relative_path, stem, extension) tuples.
-
-    Uses ``os.scandir`` recursively because ``Path.rglob`` allocates a Path
-    object per entry and re-stats every node — when the target has 100k+
-    files that becomes the dominant cost (we measured ~1 minute for 155k
-    files; scandir does the same scan in seconds because DirEntry already
-    caches the type from the directory listing).
-
-    Skips any top-level entry whose name starts with ``.`` (e.g. the
-    ``.pictoria`` working dir), and ``*.part`` files anywhere — those are
-    in-flight downloader temp files (see ``DanbooruClient.download_image``)
-    that must not be registered as posts.
-
-    When ``cache`` is provided, each directory's direct file list is keyed by
-    absolute path → ``(mtime_ns, files_in_dir)``. A directory whose mtime
-    matches its cache entry skips the ``scandir`` of its direct files (we
-    still recurse into subdirectories to pick up changes deeper in the tree,
-    since on NTFS / ext4 a parent dir's mtime only reflects direct entries).
-    The poller in app.py runs this every minute on a 150k-file library, so
-    this turns most polls into a sub-second tree walk.
-    """
-    os_tuples: list[tuple[str, str, str]] = []
-
-    def _split_name(name: str) -> tuple[str, str]:
-        dot = name.rfind(".")
-        if dot > 0:
-            return name[:dot], name[dot + 1 :]
-        return name, ""
-
-    def _walk(dir_path: str, rel_dir: str, *, is_top: bool = False) -> None:  # noqa: C901, PLR0912
-        try:
-            cur_mtime_ns = os.stat(dir_path).st_mtime_ns  # noqa: PTH116
-        except OSError as exc:
-            logger.warning(f"Skipping {dir_path}: {exc}")
-            return
-
-        cached = cache.get(dir_path) if cache is not None else None
-        subdirs: list[tuple[str, str]] = []
-        if cached is not None and cached[0] == cur_mtime_ns:
-            # Reuse the cached direct-file listing; we still need to walk
-            # subdirectories because their contents may have changed without
-            # bumping our mtime.
-            os_tuples.extend(cached[1])
-            try:
-                it = os.scandir(dir_path)
-            except OSError as exc:
-                logger.warning(f"Skipping {dir_path}: {exc}")
-                return
-            with it:
-                for entry in it:
-                    if is_top and entry.name.startswith("."):
-                        continue
-                    try:
-                        if entry.is_dir(follow_symlinks=False):
-                            sub_rel = entry.name if rel_dir == "." else f"{rel_dir}/{entry.name}"
-                            subdirs.append((entry.path, sub_rel))
-                    except OSError as exc:
-                        logger.debug(f"Skipping {entry.path}: {exc}")
-        else:
-            try:
-                it = os.scandir(dir_path)
-            except OSError as exc:
-                logger.warning(f"Skipping {dir_path}: {exc}")
-                return
-            direct_files: list[tuple[str, str, str]] = []
-            with it:
-                for entry in it:
-                    if is_top and entry.name.startswith("."):
-                        continue
-                    try:
-                        if entry.is_dir(follow_symlinks=False):
-                            sub_rel = entry.name if rel_dir == "." else f"{rel_dir}/{entry.name}"
-                            subdirs.append((entry.path, sub_rel))
-                        elif entry.is_file(follow_symlinks=False):
-                            if entry.name.endswith(".part"):
-                                continue  # in-flight downloader temp file
-                            stem, ext = _split_name(entry.name)
-                            direct_files.append((rel_dir, stem, ext))
-                    except OSError as exc:
-                        logger.debug(f"Skipping {entry.path}: {exc}")
-            os_tuples.extend(direct_files)
-            if cache is not None:
-                cache[dir_path] = (cur_mtime_ns, direct_files)
-
-        for sub_path, sub_rel in subdirs:
-            _walk(sub_path, sub_rel)
-
-    _walk(str(target_dir), ".", is_top=True)
-
-    logger.info(f"Found {len(os_tuples)} files in target directory")
-    return os_tuples
 
 
 def calculate_sha256(file: bytes) -> str:
@@ -170,14 +70,6 @@ def create_thumbnail_by_image(img: Image.Image, output_image_path: Path, max_wid
         new_height = int((new_width / width) * height)
         img = img.resize((new_width, new_height), Image.Resampling.LANCZOS)
     img.save(output_image_path)
-
-
-def get_path_name_and_extension(file_path: Path) -> tuple[str, str, str]:
-    basic_path = file_path.relative_to(shared.target_dir) if file_path.is_absolute() else file_path
-    path = basic_path.parent.as_posix()
-    name = basic_path.stem
-    ext = file_path.suffix[1:]
-    return path, name, ext
 
 
 def from_rating_to_int(rating: str) -> int:

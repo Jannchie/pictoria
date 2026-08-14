@@ -20,7 +20,6 @@ from typing import TYPE_CHECKING, Any
 import httpx
 
 from services.danbooru_import import SUPPORTED_IMAGE_EXTS
-from services.import_persist import NormalizedPostRow, persist_posts_with_tags
 from shared import logger
 from utils import from_rating_to_int, resolve_source
 
@@ -210,94 +209,3 @@ def download_items(
     return ok
 
 
-def _gallery_row(
-    file_path: str,
-    item: GalleryDLItem,
-    type_to_group_id: dict[str, int],
-) -> NormalizedPostRow:
-    """Map one already-normalised ``GalleryDLItem`` to a persistable post row.
-
-    Unlike Danbooru, the item's fields are pre-resolved by ``parse_entry`` (name,
-    extension, source, rating int, published_at), so the only work here is
-    flattening its per-category tags into a ``{tag_name: group_id}`` map.
-    """
-    return NormalizedPostRow(
-        file_path=file_path,
-        file_name=item.file_name,
-        extension=item.extension,
-        source=item.source,
-        rating=item.rating,
-        published_at=item.published_at,
-        tags=build_tag_to_group(item, type_to_group_id),
-    )
-
-
-def _persist_gallery_items(
-    db: Any,
-    file_path: str,
-    items: Sequence[GalleryDLItem],
-    type_to_group_id: dict[str, int],
-) -> None:
-    """Persist items + tags via the shared two-phase skeleton."""
-    if not items:
-        return
-    rows = [_gallery_row(file_path, it, type_to_group_id) for it in items]
-    persist_posts_with_tags(db, rows)
-
-
-@dataclass
-class GalleryDLStats:
-    fetched: int = 0  # entries from -j
-    images: int = 0  # after image filter
-    new: int = 0  # after DB dedupe
-    downloaded: int = 0
-    failed: int = 0
-
-
-def import_from_url(
-    url: str,
-    *,
-    db: Any,
-    type_to_group_id: dict[str, int],
-    apply: bool,
-    config_path: str | None = None,
-) -> GalleryDLStats:
-    """Fetch -> parse -> filter -> dedupe -> (apply: download + persist)."""
-    import shared  # noqa: PLC0415  # local import avoids any import cycle at load
-
-    raw = run_gallery_dl_json(url, config_path=config_path)
-    stats = GalleryDLStats(fetched=len(raw))
-    items: list[GalleryDLItem] = []
-    for dl_url, meta in raw:
-        it = parse_entry(dl_url, meta, fallback_url=url)
-        if it is not None:
-            items.append(it)
-    stats.images = len(items)
-    if not items:
-        return stats
-
-    # All items from one URL share category/creator -> one file_path dir.
-    file_path = f"{items[0].category}/{items[0].creator}"
-
-    cur = db.cursor()
-    try:
-        cur.execute("SELECT file_name FROM posts WHERE file_path = ?", [file_path])
-        existing = {r[0] for r in cur.fetchall()}
-    finally:
-        cur.close()
-    new_items = [it for it in items if it.file_name not in existing]
-    stats.new = len(new_items)
-    if not new_items or not apply:
-        return stats
-
-    save_dir = shared.target_dir / file_path
-    ok_items = download_items(new_items, save_dir, headers=None)
-    stats.downloaded = len(ok_items)
-    stats.failed = len(new_items) - len(ok_items)
-    _persist_gallery_items(db, file_path, ok_items, type_to_group_id)
-    return stats
-
-
-def parse_creators_file(text: str) -> list[str]:
-    """Return non-comment, non-blank, stripped URLs from a creators list."""
-    return [s for line in text.splitlines() if (s := line.strip()) and not s.startswith("#")]

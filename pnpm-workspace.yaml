@@ -1,0 +1,23 @@
+packages:
+  - apps/*
+  - packages/*
+
+# 从 web/pnpm-workspace.yaml 上提，逐字保留。
+shellEmulator: true
+
+trustPolicy: no-downgrade
+
+# semver@6.3.1 是 @vitejs/plugin-vue-jsx → @babel/core 的传递依赖，lockfile 里
+# 早就锁着它、node_modules 里也一直装着。它没有 provenance 而更早的版本有，所以
+# 每次 `pnpm add` 触发全量重解析都会被 no-downgrade 拦下 —— 拦的是一个既有依赖，
+# 不是新引入的东西。精确豁免这一个 (包, 版本)，策略对其余一切照旧生效。
+# 升级路径不在我们手上：@babel/core 7.29 自己声明 semver ^6.3.1。
+trustPolicyExclude:
+  - 'semver@6.3.1'
+
+# ⚠️ 别往这里加 better-sqlite3 / sharp。它们走 prebuildify / optional-dep
+# 分发，包里自带 prebuilds/win32-x64.node，不批准脚本就能用；一旦批准，
+# install 脚本会尝试 node-gyp rebuild，在没有 MSVC 工具链的机器上必然失败
+# 并中断整个 pnpm install。pnpm 那句 "Ignored build scripts" 是正常状态。
+onlyBuiltDependencies:
+  - vue-demi

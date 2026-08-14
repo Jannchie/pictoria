@@ -7,7 +7,7 @@ deliberate, visible edit.
 
 from __future__ import annotations
 
-from db.scorers import SCORERS, SILVA, SILVA_LUNA, SILVA_SCORE_BUCKETS, ScorerSpec
+from scorers import SCORERS, SILVA, SILVA_LUNA, SILVA_SCORE_BUCKETS, ScorerSpec
 
 
 class TestSilvaSpec:

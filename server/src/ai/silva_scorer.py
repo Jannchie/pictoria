@@ -25,7 +25,7 @@ Outputs ``[0, 1]``; the frontend multiplies by 10 for display.
 Two heads ship here — ``silva`` and ``silva_luna`` — identical in architecture
 and output domain but distilled from *different* judges, so they are two tastes
 rather than two quality tiers. Each is keyed by its registry
-:class:`~db.scorers.ScorerSpec` name and cached independently, so a library can
+:class:`~scorers.ScorerSpec` name and cached independently, so a library can
 carry both scores and be sorted or filtered by either.
 """
 
@@ -38,7 +38,7 @@ import numpy as np
 import torch
 
 from ai.torch_runtime import DEVICE
-from db.scorers import SILVA, SILVA_LUNA
+from scorers import SILVA, SILVA_LUNA
 
 if TYPE_CHECKING:
     from collections.abc import Sequence
