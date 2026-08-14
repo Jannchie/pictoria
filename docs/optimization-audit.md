@@ -218,3 +218,49 @@
 2. **API client 澄清**: `apps/web/src/api/` 的 flat(`client.gen.ts`/`sdk.gen.ts`/`types.gen.ts`) + `client/` + `core/` 三层是 @hey-api/openapi-ts 的正常分层输出,**全部被使用**(main.ts → client.gen → client/ → core/), 不是重复代码, **不要删**。当前 `pnpm genapi` 脚本(`-c @hey-api/client-axios`)与已生成产物属于同一体系, 重新生成前先确认输出布局一致。
 3. 本报告作者在审计期间创建的所有探针脚本已删除, git 工作区只含上述并发修改。
 4. KNN 文搜图 1–2s 是 sqlite-vec vec0 暴力距离扫描的平台约束, 无索引可加; 若成为瓶颈, 需引入 ANN 索引方案(超出本次审查范围)。
+
+---
+
+## 8. 数据传输专项审查 (2026-08-14)
+
+> 三个并行代理分别审计 前端↔API、API↔worker(cairnq)、图片/磁盘 三条链路,
+> 全部数字为对运行中 API(223,063 张图的生产库)的实测。按跨链路合并排序。
+
+### 🔴 高优先级
+
+**T1. PNG 缩略图沿用原图格式 —— 一页 200 张 ≈ 17.5 MB**
+- 库里 27.4%(6.1 万张)是 PNG,其缩略图 avg 243.5 KB(JPG 的 7 倍);全库缩略图加权 avg 89.7 KB。
+- 修复: `server/src/utils.py::create_thumbnail` 统一编码 WebP(q80),thumbPath 扩展名改 `.webp`(images.ts / handlers.py / 前端 URL 同改);存量靠"thumbPath 不存在即重生成"天然逐步替换。
+- 收益: 一页 17.5 MB → ~4-5 MB(−70%),缩略图盘占 ~19 GB → ~5 GB(推测)。
+
+**T2. `/v2/tags` 全量 6.9 MB(gzip 939 KB, 1.16 s),且 Tags.vue 无 staleTime → 每次窗口聚焦整包重拉**
+- 5.6 万行,每行内嵌完整 group 对象;TagSelector 的 `staleTime: Infinity` 是 per-observer 的,救不了 Tags.vue 的 0。
+- 修复: ① Tags.vue 补 staleTime(立刻);② 中期加服务端搜索/分页;③ group 内嵌改 groupId 引用(动契约)。
+
+**T3. 全局无 staleTime 默认(main.ts:94-95 注释掉了) —— detail/similar/group 在焦点切换与 alt-tab 时反复整页重拉**
+- similar 一次 39 KB wire + 453 ms 同步 KNN 占 API 事件循环;画廊 A→B→A 的 detail 立即重取。
+- 修复: 恢复全局 `staleTime: 5min`;similar/group 加长或 `refetchOnWindowFocus: false`;正确性由 mutation 后的 invalidate 前缀保证(已具备)。
+
+**T4. cairnq 轮询死时间 —— silva 全库回填 ~1 h 里 GPU 计算只有 ~1 min**
+- 每批固定死时间 ≈ 0.35-0.5 s(GPU worker poll 500 ms + client 退避封顶 500 ms);silva 6,968 批 → 40-58 min 纯轮询。
+- 修复(合规): ① embedding 任务融合 silva/silva_luna head(向量已在显存,head forward 毫秒级;result 加可选 scores,TS 同事务落库) —— 常态路径 silva 传输与任务全部消失;② backfill `callKeyed` 传 `pollMs` 收紧 + GPU worker poll 500→50-100 ms(空转只是只读探测,零 WAL);③ silva 批量 64→256。
+- 收益: 一次全库回填省 1.5-2.5 h 墙钟。
+
+### 🟡 中优先级
+
+- **T5** 图片端点发 ETag 但不认 `If-None-Match`,304 分支缺失(两个代理独立发现;etag 是 stat-based,304 路径零 IO,~10 行) — `images.ts:81-112`
+- **T6** 终态任务 24h 保留 × 大 payload = 回填日 tasks.sqlite 峰值 4-5 GB;reuseSucceeded 需要的窗口是分钟级 → purge 缩到 2h(failed 行 purge 前记日志) — `tasks.ts:105-107`
+- **T7** 列表页 200 行 152.7 KB(gzip 61.4 KB),其中 arthash 占 gzip 后 ~70%(base64 不可压) → 加 `omit=arthash` 查询参数,前端按 enableArthash 开关带参(additive,契约冲击最小)
+- **T8** `/v2/folders` 182 KB,一半是 17 位精度浮点均值 → `ROUND(x,3)`,gzip −45%,一行改动
+- **T9** 相邻原图预载无优先级/不可取消(avg 2.46 MB/张,PNG avg 4.45 MB): 只预载导航方向、当前图 onload 后再预载(idle)、大文件只预载缩略图、`fetchPriority='low'` — `useAdjacentImagePreload.ts`(0c055814 把它接进了 lightbox,流量随之翻倍,此项优先级上调)
+- **T10** 瀑布流虚拟滚动无 overscan(`rangeExpand ?? 0`),`loading="lazy"` 形同虚设,快速滚动全是 pop-in → `:range-expand="600"` — `MainSection.vue:528-539`
+
+### 🟢 低优先级 / 记录
+
+- **T11** 上传/URL 导入/S3 兜底/gallery-dl 均整读内存(URL 导入无大小上限;gallery-dl 16 并发极端峰值 ~1.5 GB 推测) → 改流式,抄 danbooru 下载器的 `.part` 分块模式(它是模范实现) — 防御性
+- **T12** brotli 缺席只对 tags 有意义(−24%);T2 落地后可跳过
+- **T13** detail 响应 83% 是 tags(每个带无人消费的时间戳 + 内嵌 group);gzip 后仅 1.9 KB,低优先级
+- **T14** dedup 矩阵导出逐行 writeSync(223k 次系统调用);处在 30 min 级流程里,收益 <1%,不做
+- **T15** 队列写放大实测无问题(心跳 10s 一拍批量续约,空转轮询全是只读探测,WAL 仅 4.77 MB);tasks.sqlite freelist 99.5% 空页从不回收,在意体积可开 `auto_vacuum=INCREMENTAL`
+- **T16** ⚠️ 附带发现: `pictoria.sqlite-wal` 实测 **211 MB**(主库 2.29 GB),远超默认 autocheckpoint ~4 MB 水位 —— 提示长活读游标或 checkpoint 饥饿,值得单独查一次
+- cairnq 上游问题(pollWait 每拍 `select *` + 全量 JSON.parse、`client.call` 不透传 maxPollMs、purge 无 per-status retention)已并入 `docs/cairnq-feedback.md`
