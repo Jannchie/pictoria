@@ -478,7 +478,7 @@ export class Sampler {
    * 成员在返回前打乱：呈现顺序必须与任何有意义的量（分数、度数、抽样次序）无关，
    * 否则顺序效应与真实偏好在导出的数据里不可分。
    */
-  sampleGroups({ count, size = 8, dimension = 'overall' }: { count: number, size?: number, dimension?: string }): number[][] {
+  sampleGroups({ count, size = 6, dimension = 'overall' }: { count: number, size?: number, dimension?: string }): number[][] {
     const graph = this.judgedGraph(dimension)
     const revisit = this.revisitPool(graph, dimension)
     const spent = new Set<number>()

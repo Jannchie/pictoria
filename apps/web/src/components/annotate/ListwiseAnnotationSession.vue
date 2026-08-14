@@ -23,7 +23,7 @@ const queryClient = useQueryClient()
 
 const sessionId = crypto.randomUUID()
 const dimension = computed(() => props.queue?.dimensions[0] ?? props.dimension ?? 'overall')
-const groupSize = computed(() => props.size ?? 8)
+const groupSize = computed(() => props.size ?? 6)
 
 const buffer = ref<BufferItem[]>([])
 const doneCount = ref(props.queue?.done ?? 0)
@@ -31,10 +31,12 @@ const exhausted = ref(false)
 const submitting = ref(false)
 const current = computed(() => buffer.value[0] ?? null)
 
-// 点击定序：picked 是"最好在前"的 post_id 序列，点一张排进去，再点一张取消。
-const picked = ref<number[]>([])
-const rankOf = computed(() => new Map(picked.value.map((pid, i) => [pid, i + 1])))
-const complete = computed(() => current.value != null && picked.value.length === current.value.posts.length)
+// 一字排开、拖拽定序：order 是当前行序（post_id，左 = 最好），初始 = 呈现顺序。
+// 呈现顺序由服务端随机化并存进 post_ids，留作顺序效应审计。
+const order = ref<number[]>([])
+const touched = ref(false) // 至少拖动过一次才认为这是判断而不是初始随机序
+const confirmArmed = ref(false) // 未调整时 Enter 需要按两次，防止把随机序当标注提交
+const postById = computed(() => new Map((current.value?.posts ?? []).map(p => [p.id, p])))
 
 const seenKeys = new Set<string>()
 let emptyStreak = 0
@@ -59,7 +61,7 @@ function preloadAhead() {
   }
 }
 
-// 一组要看 ~8 张、排 ~15 秒，水位 2 已绰绰有余；采样一批 3 组本身要跑分数窗口查询。
+// 一组要看 ~6 张、排 ~15 秒，水位 2 已绰绰有余；采样一批 3 组本身要跑分数窗口查询。
 const LOW_WATER = 2
 let refilling = false
 
@@ -112,11 +114,114 @@ async function refillOnce(): Promise<void> {
   }
 }
 
-function toggle(pid: number) {
-  if (submitting.value) {
+// ── 大图查看 ────────────────────────────────────────────────────
+const lightbox = ref<number | null>(null)
+const lightboxPost = computed(() => (lightbox.value == null ? null : postById.value.get(lightbox.value) ?? null))
+const lightboxIndex = computed(() => (lightbox.value == null ? -1 : order.value.indexOf(lightbox.value)))
+
+function lightboxStep(delta: number) {
+  const next = lightboxIndex.value + delta
+  if (next >= 0 && next < order.value.length) {
+    lightbox.value = order.value[next]!
+  }
+}
+
+// ── 拖拽排序（pointer 事件，无依赖）─────────────────────────────
+// 拖动中不改 order：被拖卡片跟手，其余卡片按目标位算出让位平移；松手才 splice。
+const GAP = 8
+interface DragState {
+  id: number
+  from: number
+  to: number
+  startX: number
+  startY: number
+  dx: number
+  dy: number
+  step: number
+  moved: boolean
+}
+const drag = ref<DragState | null>(null)
+
+function onPointerDown(e: PointerEvent, pid: number) {
+  if (submitting.value || (e.pointerType === 'mouse' && e.button !== 0)) {
     return
   }
-  picked.value = rankOf.value.has(pid) ? picked.value.filter(x => x !== pid) : [...picked.value, pid]
+  const idx = order.value.indexOf(pid)
+  if (idx === -1) {
+    return
+  }
+  ;(e.currentTarget as HTMLElement).setPointerCapture(e.pointerId)
+  drag.value = { id: pid, from: idx, to: idx, startX: e.clientX, startY: e.clientY, dx: 0, dy: 0, step: 0, moved: false }
+}
+
+function onPointerMove(e: PointerEvent) {
+  const d = drag.value
+  if (!d) {
+    return
+  }
+  d.dx = e.clientX - d.startX
+  d.dy = e.clientY - d.startY
+  if (!d.moved) {
+    if (Math.hypot(d.dx, d.dy) < 6) {
+      return
+    }
+    d.moved = true
+    d.step = (e.currentTarget as HTMLElement).getBoundingClientRect().width + GAP
+  }
+  d.to = Math.min(order.value.length - 1, Math.max(0, d.from + Math.round(d.dx / d.step)))
+}
+
+function onPointerUp() {
+  const d = drag.value
+  if (!d) {
+    return
+  }
+  drag.value = null
+  if (!d.moved) {
+    lightbox.value = d.id
+    return
+  }
+  if (d.to !== d.from) {
+    const next = [...order.value]
+    next.splice(d.to, 0, ...next.splice(d.from, 1))
+    order.value = next
+  }
+  touched.value = true
+  confirmArmed.value = false
+}
+
+function onPointerCancel() {
+  drag.value = null
+}
+
+// 拖动中每张卡的视觉位置（0 起）：被拖的在目标位，被跨过的让一位。
+function displayIndex(idx: number): number {
+  const d = drag.value
+  if (!d?.moved) {
+    return idx
+  }
+  if (idx === d.from) {
+    return d.to
+  }
+  if (d.from < d.to && idx > d.from && idx <= d.to) {
+    return idx - 1
+  }
+  if (d.from > d.to && idx >= d.to && idx < d.from) {
+    return idx + 1
+  }
+  return idx
+}
+
+function cardStyle(pid: number, idx: number): Record<string, string> {
+  const d = drag.value
+  if (!d?.moved) {
+    return {}
+  }
+  if (pid === d.id) {
+    return { transform: `translate(${d.dx}px, ${d.dy * 0.25}px) scale(1.02)` }
+  }
+  const shift = displayIndex(idx) - idx
+  return shift ? { transform: `translateX(${shift * d.step}px)` } : {}
 }
 
 async function postRanking(item: BufferItem, ranking: number[], elapsedMs: number): Promise<number[]> {
@@ -137,7 +242,6 @@ async function postRanking(item: BufferItem, ranking: number[], elapsedMs: numbe
 
 function advancePast() {
   buffer.value.shift()
-  picked.value = []
   doneCount.value += 1
   shownAt = performance.now()
   preloadAhead()
@@ -156,7 +260,7 @@ function recordRanking(item: BufferItem, ranking: number[], elapsedMs: number, i
   const judgedIn = dimension.value
   let eventIds = ids
   pushCommand({
-    label: ranking.length ? '排序一组' : '跳过一组',
+    label: ranking.length > 0 ? '排序一组' : '跳过一组',
     postIds: [],
     apply: async () => {
       eventIds = await postRanking(item, ranking, elapsedMs)
@@ -178,7 +282,9 @@ function recordRanking(item: BufferItem, ranking: number[], elapsedMs: number, i
         return
       }
       buffer.value.unshift(item)
-      picked.value = ranking
+      order.value = ranking.length > 0 ? [...ranking] : item.posts.map(p => p.id)
+      touched.value = ranking.length > 0
+      confirmArmed.value = false
       exhausted.value = false
       doneCount.value -= 1
       shownAt = performance.now()
@@ -208,34 +314,69 @@ async function submit(ranking: number[]) {
 }
 
 onKeyStroke('Enter', (e) => {
-  if (!complete.value) {
+  if (!current.value) {
     return
   }
   e.preventDefault()
-  submit(picked.value)
+  if (lightbox.value != null) {
+    lightbox.value = null
+    return
+  }
+  // 一次没拖过就提交，多半是误触 —— 初始序是随机呈现序，直接进库会污染数据。
+  if (!touched.value && !confirmArmed.value) {
+    confirmArmed.value = true
+    return
+  }
+  submit(order.value)
 })
 onKeyStroke(' ', (e) => {
-  if (!current.value) {
+  if (!current.value || lightbox.value != null) {
     return
   }
   e.preventDefault()
   submit([]) // skip：这组问过了，但没有排序信息
 })
-onKeyStroke('Backspace', (e) => {
-  if (!picked.value.length) {
+onKeyStroke('ArrowLeft', (e) => {
+  if (lightbox.value == null) {
     return
   }
   e.preventDefault()
-  picked.value = picked.value.slice(0, -1)
+  lightboxStep(-1)
+})
+onKeyStroke('ArrowRight', (e) => {
+  if (lightbox.value == null) {
+    return
+  }
+  e.preventDefault()
+  lightboxStep(1)
 })
 onKeyStroke('Escape', (e) => {
   e.preventDefault()
+  if (lightbox.value != null) {
+    lightbox.value = null
+    return
+  }
   emit('exit')
+})
+
+// 组变化时重置行序为呈现顺序；undo 已按提交序恢复过的组（成员集相同）不重置。
+watch(current, (cur) => {
+  const ids = cur?.posts.map(p => p.id) ?? []
+  const same = ids.length === order.value.length && ids.every(id => order.value.includes(id))
+  if (!same) {
+    order.value = ids
+    touched.value = false
+    confirmArmed.value = false
+  }
+  lightbox.value = null
+  drag.value = null
 })
 
 watch(() => [props.queue?.id, props.dimension] as const, () => {
   buffer.value = []
-  picked.value = []
+  order.value = []
+  touched.value = false
+  confirmArmed.value = false
   seenKeys.clear()
   emptyStreak = 0
   exhausted.value = false
@@ -260,30 +401,45 @@ const totalLabel = computed(() => (props.queue ? `${doneCount.value} / ${props.q
       </div>
       <div class="text-xs text-fg-muted flex shrink-0 gap-4 items-center">
         <span class="text-fg font-medium tabular-nums">{{ totalLabel }}</span>
-        <span class="listwise-hotkeys"><kbd>点击</kbd> 依次排名 <kbd>⌫</kbd> 收回一名 <kbd>Enter</kbd> 提交 <kbd>Space</kbd> 跳过 <kbd>Esc</kbd> 退出</span>
+        <span class="listwise-hotkeys"><kbd>拖拽</kbd> 排序 <kbd>点击</kbd> 大图 <kbd>Enter</kbd> 提交 <kbd>Space</kbd> 跳过 <kbd>Esc</kbd> 退出</span>
       </div>
     </div>
 
     <div class="flex flex-1 flex-col min-h-0 min-w-0">
-      <div class="text-sm text-fg font-medium px-4 py-2 text-center p-divider shrink-0">
-        按喜欢程度依次点击 —— 先点最好的<template v-if="current">
-          （已排 {{ picked.length }} / {{ current.posts.length }}<template v-if="complete">
+      <div class="text-sm font-medium px-4 py-2 text-center p-divider shrink-0" :class="confirmArmed ? 'listwise-confirm' : 'text-fg'">
+        <template v-if="confirmArmed">
+          还没有调整过顺序 —— 再按一次 <kbd class="listwise-kbd">Enter</kbd> 按当前顺序提交
+        </template>
+        <template v-else>
+          左右拖拽排序 —— 最喜欢的放最左，点击看大图<template v-if="touched">
             ，<kbd class="listwise-kbd">Enter</kbd> 提交
-          </template>）
+          </template>
         </template>
       </div>
 
-      <div v-if="current" class="listwise-grid flex-1 min-h-0">
-        <button
-          v-for="p in current.posts"
-          :key="p.id"
-          class="listwise-cell"
-          :class="{ 'listwise-cell--ranked': rankOf.has(p.id) }"
-          @click="toggle(p.id)"
+      <div v-if="current" class="listwise-row flex-1 min-h-0">
+        <div
+          v-for="(pid, idx) in order"
+          :key="pid"
+          class="listwise-card"
+          :class="{ 'listwise-card--drag': drag?.moved && drag.id === pid }"
+          :style="cardStyle(pid, idx)"
+          @pointerdown="onPointerDown($event, pid)"
+          @pointermove="onPointerMove"
+          @pointerup="onPointerUp"
+          @pointercancel="onPointerCancel"
+          @dragstart.prevent
         >
-          <img :src="imgURL(p)" :alt="p.fileName" class="max-h-full max-w-full object-contain" decoding="async">
-          <span v-if="rankOf.has(p.id)" class="listwise-cell__rank">{{ rankOf.get(p.id) }}</span>
-        </button>
+          <img
+            v-if="postById.get(pid)"
+            :src="imgURL(postById.get(pid)!)"
+            :alt="postById.get(pid)!.fileName"
+            class="max-h-full max-w-full object-contain"
+            decoding="async"
+            draggable="false"
+          >
+          <span class="listwise-card__rank" :class="{ 'listwise-card__rank--best': displayIndex(idx) === 0 }">{{ displayIndex(idx) + 1 }}</span>
+        </div>
       </div>
 
       <!-- 空态 / 完成态 -->
@@ -303,6 +459,21 @@ const totalLabel = computed(() => (props.queue ? `${doneCount.value} / ${props.q
           <span class="listwise-spinner" />加载中…
         </div>
       </div>
+    </div>
+
+    <!-- 大图查看：点击（非拖拽）打开，←/→ 按当前行序切换 -->
+    <div v-if="lightboxPost" class="listwise-lightbox" @click.self="lightbox = null">
+      <img :src="imgURL(lightboxPost)" :alt="lightboxPost.fileName" class="listwise-lightbox__img" draggable="false">
+      <div class="listwise-lightbox__bar">
+        <span class="text-fg font-medium tabular-nums">第 {{ lightboxIndex + 1 }} 位 / {{ order.length }}</span>
+        <span class="text-fg-muted"><kbd>←</kbd><kbd>→</kbd> 切换 <kbd>Esc</kbd> 关闭</span>
+      </div>
+      <button v-if="lightboxIndex > 0" class="listwise-lightbox__nav listwise-lightbox__nav--left" @click="lightboxStep(-1)">
+        <i class="i-tabler-chevron-left" />
+      </button>
+      <button v-if="lightboxIndex < order.length - 1" class="listwise-lightbox__nav listwise-lightbox__nav--right" @click="lightboxStep(1)">
+        <i class="i-tabler-chevron-right" />
+      </button>
     </div>
   </div>
 </template>
@@ -327,7 +498,8 @@ const totalLabel = computed(() => (props.queue ? `${doneCount.value} / ${props.q
 }
 
 .listwise-hotkeys kbd,
-.listwise-kbd {
+.listwise-kbd,
+.listwise-lightbox__bar kbd {
   display: inline-block;
   padding: 1px 5px;
   margin: 0 1px;
@@ -339,27 +511,33 @@ const totalLabel = computed(() => (props.queue ? `${doneCount.value} / ${props.q
   color: inherit;
 }
 
-.listwise-grid {
-  display: grid;
-  grid-template-columns: repeat(4, 1fr);
-  grid-auto-rows: 1fr;
-  gap: 4px;
-  padding: 4px;
+.listwise-confirm {
+  color: var(--p-warning);
 }
 
-.listwise-cell {
+.listwise-row {
+  display: flex;
+  align-items: stretch;
+  gap: 8px;
+  padding: 8px;
+}
+
+.listwise-card {
   position: relative;
   display: flex;
   align-items: center;
   justify-content: center;
+  flex: 1 1 0;
   min-width: 0;
   min-height: 0;
-  padding: 0;
-  border: none;
+  overflow: hidden;
   background: var(--p-bg);
-  cursor: pointer;
+  cursor: grab;
+  user-select: none;
+  touch-action: none;
+  transition: transform 0.18s ease;
 }
-.listwise-cell::after {
+.listwise-card::after {
   content: '';
   position: absolute;
   inset: 0;
@@ -367,17 +545,22 @@ const totalLabel = computed(() => (props.queue ? `${doneCount.value} / ${props.q
   border: 2px solid transparent;
   transition: border-color var(--p-transition-fast);
 }
-.listwise-cell:hover::after {
-  border-color: rgb(var(--p-primary-rgb) / 0.6);
+.listwise-card:hover::after {
+  border-color: rgb(var(--p-primary-rgb) / 0.45);
 }
-.listwise-cell--ranked::after {
+.listwise-card--drag {
+  z-index: 10;
+  cursor: grabbing;
+  transition: none;
+}
+.listwise-card--drag::after {
   border-color: rgb(var(--p-primary-rgb) / 0.85);
 }
-.listwise-cell--ranked img {
-  opacity: 0.75;
+.listwise-card--drag img {
+  filter: drop-shadow(0 8px 24px rgb(0 0 0 / 0.45));
 }
 
-.listwise-cell__rank {
+.listwise-card__rank {
   position: absolute;
   top: 8px;
   left: 8px;
@@ -389,8 +572,72 @@ const totalLabel = computed(() => (props.queue ? `${doneCount.value} / ${props.q
   font-size: var(--p-text-sm);
   font-weight: var(--p-weight-semibold);
   border-radius: var(--p-radius-full);
+  background: var(--p-surface-3);
+  color: var(--p-fg);
+  pointer-events: none;
+}
+.listwise-card__rank--best {
   background: var(--p-primary);
   color: white;
+}
+
+.listwise-lightbox {
+  position: fixed;
+  inset: 0;
+  z-index: var(--p-z-modal);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgb(0 0 0 / 0.85);
+}
+.listwise-lightbox__img {
+  max-width: 94vw;
+  max-height: 92vh;
+  object-fit: contain;
+}
+.listwise-lightbox__bar {
+  position: absolute;
+  bottom: 14px;
+  left: 50%;
+  transform: translateX(-50%);
+  display: flex;
+  gap: 14px;
+  align-items: center;
+  padding: 6px 14px;
+  font-size: var(--p-text-xs);
+  border-radius: var(--p-radius-full);
+  background: rgb(0 0 0 / 0.55);
+  color: white;
+}
+.listwise-lightbox__bar .text-fg,
+.listwise-lightbox__bar .text-fg-muted {
+  color: rgb(255 255 255 / 0.85);
+}
+.listwise-lightbox__nav {
+  position: absolute;
+  top: 50%;
+  transform: translateY(-50%);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 44px;
+  height: 44px;
+  font-size: 22px;
+  border: none;
+  border-radius: var(--p-radius-full);
+  background: rgb(0 0 0 / 0.45);
+  color: white;
+  cursor: pointer;
+  transition: background-color var(--p-transition-fast);
+}
+.listwise-lightbox__nav:hover {
+  background: rgb(0 0 0 / 0.7);
+}
+.listwise-lightbox__nav--left {
+  left: 18px;
+}
+.listwise-lightbox__nav--right {
+  right: 18px;
 }
 
 .listwise-spinner {

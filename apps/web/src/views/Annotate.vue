@@ -61,8 +61,14 @@ const form = ref({
   scale: 2,
   strategy: 'stratified' as 'random' | 'stratified', // 单图评分采样
   pairwiseStrategy: 'close' as 'random' | 'similar' | 'close',
+  listwiseSize: 6,
 })
-const LISTWISE_SIZE = 8
+// 一屏 = C(n,2) 对；6 张是甜点：15 对/屏，人排起来还不费神。8 张信息最多但接近工作记忆上限。
+const LISTWISE_SIZES = [
+  { value: 4, label: '4 张', hint: '6 对 / 屏，最轻快' },
+  { value: 6, label: '6 张', hint: '15 对 / 屏，信息量与负担的平衡点（推荐）' },
+  { value: 8, label: '8 张', hint: '28 对 / 屏，单屏信息最多但明显更费神' },
+]
 const canStart = computed(() => form.value.kind !== 'absolute' || form.value.dimensions.length > 0)
 
 function toggleDimension(d: string) {
@@ -99,7 +105,7 @@ function startStream() {
         },
       }
     : form.value.kind === 'listwise'
-      ? { mode: 'stream-listwise', dimension: PAIRWISE_DIMENSION, size: LISTWISE_SIZE }
+      ? { mode: 'stream-listwise', dimension: PAIRWISE_DIMENSION, size: form.value.listwiseSize }
       : { mode: 'stream-pairwise', dimension: PAIRWISE_DIMENSION, strategy: form.value.pairwiseStrategy }
 }
 
@@ -125,7 +131,7 @@ async function generateQueue() {
         })
       : form.value.kind === 'listwise'
         ? v2GenerateListwise({
-            body: { dimension: PAIRWISE_DIMENSION, count: queueCount.value, size: LISTWISE_SIZE },
+            body: { dimension: PAIRWISE_DIMENSION, count: queueCount.value, size: form.value.listwiseSize },
           })
         : v2GeneratePairwise({
             body: { dimension: PAIRWISE_DIMENSION, count: queueCount.value, strategy: form.value.pairwiseStrategy },
@@ -234,7 +240,7 @@ async function generateQueue() {
                 组内排序
               </div>
               <div class="text-xs text-fg-muted mt-0.5">
-                8 张相近图排全序 · 一屏 = 28 对
+                相近图一行拖拽排全序 · 一屏顶十几对
               </div>
             </div>
           </button>
@@ -261,6 +267,29 @@ async function generateQueue() {
         </div>
         <p class="text-xs text-fg-subtle leading-relaxed mt-2">
           {{ PAIRWISE_STRATEGIES.find(s => s.value === form.pairwiseStrategy)?.hint }}
+        </p>
+      </section>
+
+      <!-- 组大小（组内排序）：segmented -->
+      <section v-if="form.kind === 'listwise'" class="mb-7">
+        <div class="annotate-section-title">
+          组大小
+          <span class="annotate-section-note">只问总分 · 左右拖拽排序，点击看大图</span>
+        </div>
+        <div class="annotate-segment">
+          <button
+            v-for="s in LISTWISE_SIZES"
+            :key="s.value"
+            class="annotate-segment__item"
+            :class="{ 'annotate-segment__item--active': form.listwiseSize === s.value }"
+            :title="s.hint"
+            @click="form.listwiseSize = s.value"
+          >
+            {{ s.label }}
+          </button>
+        </div>
+        <p class="text-xs text-fg-subtle leading-relaxed mt-2">
+          {{ LISTWISE_SIZES.find(s => s.value === form.listwiseSize)?.hint }}
         </p>
       </section>
 

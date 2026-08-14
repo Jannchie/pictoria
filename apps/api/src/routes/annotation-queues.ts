@@ -324,7 +324,7 @@ const GenerateListwiseIn = z
   .object({
     dimension: z.string(),
     count: z.int(),
-    size: z.int().default(8),
+    size: z.int().default(6),
     name: z.union([z.string(), z.null()]).optional(),
   })
   .openapi('GenerateListwiseIn')

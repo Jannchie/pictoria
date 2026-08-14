@@ -636,8 +636,8 @@ annotationsRoutes.openapi(
       query: z.object({
         limit: z.coerce.number().int().default(5)
           .openapi({ param: { name: 'limit', in: 'query', required: false }, type: 'integer', default: 5 }),
-        size: z.coerce.number().int().default(8)
-          .openapi({ param: { name: 'size', in: 'query', required: false }, type: 'integer', default: 8 }),
+        size: z.coerce.number().int().default(6)
+          .openapi({ param: { name: 'size', in: 'query', required: false }, type: 'integer', default: 6 }),
         dimension: z.string().default('overall')
           .openapi({ param: { name: 'dimension', in: 'query', required: false } }),
       }),
