@@ -70,6 +70,8 @@ const PairwiseEventIn = z
     elapsed_ms: z.int().nullable().optional(),
     queue_id: z.int().nullable().optional(),
     queue_position: z.int().nullable().optional(),
+    /** 采样来源，决定这条比较能否用作留出评估。省略 = 未知。 */
+    strategy: z.string().nullable().optional(),
   })
   .openapi('PairwiseEventIn')
 
@@ -193,6 +195,8 @@ annotationsRoutes.openapi(
     if (!VALID_WINNERS.includes(data.winner as never))
       return validationError(`invalid winner: '${data.winner}'`) as never
     const { sqlite } = getDb()
+    if (data.strategy != null && !VALID_PAIRWISE_STRATEGIES.includes(data.strategy as never))
+      return validationError(`invalid strategy: ${pyRepr(data.strategy)}`) as never
     const rowId = insertPairwise(sqlite, data)
     if (data.queue_id != null && data.queue_position != null)
       markQueueItemDone(sqlite, data.queue_id, { kind: 'pairwise', position: data.queue_position })

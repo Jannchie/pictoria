@@ -12,6 +12,7 @@
  * 义务摊派给每一个读者，漏掉一个会在训练数据里静默出错。
  */
 import { placeholders } from '../sql.js'
+import { isRepeatMeasurement } from './sampling.js'
 import type BetterSqlite3 from 'better-sqlite3'
 
 export const ABSOLUTE_COLUMNS
@@ -93,14 +94,21 @@ export interface PairwiseEventIn {
   rubric_version: string
   session_id: string
   elapsed_ms?: number | null
+  /** 客户端**请求**的采样方式。省略 = 未知（只应出现在 0017 之前的存量行上）。 */
+  strategy?: string | null
 }
 
 export function insertPairwise(sqlite: BetterSqlite3.Database, e: PairwiseEventIn): number {
+  // 来源由服务端定谳：客户端只知道自己请求了哪种采样，重复测量是它无法核实的（见
+  // isRepeatMeasurement）。放在仓库层而不是路由层，是为了让它绕不过去。
+  const strategy = isRepeatMeasurement(sqlite, { a: e.post_a, b: e.post_b, dimension: e.dimension })
+    ? 'repeat'
+    : e.strategy ?? null
   const { lastInsertRowid } = sqlite
     .prepare(
-      'INSERT INTO pairwise_annotations (post_a, post_b, dimension, winner, rubric_version, session_id, elapsed_ms) VALUES (?, ?, ?, ?, ?, ?, ?)',
+      'INSERT INTO pairwise_annotations (post_a, post_b, dimension, winner, rubric_version, session_id, elapsed_ms, strategy) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
     )
-    .run(e.post_a, e.post_b, e.dimension, e.winner, e.rubric_version, e.session_id, e.elapsed_ms ?? null)
+    .run(e.post_a, e.post_b, e.dimension, e.winner, e.rubric_version, e.session_id, e.elapsed_ms ?? null, strategy)
   return Number(lastInsertRowid)
 }
 

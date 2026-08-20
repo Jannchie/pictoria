@@ -134,6 +134,8 @@ export const annotationQueues = sqliteTable('annotation_queues', {
   /** absolute 队列用；pairwise 为 NULL。 */
   scale: integer('scale'),
   createdAt: text('created_at').notNull().default(sql`(datetime('now'))`),
+  /** pairwise 队列的采样策略；其余形态为 NULL。 */
+  strategy: text('strategy'),
 })
 
 export const absoluteAnnotations = sqliteTable('absolute_annotations', {
@@ -163,6 +165,8 @@ export const pairwiseAnnotations = sqliteTable('pairwise_annotations', {
   sessionId: text('session_id').notNull(),
   elapsedMs: integer('elapsed_ms'),
   editedAt: text('edited_at'),
+  /** 采样来源：'random' | 'similar' | 'close'。NULL = 迁移 0017 之前收集的，来源未知。 */
+  strategy: text('strategy'),
 })
 
 export const absoluteQueueItems = sqliteTable('absolute_queue_items', {

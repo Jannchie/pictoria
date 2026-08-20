@@ -203,6 +203,7 @@ export type PairwiseEventIn = {
     elapsed_ms?: number | null;
     queue_id?: number | null;
     queue_position?: number | null;
+    strategy?: string | null;
 };
 
 /**
@@ -414,6 +415,7 @@ export type QueueSummaryPublic = {
     scale?: number | null;
     total: number;
     done: number;
+    strategy?: string | null;
 };
 
 /**

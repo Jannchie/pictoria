@@ -100,6 +100,72 @@ const CLOSE_REVISIT_MEMBERS = 2
  */
 const CLOSE_SEED_DRAW = 32
 
+/**
+ * 重复测量：每批里有多大比例是**故意重问的老对**。
+ *
+ * 这是整套标注唯一的噪声标尺。到 2026-08-20，5339 个不同的对里只有 3 个被问过两次，
+ * 于是「标注者自己判两次会不会一致」无从估计 —— 而没有这个数，就无法判断模型到底
+ * 是还没学会，还是已经顶到标签噪声的天花板。close 采样恰恰把 64% 的标签堆在
+ * |Δsilva| < 0.05 的区间，那里人与模型的一致率只有 50~53%，最需要知道天花板在哪。
+ *
+ * 5% 是拿标注工时买测量精度：按每批 20 条算，平均每批一条；再标 5000 条能攒到约
+ * 250 个重复对，一致率的标准误约 3%，足够把「模型还差多少」和「标签本来就吵」分开。
+ * 它是**税**不是附加 —— 占掉批次里的一个名额，所以 5% 就是 5% 的工时。
+ */
+const REPEAT_SHARE = 0.05
+
+/**
+ * 重问之前至少要隔多久。
+ *
+ * 隔太近，量到的是「还记不记得上次点了哪边」，不是判断本身的稳定性。7 天是这条链上
+ * 唯一需要的假设，取得保守：对一个 22 万张的库来说，认出某一个**特定组合**并回忆起
+ * 当时的判决，一周后基本不可能。存量数据也支持 —— 到 2026-08-20，7 天前判过、只判过
+ * 一次、非 skip 的对有 4966 个，池子远大于消耗速度。
+ */
+const REPEAT_MIN_AGE_DAYS = 7
+
+/**
+ * `n` 个槽位里有多少个该让给重复测量。
+ *
+ * 伯努利逐槽抽，不是 `Math.round(n * share)` —— 后者在 limit=20、share=0.05 下恒等于 1，
+ * 每批不多不少正好一条，有节奏可循。
+ */
+/**
+ * 一条「够格充当重复测量之第一次」的判决。sampleRepeats 用它挑重问对象，
+ * isRepeatMeasurement 用它判定刚交上来的这条是不是第二次 —— 同一个定义，两个方向。
+ */
+const REPEAT_PRIOR = `dimension = ? AND winner != 'skip'`
+  + ` AND created_at <= datetime('now', '-${REPEAT_MIN_AGE_DAYS} days')`
+
+/**
+ * 刚判完的这一对，之前是不是已经judged过一次（且隔得够久）。
+ *
+ * 「这条是不是重复测量」是**服务端可推导**的事实，所以不该由客户端报：正常采样绝不
+ * 重问已判过的对，所以「该维度上这一无序对已有一条够老的非 skip 判决」⟺ 这次是第二次量。
+ * 让客户端保管一个它无法核实的来源标记，等于把迁移 0017 要解决的问题（provenance 一旦
+ * 丢了就永远补不回来）原样搬高一层 —— 一个过期的前端构建就能让整批静默记错。
+ *
+ * 顺带把 random / similar 偶然重问到老对的情况也收进来：那同样是一次可用的重复测量，
+ * 冷却期条件已经保证了它可用。
+ */
+export function isRepeatMeasurement(
+  sqlite: BetterSqlite3.Database,
+  { a, b, dimension }: { a: number, b: number, dimension: string },
+): boolean {
+  return sqlite
+    .prepare<[string, number, number, number, number], { 1: number }>(
+      `SELECT 1 FROM pairwise_annotations WHERE ${REPEAT_PRIOR}`
+      + ` AND ((post_a = ? AND post_b = ?) OR (post_a = ? AND post_b = ?)) LIMIT 1`,
+    )
+    .get(dimension, a, b, b, a) !== undefined
+}
+
+export function repeatSlots(n: number, share = REPEAT_SHARE): number {
+  let k = 0
+  for (let i = 0; i < n; i++) if (Math.random() < share) k++
+  return k
+}
+
 // 这两个不是可调参数而是算术 —— 上面每一条都是测量值，这两条是结构事实。一次比较要两张图；
 // 最小的环要三张。两个成员的块因此是一次比较而不是一个环：把它闭合等于把同一个问题问两遍。
 const PAIR_MEMBERS = 2
@@ -257,8 +323,33 @@ function connectedBlocks(edges: Array<[number, number]>, score: number): Block[]
 }
 
 /** 无序对的键 —— Python 侧 `frozenset((a, b))` 的等价物。 */
-function edgeKey(a: number, b: number): string {
+export function edgeKey(a: number, b: number): string {
   return a < b ? `${a}:${b}` : `${b}:${a}`
+}
+
+/**
+ * 等概率决定这一对谁在左。
+ *
+ * 离开采样器的那一刻，呈现顺序必须与任何有意义的量无关 —— 否则位置和内容混在一起，
+ * 事后再也分不开。pairByScoreBand 是 `out.push([a.id, b.id])` 且 `a.score <= b.score`，
+ * UI 又恒定把 post_a 画在左边，于是 similar 抽出的对里屏幕左侧系统性站着旧分更低的那张：
+ * 实测到 2026-08-20，mean(silva_a − silva_b) = −0.0153，z = −10.5，而想检验标注者有没有
+ * 左右偏好，就只能在模型判定几乎相等的子集里做，功效低到既证不出也排除不掉一个 2~3%
+ * 的效应（|Δsilva| < 0.005 时 n=784、z=−1.43）。
+ *
+ * listwise 那边是同一条不变量的另一种形态（sampleGroups 返回前 shuffle 成员）。
+ */
+export function flipPair([a, b]: [number, number]): [number, number] {
+  return Math.random() < 0.5 ? [b, a] : [a, b]
+}
+
+/** 原地 Fisher-Yates。 */
+function shuffle<T>(items: T[]): T[] {
+  for (let i = items.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [items[i], items[j]] = [items[j]!, items[i]!]
+  }
+  return items
 }
 
 /** 取 `n` 个 key 最小的元素，平局保持原顺序（≡ Python `heapq.nsmallest`）。 */
@@ -450,6 +541,29 @@ export class Sampler {
    * 图上而不是另起孤岛。
    */
   samplePairs({ count, strategy = 'random', dimension = 'overall' }: { count: number, strategy?: string, dimension?: string }): Array<[number, number]> {
+    // 重复测量是这一批的第四个通道，和 CALIBRATION_SHARE 一样是从 count 里**扣**而不是
+    // 加在上面 —— REPEAT_SHARE 是工时税，5% 就该是 5% 的工时。抽不满（新库还没有够老的
+    // 对）就把名额还给正常采样，免得批次凭空变小。
+    //
+    // 放在这里而不是放在路由里，是因为「一批 pairwise 该长什么样」本来就只由这个方法
+    // 定义；提到路由去的话，走同一个 samplePairs 的 generate-pairwise 会静默地永远拿不到
+    // 重复测量，而且这个缺失在代码里看不出来。
+    const repeats = this.sampleRepeats({ count: repeatSlots(count), dimension })
+    const fresh = this.samplePairsOrdered({ count: count - repeats.length, strategy, dimension })
+    // 正常采样的**相对次序**原样保留：它是吃重的（interleaveWithBridges 保证每个前缀都
+    // 连通）。重复对插在随机位置 —— 固定在头尾会让它有节奏可循，标注者一旦察觉「这条是
+    // 考我的」，量到的就不是自然判断了。插入不破坏前缀连通性：重问的边两端本来就在图里。
+    const out = fresh.map(pair => flipPair(pair))
+    for (const pair of repeats)
+      out.splice(Math.floor(Math.random() * (out.length + 1)), 0, flipPair(pair))
+    return out
+  }
+
+  /**
+   * 采样器自己的顺序 —— 对内的先后带着策略的痕迹（similar 是旧分低的在前），所以只有
+   * samplePairs 经 flipPair 处理过的结果才能端给标注者。理由见 flipPair。
+   */
+  private samplePairsOrdered({ count, strategy = 'random', dimension = 'overall' }: { count: number, strategy?: string, dimension?: string }): Array<[number, number]> {
     if (strategy === 'similar')
       return this.samplePairsSimilar(count)
     if (strategy === 'close')
@@ -467,6 +581,35 @@ export class Sampler {
   }
 
   /**
+   * 故意重问的老对 —— 唯一能量到标注噪声的通道。
+   *
+   * 取的是**均匀**样本，不是专挑平局的。均匀抽会按语料里的真实占比自动多抽到难对
+   * （64% 的标签落在 |Δsilva| < 0.05，23% 是平局），于是既得到一个无偏的总体一致率，
+   * 又攒够了平局样本供事后分层 —— 两条判决都在库里，按第一次的 winner 分组即可。
+   * 反过来先按平局挑，总体那个数就废了，而它才是「天花板在哪」的答案。
+   *
+   * 三个筛选条件各有各的必要性：`HAVING COUNT(*) = 1` 保证一对最多只重问一次（否则
+   * 均匀抽会反复咬住同一对）；`winner != 'skip'` 是因为跳过的对没有判决可比；
+   * 时间下界见 REPEAT_MIN_AGE_DAYS。
+   *
+   * 返回归一化的 `[lo, hi]`；左右由 samplePairs 统一经 flipPair 决定，于是第二次的呈现
+   * 顺序与第一次无关 —— 量到的才是判断本身稳不稳，而不是位置记忆。
+   */
+  sampleRepeats({ count, dimension = 'overall' }: { count: number, dimension?: string }): Array<[number, number]> {
+    if (count <= 0)
+      return []
+    return this.sqlite
+      .prepare<[string, number], { lo: number, hi: number }>(
+        `SELECT MIN(post_a, post_b) AS lo, MAX(post_a, post_b) AS hi`
+        + ` FROM pairwise_annotations WHERE ${REPEAT_PRIOR}`
+        + ` GROUP BY lo, hi HAVING COUNT(*) = 1`
+        + ` ORDER BY RANDOM() LIMIT ?`,
+      )
+      .all(dimension, count)
+      .map(r => [r.lo, r.hi] as [number, number])
+  }
+
+  /**
    * listwise 组：每组 `size` 张 silva 分落在同一窗口、视觉上铺开的图。
    *
    * 一组 n 张的全序买到 C(n,2) 个成对约束（8 张 = 28 对），而窗口约束（任意两成员
@@ -481,7 +624,10 @@ export class Sampler {
   sampleGroups({ count, size = 6, dimension = 'overall' }: { count: number, size?: number, dimension?: string }): number[][] {
     const graph = this.judgedGraph(dimension)
     const revisit = this.revisitPool(graph, dimension)
-    const spent = new Set<number>()
+    // 与 samplePairsClose 同一个「已花费」概念：这一批已经拿走的图，**加上**纵观全部历史
+    // 已经达到度数的图。漏掉后半截的话，窗口候选这条路径就永远不让任何人退役 —— 重访席位
+    // 那条路径修好了也没用，同一张图照样能作为普通成员被反复抽中。
+    const spent = new Set(graph.saturated)
     const groups: number[][] = []
     for (const seed of this.windowSeeds(Math.max(CLOSE_SEED_DRAW, count * 2))) {
       if (groups.length >= count)
@@ -493,11 +639,7 @@ export class Sampler {
       if (members.length < MIN_CYCLE_MEMBERS)
         continue // 一屏排 2 张不如一次 pairwise；窗口太稀就换个中心
       for (const pid of members) spent.add(pid)
-      for (let i = members.length - 1; i > 0; i--) {
-        const j = Math.floor(Math.random() * (i + 1));
-        [members[i], members[j]] = [members[j]!, members[i]!]
-      }
-      groups.push(members)
+      groups.push(shuffle(members))
     }
     return groups
   }
@@ -733,12 +875,16 @@ export class Sampler {
   private revisitPool(graph: PairGraph, dimension: string): Map<number, number> {
     const out = new Map<number, number>()
     for (const row of this.sqlite
-      .prepare<[string, string], IdScoreRow>(
+      .prepare<[string, string, string], IdScoreRow>(
         `${SILVA_ELIGIBLE} AND p.id IN (`
         + ` SELECT post_a FROM pairwise_annotations WHERE dimension = ?`
-        + ` UNION SELECT post_b FROM pairwise_annotations WHERE dimension = ?)`,
+        + ` UNION SELECT post_b FROM pairwise_annotations WHERE dimension = ?`
+        // 排过序的图同样是"已判"。取 post_ids 而不是 ranking：被 skip 的组 ranking 是空的，
+        // 但那几张确实露过面，和只判过一次 skip 的 pairwise 图一样有资格回到池子里拿边。
+        + ` UNION SELECT CAST(j.value AS INTEGER) FROM listwise_annotations la, json_each(la.post_ids) j`
+        + ` WHERE la.dimension = ?)`,
       )
-      .all(dimension, dimension))
+      .all(dimension, dimension, dimension))
       if (!graph.spent(row.id))
         out.set(row.id, row.score)
     return out
@@ -754,6 +900,12 @@ export class Sampler {
    *
    * 比较少的优先，于是度数 1 的图片优先于度数 2 的：两条环边把前者带到恰好 CLOSE_PAIR_DEGREE，
    * 而不是越过它。
+   *
+   * 同度数之间必须**随机**取，不能让 nSmallest 的稳定平局序说了算 —— 那个序来自 pool 的
+   * Map 插入序，也就是一条没有 ORDER BY 的 SQL 的扫描序，每次调用都一样。历史上库里有 5015
+   * 张度数 1 的图，而 2026-08-20 的 44 个组里反复被征召的始终是同样那几张：它们只是恰好排在
+   * 扫描序的前面。先洗牌再取，同度数的候选才是等概率的（drawAnchors 早就是这个路子：先按度数
+   * 取一大片候选，再 ORDER BY RANDOM）。
    */
   private static revisitSeeds(
     pool: Map<number, number>,
@@ -767,7 +919,7 @@ export class Sampler {
     for (const [pid, score] of pool)
       if (Math.abs(score - centre) <= half && !exclude.has(pid))
         inside.push(pid)
-    return nSmallest(n, inside, pid => graph.degreeOf(pid))
+    return nSmallest(n, shuffle(inside), pid => graph.degreeOf(pid))
   }
 
   /**
@@ -812,17 +964,25 @@ export class Sampler {
    *
    * `skip` 判决算问过但不算比过 —— 你跳过这一对是有原因的，所以它不该再回来，但它没有产生
    * 任何排序信息，不该占掉任何一方的度数配额。
+   *
+   * **listwise 的排序在这里展开成对**。一组 n 张的全序就是 C(n,2) 条边（迁移 0016 写的
+   * "排序结果在训练侧分解为对"，采样侧同理），事件行本身留在 listwise_annotations 里不动 ——
+   * 那是两张按形态分开的 append-only 事件表，展开只发生在读侧。
+   *
+   * 不展开的代价是实测过的：到 2026-08-20，44 个已排的组里 post 8884 出现了 11 次、8848
+   * 出现 10 次，两者同组 9 次；它们在这张图里的度数却始终是 1，因为排序没有产生任何
+   * pairwise 行。于是 revisitSeeds 每次都把这两张当"比较不足"重新征召，谁都排不空。展开之后
+   * 一次 6 张的排序就让每个成员 +5，直接越过 CLOSE_PAIR_DEGREE，它们才会正常退役。
    */
   private judgedGraph(dimension: string): PairGraph {
     const graph = new PairGraph(CLOSE_PAIR_DEGREE)
-    for (const row of this.sqlite
-      .prepare<[string], { post_a: number, post_b: number, winner: string }>(
-        'SELECT post_a, post_b, winner FROM pairwise_annotations WHERE dimension = ?',
-      )
-      .all(dimension)) {
-      const { post_a: a, post_b: b, winner } = row
-      graph.emitted.add(edgeKey(a, b))
-      if (winner === 'skip')
+    for (const { a, b, winner } of comparisonEdges(this.sqlite, dimension)) {
+      // 重复测量会让同一条边出现多行。度数量的是「跟多少张不同的图比过」，不是「产生过
+      // 多少行」—— 同一对量三次仍然只是一次比较，不该把双方推向饱和。
+      const key = edgeKey(a, b)
+      const fresh = !graph.emitted.has(key)
+      graph.emitted.add(key)
+      if (winner === 'skip' || !fresh)
         continue
       if (winner === 'a' || winner === 'b') {
         const [won, lost] = winner === 'a' ? [a, b] : [b, a]
@@ -1015,6 +1175,57 @@ export function samplePostIds(
   opts: { count: number, strategy: string, dimensions: string[] },
 ): number[] {
   return new Sampler(sqlite).samplePostIds(opts)
+}
+
+export interface ComparisonEdge {
+  a: number
+  b: number
+  /** `'a' | 'b' | 'tie' | 'skip'`。listwise 展开出的边只会是 `'a'`（ranking 下标小的赢）。 */
+  winner: string
+  source: 'pairwise' | 'listwise'
+}
+
+/**
+ * 这个维度上**全部**的成对比较证据 —— 两张事件表合成一条流。
+ *
+ * 一组 n 张的 listwise 全序就是 C(n,2) 条边（迁移 0016 写的「排序结果在训练侧分解为对」，
+ * 采样侧同理）。展开只发生在读侧：两张按形态分开的 append-only 事件表，写侧不该冗余。
+ *
+ * 之所以是一个导出函数而不是留在 judgedGraph 方法体里：「已经收集到多少比较」现在有
+ * 不止一个消费者。judgedGraph 是第一个，annotations.ts 的 countPairwise 是第二个（它至今
+ * 只数 pairwise 行，所以排一组 6 张会给采样图 +15 条边而顶栏纹丝不动），而 0014 注释里
+ * 提到的训练导出 scripts/export_annotations.py 已经不在仓里、迟早要重新出现，那会是第三个。
+ * 每个消费者各抄一遍这段双重循环，是这段逻辑唯一会出错的方式。
+ *
+ * 不展开的代价是实测过的：到 2026-08-20，44 个已排的组里 post 8884 出现了 11 次、8848
+ * 出现 10 次，两者同组 9 次；它们在比较图里的度数却始终是 1，因为排序没有产生任何
+ * pairwise 行，于是 revisitSeeds 每次都把这两张当「比较不足」重新征召，谁都排不空。
+ */
+export function* comparisonEdges(
+  sqlite: BetterSqlite3.Database,
+  dimension: string,
+): Generator<ComparisonEdge> {
+  for (const row of sqlite
+    .prepare<[string], { post_a: number, post_b: number, winner: string }>(
+      'SELECT post_a, post_b, winner FROM pairwise_annotations WHERE dimension = ?',
+    )
+    .all(dimension))
+    yield { a: row.post_a, b: row.post_b, winner: row.winner, source: 'pairwise' }
+
+  for (const row of sqlite
+    .prepare<[string], { post_ids: string, ranking: string }>(
+      'SELECT post_ids, ranking FROM listwise_annotations WHERE dimension = ?',
+    )
+    .all(dimension)) {
+    // 空 ranking = skip，与 pairwise 的 skip 同义：整组算问过（成员两两不再重问），但没
+    // 产生任何排序信息。members 因此取 post_ids 而不是 ranking，winner 统一表达成 'skip'。
+    const ranking = JSON.parse(row.ranking) as number[]
+    const members = ranking.length ? ranking : (JSON.parse(row.post_ids) as number[])
+    const winner = ranking.length ? 'a' : 'skip'
+    for (let i = 0; i < members.length; i++)
+      for (let j = i + 1; j < members.length; j++)
+        yield { a: members[i]!, b: members[j]!, winner, source: 'listwise' }
+  }
 }
 
 /** 为成对标注抽不相交的对。 */

@@ -28,6 +28,14 @@ const queryClient = useQueryClient()
 
 const sessionId = crypto.randomUUID()
 const dimension = computed(() => props.queue?.dimensions[0] ?? props.dimension ?? 'overall')
+// 采样来源要跟着判决一起落库：close 是训练燃料，random / similar 才是与模型无关、能当
+// 留出评估的。不记下来，事后就再也分不出哪条是哪条（2026-08-20 之前的 5430 条就是这么
+// 丢掉评估集的）。队列模式下策略是队列的属性，从摘要拿。
+//
+// 只报**请求**的采样方式就够了 —— 服务端会自己认出哪些其实是重复测量（见
+// isRepeatMeasurement），那是客户端无法核实、也就不该保管的事实。
+// 采样和提交读同一个值，两边的默认值不会漂。
+const strategy = computed(() => props.queue?.strategy ?? props.strategy ?? 'close')
 
 const buffer = ref<BufferItem[]>([])
 const doneCount = ref(props.queue?.done ?? 0)
@@ -119,11 +127,12 @@ async function refillOnce(): Promise<void> {
       fresh = (resp.data ?? []).filter(i => !known.has(i.position)).map(i => ({ postA: i.postA, postB: i.postB, position: i.position }))
     }
     else {
-      const resp = await v2SamplePairwise({ query: { limit: 20, strategy: props.strategy ?? 'close' } })
+      const resp = await v2SamplePairwise({ query: { limit: 20, strategy: strategy.value } })
       fresh = (resp.data ?? [])
         .map(p => ({ postA: p.postA, postB: p.postB }))
         .filter((p) => {
-          const key = `${p.postA.id}-${p.postB.id}`
+          // 与左右无关的键：呈现顺序现在是随机翻转的，用有序键的话同一对换个朝向就漏过去了。
+          const key = [p.postA.id, p.postB.id].sort((x, y) => x - y).join('-')
           if (seenKeys.has(key)) {
             return false
           }
@@ -162,6 +171,7 @@ async function postJudgement(item: BufferItem, winner: Winner, elapsedMs: number
       elapsed_ms: elapsedMs,
       queue_id: props.queue?.id ?? null,
       queue_position: item.position ?? null,
+      strategy: strategy.value,
     },
   })
   return resp.data?.ids ?? []

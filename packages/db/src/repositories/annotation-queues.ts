@@ -7,7 +7,7 @@
  */
 import type BetterSqlite3 from 'better-sqlite3'
 
-export const QUEUE_COLUMNS = 'id, name, kind, dimensions, scale, created_at'
+export const QUEUE_COLUMNS = 'id, name, kind, dimensions, scale, created_at, strategy'
 
 /** 队列项表 —— 代码级白名单，值会进 SQL。 */
 const ITEM_TABLES: Record<string, string> = {
@@ -35,6 +35,8 @@ export interface AnnotationQueueRow {
   dimensions: string
   scale: number | null
   created_at: string
+  /** pairwise 队列的采样策略；其余形态为 NULL。 */
+  strategy: string | null
 }
 
 export function createAbsoluteQueue(
@@ -57,7 +59,7 @@ export function createAbsoluteQueue(
 
 export function createPairwiseQueue(
   sqlite: BetterSqlite3.Database,
-  { name, dimensions, pairs }: { name: string, dimensions: string[], pairs: Array<[number, number]> },
+  { name, dimensions, pairs, strategy }: { name: string, dimensions: string[], pairs: Array<[number, number]>, strategy?: string | null },
 ): number {
   const insertItem = sqlite.prepare(
     'INSERT INTO pairwise_queue_items (queue_id, position, post_a, post_b) VALUES (?, ?, ?, ?)',
@@ -65,8 +67,8 @@ export function createPairwiseQueue(
   let qid = 0
   sqlite.transaction(() => {
     const { lastInsertRowid } = sqlite
-      .prepare("INSERT INTO annotation_queues (name, kind, dimensions, scale) VALUES (?, 'pairwise', ?, NULL)")
-      .run(name, JSON.stringify(dimensions))
+      .prepare("INSERT INTO annotation_queues (name, kind, dimensions, scale, strategy) VALUES (?, 'pairwise', ?, NULL, ?)")
+      .run(name, JSON.stringify(dimensions), strategy ?? null)
     qid = Number(lastInsertRowid)
     pairs.forEach(([a, b], pos) => insertItem.run(qid, pos, a, b))
   })()

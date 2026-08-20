@@ -44,6 +44,8 @@ const QueueSummaryPublic = z
     scale: z.int().nullable().optional(),
     total: z.int(),
     done: z.int(),
+    /** pairwise 队列的采样策略；其余形态为 null。提交时前端带回到事件行。 */
+    strategy: z.string().nullable().optional(),
   })
   .openapi('QueueSummaryPublic')
 
@@ -194,6 +196,7 @@ annotationQueuesRoutes.openapi(
       scale: queue.scale,
       total,
       done,
+      strategy: queue.strategy,
     })),
   ),
 )
@@ -394,7 +397,7 @@ annotationQueuesRoutes.openapi(
     if (!pairs.length)
       return validationError('no eligible candidates (need posts with embeddings, not already queued)') as never
     const name = d.name || `pairs-${d.dimension}-${pairs.length}`
-    const id = createPairwiseQueue(sqlite, { name, dimensions: [d.dimension], pairs })
+    const id = createPairwiseQueue(sqlite, { name, dimensions: [d.dimension], pairs, strategy: d.strategy })
     return c.json({
       id,
       name,
@@ -403,6 +406,7 @@ annotationQueuesRoutes.openapi(
       scale: null,
       total: pairs.length,
       done: 0,
+      strategy: d.strategy,
     }, 201)
   },
 )
