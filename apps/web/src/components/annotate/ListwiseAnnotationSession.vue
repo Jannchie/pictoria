@@ -42,6 +42,11 @@ const seenKeys = new Set<string>()
 let emptyStreak = 0
 let shownAt = performance.now()
 
+/** 组的身份 = 成员 id 序列。既用于批次去重，也进卡片的 :key（换组必须重建 <img>）。 */
+function groupKeyOf(posts: QueueItemPostPublic[]): string {
+  return posts.map(p => p.id).join('-')
+}
+
 function imgURL(p: QueueItemPostPublic) {
   return getPostImageURL({ filePath: p.filePath, fileName: p.fileName, extension: p.extension, sha256: p.sha256 })
 }
@@ -91,7 +96,7 @@ async function refillOnce(): Promise<void> {
       fresh = (resp.data ?? [])
         .map(g => ({ posts: g.posts }))
         .filter((g) => {
-          const key = g.posts.map(p => p.id).join('-')
+          const key = groupKeyOf(g.posts)
           if (seenKeys.has(key)) {
             return false
           }
@@ -112,6 +117,21 @@ async function refillOnce(): Promise<void> {
   catch (error) {
     handleAPIError(error, '加载图片组失败')
   }
+}
+
+// ── 忙碌态 ──────────────────────────────────────────────────────
+// 按下 Enter 到下一组能看之间有两段静默：提交请求在飞（旧组还挂在屏上，屏幕毫无变化，
+// 不知道按没按上），以及新一组的图还没解码完。两段都算「还没轮到你排」。
+// 组身份进 :key，换组必然重建 <img>，@load 一定会再触发一次 —— 否则复用旧节点会让
+// 加载态永远退不掉。
+const loadedIds = ref(new Set<number>())
+const groupKey = computed(() => groupKeyOf(current.value?.posts ?? []))
+const imagesReady = computed(() => order.value.every(id => loadedIds.value.has(id)))
+const busy = computed(() => submitting.value || !imagesReady.value)
+const busyLabel = computed(() => (submitting.value ? '提交中…' : '加载中…'))
+
+function markLoaded(pid: number) {
+  loadedIds.value.add(pid)
 }
 
 // ── 大图查看 ────────────────────────────────────────────────────
@@ -212,13 +232,20 @@ function displayIndex(idx: number): number {
   return idx
 }
 
+// 拖动位移全部夹在行内：横向到首尾格位为止，纵向只留 8px 跟手余量（正好是行的
+// padding）。被拖的卡不放大 —— 满高的卡片放大 2% 会顶出行外，把祖先的 overflow-y-auto
+// 撑出一条滚动条；「拿起来」的反馈交给 .listwise-card--drag 的高亮边框和投影。
+const DRAG_LIFT = 8
+
 function cardStyle(pid: number, idx: number): Record<string, string> {
   const d = drag.value
   if (!d?.moved) {
     return {}
   }
   if (pid === d.id) {
-    return { transform: `translate(${d.dx}px, ${d.dy * 0.25}px) scale(1.02)` }
+    const x = Math.min((order.value.length - 1 - d.from) * d.step, Math.max(-d.from * d.step, d.dx))
+    const y = Math.min(DRAG_LIFT, Math.max(-DRAG_LIFT, d.dy * 0.25))
+    return { transform: `translate(${x}px, ${y}px)` }
   }
   const shift = displayIndex(idx) - idx
   return shift ? { transform: `translateX(${shift * d.step}px)` } : {}
@@ -367,6 +394,7 @@ watch(current, (cur) => {
     order.value = ids
     touched.value = false
     confirmArmed.value = false
+    loadedIds.value.clear()
   }
   lightbox.value = null
   drag.value = null
@@ -417,10 +445,10 @@ const totalLabel = computed(() => (props.queue ? `${doneCount.value} / ${props.q
         </template>
       </div>
 
-      <div v-if="current" class="listwise-row flex-1 min-h-0">
+      <div v-if="current" class="listwise-row flex-1 min-h-0" :class="{ 'listwise-row--submitting': submitting }">
         <div
           v-for="(pid, idx) in order"
-          :key="pid"
+          :key="`${groupKey}:${pid}`"
           class="listwise-card"
           :class="{ 'listwise-card--drag': drag?.moved && drag.id === pid }"
           :style="cardStyle(pid, idx)"
@@ -437,8 +465,15 @@ const totalLabel = computed(() => (props.queue ? `${doneCount.value} / ${props.q
             class="max-h-full max-w-full object-contain"
             decoding="async"
             draggable="false"
+            @load="markLoaded(pid)"
+            @error="markLoaded(pid)"
           >
           <span class="listwise-card__rank" :class="{ 'listwise-card__rank--best': displayIndex(idx) === 0 }">{{ displayIndex(idx) + 1 }}</span>
+        </div>
+
+        <!-- 提交/解码快的时候不该闪一下：动画带 160ms 延迟，短等待里它根本不出现 -->
+        <div v-if="busy" class="listwise-busy">
+          <span class="listwise-spinner" />{{ busyLabel }}
         </div>
       </div>
 
@@ -516,10 +551,44 @@ const totalLabel = computed(() => (props.queue ? `${doneCount.value} / ${props.q
 }
 
 .listwise-row {
+  position: relative;
   display: flex;
   align-items: stretch;
   gap: 8px;
   padding: 8px;
+  /* 拖动中的卡片是 transform 平移出来的，不裁掉就会把祖先容器撑出滚动条 */
+  overflow: hidden;
+}
+
+/* 提交中：这组已经交出去了，压暗并停掉拖拽。图片解码的等待不压暗 —— 那时候卡片还能看能拖。 */
+.listwise-row--submitting .listwise-card {
+  pointer-events: none;
+  animation: listwise-dim var(--p-transition-fast) ease 160ms forwards;
+}
+@keyframes listwise-dim {
+  to { opacity: 0.45; }
+}
+
+.listwise-busy {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  z-index: 10;
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  padding: 8px 16px;
+  font-size: var(--p-text-sm);
+  border-radius: var(--p-radius-full);
+  background: var(--p-surface-3);
+  color: var(--p-fg);
+  pointer-events: none;
+  transform: translate(-50%, -50%);
+  opacity: 0;
+  animation: listwise-busy-in var(--p-transition-fast) ease 160ms forwards;
+}
+@keyframes listwise-busy-in {
+  to { opacity: 1; }
 }
 
 .listwise-card {
