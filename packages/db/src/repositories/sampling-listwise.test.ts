@@ -110,3 +110,29 @@ it('同度数的候选是随机取的，不由扫描序决定', () => {
   // 洗牌后 20 张应该雨露均沾；固定序下只有头 6 张能过这条线。
   expect(regulars.length, `重访池里只有 ${regulars.length} 张被反复征召`).toBeGreaterThan(12)
 })
+
+it('资格过滤：重复图与排队中的图不会被抽到', () => {
+  // SILVA_ELIGIBLE 在 2026-08-21 从「JOIN posts」改成「拿两个小排除集反查」，把
+  // windowSeeds 从 315ms 压到 73ms。语义必须逐行不变，而这两条排除是它全部的语义。
+  const dup = 7 // 被判为另一张的近重复
+  const queued = 9 // 挂在未完成的 pairwise 队列项上
+  sqlite.prepare('UPDATE posts SET canonical_post_id = ? WHERE id = ?').run(8, dup)
+  const qid = Number(
+    sqlite.prepare("INSERT INTO annotation_queues (name, kind, dimensions, scale) VALUES ('q', 'pairwise', '[\"overall\"]', NULL)")
+      .run().lastInsertRowid,
+  )
+  sqlite
+    .prepare('INSERT INTO pairwise_queue_items (queue_id, position, post_a, post_b, done) VALUES (?, 0, ?, ?, 0)')
+    .run(qid, queued, 10)
+  try {
+    const drafted = draftCounts()
+    expect(drafted.get(dup) ?? 0, '重复图被抽到了').toBe(0)
+    expect(drafted.get(queued) ?? 0, '排队中的图被抽到了').toBe(0)
+    expect(drafted.size, '其余图仍然照常被抽').toBeGreaterThan(20)
+  }
+  finally {
+    sqlite.prepare('UPDATE posts SET canonical_post_id = NULL WHERE id = ?').run(dup)
+    sqlite.prepare('DELETE FROM pairwise_queue_items WHERE queue_id = ?').run(qid)
+    sqlite.prepare('DELETE FROM annotation_queues WHERE id = ?').run(qid)
+  }
+})

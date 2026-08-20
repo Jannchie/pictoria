@@ -459,15 +459,41 @@ const PAIRWISE_ELIGIBLE
   = 'p.canonical_post_id IS NULL AND NOT EXISTS (SELECT 1 FROM pairwise_queue_items i WHERE (i.post_a = p.id OR i.post_b = p.id) AND i.done = 0)'
 
 /**
+ * 与 PAIRWISE_ELIGIBLE 同义，但从**分数行**那侧问，不需要 posts 在场。
+ *
+ * 两个排除集都小且能走覆盖索引，所以 SQLite 会各物化一次再拿 bloom filter 过滤，
+ * 而不是每行回查一次 posts 主键。理由与实测见 SILVA_ELIGIBLE。
+ */
+const SCORE_ROW_ELIGIBLE
+  = 's.post_id NOT IN (SELECT id FROM posts WHERE canonical_post_id IS NOT NULL)'
+    + ' AND s.post_id NOT IN (SELECT post_a FROM pairwise_queue_items WHERE done = 0'
+    + ' UNION SELECT post_b FROM pairwise_queue_items WHERE done = 0)'
+
+/**
  * 仍值得比较的图片的 `(id, silva 分)`。close 的四条采样查询都是这条语句加个尾巴 —— 一个
- * 分数区间、一个 id 列表 —— 和它们自己的 LIMIT，所以 join 和资格子句在这里写一次，而不是把
- * scorer 名字硬编码四遍。两半都不绑定参数，这正是每个调用方都能直接追加自己的参数而不用记
- * 偏移量的原因。
+ * 分数区间、一个 id 列表 —— 和它们自己的 LIMIT，所以资格子句在这里写一次，而不是把 scorer
+ * 名字硬编码四遍。两半都不绑定参数，这正是每个调用方都能直接追加自己的参数而不用记偏移量
+ * 的原因。
+ *
+ * **不 join posts**。它曾经是 `FROM posts p JOIN post_aesthetic_scores s ON s.post_id = p.id`，
+ * 而资格判定只需要 posts 的两件事：不是重复图、不在未完成的队列里。代价是每一条 silva 分行
+ * 都要回查一次 posts 主键 —— 实测（2026-08-21，22.9 万张库）：单扫分数索引 5ms，加上这个
+ * 回查变成 255ms，因为 posts 表有 171MB，22.9 万次随机读把它整个翻了一遍。
+ *
+ * 改成拿两个**小**排除集做反查：重复图 34,972 个（走覆盖索引 ix_posts_canonical，实测物化
+ * 成本 0ms），未完成队列项 8 个。windowSeeds 315ms → 73ms，windowCandidates 220ms → 80ms，
+ * 结果集逐行相同（194,153 行，双向差集为 0）。
+ *
+ * 丢掉 join 不会放进孤儿分数行：post_aesthetic_scores 对 posts 是 ON DELETE CASCADE，而
+ * connection.ts 每条连接都开 `PRAGMA foreign_keys = ON`，所以 post 一删分数行就跟着没了
+ * （实测孤儿数为 0）。
+ *
+ * 顺带记一笔试过但**不划算**的：给 post_aesthetic_scores 加 (scorer, score, post_id) 覆盖
+ * 索引，windowCandidates 只从 40ms 到 34ms，windowSeeds 毫无变化 —— 不值一次迁移。
  */
 const SILVA_ELIGIBLE
-  = `SELECT p.id, s.score FROM posts p `
-    + `JOIN ${AESTHETIC_SCORES_TABLE} s ON s.post_id = p.id AND s.scorer = '${SILVA.name}' `
-    + `WHERE ${PAIRWISE_ELIGIBLE}`
+  = `SELECT s.post_id AS id, s.score FROM ${AESTHETIC_SCORES_TABLE} s `
+    + `WHERE s.scorer = '${SILVA.name}' AND ${SCORE_ROW_ELIGIBLE}`
 
 interface IdScoreRow { id: number, score: number }
 
@@ -876,7 +902,7 @@ export class Sampler {
     const out = new Map<number, number>()
     for (const row of this.sqlite
       .prepare<[string, string, string], IdScoreRow>(
-        `${SILVA_ELIGIBLE} AND p.id IN (`
+        `${SILVA_ELIGIBLE} AND s.post_id IN (`
         + ` SELECT post_a FROM pairwise_annotations WHERE dimension = ?`
         + ` UNION SELECT post_b FROM pairwise_annotations WHERE dimension = ?`
         // 排过序的图同样是"已判"。取 post_ids 而不是 ranking：被 skip 的组 ranking 是空的，
@@ -1014,7 +1040,7 @@ export class Sampler {
     const candidates = nSmallest(ANCHOR_CANDIDATES, pool, pid => graph.degreeOf(pid))
     return this.sqlite
       .prepare<unknown[], IdScoreRow>(
-        `${SILVA_ELIGIBLE} AND p.id IN (${placeholders(candidates.length)}) ORDER BY RANDOM() LIMIT ?`,
+        `${SILVA_ELIGIBLE} AND s.post_id IN (${placeholders(candidates.length)}) ORDER BY RANDOM() LIMIT ?`,
       )
       .all(...candidates, n)
   }
