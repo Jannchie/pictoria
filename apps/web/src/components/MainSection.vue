@@ -185,21 +185,20 @@ function moveSelection(direction: Direction) {
   scrollSelectedIntoView(nextId)
 }
 
-onKeyStroke(['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown'], (e) => {
+// 一张表而不是"注册的键"+"switch 的键"两份清单 —— 两份漂开的表现是某个方向
+// 被 preventDefault 吃掉却不移动选区。
+const ARROW_DIRECTIONS: Record<string, Direction> = {
+  ArrowLeft: 'left',
+  ArrowRight: 'right',
+  ArrowUp: 'up',
+  ArrowDown: 'down',
+}
+
+onKeyStroke(Object.keys(ARROW_DIRECTIONS), (e) => {
   if (activeKeyScope.value !== 'grid') {
     return
   }
-  let direction: Direction | null = null
-  switch (e.key) {
-    case 'ArrowLeft': { direction = 'left'
-      break }
-    case 'ArrowRight': { direction = 'right'
-      break }
-    case 'ArrowUp': { direction = 'up'
-      break }
-    case 'ArrowDown': { direction = 'down'
-      break }
-  }
+  const direction = ARROW_DIRECTIONS[e.key]
   if (!direction) {
     return
   }

@@ -75,7 +75,7 @@ let emptyStreak = 0
 let shownAt = performance.now()
 
 function imgURL(p: QueueItemPostPublic) {
-  return getPostImageURL({ filePath: p.filePath, fileName: p.fileName, extension: p.extension, sha256: p.sha256 })
+  return getPostImageURL(p)
 }
 
 // 预热接下来几对的原图：判断当前对的几秒钟里，下一对已进浏览器缓存。

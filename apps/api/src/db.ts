@@ -35,8 +35,3 @@ export function migrate(): void {
   if (applied)
     console.warn(`[pictoria-api] 应用了 ${applied} 个迁移`)
 }
-
-export function closeDb(): void {
-  handle?.sqlite.close()
-  handle = null
-}

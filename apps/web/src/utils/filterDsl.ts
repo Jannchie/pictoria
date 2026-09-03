@@ -50,23 +50,20 @@ export const RATING_ALIASES: Record<string, number> = {
 
 export const BUCKET_IDS = ['best', 'good', 'normal', 'bad', 'worst'] as const
 
+/** 打分器的 DSL 键 → 它在 `ParsedFilterQuery` 上的分档字段。 */
+const BUCKET_FACETS = {
+  waifu: 'waifu_score_levels',
+  silva: 'silva_score_levels',
+  luna: 'silva_luna_score_levels',
+} as const
+
 const MAX_SCORE = 5
+/** rating 是 0..4（0 = 未评级）。 */
+const MAX_RATING = 4
 
-/** Expands a comparison against the discrete 0..5 score scale into members. */
-function expandScore(op: string, n: number): number[] {
-  const all = Array.from({ length: MAX_SCORE + 1 }, (_, i) => i)
-  switch (op) {
-    case '>=': { return all.filter(v => v >= n) }
-    case '>': { return all.filter(v => v > n) }
-    case '<=': { return all.filter(v => v <= n) }
-    case '<': { return all.filter(v => v < n) }
-    default: { return all.includes(n) ? [n] : [] }
-  }
-}
-
-/** Same idea for ratings, which run 0..4. */
-function expandRating(op: string, n: number): number[] {
-  const all = [0, 1, 2, 3, 4]
+/** Expands a comparison against a discrete 0..max scale into its members. */
+function expandRange(op: string, n: number, max: number): number[] {
+  const all = Array.from({ length: max + 1 }, (_, i) => i)
   switch (op) {
     case '>=': { return all.filter(v => v >= n) }
     case '>': { return all.filter(v => v > n) }
@@ -163,7 +160,7 @@ export function parseFilterQuery(input: string): ParsedFilter {
         const alias = RATING_ALIASES[value.toLowerCase()]
         const n = alias ?? Number(value)
         if (Number.isFinite(n)) {
-          addUnique(result.rating, expandRating(op, n))
+          addUnique(result.rating, expandRange(op, n, MAX_RATING))
         }
         else {
           result.unknown.push(token)
@@ -174,7 +171,7 @@ export function parseFilterQuery(input: string): ParsedFilter {
       case 'sc': {
         const n = Number(value)
         if (Number.isFinite(n)) {
-          addUnique(result.score, expandScore(op, n))
+          addUnique(result.score, expandRange(op, n, MAX_SCORE))
         }
         else {
           result.unknown.push(token)
@@ -192,30 +189,12 @@ export function parseFilterQuery(input: string): ParsedFilter {
         addUnique(result.extension, [value.toLowerCase().replace(/^\./, '')])
         break
       }
-      case 'waifu': {
-        const v = value.toLowerCase()
-        if ((BUCKET_IDS as readonly string[]).includes(v)) {
-          addUnique(result.waifu_score_levels, [v])
-        }
-        else {
-          result.unknown.push(token)
-        }
-        break
-      }
-      case 'silva': {
-        const v = value.toLowerCase()
-        if ((BUCKET_IDS as readonly string[]).includes(v)) {
-          addUnique(result.silva_score_levels, [v])
-        }
-        else {
-          result.unknown.push(token)
-        }
-        break
-      }
+      case 'waifu':
+      case 'silva':
       case 'luna': {
         const v = value.toLowerCase()
         if ((BUCKET_IDS as readonly string[]).includes(v)) {
-          addUnique(result.silva_luna_score_levels, [v])
+          addUnique(result[BUCKET_FACETS[key]], [v])
         }
         else {
           result.unknown.push(token)

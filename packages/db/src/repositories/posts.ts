@@ -4,6 +4,7 @@
 import { placeholders } from '../sql.js'
 import type BetterSqlite3 from 'better-sqlite3'
 import { BULK_UPDATABLE_FIELDS, UPDATABLE_FIELDS } from '../filters.js'
+import { SIGLIP2_TABLE } from './vectors.js'
 
 const UPDATE_SQL = (field: string, whereSql: string) =>
   `UPDATE posts SET ${field} = ?, updated_at = CURRENT_TIMESTAMP, `
@@ -169,7 +170,7 @@ export function deleteManyReturningPaths(
       // 显式且排在 posts 之前，好让 trg_post_has_tag_count_ad 在 post 行还在时触发
       sqlite.prepare(`DELETE FROM post_has_tag WHERE post_id IN (${ph})`).run(...chunk)
       // vec0 虚表 —— 没有外键级联
-      sqlite.prepare(`DELETE FROM post_vectors_siglip2 WHERE post_id IN (${ph})`).run(...chunk)
+      sqlite.prepare(`DELETE FROM ${SIGLIP2_TABLE} WHERE post_id IN (${ph})`).run(...chunk)
       sqlite.prepare(`DELETE FROM posts WHERE id IN (${ph})`).run(...chunk)
     })()
   }

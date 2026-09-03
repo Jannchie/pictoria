@@ -103,11 +103,6 @@ function sha256Hex(data: string): string {
   return createHash('sha256').update(data, 'utf8').digest('hex')
 }
 
-/** S3 配好了没有 —— 调用方据此决定报"没配"还是去取。 */
-export function s3Configured(): boolean {
-  return load() !== null
-}
-
 /**
  * `<base_dir>/<objectName>` 的预签名 GET URL，没配 S3 时返回 `null`。
  *

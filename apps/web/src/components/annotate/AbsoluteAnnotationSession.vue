@@ -72,7 +72,7 @@ function preloadAhead() {
 }
 
 function postURL(p: QueueItemPostPublic) {
-  return getPostImageURL({ filePath: p.filePath, fileName: p.fileName, extension: p.extension, sha256: p.sha256 })
+  return getPostImageURL(p)
 }
 
 // 见 PairwiseAnnotationSession：低于 LOW_WATER 就后台补货，refilling 是并发闸

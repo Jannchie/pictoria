@@ -48,7 +48,7 @@ function groupKeyOf(posts: QueueItemPostPublic[]): string {
 }
 
 function imgURL(p: QueueItemPostPublic) {
-  return getPostImageURL({ filePath: p.filePath, fileName: p.fileName, extension: p.extension, sha256: p.sha256 })
+  return getPostImageURL(p)
 }
 
 // 预热下一组：排当前组的十几秒里，下一组已进浏览器缓存。

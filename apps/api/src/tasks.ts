@@ -47,8 +47,3 @@ export async function getTasks(): Promise<CairnQ> {
   }
   return handle
 }
-
-export async function closeTasks(): Promise<void> {
-  await handle?.close()
-  handle = null
-}

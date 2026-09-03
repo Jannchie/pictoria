@@ -9,6 +9,3 @@ export const shortcutHelpOpen = ref(false)
 export function openCommandPalette() {
   commandPaletteOpen.value = true
 }
-export function closeCommandPalette() {
-  commandPaletteOpen.value = false
-}
