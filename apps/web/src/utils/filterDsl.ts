@@ -20,6 +20,7 @@
  * would be worse than not offering it.
  */
 import { toBucketAlias, toBucketLevel } from '@/shared/buckets'
+import { SCORERS } from '@/shared/scorers'
 
 export interface ParsedFilter {
   rating: number[]
@@ -49,12 +50,15 @@ export const RATING_ALIASES: Record<string, number> = {
   e: 4,
 }
 
-/** 打分器的 DSL 键 → 它在 `ParsedFilterQuery` 上的分档字段。 */
-const BUCKET_FACETS = {
-  waifu: 'waifu_score_levels',
-  silva: 'silva_score_levels',
-  luna: 'silva_luna_score_levels',
-} as const
+/**
+ * 打分器的 DSL 键 → 它在 `ParsedFilter` 上的分档字段。
+ *
+ * 由 `SCORERS` 派生而不是手写：加一个打分器时忘了在这里补一行，症状是那个键在
+ * 命令面板里被当成自由文本吞掉，不报错。
+ */
+const BUCKET_FACETS = Object.fromEntries(
+  SCORERS.map(s => [s.dslKey, s.levelsField]),
+) as Record<string, 'waifu_score_levels' | 'silva_score_levels' | 'silva_luna_score_levels'>
 
 const MAX_SCORE = 5
 /** rating 是 0..4（0 = 未评级）。 */
@@ -260,7 +264,5 @@ export function hasFilterTerms(parsed: ParsedFilter): boolean {
     || parsed.score.length > 0
     || parsed.tags.length > 0
     || parsed.extension.length > 0
-    || parsed.waifu_score_levels.length > 0
-    || parsed.silva_score_levels.length > 0
-    || parsed.silva_luna_score_levels.length > 0
+    || SCORERS.some(s => parsed[s.levelsField].length > 0)
 }

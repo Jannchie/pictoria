@@ -8,6 +8,7 @@ import {
   postSortOrder,
   RATING_LEVEL_LABEL_KEYS,
   RATING_UNRATED_LABEL_KEY,
+  SCORERS,
   textSearchQuery,
 } from '@/shared'
 import { naturalizeTagName } from '@/utils'
@@ -46,9 +47,7 @@ function clearAll() {
     score: [],
     tags: [],
     extension: [],
-    waifu_score_levels: [],
-    silva_score_levels: [],
-    silva_luna_score_levels: [],
+    ...Object.fromEntries(SCORERS.map(s => [s.levelsField, []])),
     waifu_score_range: undefined,
   }
   textSearchQuery.value = ''
@@ -100,14 +99,16 @@ export function useActiveFilters() {
     for (const ext of f.extension) {
       out.push({ id: `ext:${ext}`, icon: 'i-tabler-file', label: ext || t('filter.noExtension'), remove: () => removeFrom('extension', ext) })
     }
-    for (const lvl of f.waifu_score_levels) {
-      out.push({ id: `waifu:${lvl}`, icon: 'i-tabler-heart', label: `Waifu ${bucketLabel(lvl)}`, remove: () => removeFrom('waifu_score_levels', lvl) })
-    }
-    for (const lvl of f.silva_score_levels) {
-      out.push({ id: `silva:${lvl}`, icon: 'i-tabler-rosette', label: `SILVA ${bucketLabel(lvl)}`, remove: () => removeFrom('silva_score_levels', lvl) })
-    }
-    for (const lvl of f.silva_luna_score_levels) {
-      out.push({ id: `luna:${lvl}`, icon: 'i-tabler-moon', label: `Luna ${bucketLabel(lvl)}`, remove: () => removeFrom('silva_luna_score_levels', lvl) })
+    // 三块 chip 只差前缀和图标，而那两样都在打分器表里。
+    for (const spec of SCORERS) {
+      for (const lvl of f[spec.levelsField]) {
+        out.push({
+          id: `${spec.dslKey}:${lvl}`,
+          icon: spec.icon,
+          label: `${spec.chipPrefix} ${bucketLabel(lvl)}`,
+          remove: () => removeFrom(spec.levelsField, lvl),
+        })
+      }
     }
     if (f.waifu_score_range) {
       const [lo, hi] = f.waifu_score_range

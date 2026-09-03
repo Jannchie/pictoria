@@ -1,29 +1,27 @@
+import type { ScorerUi } from './scorers'
 import type { PostSimplePublic } from '@/api'
 import { useActiveElement, useLocalStorage, useStorage } from '@vueuse/core'
 import { computed, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
+import { SCORERS } from './scorers'
 
 export const baseURL = 'http://localhost:4777'
 
-interface PostFilter {
+/** 分档字段由打分器表的 `levelsField` 联合派生 —— 加一项就自动多一个字段。 */
+interface PostFilter extends Record<ScorerUi['levelsField'], string[]> {
   rating: number[]
   score: number[]
   tags: string[]
   extension: string[]
   folder?: string
   waifu_score_range?: [number, number]
-  waifu_score_levels: string[]
-  silva_score_levels: string[]
-  silva_luna_score_levels: string[]
 }
 export const postFilter = ref<PostFilter>({
   rating: [],
   score: [],
   tags: [],
   extension: [],
-  waifu_score_levels: [],
-  silva_score_levels: [],
-  silva_luna_score_levels: [],
+  ...Object.fromEntries(SCORERS.map(s => [s.levelsField, [] as string[]])) as Record<ScorerUi['levelsField'], string[]>,
 })
 export const textSearchQuery = ref('')
 
@@ -46,9 +44,7 @@ const ARRAY_FILTERS: { key: keyof PostFilter & string, numeric?: boolean, encode
   { key: 'rating', numeric: true },
   { key: 'extension' },
   { key: 'tags', encode: true },
-  { key: 'waifu_score_levels' },
-  { key: 'silva_score_levels' },
-  { key: 'silva_luna_score_levels' },
+  ...SCORERS.map(s => ({ key: s.levelsField })),
 ]
 
 // vue-router query values are `string | null | (string | null)[]`: a valueless
