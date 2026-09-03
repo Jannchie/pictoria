@@ -19,6 +19,7 @@ import {
 } from '@pictoria/db'
 import { getDb } from '../db.js'
 import { OK, RESP_400, domainError, postNotFound, zodErrorHook } from '../openapi.js'
+import { wakeAllBackfills } from '../scheduler.js'
 import { PostDetailPublic, Result, toPostDetail } from '../schemas.js'
 import { translateTag } from '../tag-i18n.js'
 
@@ -137,6 +138,10 @@ tagWritesRoutes.openapi(
   }),
   (c) => {
     deleteTag(getDb().sqlite, c.req.valid('param').name)
+    // `post_has_tag` 走 FK 级联，这一下可能剥掉很多图的最后一个自动标签 —— 那些图
+    // 重新变成 tagger 待办，而待办查询的指纹门只认 `MAX(id)` 变化，不叫醒的话它们
+    // 会静默地永远不被重新打标。
+    wakeAllBackfills()
     return c.body(null, 204) as never
   },
 )
@@ -153,6 +158,7 @@ tagWritesRoutes.openapi(
   }),
   (c) => {
     deleteTags(getDb().sqlite, c.req.valid('json').name_list)
+    wakeAllBackfills()
     return c.body(null, 204) as never
   },
 )
@@ -206,6 +212,8 @@ tagWritesRoutes.openapi(
       return postNotFound(postId) as never
     if (!removeTagFromPost(sqlite, postId, tagName))
       return domainError(`Tag ${tagName} does not exist in post ${postId}.`, 'TagNotOnPostError', 409) as never
+    // 摘掉的若是这张图最后一个 `is_auto = 1` 行，它就重新是 tagger 待办了。
+    wakeAllBackfills()
     return c.json(toPostDetail(getDetail(sqlite, postId, n => translateTag(n))!)) as never
   },
 )

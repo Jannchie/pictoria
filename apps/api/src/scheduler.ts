@@ -90,7 +90,7 @@ function batchKey(prefix: string, ids: number[]): string {
 
 export interface BackfillHandle {
   stop: () => void
-  /** 立刻结束这一轮空等，去看一眼有没有新活。 */
+  /** 立刻结束这一轮空等，并让下一轮**强制重扫**（绕开待办查询的指纹门）。 */
   wake: () => void
 }
 
@@ -102,6 +102,27 @@ export interface BackfillHandle {
  */
 const handles = new Set<BackfillHandle>()
 
+/**
+ * 叫醒全部 backfill 循环，并让它们下一轮**强制重扫一次**。
+ *
+ * ⚠️ 第二件事是这个函数现在**必须**做的，不是顺带的优化。五个待办查询都带了指纹门
+ * （`packages/db` 的 `scanMemo`）：上一轮扫出来是空、而 `posts` 的 `MAX(id)` 没变，
+ * 就直接返回空、连查都不查。那道门只覆盖"有新 post 进来"这一种新工作来源，而别的
+ * 来源不动 `MAX(id)`：
+ *
+ * * 清空 `post_process_failures` 黑名单（一批被拉黑的图重新变成待办）；
+ * * 手工摘掉一张图最后一个 `is_auto = 1` 标签（重新变成 tagger 待办）；
+ * * 删掉某个 scorer 的分数行（重新变成 silva 待办）；
+ * * 把 `sha256` / `arthash` / `dominant_color` 清回空值（重新变成 basics 待办）。
+ *
+ * 这些路径**每一条**都得走到这里。漏掉一条的表现是**完全静默的**：没有异常、没有
+ * 日志，那张图就是永远不再被 backfill 碰一下，直到下一个新 post 把 `MAX(id)` 顶上去
+ * 才顺带解冻。这是这道门最大的风险，也是它唯一的正确性前提。
+ *
+ * 实现上不是"清 memo"而是给每条循环立一个 `force` 标志：memo 长在 `packages/db` 里、
+ * 按连接存，而循环本来就要被叫醒 —— 让同一个信号顺手把下一轮的 `{ force: true }`
+ * 带进去，比再导出一个"按连接清 memo"的函数少一条能忘掉的路。
+ */
 export function wakeAllBackfills(): void {
   for (const h of handles) h.wake()
 }
@@ -136,21 +157,38 @@ function sleep(ms: number, signal: AbortSignal, waker: { resolve?: () => void })
  * `tick` 做完一批返回 `true`，没活干返回 `false`。有活就立刻接着下一批，没活就退到
  * `IDLE_MS`。**串行**：GPU 一次只跑一个批次，多提交只是让任务在队列里排着，除了把
  * 内存花在 payload 上什么也换不到。
+ *
+ * `tick` 收到的 `force` 是 `wake()` 立的旗：这一轮的待办查询要绕开指纹门重新全扫
+ * （理由见 `wakeAllBackfills`）。读了就清，而 wake() 可能发生在一次 tick 正跑到一半
+ * 的时候 —— 那时 `waker.resolve` 是 undefined（没在空等），旗子就是唯一还留得住这个
+ * 信号的东西，它会被**下一轮**读走。读和清之间没有 await，所以中间插不进 wake()。
  */
-function loop(name: string, tick: () => Promise<boolean>, log: Log): BackfillHandle {
+function loop(
+  name: string,
+  tick: (opts: { force: boolean }) => Promise<boolean>,
+  log: Log,
+): BackfillHandle {
   const controller = new AbortController()
   const { signal } = controller
   // 空等时这里放着那一次 sleep 的 resolve；wake() 就是提前调它。
   const waker: { resolve?: () => void } = {}
+  // 显式标注：下面 `force = forceRescan` 与 `forceRescan ||= force` 互相引用，
+  // 少了它 tsc 会判成循环推断（TS7022）。
+  let forceRescan: boolean = false
 
   void (async () => {
     while (!signal.aborted) {
+      const force: boolean = forceRescan
+      forceRescan = false
       let worked = false
       try {
-        worked = await tick()
+        worked = await tick({ force })
       }
       catch (err) {
         log.warn(`[${name}] 这一批失败：${String(err)}`)
+        // 这一轮的强制重扫没兑现（查询可能压根没跑到）—— 旗子还回去，别把
+        // wakeAllBackfills 的信号吞在一次异常里。
+        forceRescan ||= force
       }
       if (!worked)
         await sleep(IDLE_MS, signal, waker)
@@ -162,7 +200,10 @@ function loop(name: string, tick: () => Promise<boolean>, log: Log): BackfillHan
       controller.abort()
       handles.delete(handle)
     },
-    wake: () => waker.resolve?.(),
+    wake: () => {
+      forceRescan = true
+      waker.resolve?.()
+    },
   }
   handles.add(handle)
   return handle
@@ -193,8 +234,8 @@ export function startSilvaBackfill(
   tasks: CairnQ,
   { scorer, log = console }: { scorer: SilvaScorer, log?: Log },
 ): BackfillHandle {
-  return loop(scorer, async () => {
-    const pending = listSilvaPending(sqlite, scorer, SILVA_TASK_BATCH)
+  return loop(scorer, async ({ force }) => {
+    const pending = listSilvaPending(sqlite, scorer, SILVA_TASK_BATCH, { force })
     if (!pending.length)
       return false
 
@@ -232,8 +273,8 @@ export function startWaifuBackfill(
   { log = console }: { log?: Log } = {},
 ): BackfillHandle {
   const root = targetDir()
-  return loop('waifu', async () => {
-    const items = listWaifuPending(sqlite, root, WAIFU_TASK_BATCH)
+  return loop('waifu', async ({ force }) => {
+    const items = listWaifuPending(sqlite, root, WAIFU_TASK_BATCH, { force })
     if (!items.length)
       return false
 
@@ -267,8 +308,8 @@ export function startTaggerBackfill(
   { log = console }: { log?: Log } = {},
 ): BackfillHandle {
   const root = targetDir()
-  return loop('tagger', async () => {
-    const items = listTaggerPending(sqlite, root, TAGGER_TASK_BATCH)
+  return loop('tagger', async ({ force }) => {
+    const items = listTaggerPending(sqlite, root, TAGGER_TASK_BATCH, { force })
     if (!items.length)
       return false
 
@@ -319,8 +360,8 @@ export function startEmbeddingBackfill(
 ): BackfillHandle {
   const root = targetDir()
   let writtenSinceIdle = 0
-  return loop('embedding', async () => {
-    const items = listEmbeddingPending(sqlite, root, EMBEDDING_TASK_BATCH)
+  return loop('embedding', async ({ force }) => {
+    const items = listEmbeddingPending(sqlite, root, EMBEDDING_TASK_BATCH, { force })
     if (!items.length) {
       if (writtenSinceIdle && onDrained) {
         const written = writtenSinceIdle
@@ -372,8 +413,8 @@ export function startBasicsBackfill(
   { log = console }: { log?: Log } = {},
 ): BackfillHandle {
   const root = targetDir()
-  return loop('basics', async () => {
-    const items = listBasicsPending(sqlite, root, BASICS_TASK_BATCH)
+  return loop('basics', async ({ force }) => {
+    const items = listBasicsPending(sqlite, root, BASICS_TASK_BATCH, { force })
     if (!items.length)
       return false
 

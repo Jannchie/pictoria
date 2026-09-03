@@ -10,6 +10,7 @@ import { Buffer } from 'node:buffer'
 import { bulkUpdateField, clearCanonical, createPost, getDetail, getPostPath, makeCanonical, postExists, touchAccessed, updateField, updateForRotate } from '@pictoria/db'
 import { getDb } from '../db.js'
 import { OK, RESP_400, domainError, postNotFound, pyRepr, queryFlag, validationError, zodErrorHook } from '../openapi.js'
+import { wakeAllBackfills } from '../scheduler.js'
 import { PostDetailPublic, toPostDetail } from '../schemas.js'
 import { isInside, targetDir, thumbnailsDir } from '../paths.js'
 import { deletePostFiles } from '../post-files.js'
@@ -303,6 +304,12 @@ postWritesRoutes.openapi(
     }, { queue: IO_QUEUE, waitTimeoutMs: 120_000, pollMs: 20, maxAttempts: 1 })
 
     updateForRotate(sqlite, postId, result)
+    // `arthash` 是 `string | null`，而 `updateForRotate` 直接 `SET arthash = ?`（不是
+    // COALESCE）。写进 NULL 就是一条新的 basics 待办，而待办查询的指纹门只认
+    // `MAX(id)` 变化 —— 不叫醒的话这张图的 arthash 永远补不回来。只在真写空时叫，
+    // 免得每次旋转都逼一轮全库重扫。
+    if (result.arthash === null)
+      wakeAllBackfills()
     const detail = getDetail(sqlite, postId, n => translateTag(n))
     if (!detail)
       return postNotFound(postId) as never
