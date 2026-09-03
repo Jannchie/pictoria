@@ -5,6 +5,7 @@
 
 export * from './annotationReview'
 export * from './annotationTimeline'
+export * from './buckets'
 export * from './commandPalette'
 export * from './history'
 export * from './mutations'

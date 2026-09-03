@@ -1,6 +1,7 @@
 import { computed } from 'vue'
 import { useI18n } from 'vue-i18n'
 import {
+  bucketLabelKey,
   postFilter,
   postSort,
   postSortColor,
@@ -27,15 +28,6 @@ export interface FilterChip {
   label: string
   /** Clears just this chip's contribution to the filter. */
   remove: () => void
-}
-
-/** Bucket ids (`filter.bucket*` keys) used by the waifu / SILVA level facets. */
-const BUCKET_LABEL_KEYS: Record<string, string> = {
-  best: 'filter.bucketBest',
-  good: 'filter.bucketGood',
-  normal: 'filter.bucketNormal',
-  bad: 'filter.bucketBad',
-  worst: 'filter.bucketWorst',
 }
 
 type ArrayFacet = 'rating' | 'score' | 'extension' | 'tags' | 'waifu_score_levels' | 'silva_score_levels' | 'silva_luna_score_levels'
@@ -78,7 +70,7 @@ export function useActiveFilters() {
   }
 
   function bucketLabel(id: string): string {
-    const key = BUCKET_LABEL_KEYS[id.toLowerCase()]
+    const key = bucketLabelKey(id)
     return key ? t(key) : id
   }
 

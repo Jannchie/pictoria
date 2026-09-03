@@ -10,7 +10,7 @@
  *   score:4          score:>=4      score:<3      score:0     (0 = unscored)
  *   tag:1girl        tag:"long hair"
  *   ext:png
- *   waifu:best|good|normal|bad|worst
+ *   waifu:best|good|normal|bad|worst|unscored   also the A..E letters
  *   silva:best|good|normal|bad|worst
  *   luna:best|good|normal|bad|worst
  *
@@ -19,6 +19,7 @@
  * backend filter has no exclusion fields, and a term that silently did nothing
  * would be worse than not offering it.
  */
+import { toBucketAlias, toBucketLevel } from '@/shared/buckets'
 
 export interface ParsedFilter {
   rating: number[]
@@ -47,8 +48,6 @@ export const RATING_ALIASES: Record<string, number> = {
   explicit: 4,
   e: 4,
 }
-
-export const BUCKET_IDS = ['best', 'good', 'normal', 'bad', 'worst'] as const
 
 /** 打分器的 DSL 键 → 它在 `ParsedFilterQuery` 上的分档字段。 */
 const BUCKET_FACETS = {
@@ -192,9 +191,10 @@ export function parseFilterQuery(input: string): ParsedFilter {
       case 'waifu':
       case 'silva':
       case 'luna': {
-        const v = value.toLowerCase()
-        if ((BUCKET_IDS as readonly string[]).includes(v)) {
-          addUnique(result[BUCKET_FACETS[key]], [v])
+        // 字母和别名都接受，但一律归一成后端认的 level 再写进 filter。
+        const level = toBucketLevel(value)
+        if (level) {
+          addUnique(result[BUCKET_FACETS[key]], [level])
         }
         else {
           result.unknown.push(token)
@@ -241,14 +241,11 @@ export function stringifyFilterQuery(filter: {
   for (const ext of filter.extension) {
     parts.push(`ext:${ext}`)
   }
-  for (const lvl of filter.waifu_score_levels) {
-    parts.push(`waifu:${lvl}`)
-  }
-  for (const lvl of filter.silva_score_levels) {
-    parts.push(`silva:${lvl}`)
-  }
-  for (const lvl of filter.silva_luna_score_levels) {
-    parts.push(`luna:${lvl}`)
+  // 输出别名而不是字母：解析器两种都认，所以这是可以 round-trip 的那一种。
+  for (const [dslKey, field] of Object.entries(BUCKET_FACETS)) {
+    for (const lvl of filter[field]) {
+      parts.push(`${dslKey}:${toBucketAlias(lvl)}`)
+    }
   }
   const trimmed = text.trim()
   if (trimmed) {

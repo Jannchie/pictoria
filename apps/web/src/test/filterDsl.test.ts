@@ -80,11 +80,21 @@ describe('parsefilterquery — tags, extensions, buckets', () => {
     expect(parseFilterQuery('ext:.PNG').extension).toEqual(['png'])
   })
 
-  it('accepts known quality buckets', () => {
+  // 解析归一到后端认的 A–E，而不是 DSL 的别名：`bucketLevelFilter` 是拿收到的
+  // 字符串直接查分档表的，别名查不到就 continue，筛选会被静默丢掉。
+  it('normalises known quality buckets onto the backend letters', () => {
     const parsed = parseFilterQuery('waifu:best silva:worst luna:good')
-    expect(parsed.waifu_score_levels).toEqual(['best'])
-    expect(parsed.silva_score_levels).toEqual(['worst'])
-    expect(parsed.silva_luna_score_levels).toEqual(['good'])
+    expect(parsed.waifu_score_levels).toEqual(['A'])
+    expect(parsed.silva_score_levels).toEqual(['E'])
+    expect(parsed.silva_luna_score_levels).toEqual(['B'])
+  })
+
+  // chip 上显示的是字母，所以照着 chip 敲进命令面板也得能用。
+  it('accepts the letter form too', () => {
+    const parsed = parseFilterQuery('silva:A luna:c waifu:UNSCORED')
+    expect(parsed.silva_score_levels).toEqual(['A'])
+    expect(parsed.silva_luna_score_levels).toEqual(['C'])
+    expect(parsed.waifu_score_levels).toEqual(['UNSCORED'])
   })
 
   it('rejects an unknown bucket', () => {
@@ -161,9 +171,9 @@ describe('stringifyfilterquery', () => {
       score: [5],
       tags: ['long_hair'],
       extension: ['png'],
-      waifu_score_levels: ['best'],
-      silva_score_levels: ['good'],
-      silva_luna_score_levels: ['normal'],
+      waifu_score_levels: ['A'],
+      silva_score_levels: ['B'],
+      silva_luna_score_levels: ['UNSCORED'],
     }
     const parsed = parseFilterQuery(stringifyFilterQuery(source, 'sunset'))
     expect(parsed.rating).toEqual(source.rating)

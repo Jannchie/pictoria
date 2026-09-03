@@ -1,16 +1,10 @@
 <script setup lang="ts">
 import type { PostFilterValue } from '@/composables/useFacetFilter'
 import { v2GetWaifuBucketCount } from '@/api'
+import { bucketRows } from '@/shared'
 
-// Popover rows (top → bottom); waifu scores live on a 0–10 scale.
-const BUCKETS = [
-  { level: 'A', labelKey: 'filter.bucketBest', range: '8 – 10' },
-  { level: 'B', labelKey: 'filter.bucketGood', range: '6 – 8' },
-  { level: 'C', labelKey: 'filter.bucketNormal', range: '4 – 6' },
-  { level: 'D', labelKey: 'filter.bucketBad', range: '2 – 4' },
-  { level: 'E', labelKey: 'filter.bucketWorst', range: '0 – 2' },
-  { level: 'UNSCORED', labelKey: 'common.unscored', range: '' },
-]
+// 行序、level、labelKey 全部来自 @/shared 的分档表；这里只给数值区间。
+const BUCKETS = bucketRows({ A: '8 – 10', B: '6 – 8', C: '4 – 6', D: '2 – 4', E: '0 – 2' })
 
 async function fetchCounts(filter: PostFilterValue) {
   const resp = await v2GetWaifuBucketCount({ body: filter })
