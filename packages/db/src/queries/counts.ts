@@ -4,7 +4,7 @@
 import { placeholders, whereSql } from '../sql.js'
 import type BetterSqlite3 from 'better-sqlite3'
 import { buildWhere, GROUPABLE_COLUMNS, hasActiveFilters, type PostFilter } from '../filters.js'
-import { bucketCaseSql, WAIFU_SCORE_BUCKETS, type ScorerSpec } from '../scorers.js'
+import { bucketCaseSql, WAIFU, type ScorerSpec } from '../scorers.js'
 
 export function countPosts(sqlite: BetterSqlite3.Database, f: PostFilter): number {
   const { where, params, joins } = buildWhere(f)
@@ -57,32 +57,19 @@ export interface BucketCount {
 export function countByScorerBucket(
   sqlite: BetterSqlite3.Database,
   f: PostFilter,
-  scorer: ScorerSpec | null,
+  // 以前这里是 `ScorerSpec | null`，null 的意思是"waifu"。waifu 现在也是一条
+  // `ScorerSpec`（见 scorers.ts 的 `WAIFU`），于是那个哨兵值和它带来的 if/else
+  // 一起没了 —— 调用方直接传 spec。
+  scorer: ScorerSpec,
 ): BucketCount[] {
   const { where, params, joins } = buildWhere(f)
   const localJoins = [...joins]
 
-  let scoreCol: string
-  let nullCol: string
-  let buckets
+  // 整词匹配，别名共享前缀时（pas_silva ⊂ pas_silva_luna）不能误判
+  if (!scorer.isJoined(localJoins))
+    localJoins.push(scorer.joinSql())
 
-  if (scorer === null) {
-    if (!localJoins.some(j => j.includes('post_waifu_scores')))
-      localJoins.push('LEFT JOIN post_waifu_scores pws ON pws.post_id = p.id')
-    scoreCol = 'pws.score'
-    nullCol = 'pws.post_id'
-    buckets = WAIFU_SCORE_BUCKETS
-  }
-  else {
-    // 整词匹配，别名共享前缀时（pas_silva ⊂ pas_silva_luna）不能误判
-    if (!scorer.isJoined(localJoins))
-      localJoins.push(scorer.joinSql())
-    scoreCol = scorer.scoreCol()
-    nullCol = scorer.nullCol()
-    buckets = scorer.buckets
-  }
-
-  const caseSql = bucketCaseSql(buckets, scoreCol, nullCol)
+  const caseSql = bucketCaseSql(scorer.buckets, scorer.scoreCol(), scorer.nullCol())
   const rows = sqlite
     .prepare<unknown[], { bucket: string, count: number }>(
       `SELECT ${caseSql} AS bucket, count(*) AS count `
@@ -112,8 +99,8 @@ export interface AggregateStats {
 export function aggregateStats(sqlite: BetterSqlite3.Database, f: PostFilter): AggregateStats {
   const { where, params, joins } = buildWhere(f)
   const localJoins = [...joins]
-  if (!localJoins.some(j => j.includes('post_waifu_scores')))
-    localJoins.push('LEFT JOIN post_waifu_scores pws ON pws.post_id = p.id')
+  if (!WAIFU.isJoined(localJoins))
+    localJoins.push(WAIFU.joinSql())
 
   const rows = sqlite
     .prepare<unknown[], {

@@ -13,6 +13,7 @@ import {
   countPosts,
   SILVA,
   SILVA_LUNA,
+  WAIFU,
   type PostFilter as DbPostFilter,
 } from '@pictoria/db'
 import { getDb } from '../db.js'
@@ -95,7 +96,7 @@ for (const facet of columnFacets) {
 
 /** 三个分档 facet：waifu 走独立表，两个 silva 走 post_aesthetic_scores。 */
 const bucketFacets = [
-  { path: '/v2/posts/count/waifu', id: 'v2GetWaifuBucketCount', scorer: null, desc: "Count posts by waifu-score bucket (A/B/C/D/E/UNSCORED).", schema: WaifuBucketCountItem },
+  { path: '/v2/posts/count/waifu', id: 'v2GetWaifuBucketCount', scorer: WAIFU, desc: "Count posts by waifu-score bucket (A/B/C/D/E/UNSCORED).", schema: WaifuBucketCountItem },
   { path: '/v2/posts/count/silva', id: 'v2GetSilvaBucketCount', scorer: SILVA, desc: 'Count posts by SILVA aesthetic bucket (A/B/C/D/E/UNSCORED).', schema: SilvaBucketCountItem },
   { path: '/v2/posts/count/silva-luna', id: 'v2GetSilvaLunaBucketCount', scorer: SILVA_LUNA, desc: 'Count posts by SILVA-Luna aesthetic bucket (A/B/C/D/E/UNSCORED).', schema: SilvaLunaBucketCountItem },
 ] as const

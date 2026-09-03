@@ -5,7 +5,7 @@ import { placeholders, whereSql } from '../sql.js'
 import type BetterSqlite3 from 'better-sqlite3'
 import { Buffer } from 'node:buffer'
 import { buildWhere, ORDERABLE_COLUMNS, type PostFilter } from '../filters.js'
-import { SILVA, SILVA_LUNA } from '../scorers.js'
+import { FILTERABLE_SCORERS, orderColumn, SILVA } from '../scorers.js'
 import { SIGLIP2_TABLE } from '../repositories/vectors.js'
 import {
   decodeDominantColor,
@@ -24,7 +24,7 @@ import {
 const SIMPLE_BASE_SELECT = SIMPLE_BASE_COLUMNS.map(c => `p.${c}`).join(', ')
 
 /** 解析成 join 表达式而不是 `p.<col>` 的排序列。 */
-const VIRTUAL_SORT_COLUMNS = new Set(['waifu_score', 'silva_score', 'silva_luna_score', 'discrepancy'])
+const VIRTUAL_SORT_COLUMNS = new Set<string>([...FILTERABLE_SCORERS.map(orderColumn), 'discrepancy'])
 
 export interface PostFilterWithOrder extends PostFilter {
   order_by?: string | null
@@ -49,21 +49,19 @@ function resolveVirtualSort(
   joins: string[],
 ): { extra: string[], selectExpr: string, orderExpr: string } {
   const extra: string[] = []
-  if (orderBy === 'waifu_score') {
-    if (!joins.some(j => j.includes('post_waifu_scores')))
-      extra.push('LEFT JOIN post_waifu_scores pws ON pws.post_id = p.id')
-    return { extra, selectExpr: 'pws.score', orderExpr: 'pws.score' }
+  // 按 `<name>_score` 排序对每个打分器都是同一件事：确保它的 join 在，然后拿它的
+  // 分数列。三个手写分支（其中 waifu 那份还用的是裸子串判 join）收成一次查表。
+  const spec = FILTERABLE_SCORERS.find(s => orderColumn(s) === orderBy)
+  if (spec) {
+    if (!spec.isJoined(joins))
+      extra.push(spec.joinSql())
+    return { extra, selectExpr: spec.scoreCol(), orderExpr: spec.scoreCol() }
   }
-  if (orderBy === 'silva_luna_score') {
-    if (!SILVA_LUNA.isJoined(joins))
-      extra.push(SILVA_LUNA.joinSql())
-    return { extra, selectExpr: SILVA_LUNA.scoreCol(), orderExpr: SILVA_LUNA.scoreCol() }
-  }
-  // silva_score 和 discrepancy 都挂在 SILVA 那个 join 上
+
+  // 剩下的只有 discrepancy —— 它不属于任何一个打分器（是模型分与人工分的差），
+  // 所以它是这里唯一真正的特例，挂在 SILVA 的 join 上。
   if (!SILVA.isJoined(joins))
     extra.push(SILVA.joinSql())
-  if (orderBy === 'silva_score')
-    return { extra, selectExpr: SILVA.scoreCol(), orderExpr: SILVA.scoreCol() }
 
   // discrepancy：模型分与人工分在 1–5 标度上的绝对差；没有人工分（0/NULL）或没有
   // silva 分时为 NULL（排到最后）。

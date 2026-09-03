@@ -7,15 +7,24 @@
  */
 import { placeholders } from './sql.js'
 import {
+  FILTERABLE_SCORERS,
+  levelsField,
+  orderColumn,
   SCORE_BUCKET_UNSCORED,
-  SILVA,
-  SILVA_LUNA,
-  WAIFU_SCORE_BUCKETS,
+  WAIFU,
   type Buckets,
-  type ScorerSpec,
+  type FilterableScorerName,
 } from './scorers.js'
 
-export interface PostFilter {
+/**
+ * 每个可筛打分器的分档字段。字段名由注册表里的名字派生，所以加一个打分器不需要
+ * 在这里多写一行 —— 而漏写一行的后果是它的过滤在类型上就不存在。
+ */
+type ScorerLevelFacets = {
+  [K in FilterableScorerName as `${K}_score_levels`]?: string[] | null
+}
+
+export interface PostFilter extends ScorerLevelFacets {
   rating?: number[] | null
   score?: number[] | null
   tags?: string[] | null
@@ -25,9 +34,6 @@ export interface PostFilter {
   lab?: [number, number, number] | null
   /** [min, max]，闭区间 */
   waifu_score_range?: [number, number] | null
-  waifu_score_levels?: string[] | null
-  silva_score_levels?: string[] | null
-  silva_luna_score_levels?: string[] | null
   /**
    * 默认 true：隐藏近重复分组的**成员**，只返回 canonical 代表
    * （canonical_post_id IS NULL）。设 false 才包含成员。
@@ -35,7 +41,12 @@ export interface PostFilter {
   only_canonical?: boolean
 }
 
-export const ORDERABLE_COLUMNS = new Set([
+/**
+ * 插入序就是 API 那个 `order_by` 枚举的取值序，别重排 —— 它出现在 OpenAPI 契约里。
+ * 打分器那几列由注册表派生，`discrepancy` 是真正的特例（它是两个分数的差，不属于
+ * 任何一个打分器）。
+ */
+export const ORDERABLE_COLUMNS = new Set<string>([
   'id',
   'score',
   'rating',
@@ -44,9 +55,7 @@ export const ORDERABLE_COLUMNS = new Set([
   'file_name',
   'last_accessed_at',
   'updated_at',
-  'waifu_score',
-  'silva_score',
-  'silva_luna_score',
+  ...FILTERABLE_SCORERS.map(orderColumn),
   'discrepancy',
 ])
 
@@ -112,9 +121,7 @@ export function hasActiveFilters(f: PostFilter): boolean {
     || (f.folder && f.folder !== '.')
     || f.lab
     || f.waifu_score_range
-    || f.waifu_score_levels?.length
-    || f.silva_score_levels?.length
-    || f.silva_luna_score_levels?.length,
+    || FILTERABLE_SCORERS.some(spec => f[levelsField(spec)]?.length),
   )
 }
 
@@ -164,38 +171,27 @@ export function buildWhere(f: PostFilter): WhereParts {
     params.push(f.folder, `${f.folder}/`, `${f.folder}0`)
   }
 
-  const needsWaifuJoin = Boolean(f.waifu_score_range) || Boolean(f.waifu_score_levels?.length)
-  if (needsWaifuJoin)
-    joins.push('LEFT JOIN post_waifu_scores pws ON pws.post_id = p.id')
+  // waifu 的 join 先于分档循环，因为分数区间（只有 waifu 有）也要用它。
+  if (f.waifu_score_range || f[levelsField(WAIFU)]?.length)
+    joins.push(WAIFU.joinSql())
 
   if (f.waifu_score_range) {
-    where.push('pws.score >= ? AND pws.score <= ?')
+    where.push(`${WAIFU.scoreCol()} >= ? AND ${WAIFU.scoreCol()} <= ?`)
     params.push(f.waifu_score_range[0], f.waifu_score_range[1])
   }
 
-  if (f.waifu_score_levels?.length) {
-    const { clause, params: bp } = bucketLevelFilter(
-      f.waifu_score_levels,
-      WAIFU_SCORE_BUCKETS,
-      'pws.score',
-      'pws.post_id',
-    )
-    if (clause) {
-      where.push(clause)
-      params.push(...bp)
-    }
-  }
-
-  // 每个美学打分器贡献自己的 LEFT JOIN + 分档子句；用循环是为了让新增打分器
-  // 不再变成这段的又一份拷贝。
-  const aesthetic: Array<[string[] | null | undefined, ScorerSpec]> = [
-    [f.silva_score_levels, SILVA],
-    [f.silva_luna_score_levels, SILVA_LUNA],
-  ]
-  for (const [levels, spec] of aesthetic) {
+  // 每个打分器贡献自己的 LEFT JOIN + 分档子句。waifu 也走这条路 —— 它的表、别名
+  // 和“不带 scorer 谓词”这三点差异全都封在 spec 里，这里看不出来，于是加一个打分
+  // 器不再是给这段再抄一份。
+  //
+  // ⚠️ 循环顺序 = `FILTERABLE_SCORERS` 的顺序 = 原来手写的顺序（waifu → silva →
+  // silva_luna）。`filters.test.ts` 对拍的是冻结的 SQL 文本，子句换个位置就不等了。
+  for (const spec of FILTERABLE_SCORERS) {
+    const levels = f[levelsField(spec)]
     if (!levels?.length)
       continue
-    joins.push(spec.joinSql())
+    if (!spec.isJoined(joins))
+      joins.push(spec.joinSql())
     const { clause, params: bp } = bucketLevelFilter(
       levels,
       spec.buckets,
