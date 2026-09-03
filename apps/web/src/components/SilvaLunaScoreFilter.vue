@@ -25,7 +25,7 @@ async function fetchCounts(filter: PostFilterValue) {
     :fetch-counts="fetchCounts"
     :buckets="BUCKETS"
     icon="i-tabler-moon"
-    label="filter.silvaLunaScore"
+    :label="$t('filter.silvaLunaScore')"
     selected-prefix="Luna"
   />
 </template>

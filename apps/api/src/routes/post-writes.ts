@@ -9,9 +9,9 @@ import { IO_QUEUE, rotateTask } from '@pictoria/contracts'
 import { Buffer } from 'node:buffer'
 import { bulkUpdateField, clearCanonical, createPost, getDetail, getPostPath, makeCanonical, postExists, touchAccessed, updateField, updateForRotate } from '@pictoria/db'
 import { getDb } from '../db.js'
-import { OK, RESP_400, domainError, postNotFound, queryFlag, zodErrorHook } from '../openapi.js'
+import { OK, RESP_400, domainError, postNotFound, pyRepr, queryFlag, validationError, zodErrorHook } from '../openapi.js'
 import { PostDetailPublic, toPostDetail } from '../schemas.js'
-import { targetDir, thumbnailsDir } from '../paths.js'
+import { isInside, targetDir, thumbnailsDir } from '../paths.js'
 import { deletePostFiles } from '../post-files.js'
 import { translateTag } from '../tag-i18n.js'
 import { getTasks } from '../tasks.js'
@@ -363,8 +363,10 @@ postWritesRoutes.openapi(
 
     const base = targetDir()
     const absPath = path.resolve(base, rel)
-    if (absPath !== base && !absPath.startsWith(base + path.sep))
-      return domainError('File already exists.', 'FileAlreadyExistsError', 400) as never
+    // 逃出库目录就是**校验失败**，不是"文件已存在"。原来这里复用了下一条的文案，
+    // 于是探测目录穿越的人收到的是一句关于文件存在性的谎话。
+    if (!isInside(absPath, base))
+      return validationError(`path escapes the library: ${pyRepr(rel)}`) as never
     if (fs.existsSync(absPath))
       return domainError('File already exists.', 'FileAlreadyExistsError', 400) as never
 

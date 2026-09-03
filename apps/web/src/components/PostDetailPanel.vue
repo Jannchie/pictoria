@@ -10,7 +10,7 @@ import { useScoreHotkeys } from '@/composables/useKeyScope'
 import { usePostGroupQuery } from '@/composables/usePostGroupQuery'
 import { formatDateTime } from '@/locale'
 import { commitCaption, commitRating, commitScore, commitSource, hideNSFW, makePostCanonical, openTagSelectorWindow, queryKeys, RATING_LEVEL_COLORS, RATING_LEVEL_ICONS, showPostDetail, ungroupPost } from '@/shared'
-import { getPostThumbnailURL } from '@/utils'
+import { getPostThumbnailURL, isImageExtension } from '@/utils'
 import { colorNumToHex, labToRgbaString } from '@/utils/color'
 
 const props = defineProps<{
@@ -48,10 +48,6 @@ async function onUngroupSelf() {
 // 'postPage' scope is mutually exclusive with MainSection's 'grid', so digits
 // only score here on the dedicated /post/:postId detail page — no route check.
 useScoreHotkeys('postPage', score => onSelectScore(post.value.id, score))
-
-function isImage(extension: string) {
-  return ['jpg', 'jpeg', 'png', 'gif', 'webp', 'bmp', 'svg'].includes(extension)
-}
 
 // Memoize per filePath — opening 30 posts in a row was rebuilding the same
 // breadcrumb arrays 30 times. The map is process-local so it never grows
@@ -201,7 +197,7 @@ const sectionTitleClass
            subject of the main view — and the open state persists, so opening
            it once keeps it on top permanently. -->
       <PDisclosure
-        v-if="isImage(post.extension) || post.dominantColor || (post.colors && post.colors.length > 0)"
+        v-if="isImageExtension(post.extension) || post.dominantColor || (post.colors && post.colors.length > 0)"
         storage-key="post.preview"
         icon="i-tabler-photo"
         :title="$t('post.preview')"
@@ -209,7 +205,7 @@ const sectionTitleClass
       >
         <div class="flex flex-col gap-3">
           <div
-            v-if="isImage(post.extension)"
+            v-if="isImageExtension(post.extension)"
             class="flex justify-center"
           >
             <img
