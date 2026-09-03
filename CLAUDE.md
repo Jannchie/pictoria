@@ -143,8 +143,8 @@ uv run python scripts/inspect_db.py
 1. If the schema changes: add a new numbered SQL file to `server/migrations/` (e.g. `NNNN_add_foo.sql`, using the next free number). It is applied on the next process boot; do not edit existing migration files.
 2. Update `packages/db/src/schema.ts`, the relevant file under `packages/db/src/repositories/` or `queries/`, and any filter fields / column allowlists in `packages/db/src/filters.ts`.
 3. Update or add the endpoint under `apps/api/src/routes/`. Errors go through `domainError` / `httpError` from `src/openapi.ts`; paths go through `src/paths.ts`.
-4. Regenerate frontend API client: `pnpm genapi`
-5. Run checks: `pnpm -r test` and `pnpm --filter @pictoria/api typecheck`, plus `pnpm contract:diff` against a running API if the contract moved.
+4. Regenerate the frontend API client: `pnpm genapi` — or `pnpm contract:check`, which regenerates and then fails if the committed client had drifted. Both need the API running.
+5. Run checks: `pnpm -r test` and `pnpm --filter @pictoria/api typecheck`.
 
 ### When modifying the worker
 
@@ -183,7 +183,7 @@ This ensures type safety between frontend and backend.
 - Frontend tests use Vitest: `cd apps/web && pnpm test` (or `pnpm test` from the root)
 - API / db: `pnpm -r test` (vitest). `packages/db/src/filters.test.ts` pins `buildWhere`'s SQL text against a **frozen** golden dumped from the retired Python reference — it is deterministic, so it never goes stale; it also cannot be regenerated
 - Worker: `uv run ruff check src` (lint), Pyright (types), and `uv run pytest` from `server/`
-- Contract: `pnpm contract:diff` compares a running API's `/schema/openapi.json` against `docs/openapi.baseline.json`. This is now the only guard on the 70-endpoint contract — the 12 parity suites that compared against Litestar retired with it
+- Contract: `pnpm contract:check` regenerates `apps/web/src/api` from a running API and fails if the result differs from what is committed. That is the whole guard, and it works because the generated client is in the repo: a contract change shows up in its diff, and any call site that did not follow it fails `vue-tsc` during `pnpm build`. The failure it catches is the one nothing else does — changing a route and forgetting to run `pnpm genapi`, which compiles clean and 404s at runtime. On failure the regenerated files are already in the working tree; read the diff, then commit it.
 
 ## Important Configuration Files
 
