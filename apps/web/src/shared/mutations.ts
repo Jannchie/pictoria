@@ -211,9 +211,28 @@ async function writeTag(qc: QueryClient, id: number, tagName: string, add: boole
   qc.invalidateQueries({ queryKey: queryKeys.countRoot('tags') })
 }
 
-async function writeRotate(qc: QueryClient, id: number, clockwise: boolean): Promise<void> {
-  await v2RotatePostImage({ path: { post_id: id }, query: { clockwise } })
-  qc.invalidateQueries({ queryKey: queryKeys.postRoot(id) })
+/**
+ * 旋转一批图，**整批做完才失效一次**。
+ *
+ * 失效原来写在每张图后面。`queryKeys.postsRoot` 命中的是那条 infinite 画廊查询，
+ * 而失效一个 active 的 infinite query 会把**已加载的每一页**依次重取（同一个坑
+ * `AnnotationTimeline.vue:29` 的注释里记过）。于是 Ctrl+A 之后右键旋转 200 张
+ * = 200 次写往返 + 200 轮整表重取，已加载 10 页时最坏 2000 次 `/v2/posts/search`,
+ * 而 `queries.ts:23` 实测过非索引排序每页 231–243 ms 的同步阻塞。
+ *
+ * 详情 key 逐个失效仍留在这里：那些查询除了当前聚焦的那张之外都是 inactive，
+ * 失效只是打个 stale 标记，不会触发重取。
+ *
+ * 写请求保持串行：旋转在服务端是一次重新编码，并发发出去只是把排队挪个地方，
+ * 而它占的是 API 那条同步 sqlite 连接的同一个进程。
+ */
+async function writeRotate(qc: QueryClient, ids: number[], clockwise: boolean): Promise<void> {
+  for (const id of ids) {
+    await v2RotatePostImage({ path: { post_id: id }, query: { clockwise } })
+  }
+  for (const id of ids) {
+    qc.invalidateQueries({ queryKey: queryKeys.postRoot(id) })
+  }
   qc.invalidateQueries({ queryKey: queryKeys.postsRoot })
 }
 
@@ -439,11 +458,7 @@ export async function commitRotate(
   ids: number[],
   clockwise: boolean,
 ): Promise<void> {
-  const run = async (cw: boolean) => {
-    for (const id of ids) {
-      await writeRotate(qc, id, cw)
-    }
-  }
+  const run = (cw: boolean) => writeRotate(qc, ids, cw)
   await run(clockwise)
   record({
     label: ids.length === 1
