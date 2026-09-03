@@ -46,8 +46,53 @@ const DirectorySummarySchema: z.ZodType<DirectorySummary> = z.lazy(() =>
   }),
 ).openapi('DirectorySummary')
 
-/** 递归统计目录下的文件数，跳过 `.pictoria`。 */
-function walk(absDir: string, base: string): DirectorySummary {
+/** 一个目录的缓存条目：mtime，加上目录 mtime 没变就不会变的那两样。 */
+interface DirCacheEntry {
+  mtimeNs: bigint
+  /** 直接子文件数（已经排除 `.pictoria`）。 */
+  fileCount: number
+  /** 直接子目录名，readdir 顺序 —— `children` 的顺序就是它。 */
+  subdirs: string[]
+}
+
+/**
+ * 目录绝对路径 → 上一次看到的内容。跨请求复用，整棵树走完才整体替换。
+ *
+ * 形状照抄 `sync.ts` 的 `ScanCache`（同一个库、同一个理由），但**不共用同一份**：
+ * 两个遍历器的过滤规则不一样 —— sync 跳过顶层所有 `.` 开头的项、以及任意位置的
+ * `*.part`（下载器的在途临时文件，不能登记成 post），而这里只跳过名叫 `.pictoria`
+ * 的目录，其余一律计数。共用一份的表现是一边读到另一边过滤后的结果，`file_count`
+ * 静默变小，没有任何报错。存的东西也不同：sync 要三元组去和 `posts` 对账，这里只要
+ * 一个计数。
+ *
+ * 缓存只按 mtime 判新旧，自己发现不了"这个目录没了"；而"本轮走到过的目录"恰好就是
+ * "本轮该留的缓存"，所以走完整体替换，没走到的天然不在新表里（同 `scanLibrary`）。
+ */
+let dirCache = new Map<string, DirCacheEntry>()
+
+/**
+ * 递归统计目录下的文件数，跳过 `.pictoria`。
+ *
+ * ⚠️ **异步**，而且必须是。同步版本（`fs.readdirSync` 递归）在真实库上要走 732 个
+ * 目录、229,205 个 dirent，全程没有一个让出点 —— 实测 walk 本身 133 ms，紧接着的
+ * `folderScoreAggregates` 首次冷页缓存要 3,760 ms，加起来是启动后第一次点开侧边栏
+ * 目录树时约 3.9 秒的事件循环冻结，而 `mutations.ts` 在每次删 post / 删目录 /
+ * URL 导入之后都会 invalidate 这个 query。`await` 让每个目录之间都有让出点，理由和
+ * `sync.ts` 的 `scanLibrary` 逐字相同。
+ *
+ * 带 mtime 缓存：目录 mtime 没变就直接复用上次的直接子文件数和子目录名（省掉那次
+ * readdir），但**仍然递归**进子目录 —— NTFS / ext4 上父目录的 mtime 只反映直接子项，
+ * 深层的改动不会冒泡。
+ *
+ * ⚠️ 聚合那一半（`folderScoreAggregates`）有意留着不动：拆成两趟（posts 单表
+ * GROUP BY 63 ms + 从 `post_aesthetic_scores` 侧 join 340 ms = 403 ms）实测比现在的
+ * 203 ms 更慢，那 3.76 s 是冷页缓存的磁盘 I/O，不是查询形状的问题。
+ */
+async function walk(
+  absDir: string,
+  base: string,
+  next: Map<string, DirCacheEntry>,
+): Promise<DirectorySummary> {
   const rel = path.relative(base, absDir).split(path.sep).join('/')
   const summary: DirectorySummary = {
     // 根节点的 name 是空串 —— Python 侧 relative_to(target_dir).name 对根就是 ''，
@@ -64,17 +109,40 @@ function walk(absDir: string, base: string): DirectorySummary {
     children: [],
   }
 
-  for (const entry of fs.readdirSync(absDir, { withFileTypes: true })) {
-    if (entry.name === IGNORED_DIR_NAME)
-      continue
-    if (entry.isDirectory()) {
-      const child = walk(path.join(absDir, entry.name), base)
-      summary.children.push(child)
-      summary.file_count += child.file_count
+  // stat 失败在这里不报：下面的 readdir 会撞上同一个 errno 并抛出去，冒成 500 ——
+  // 和改成异步之前的行为一致（根目录那一层由 `requireDirectory` 挡在前面）。拿不到
+  // mtime 只意味着这一轮不复用、也不写缓存。
+  let mtimeNs: bigint | undefined
+  try {
+    mtimeNs = (await fs.promises.stat(absDir, { bigint: true })).mtimeNs
+  }
+  catch {
+    mtimeNs = undefined
+  }
+
+  const cached = mtimeNs === undefined ? undefined : dirCache.get(absDir)
+  let entry: DirCacheEntry | undefined = cached?.mtimeNs === mtimeNs ? cached : undefined
+  if (!entry) {
+    let fileCount = 0
+    const subdirs: string[] = []
+    for (const dirent of await fs.promises.readdir(absDir, { withFileTypes: true })) {
+      if (dirent.name === IGNORED_DIR_NAME)
+        continue
+      if (dirent.isDirectory())
+        subdirs.push(dirent.name)
+      else
+        fileCount += 1
     }
-    else {
-      summary.file_count += 1
-    }
+    entry = { mtimeNs: mtimeNs ?? 0n, fileCount, subdirs }
+  }
+  if (mtimeNs !== undefined)
+    next.set(absDir, entry)
+
+  summary.file_count = entry.fileCount
+  for (const name of entry.subdirs) {
+    const child = await walk(path.join(absDir, name), base, next)
+    summary.children.push(child)
+    summary.file_count += child.file_count
   }
   return summary
 }
@@ -145,7 +213,7 @@ foldersRoutes.openapi(
       200: { description: OK, content: { 'application/json': { schema: DirectorySummarySchema } } },
     },
   }),
-  (c) => {
+  async (c) => {
     const base = targetDir()
     // `as never`：这两条错误不在 `responses` 里声明（baseline 的 GET /v2/folders 只有
     // 200，声明进去 `contract:diff` 就会报），但错误体照样要发出去。
@@ -153,9 +221,12 @@ foldersRoutes.openapi(
     if (bad)
       return bad as never
 
-    // Python 侧把磁盘遍历和 DB 聚合并行跑；这里 better-sqlite3 是同步的，遍历也
-    // 是同步的，并行没有意义 —— 顺序执行，语义完全一样。
-    const summary = walk(base, base)
+    // 先遍历（异步、逐目录让出）再聚合（better-sqlite3 是同步的，没有并行的余地）。
+    // 两个并发请求各自建自己的 `next`，都是完整且经 mtime 校验过的树，谁后完成谁
+    // 落盘，互相覆盖也不会留下半张表。
+    const next = new Map<string, DirCacheEntry>()
+    const summary = await walk(base, base, next)
+    dirCache = next
     attachStats(summary, folderScoreAggregates(getDb().sqlite))
     return c.json(summary)
   },
