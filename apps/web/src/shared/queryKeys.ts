@@ -59,7 +59,9 @@ export const queryKeys = {
    */
   tags: () => ['tags', resolvedLocale] as const,
   tagsRoot: ['tags'] as const,
-  tagGroups: (postId: MaybeRef<number | undefined>) => ['tagGroups', postId] as const,
+  // 无参：`v2ListTagGroup` 返回的是全局分组表，与 post 无关。带上 postId 的话
+  // 同一份数据会按 post 各缓存一份、各请求一次。
+  tagGroups: () => ['tagGroups'] as const,
   folders: ['folders'] as const,
   postCount: ['post-count'] as const,
   /** Background gallery-dl URL import task status (Settings page polls this). */

@@ -20,7 +20,7 @@ const postId = computed(() => props.postId)
 const search = ref('')
 const postQuery = usePostQuery(postId)
 const tagGroupsQuery = useQuery({
-  queryKey: queryKeys.tagGroups(postId),
+  queryKey: queryKeys.tagGroups(),
   queryFn: async () => {
     const resp = await v2ListTagGroup({})
     return resp.data
