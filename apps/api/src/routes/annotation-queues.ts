@@ -20,18 +20,13 @@ import {
 } from '@pictoria/db'
 import { getDb } from '../db.js'
 import { OK, pyRepr, RESP_400, validationError, zodErrorHook } from '../openapi.js'
-
-const QueueItemPostPublic = z
-  .object({
-    id: z.int(),
-    filePath: z.string(),
-    fileName: z.string(),
-    extension: z.string(),
-    sha256: z.string(),
-    width: z.int(),
-    height: z.int(),
-  })
-  .openapi('QueueItemPostPublic')
+import {
+  QueueItemPostPublic,
+  toQueuePost,
+  VALID_DIMENSIONS,
+  VALID_PAIRWISE_STRATEGIES,
+  VALID_STRATEGIES,
+} from './annotation-shared.js'
 
 const QueueCreatedPublic = z.object({ id: z.int() }).openapi('QueueCreatedPublic')
 
@@ -87,19 +82,6 @@ const ListwiseQueueItemPublic = z
   .openapi('ListwiseQueueItemPublic')
 
 export const annotationQueuesRoutes = new OpenAPIHono({ defaultHook: zodErrorHook })
-
-/** 带前缀的图片列 → `QueueItemPostPublic`。 */
-function toQueuePost(row: Record<string, any>, prefix = '') {
-  return {
-    id: row[`${prefix}post_id`],
-    filePath: row[`${prefix}file_path`],
-    fileName: row[`${prefix}file_name`],
-    extension: row[`${prefix}extension`],
-    sha256: row[`${prefix}sha256`],
-    width: row[`${prefix}width`],
-    height: row[`${prefix}height`],
-  }
-}
 
 annotationQueuesRoutes.openapi(
   createRoute({
@@ -298,11 +280,7 @@ annotationQueuesRoutes.openapi(
   },
 )
 
-/** 与 Python 侧 `annotation_queues.py` 的常量一致。 */
-const VALID_DIMENSIONS = ['color', 'finish', 'composition', 'overall'] as const
 const VALID_SCALES = [2, 3, 5]
-const VALID_STRATEGIES = ['random', 'stratified'] as const
-const VALID_PAIRWISE_STRATEGIES = ['random', 'similar', 'close'] as const
 
 const GenerateAbsoluteIn = z
   .object({

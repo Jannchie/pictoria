@@ -25,9 +25,15 @@ import {
 import { getDb } from '../db.js'
 import { OK, pyRepr, RESP_400, validationError, zodErrorHook } from '../openapi.js'
 import { toIsoDateTime } from '../schemas.js'
+import {
+  QueueItemPostPublic,
+  toQueuePost,
+  VALID_DIMENSIONS,
+  VALID_PAIRWISE_STRATEGIES,
+  VALID_STRATEGIES,
+} from './annotation-shared.js'
 
 /** 与 Python 侧 `annotations.py` 的常量一致。 */
-const VALID_DIMENSIONS = ['color', 'finish', 'composition', 'overall'] as const
 const VALID_WINNERS = ['a', 'b', 'tie', 'skip'] as const
 const VALID_FLAGS = ['love', 'hate', 'none'] as const
 
@@ -401,18 +407,6 @@ annotationsRoutes.openapi(
 const TIMELINE_MAX_LIMIT = 100
 const CURSOR_PARTS = 3
 
-const QueueItemPostPublic = z
-  .object({
-    id: z.int(),
-    filePath: z.string(),
-    fileName: z.string(),
-    extension: z.string(),
-    sha256: z.string(),
-    width: z.int(),
-    height: z.int(),
-  })
-  .openapi('QueueItemPostPublic')
-
 const TimelineEntryPublic = z
   .object({
     kind: z.string(),
@@ -448,25 +442,13 @@ function makeCursor(row: any): string {
   return `${row.created_at}|${row.kind}|${row.id}`
 }
 
-function parseCursor(raw?: string | null): [string, string, number] | null {
+function parseCursor(raw?: string | null): [string, string, number] | 'malformed' | null {
   if (!raw)
     return null
   const parts = raw.split('|')
   if (parts.length !== CURSOR_PARTS || parts.some(p => !p) || !/^\d+$/.test(parts[2]!))
-    return 'malformed' as never
+    return 'malformed'
   return [parts[0]!, parts[1]!, Number(parts[2])]
-}
-
-function toQueuePost(p: any) {
-  return {
-    id: p.post_id,
-    filePath: p.file_path,
-    fileName: p.file_name,
-    extension: p.extension,
-    sha256: p.sha256,
-    width: p.width,
-    height: p.height,
-  }
 }
 
 annotationsRoutes.openapi(
@@ -492,7 +474,7 @@ annotationsRoutes.openapi(
   (c) => {
     const { limit, before } = c.req.valid('query')
     const cursor = parseCursor(before)
-    if ((cursor as unknown) === 'malformed')
+    if (cursor === 'malformed')
       return validationError(`malformed cursor: '${before}'`) as never
 
     const page = Math.min(Math.max(limit, 1), TIMELINE_MAX_LIMIT)
@@ -507,8 +489,8 @@ annotationsRoutes.openapi(
         kind: r.kind,
         id: r.id,
         createdAt: toIsoDateTime(r.created_at),
-        post: toQueuePost(posts.get(r.post)),
-        postB: r.post_b ? toQueuePost(posts.get(r.post_b)) : null,
+        post: toQueuePost(posts.get(r.post)!),
+        postB: r.post_b ? toQueuePost(posts.get(r.post_b)!) : null,
         dimension: r.dimension,
         winner: r.winner,
         scale: r.scale,
@@ -524,10 +506,6 @@ annotationsRoutes.openapi(
     })
   },
 )
-
-/** 与 Python 侧 `annotation_queues.py` 的常量一致。 */
-const VALID_STRATEGIES = ['random', 'stratified'] as const
-const VALID_PAIRWISE_STRATEGIES = ['random', 'similar', 'close'] as const
 
 const SampledPairPublic = z
   .object({ postA: QueueItemPostPublic, postB: QueueItemPostPublic })
@@ -573,7 +551,7 @@ annotationsRoutes.openapi(
     const byId = postsById(sqlite, ids)
     // 抽取顺序就是采样顺序，队列也按它服务 —— 所以从 `ids` 重建，而不是从
     // `IN (...)` 返回的行序。
-    return c.json(ids.filter(pid => byId.has(pid)).map(pid => toQueuePost(byId.get(pid)))) as never
+    return c.json(ids.filter(pid => byId.has(pid)).map(pid => toQueuePost(byId.get(pid)!))) as never
   },
 )
 
