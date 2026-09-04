@@ -185,6 +185,7 @@ declare global {
   const useDocumentVisibility: typeof import('@vueuse/core').useDocumentVisibility
   const useDraggable: typeof import('@vueuse/core').useDraggable
   const useDropZone: typeof import('@vueuse/core').useDropZone
+  const useEdgeProximity: typeof import('./composables/useEdgeProximity').useEdgeProximity
   const useElementBounding: typeof import('@vueuse/core').useElementBounding
   const useElementByPoint: typeof import('@vueuse/core').useElementByPoint
   const useElementHover: typeof import('@vueuse/core').useElementHover
@@ -246,6 +247,7 @@ declare global {
   const usePointerLock: typeof import('@vueuse/core').usePointerLock
   const usePointerSwipe: typeof import('@vueuse/core').usePointerSwipe
   const usePostGroupQuery: typeof import('./composables/usePostGroupQuery').usePostGroupQuery
+  const usePostNavigation: typeof import('./composables/usePostNavigation').usePostNavigation
   const usePostQuery: typeof import('./composables/usePostQuery').usePostQuery
   const usePreferredColorScheme: typeof import('@vueuse/core').usePreferredColorScheme
   const usePreferredContrast: typeof import('@vueuse/core').usePreferredContrast

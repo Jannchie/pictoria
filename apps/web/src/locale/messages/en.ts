@@ -153,6 +153,8 @@ const en = {
     deleteDialogBody: 'This will permanently delete {n} post. This cannot be undone. | This will permanently delete {n} posts. This cannot be undone.',
     viewerAria: 'Image viewer: {name}',
     closeViewer: 'Close viewer',
+    previous: 'Previous image',
+    next: 'Next image',
     zoom: 'Zoom',
     escToClose: 'to close',
     fitToViewport: 'Fit to viewport',

@@ -150,6 +150,8 @@ const zhHans: MessageSchema = {
     deleteDialogBody: '将永久删除 {n} 张图片。此操作不可撤销。',
     viewerAria: '图片查看器：{name}',
     closeViewer: '关闭查看器',
+    previous: '上一张',
+    next: '下一张',
     zoom: '缩放',
     escToClose: '关闭',
     fitToViewport: '适应窗口',

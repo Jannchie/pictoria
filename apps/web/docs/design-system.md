@@ -141,6 +141,7 @@ reference in `PSelectArea`.
 | `PColorSwatch`     | Color chip                           | `size`, `rounded` (sm/md/lg/full)                           |
 | `PListItem`        | Interactive list row                 | `type` (normal/checkbox)                                    |
 | `PEmpty`           | Empty state (no border / card)       | `icon`; default slot = text (caller passes `$t`), `action` slot |
+| `PEdgeNavRail`     | Edge prev/next rail over an image    | `side` (left/right), `shown` (pair with `useEdgeProximity`)  |
 | `PMenu`            | Context / click menu                 | `items` (label/divider/item roles), `trigger` (contextmenu/click) |
 | `PPopover`         | Anchored popover                     | `trigger` (hover/click), `position` (12 placements), `zIndex` (default `var(--p-z-popup)`) |
 | `POverlay`         | Scrim                                | scrim props                                                 |

@@ -4,8 +4,10 @@ import { useElementBounding, useMouse } from '@vueuse/core'
 import { computed, ref, watch, watchEffect } from 'vue'
 import { useRouter } from 'vue-router'
 import { useAdjacentImagePreload } from '@/composables/useAdjacentImagePreload'
+import { useEdgeProximity } from '@/composables/useEdgeProximity'
 import { useKeyScope } from '@/composables/useKeyScope'
-import { currentPostList, showPostDetail } from '@/shared'
+import { usePostNavigation } from '@/composables/usePostNavigation'
+import { showPostDetail } from '@/shared'
 import { getPostImageURL, getPostThumbnailURL } from '@/utils'
 
 const props = defineProps<{
@@ -214,20 +216,16 @@ onKeyStroke('Escape', () => {
   showPostDetail.value = null
 })
 
+// 指针贴近画布左右边缘时才浮出翻页按钮。
+const nearEdge = useEdgeProximity(imgWrapperRef)
+
+const { canPrev, canNext, neighbor } = usePostNavigation(() => post.value.id)
+
 function navigateDetail(delta: -1 | 1) {
-  const list = currentPostList.value
-  if (list.length === 0) {
+  const next = neighbor(delta)
+  if (!next) {
     return
   }
-  const idx = list.findIndex(p => p.id === post.value.id)
-  if (idx === -1) {
-    return
-  }
-  const nextIdx = Math.max(0, Math.min(list.length - 1, idx + delta))
-  if (nextIdx === idx) {
-    return
-  }
-  const next = list[nextIdx]
   showPostDetail.value = next
   // Keep the underlying detail route in sync so the right-panel sidebar,
   // selection and the page behind the overlay all follow the viewed image
@@ -500,6 +498,23 @@ onUnmounted(() => {
         :src="imgSrc"
         @load="mainLoaded = true"
       >
+      <!-- 左右翻页。平时透明,指针贴近那一侧才浮出来。竖条只占自身面积,拖拽 /
+           缩放照旧作用于画布(它自己 stop 掉 pointerdown,否则按下会先被画布当成
+           一次拖拽起点)。 -->
+      <PEdgeNavRail
+        v-if="canPrev"
+        side="left"
+        :shown="nearEdge === 'left'"
+        :aria-label="$t('post.previous')"
+        @click.stop="navigateDetail(-1)"
+      />
+      <PEdgeNavRail
+        v-if="canNext"
+        side="right"
+        :shown="nearEdge === 'right'"
+        :aria-label="$t('post.next')"
+        @click.stop="navigateDetail(1)"
+      />
       <div
         ref="miniMapRef"
         class="border border-border-strong rounded bg-bg shadow-md bottom-4 left-4 absolute z-1 overflow-hidden"

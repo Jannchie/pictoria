@@ -5,8 +5,10 @@ import { useRoute, useRouter } from 'vue-router'
 import { v2TouchPost } from '@/api'
 import ArthashPlaceholder from '@/components/ArthashPlaceholder.vue'
 import PostDetail from '@/components/PostDetail.vue'
+import { useEdgeProximity } from '@/composables/useEdgeProximity'
 import { useKeyScope } from '@/composables/useKeyScope'
-import { bottomBarInfo, clear as clearSelection, currentPostList, deletePosts, enableArthash, enableFancyPlaceholder, isCommittedSelected, selectedIdList, selectOnly, showPostDetail, similarPostList } from '@/shared'
+import { usePostNavigation } from '@/composables/usePostNavigation'
+import { bottomBarInfo, clear as clearSelection, deletePosts, enableArthash, enableFancyPlaceholder, isCommittedSelected, selectedIdList, selectOnly, showPostDetail, similarPostList } from '@/shared'
 import { POverlay } from '@/ui'
 import PDialog from '@/ui/PDialog.vue'
 import { getPostImageURL } from '@/utils'
@@ -142,20 +144,15 @@ function openOverlay() {
   showPostDetail.value = { ...p, width: p.width ?? 0, height: p.height ?? 0 }
 }
 
+// 主图舞台（含图两侧的留白），用来判定指针是否贴近它的左右边缘 —— 贴近才浮出
+// 翻页竖条。参照物就是竖条所贴的那个盒子，两者边界一致。
+const imageStageRef = ref<HTMLElement | null>(null)
+const nearEdge = useEdgeProximity(imageStageRef)
+
+const { canPrev, canNext, neighbor } = usePostNavigation(postId)
+
 function navigatePost(delta: -1 | 1) {
-  const list = currentPostList.value
-  if (list.length === 0) {
-    return
-  }
-  const idx = list.findIndex(p => p.id === postId.value)
-  if (idx === -1) {
-    return
-  }
-  const nextIdx = Math.max(0, Math.min(list.length - 1, idx + delta))
-  if (nextIdx === idx) {
-    return
-  }
-  const next = list[nextIdx]
+  const next = neighbor(delta)
   if (next?.id !== undefined) {
     router.replace(`/post/${next.id}`)
   }
@@ -264,33 +261,53 @@ async function confirmDelete() {
         @select-change="onSelectChange"
         @select-end="onSelectEnd"
       />
-      <div class="px-2 pt-3 flex justify-center">
-        <div
-          class="main-post-image rounded-lg cursor-pointer relative overflow-hidden"
-          :class="{ 'main-post-selected': isCommittedSelected(postId) }"
-          :style="containerStyle"
-          @click="selectOnly(postId)"
-          @dblclick="showPostDetail = { ...post, width: post.width ?? 0, height: post.height ?? 0 }"
-        >
-          <img
-            :key="post.id"
-            ref="imgRef"
-            :src="getPostImageURL(post)"
-            :alt="post.fileName"
-            :width="post.width ?? undefined"
-            :height="post.height ?? undefined"
-            fetchpriority="high"
-            decoding="async"
-            class="h-full w-full block transition-opacity duration-300 object-contain"
-            :class="{ 'opacity-0': (!enableArthash || !post.arthash) && !imageLoaded }"
-            @load="onImageLoad"
-          >
-          <ArthashPlaceholder
-            v-if="enableArthash && post.arthash"
-            :hash="post.arthash"
-            :revealed="imageLoaded"
-            :fancy="enableFancyPlaceholder"
+      <div class="pt-3">
+        <!-- 舞台的高度就是图片的高度（上边距提到外层），所以贴着它上下拉满的
+             翻页竖条正好与画面平齐，同时落在图两侧的留白里而不压住画面。 -->
+        <div ref="imageStageRef" class="px-2 flex justify-center relative">
+          <!-- 上一张 / 下一张。和 ←→ 走同一个 navigatePost,只是给鼠标一个入口。
+               平时透明,指针贴近那一侧才浮出来。 -->
+          <PEdgeNavRail
+            v-if="canPrev"
+            side="left"
+            :shown="nearEdge === 'left'"
+            :aria-label="$t('post.previous')"
+            @click="navigatePost(-1)"
           />
+          <PEdgeNavRail
+            v-if="canNext"
+            side="right"
+            :shown="nearEdge === 'right'"
+            :aria-label="$t('post.next')"
+            @click="navigatePost(1)"
+          />
+          <div
+            class="main-post-image rounded-lg cursor-pointer relative overflow-hidden"
+            :class="{ 'main-post-selected': isCommittedSelected(postId) }"
+            :style="containerStyle"
+            @click="selectOnly(postId)"
+            @dblclick="showPostDetail = { ...post, width: post.width ?? 0, height: post.height ?? 0 }"
+          >
+            <img
+              :key="post.id"
+              ref="imgRef"
+              :src="getPostImageURL(post)"
+              :alt="post.fileName"
+              :width="post.width ?? undefined"
+              :height="post.height ?? undefined"
+              fetchpriority="high"
+              decoding="async"
+              class="h-full w-full block transition-opacity duration-300 object-contain"
+              :class="{ 'opacity-0': (!enableArthash || !post.arthash) && !imageLoaded }"
+              @load="onImageLoad"
+            >
+            <ArthashPlaceholder
+              v-if="enableArthash && post.arthash"
+              :hash="post.arthash"
+              :revealed="imageLoaded"
+              :fancy="enableFancyPlaceholder"
+            />
+          </div>
         </div>
       </div>
       <SimilarPosts
