@@ -18,6 +18,32 @@ import { queryKeys } from '@/shared/queryKeys'
 /** 合成分类的 path 前缀，不会和上游的真实 path 撞（那些都是 `[a-z_.]+`）。 */
 export const UNCATEGORISED = '~uncategorised'
 
+/**
+ * 语义树够不着、但 danbooru 的 tag *type* 说得清的那些，各自成一个顶层分类。
+ *
+ * 画师名、系列名、角色名不是「未分类」—— 它们分类明确，只是分在另一个维度上，
+ * 语义树本来就不该收它们（`hatsune_miku` 归不进「服饰」或「构图」）。真正没有
+ * 归属的只有 general 里没进树的那部分长尾。
+ *
+ * `general` 不在这两个列表里：它落到 UNCATEGORISED。
+ */
+/** 排在语义树之前：先告诉人这是谁画的、什么作品、哪个角色。 */
+const LEADING_TYPES = ['artist', 'copyright', 'character'] as const
+/** 排在最后：meta 是文件层面的信息，最不影响「这张图画了什么」。 */
+const TRAILING_TYPES = ['meta'] as const
+const FALLBACK_TYPES = [...LEADING_TYPES, ...TRAILING_TYPES] as const
+
+/**
+ * 整体顺序：画师 → 系列名 → 角色名 → 语义树的十一类 → 未分类 → 元信息。
+ *
+ * 沿用 danbooru 的惯例（也是 PostDetailPanel 里 `groupNameOrder` 一直用的那个），
+ * 中间夹着的语义树和「未分类」都是 general 类的 tag，正好落在它原本的位置上。
+ */
+function orderedFallbacks(leftovers: Map<string, unknown>, leading: boolean) {
+  const list = leading ? LEADING_TYPES : TRAILING_TYPES
+  return list.filter(type => leftovers.has(type))
+}
+
 export interface TagTreeNode {
   path: string
   parent: string | null
@@ -59,7 +85,7 @@ export function buildTagTree(
 ): TagTreeNode[] {
   const byName = new Map(tags.map(t => [t.name, t]))
 
-  const nodes: TagTreeNode[] = []
+  const treeNodes: TagTreeNode[] = []
   const claimed = new Set<string>()
   for (const c of categories) {
     const own: TagWithCountPublic[] = []
@@ -72,45 +98,45 @@ export function buildTagTree(
       }
     }
     own.sort((a, b) => b.count - a.count)
-    nodes.push({ path: c.path, parent: c.parent, depth: c.depth, name: c.name, own, total: 0 })
+    treeNodes.push({ path: c.path, parent: c.parent, depth: c.depth, name: c.name, own, total: 0 })
   }
 
-  // 未被树认领的，按 danbooru tag type 归到合成顶层下。
+  // 树认领不了的，先按 danbooru tag type 分开：有 type 的各自成顶层，剩下的
+  // （general 里没进树的长尾）才叫未分类。
   const leftovers = new Map<string, TagWithCountPublic[]>()
   for (const tag of tags) {
     if (claimed.has(tag.name)) {
       continue
     }
-    const group = tag.group?.name ?? 'general'
-    const bucket = leftovers.get(group)
+    const type = tag.group?.name ?? ''
+    const key = (FALLBACK_TYPES as readonly string[]).includes(type) ? type : UNCATEGORISED
+    const bucket = leftovers.get(key)
     if (bucket) {
       bucket.push(tag)
     }
     else {
-      leftovers.set(group, [tag])
+      leftovers.set(key, [tag])
     }
   }
-  if (leftovers.size > 0) {
-    nodes.push({
-      path: UNCATEGORISED,
+  function fallbackNode(key: string): TagTreeNode {
+    const bucket = leftovers.get(key)!
+    bucket.sort((a, b) => b.count - a.count)
+    return {
+      path: key === UNCATEGORISED ? UNCATEGORISED : `${UNCATEGORISED}.${key}`,
       parent: null,
       depth: 0,
-      name: uncategorisedLabel,
-      own: [],
+      name: key === UNCATEGORISED ? uncategorisedLabel : groupLabel(key),
+      own: bucket,
       total: 0,
-    })
-    for (const [group, bucket] of [...leftovers.entries()].sort((a, b) => b[1].length - a[1].length)) {
-      bucket.sort((a, b) => b.count - a.count)
-      nodes.push({
-        path: `${UNCATEGORISED}.${group}`,
-        parent: UNCATEGORISED,
-        depth: 1,
-        name: groupLabel(group),
-        own: bucket,
-        total: 0,
-      })
     }
   }
+
+  const nodes: TagTreeNode[] = [
+    ...orderedFallbacks(leftovers, true).map(key => fallbackNode(key)),
+    ...treeNodes,
+    ...(leftovers.has(UNCATEGORISED) ? [fallbackNode(UNCATEGORISED)] : []),
+    ...orderedFallbacks(leftovers, false).map(key => fallbackNode(key)),
+  ]
 
   // 子树计数：深度优先序里子节点总在父节点之后，所以倒着走一遍就能把每个节点的
   // 合计推给它的父节点。
@@ -205,23 +231,45 @@ export function useTopCategoryGrouper() {
   })
 
   /**
-   * 分堆结果，顺序跟随上游的顶层顺序；没进树的 tag 归到最后一堆（`path` 为
-   * `UNCATEGORISED`）。空堆不会出现。
+   * 分堆结果，顺序跟随上游的顶层顺序，其后是 danbooru tag type 的那几堆（画师名、
+   * 作品名…），最后才是真正没归属的。空堆不会出现。
+   *
+   * `typeOf` 拿的是 tag 的 danbooru type：树够不着画师名和作品名，但那不代表它们
+   * 没有分类，只是分在另一个维度上。
    */
-  return function group<T>(items: T[], nameOf: (item: T) => string, uncategorisedLabel: string): TopCategoryGroup<T>[] {
+  return function group<T>(
+    items: T[],
+    nameOf: (item: T) => string,
+    typeOf: (item: T) => string | null | undefined,
+    labelOf: (key: string) => string,
+  ): TopCategoryGroup<T>[] {
     const { names, topOf } = lookup.value
     const buckets = new Map<string, T[]>()
     for (const item of items) {
-      const top = topOf.get(nameOf(item)) ?? UNCATEGORISED
-      const bucket = buckets.get(top)
+      let key = topOf.get(nameOf(item))
+      if (key === undefined) {
+        const type = typeOf(item) ?? ''
+        key = (FALLBACK_TYPES as readonly string[]).includes(type) ? `${UNCATEGORISED}.${type}` : UNCATEGORISED
+      }
+      const bucket = buckets.get(key)
       if (bucket) {
         bucket.push(item)
       }
       else {
-        buckets.set(top, [item])
+        buckets.set(key, [item])
       }
     }
     const out: TopCategoryGroup<T>[] = []
+    const pushType = (type: string) => {
+      const bucket = buckets.get(`${UNCATEGORISED}.${type}`)
+      if (bucket) {
+        out.push({ path: `${UNCATEGORISED}.${type}`, name: labelOf(type), items: bucket })
+      }
+    }
+    // 画师 → 系列名 → 角色名 → 语义树 → 未分类 → 元信息，和标签管理页同一个次序。
+    for (const type of LEADING_TYPES) {
+      pushType(type)
+    }
     for (const [path, name] of names) {
       const bucket = buckets.get(path)
       if (bucket) {
@@ -230,7 +278,10 @@ export function useTopCategoryGrouper() {
     }
     const rest = buckets.get(UNCATEGORISED)
     if (rest) {
-      out.push({ path: UNCATEGORISED, name: uncategorisedLabel, items: rest })
+      out.push({ path: UNCATEGORISED, name: labelOf(UNCATEGORISED), items: rest })
+    }
+    for (const type of TRAILING_TYPES) {
+      pushType(type)
     }
     return out
   }

@@ -285,10 +285,9 @@ const zhHans: MessageSchema = {
     noMatch: '没有匹配“{search}”的标签。',
     uncategorised: '未分类',
     group: {
-      general: '通用',
-      character: '角色',
+      character: '角色名',
       artist: '画师',
-      copyright: '作品',
+      copyright: '系列名',
       meta: '元信息',
     },
   },

@@ -285,10 +285,9 @@ const zhHant: MessageSchema = {
     noMatch: '沒有匹配“{search}”的標籤。',
     uncategorised: '未分類',
     group: {
-      general: '通用',
-      character: '角色',
+      character: '角色名',
       artist: '繪師',
-      copyright: '作品',
+      copyright: '系列名',
       meta: '中繼資訊',
     },
   },

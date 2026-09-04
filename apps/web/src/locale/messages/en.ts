@@ -288,10 +288,9 @@ const en = {
     noMatch: 'No tags match “{search}”.',
     uncategorised: 'Uncategorised',
     group: {
-      general: 'General',
-      character: 'Character',
-      artist: 'Artist',
-      copyright: 'Copyright',
+      character: 'Character names',
+      artist: 'Artists',
+      copyright: 'Series',
       meta: 'Meta',
     },
   },

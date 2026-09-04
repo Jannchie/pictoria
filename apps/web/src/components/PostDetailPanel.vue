@@ -8,7 +8,7 @@ import { v2GetSilvaLunaScorerOne, v2GetSilvaScorerOne, v2GetWaifuScorerOne } fro
 import { useAPIError } from '@/composables/useAPIError'
 import { useScoreHotkeys } from '@/composables/useKeyScope'
 import { usePostGroupQuery } from '@/composables/usePostGroupQuery'
-import { useTopCategoryGrouper } from '@/composables/useTagTree'
+import { UNCATEGORISED, useTopCategoryGrouper } from '@/composables/useTagTree'
 import { formatDateTime } from '@/locale'
 import { commitCaption, commitRating, commitScore, commitSource, hideNSFW, makePostCanonical, openTagSelectorWindow, queryKeys, RATING_LEVEL_COLORS, RATING_LEVEL_ICONS, showPostDetail, ungroupPost } from '@/shared'
 import { getPostThumbnailURL, isImageExtension } from '@/utils'
@@ -98,10 +98,13 @@ const autoTags = computed(() => tagSorted.value.filter(t => t.isAuto))
 // 按顶层语义分类（服饰 / 发型 / 表情…）分堆。自动标签动辄几十个，平铺成一片时
 // 眼睛没有着力点；手动标签一并分，两处结构一致。
 const groupByCategory = useTopCategoryGrouper()
+function categoryLabel(key: string) {
+  return key === UNCATEGORISED ? t('tagsView.uncategorised') : t(`tagsView.group.${key}`)
+}
 const manualTagGroups = computed(() =>
-  groupByCategory(manualTags.value, tag => tag.tagInfo.name, t('tagsView.uncategorised')))
+  groupByCategory(manualTags.value, tag => tag.tagInfo.name, tag => tag.tagInfo.group?.name, categoryLabel))
 const autoTagGroups = computed(() =>
-  groupByCategory(autoTags.value, tag => tag.tagInfo.name, t('tagsView.uncategorised')))
+  groupByCategory(autoTags.value, tag => tag.tagInfo.name, tag => tag.tagInfo.group?.name, categoryLabel))
 function onCopyTags() {
   const tags = tagSorted.value.map(tag => tag.tagInfo.name).join(', ')
   if (tags) {

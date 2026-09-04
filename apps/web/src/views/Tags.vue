@@ -9,6 +9,7 @@ import { v2ListTags } from '@/api'
 import {
   buildTagTree,
   filterTagTree,
+  UNCATEGORISED,
   useTagTreeQuery,
   visibleNodes,
 } from '@/composables/useTagTree'
@@ -109,8 +110,14 @@ const expanded = computed(() => {
   if (touched.value) {
     return opened.value
   }
-  // 默认展开顶层，让页面一进来就有内容，而不是十一行光秃秃的标题。
-  return new Set(shownTree.value.filter(n => n.depth === 0).map(n => n.path))
+  // 默认展开语义树的顶层，让页面一进来就有内容，而不是一屏光秃秃的标题。合成的那
+  // 几个（角色名 / 作品名 / 画师 / 未分类）不展开：那是几万条名字的平铺，没有浏览
+  // 价值，要找的人会搜。
+  return new Set(
+    shownTree.value
+      .filter(n => n.depth === 0 && !n.path.startsWith(UNCATEGORISED))
+      .map(n => n.path),
+  )
 })
 
 function toggle(path: string) {
