@@ -12,3 +12,6 @@ dist/
 *.log
 *.tsbuildinfo
 .vite/
+
+# tag i18n 变更报告:每次 build 重新生成,给人看的,不是产物
+server/data/tag.*.changes.tsv
