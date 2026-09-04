@@ -12,6 +12,7 @@ const options = computed<{ value: LocaleSetting, label: string }[]>(() => [
   { value: 'auto', label: t('settings.languageAuto') },
   { value: 'en', label: 'English' },
   { value: 'zh-Hans', label: '简体中文' },
+  { value: 'zh-Hant', label: '繁體中文' },
 ])
 </script>
 

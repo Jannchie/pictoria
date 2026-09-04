@@ -3,19 +3,31 @@ import { computed, watch } from 'vue'
 import { createI18n } from 'vue-i18n'
 import en from './messages/en'
 import zhHans from './messages/zh-Hans'
+import zhHant from './messages/zh-Hant'
 
-export const SUPPORTED_LOCALES = ['en', 'zh-Hans'] as const
+export const SUPPORTED_LOCALES = ['en', 'zh-Hans', 'zh-Hant'] as const
 export type AppLocale = (typeof SUPPORTED_LOCALES)[number]
 export type LocaleSetting = AppLocale | 'auto'
 
 // Persisted user choice; 'auto' follows the browser language.
 export const localeSetting = useLocalStorage<LocaleSetting>('pictoria.locale', 'auto')
 
+// Regions and scripts that write traditional Chinese. Taiwan, Hong Kong and
+// Macau are matched by region because that is what browsers actually send --
+// `zh-TW`, `zh-HK` -- while `zh-Hant` is the explicit script subtag. Everything
+// else under `zh` (including bare `zh` and `zh-CN`) is simplified: guessing
+// traditional for an unqualified `zh` would serve the wrong script to the
+// larger audience.
+const TRADITIONAL = /^zh-(?:hant|tw|hk|mo)\b/
+
 // Pure resolver (exported for tests): first browser language that maps to a
 // supported locale wins; anything unrecognised falls back to English.
 export function pickLocale(langs: readonly string[]): AppLocale {
   for (const lang of langs) {
     const lower = lang.toLowerCase()
+    if (TRADITIONAL.test(lower)) {
+      return 'zh-Hant'
+    }
     if (lower.startsWith('zh')) {
       return 'zh-Hans'
     }
@@ -40,6 +52,7 @@ export const i18n = createI18n({
   messages: {
     'en': en,
     'zh-Hans': zhHans,
+    'zh-Hant': zhHant,
   },
 })
 

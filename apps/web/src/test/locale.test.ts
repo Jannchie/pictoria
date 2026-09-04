@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 import { pickLocale } from '@/locale'
 import en from '@/locale/messages/en'
 import zhHans from '@/locale/messages/zh-Hans'
+import zhHant from '@/locale/messages/zh-Hant'
 
 type Messages = Record<string, unknown>
 
@@ -27,12 +28,29 @@ function params(s: string): Set<string> {
 
 const enFlat = flatten(en)
 const zhFlat = flatten(zhHans)
+const zhHantFlat = flatten(zhHant)
 
 // MessageSchema already enforces this at compile time; the runtime check
 // guards against the type constraint ever being bypassed (e.g. `as any`).
 describe('locale catalogues', () => {
   it('zh-hans mirrors the en key tree exactly', () => {
     expect([...zhFlat.keys()].sort()).toEqual([...enFlat.keys()].sort())
+  })
+
+  it('zh-hant mirrors the en key tree exactly', () => {
+    expect([...zhHantFlat.keys()].sort()).toEqual([...enFlat.keys()].sort())
+  })
+
+  // zh-Hant starts as an OpenCC s2tw conversion of zh-Hans and is then revised
+  // for Taiwanese vocabulary, so an untouched entry is expected -- but one that
+  // still reads as mainland wording is a conversion that was never reviewed.
+  it('zh-hant carries no mainland-only vocabulary', () => {
+    const mainlandOnly = ['加載', '設置', '默認', '文件', '保存', '搜索', '刷新', '創建', '撤銷', '信息', '視頻', '網絡', '用戶', '屏幕', '菜單', '緩存', '鏈接', '分辨率', '服務器', '縮略圖']
+    for (const [key, message] of zhHantFlat) {
+      for (const word of mainlandOnly) {
+        expect(message, `"${key}" still uses mainland wording ${word}`).not.toContain(word)
+      }
+    }
   })
 
   it('zh-hans only references interpolation params that exist in en', () => {
@@ -45,7 +63,7 @@ describe('locale catalogues', () => {
   })
 
   it('no catalogue message is empty', () => {
-    for (const [key, message] of [...enFlat, ...zhFlat]) {
+    for (const [key, message] of [...enFlat, ...zhFlat, ...zhHantFlat]) {
       expect(message.trim(), `empty message for "${key}"`).not.toBe('')
     }
   })
@@ -100,10 +118,22 @@ describe('catalogue covers every key used in source', () => {
 })
 
 describe('picklocale', () => {
-  it('maps any zh variant to zh-hans', () => {
+  it('maps simplified zh variants to zh-hans', () => {
     expect(pickLocale(['zh-CN'])).toBe('zh-Hans')
-    expect(pickLocale(['zh-TW'])).toBe('zh-Hans')
+    expect(pickLocale(['zh-SG'])).toBe('zh-Hans')
+    // Bare `zh` is simplified: guessing traditional for an unqualified tag
+    // would serve the wrong script to the larger audience.
     expect(pickLocale(['zh'])).toBe('zh-Hans')
+    expect(pickLocale(['zh-Hans'])).toBe('zh-Hans')
+  })
+
+  it('maps traditional zh variants to zh-hant', () => {
+    // Region subtags, because that is what browsers actually send.
+    expect(pickLocale(['zh-TW'])).toBe('zh-Hant')
+    expect(pickLocale(['zh-HK'])).toBe('zh-Hant')
+    expect(pickLocale(['zh-MO'])).toBe('zh-Hant')
+    expect(pickLocale(['zh-Hant'])).toBe('zh-Hant')
+    expect(pickLocale(['zh-Hant-TW'])).toBe('zh-Hant')
   })
 
   it('maps en variants to en', () => {
