@@ -9,6 +9,7 @@ import { listTagGroups, listTagsWithCounts } from '@pictoria/db'
 import { getDb } from '../db.js'
 import { OK, RESP_400, zodErrorHook } from '../openapi.js'
 import { translateTag } from '../tag-i18n.js'
+import { tagTree } from '../tag-tree.js'
 
 const TagGroupPublic = z
   .object({ id: z.int(), name: z.string(), color: z.string() })
@@ -68,6 +69,43 @@ tagsRoutes.openapi(
         count: r.count,
       })),
     )
+  },
+)
+
+const TagCategoryPublic = z
+  .object({
+    path: z.string(),
+    parent: z.string().nullable(),
+    depth: z.int(),
+    name: z.string(),
+    tags: z.array(z.string()),
+  })
+  .openapi('TagCategoryPublic')
+
+tagsRoutes.openapi(
+  createRoute({
+    method: 'get',
+    path: '/v2/tags/tree',
+    operationId: 'v2ListTagTree',
+    summary: 'ListTagTree',
+    description:
+      'The danbooru-tags-tree semantic taxonomy: every category in depth-first order, '
+      + 'localised, with the tags that belong to each leaf. Orthogonal to tag groups '
+      + '(which carry the danbooru tag *type*); covers general tags only.',
+    request: {
+      query: z.object({
+        lang: z.string().default('zh-Hans')
+          .openapi({ param: { name: 'lang', in: 'query', required: false } }),
+      }),
+    },
+    responses: {
+      200: { description: OK, content: { 'application/json': { schema: z.array(TagCategoryPublic) } } },
+      ...RESP_400,
+    },
+  }),
+  (c) => {
+    const { lang } = c.req.valid('query')
+    return c.json(tagTree(lang))
   },
 )
 

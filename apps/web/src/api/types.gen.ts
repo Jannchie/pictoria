@@ -55,6 +55,17 @@ export type TagGroupPublic = {
 };
 
 /**
+ * TagCategoryPublic
+ */
+export type TagCategoryPublic = {
+    path: string;
+    parent: string | null;
+    depth: number;
+    name: string;
+    tags: Array<string>;
+};
+
+/**
  * TagCreate
  */
 export type TagCreate = {
@@ -1058,6 +1069,39 @@ export type V2CreateTagResponses = {
 };
 
 export type V2CreateTagResponse = V2CreateTagResponses[keyof V2CreateTagResponses];
+
+export type V2ListTagTreeData = {
+    body?: never;
+    path?: never;
+    query?: {
+        lang?: string;
+    };
+    url: '/v2/tags/tree';
+};
+
+export type V2ListTagTreeErrors = {
+    /**
+     * Validation Exception
+     */
+    400: {
+        status_code: number;
+        detail: string;
+        extra?: null | {
+            [key: string]: unknown;
+        } | Array<unknown>;
+    };
+};
+
+export type V2ListTagTreeError = V2ListTagTreeErrors[keyof V2ListTagTreeErrors];
+
+export type V2ListTagTreeResponses = {
+    /**
+     * Request fulfilled, document follows
+     */
+    200: Array<TagCategoryPublic>;
+};
+
+export type V2ListTagTreeResponse = V2ListTagTreeResponses[keyof V2ListTagTreeResponses];
 
 export type V2ListTagGroupData = {
     body?: never;
