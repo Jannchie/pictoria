@@ -59,9 +59,12 @@ const label = computed(() => {
     variant="soft"
     tone="primary"
     size="sm"
+    class="max-w-full"
     :style="colorStyle"
     :title="tagName"
   >
-    {{ label }}
+    <!-- 超长标签名（danbooru 的角色全名能到几十字）在受限容器里必须截断,
+         否则会撑破所在格子盖住旁边的内容。完整名字仍在 title 上。 -->
+    <span class="truncate">{{ label }}</span>
   </PTag>
 </template>
