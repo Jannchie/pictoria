@@ -283,6 +283,14 @@ const zhHans: MessageSchema = {
     loading: '正在加载标签…',
     loadFailed: '标签加载失败，请尝试刷新页面。',
     noMatch: '没有匹配“{search}”的标签。',
+    uncategorised: '未分类',
+    group: {
+      general: '通用',
+      character: '角色',
+      artist: '画师',
+      copyright: '作品',
+      meta: '元信息',
+    },
   },
   tagSelector: {
     noPostSelected: '未选中图片',

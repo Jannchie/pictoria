@@ -9,9 +9,11 @@ declare global {
   const EffectScope: typeof import('vue').EffectScope
   const KEY_ROWS: typeof import('./composables/useAnnotationKeymap').KEY_ROWS
   const SUPPORTED_LOCALES: typeof import('./locale/index').SUPPORTED_LOCALES
+  const UNCATEGORISED: typeof import('./composables/useTagTree').UNCATEGORISED
   const activeKeys: typeof import('./composables/useAnnotationKeymap').activeKeys
   const asyncComputed: typeof import('@vueuse/core').asyncComputed
   const autoResetRef: typeof import('@vueuse/core').autoResetRef
+  const buildTagTree: typeof import('./composables/useTagTree').buildTagTree
   const computed: typeof import('vue').computed
   const computedAsync: typeof import('@vueuse/core').computedAsync
   const computedEager: typeof import('@vueuse/core').computedEager
@@ -39,6 +41,7 @@ declare global {
   const eagerComputed: typeof import('@vueuse/core').eagerComputed
   const effectScope: typeof import('vue').effectScope
   const extendRef: typeof import('@vueuse/core').extendRef
+  const filterTagTree: typeof import('./composables/useTagTree').filterTagTree
   const firstRovingIndex: typeof import('./composables/useRovingIndex').firstRovingIndex
   const formatDate: typeof import('./locale/index').formatDate
   const formatDateTime: typeof import('./locale/index').formatDateTime
@@ -281,6 +284,7 @@ declare global {
   const useStyleTag: typeof import('@vueuse/core').useStyleTag
   const useSupported: typeof import('@vueuse/core').useSupported
   const useSwipe: typeof import('@vueuse/core').useSwipe
+  const useTagTreeQuery: typeof import('./composables/useTagTree').useTagTreeQuery
   const useTemplateRef: typeof import('vue').useTemplateRef
   const useTemplateRefsList: typeof import('@vueuse/core').useTemplateRefsList
   const useTextDirection: typeof import('@vueuse/core').useTextDirection
@@ -299,6 +303,7 @@ declare global {
   const useToNumber: typeof import('@vueuse/core').useToNumber
   const useToString: typeof import('@vueuse/core').useToString
   const useToggle: typeof import('@vueuse/core').useToggle
+  const useTopCategoryGrouper: typeof import('./composables/useTagTree').useTopCategoryGrouper
   const useTransition: typeof import('@vueuse/core').useTransition
   const useUrlSearchParams: typeof import('@vueuse/core').useUrlSearchParams
   const useUserMedia: typeof import('@vueuse/core').useUserMedia
@@ -316,6 +321,7 @@ declare global {
   const useWindowFocus: typeof import('@vueuse/core').useWindowFocus
   const useWindowScroll: typeof import('@vueuse/core').useWindowScroll
   const useWindowSize: typeof import('@vueuse/core').useWindowSize
+  const visibleNodes: typeof import('./composables/useTagTree').visibleNodes
   const watch: typeof import('vue').watch
   const watchArray: typeof import('@vueuse/core').watchArray
   const watchAtMost: typeof import('@vueuse/core').watchAtMost
@@ -359,6 +365,9 @@ declare global {
   // @ts-ignore
   export type { UseRovingIndexOptions } from './composables/useRovingIndex'
   import('./composables/useRovingIndex')
+  // @ts-ignore
+  export type { TagTreeNode, TopCategoryGroup } from './composables/useTagTree'
+  import('./composables/useTagTree')
   // @ts-ignore
   export type { AppLocale, LocaleSetting } from './locale/index'
   import('./locale/index')

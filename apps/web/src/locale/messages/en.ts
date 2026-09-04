@@ -286,6 +286,14 @@ const en = {
     loading: 'Loading tags…',
     loadFailed: 'Failed to load tags. Try refreshing the page.',
     noMatch: 'No tags match “{search}”.',
+    uncategorised: 'Uncategorised',
+    group: {
+      general: 'General',
+      character: 'Character',
+      artist: 'Artist',
+      copyright: 'Copyright',
+      meta: 'Meta',
+    },
   },
   tagSelector: {
     noPostSelected: 'No Post Selected',

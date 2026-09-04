@@ -8,6 +8,7 @@ import { v2GetSilvaLunaScorerOne, v2GetSilvaScorerOne, v2GetWaifuScorerOne } fro
 import { useAPIError } from '@/composables/useAPIError'
 import { useScoreHotkeys } from '@/composables/useKeyScope'
 import { usePostGroupQuery } from '@/composables/usePostGroupQuery'
+import { useTopCategoryGrouper } from '@/composables/useTagTree'
 import { formatDateTime } from '@/locale'
 import { commitCaption, commitRating, commitScore, commitSource, hideNSFW, makePostCanonical, openTagSelectorWindow, queryKeys, RATING_LEVEL_COLORS, RATING_LEVEL_ICONS, showPostDetail, ungroupPost } from '@/shared'
 import { getPostThumbnailURL, isImageExtension } from '@/utils'
@@ -93,6 +94,14 @@ const tagSorted = computed(() => {
 })
 const manualTags = computed(() => tagSorted.value.filter(t => !t.isAuto))
 const autoTags = computed(() => tagSorted.value.filter(t => t.isAuto))
+
+// 按顶层语义分类（服饰 / 发型 / 表情…）分堆。自动标签动辄几十个，平铺成一片时
+// 眼睛没有着力点；手动标签一并分，两处结构一致。
+const groupByCategory = useTopCategoryGrouper()
+const manualTagGroups = computed(() =>
+  groupByCategory(manualTags.value, tag => tag.tagInfo.name, t('tagsView.uncategorised')))
+const autoTagGroups = computed(() =>
+  groupByCategory(autoTags.value, tag => tag.tagInfo.name, t('tagsView.uncategorised')))
 function onCopyTags() {
   const tags = tagSorted.value.map(tag => tag.tagInfo.name).join(', ')
   if (tags) {
@@ -503,22 +512,33 @@ const sectionTitleClass
         </div>
         <div
           v-if="manualTags.length > 0"
-          class="flex flex-wrap gap-2"
+          class="flex flex-col gap-2"
         >
-          <!-- PostTag renders the localised display name itself (no slot). -->
-          <PostTag
-            v-for="tag of manualTags"
-            :key="tag.tagInfo.name"
-            class="px-1 py-0.5 rounded bg-surface-2 cursor-pointer"
-            rounded="lg"
-            :data="tag"
-            :color="tag.tagInfo.group?.color"
-            @pointerup="openTagSelectorWindow()"
-          />
+          <div
+            v-for="cat of manualTagGroups"
+            :key="cat.path"
+            class="flex flex-col gap-1"
+          >
+            <div class="text-2xs text-fg-subtle tracking-wide uppercase">
+              {{ cat.name }}
+            </div>
+            <div class="flex flex-wrap gap-2">
+              <!-- PostTag renders the localised display name itself (no slot). -->
+              <PostTag
+                v-for="tag of cat.items"
+                :key="tag.tagInfo.name"
+                class="px-1 py-0.5 rounded bg-surface-2 cursor-pointer"
+                rounded="lg"
+                :data="tag"
+                :color="tag.tagInfo.group?.color"
+                @pointerup="openTagSelectorWindow()"
+              />
+            </div>
+          </div>
           <PTag
             variant="soft"
             tone="primary"
-            class="cursor-pointer"
+            class="cursor-pointer self-start"
             @pointerup="openTagSelectorWindow()"
           >
             <i class="i-tabler-plus" />
@@ -554,16 +574,27 @@ const sectionTitleClass
         :summary="autoTags.length"
         :default-open="false"
       >
-        <div class="flex flex-wrap gap-2">
-          <PostTag
-            v-for="tag of autoTags"
-            :key="tag.tagInfo.name"
-            class="px-1 py-0.5 rounded bg-surface-2 cursor-pointer"
-            rounded="lg"
-            :data="tag"
-            :color="tag.tagInfo.group?.color"
-            @pointerup="openTagSelectorWindow()"
-          />
+        <div class="flex flex-col gap-2">
+          <div
+            v-for="cat of autoTagGroups"
+            :key="cat.path"
+            class="flex flex-col gap-1"
+          >
+            <div class="text-2xs text-fg-subtle tracking-wide uppercase">
+              {{ cat.name }}
+            </div>
+            <div class="flex flex-wrap gap-2">
+              <PostTag
+                v-for="tag of cat.items"
+                :key="tag.tagInfo.name"
+                class="px-1 py-0.5 rounded bg-surface-2 cursor-pointer"
+                rounded="lg"
+                :data="tag"
+                :color="tag.tagInfo.group?.color"
+                @pointerup="openTagSelectorWindow()"
+              />
+            </div>
+          </div>
         </div>
       </PDisclosure>
 

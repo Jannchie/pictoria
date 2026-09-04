@@ -1,27 +1,38 @@
 <script setup lang="ts">
 import type { TagWithCountPublic } from '@/api'
+import type { TagTreeNode } from '@/composables/useTagTree'
 import { useQuery } from '@tanstack/vue-query'
 import { useDebounce, useElementSize } from '@vueuse/core'
 import { computed, ref, toRaw } from 'vue'
+import { useI18n } from 'vue-i18n'
 import { v2ListTags } from '@/api'
-import { resolvedLocale } from '@/locale'
+import {
+  buildTagTree,
+  filterTagTree,
+  useTagTreeQuery,
+  visibleNodes,
+} from '@/composables/useTagTree'
+import { formatNumber, resolvedLocale } from '@/locale'
 import { queryKeys } from '@/shared/queryKeys'
 
 /**
- * 一个虚拟滚动项：要么是首字母标题，要么是一整行标签。
+ * 一个虚拟滚动项：要么是分类行，要么是该分类直属 tag 的一行。
  *
- * 之前虚拟化的粒度是「首字母分组」，于是 `s` 组一进视口就要一次性挂上近万个
- * PostTag —— 库里有五万多个标签，打开这个页面就是几秒白屏加持续掉帧。改成按
- * 行切之后单项恒定是一行，视口里始终只有几十个组件。
+ * 虚拟化的粒度必须是「行」。库里有五万多个标签，按分类整块渲染的话展开一个大分类
+ * 就要一次性挂上上万个 PostTag —— 这个页面按首字母分组时就是这么卡死的。
  */
 type Row
-  = | { kind: 'header', letter: string, count: number }
-  | { kind: 'tags', tags: TagWithCountPublic[] }
+  = | { kind: 'category', node: TagTreeNode, expanded: boolean }
+  | { kind: 'tags', path: string, offset: number, tags: TagWithCountPublic[] }
 
-const HEADER_HEIGHT = 56
+const CATEGORY_HEIGHT = 34
 const TAG_ROW_HEIGHT = 32
 /** 每格的最小宽度，用来按容器宽度推列数。 */
 const MIN_COLUMN_WIDTH = 200
+/** 每层缩进，让子分类和父分类的箭头错开。 */
+const INDENT = 16
+
+const { t } = useI18n()
 
 const tagQuery = useQuery({
   // Locale lives in the key (folded into queryKeys.tags) so a language switch
@@ -39,88 +50,115 @@ const tagQuery = useQuery({
   // 而这里每次拿到的都是全新数组，比较不出任何可复用的东西。
   structuralSharing: false,
 })
+const treeQuery = useTagTreeQuery()
+
+const isLoading = computed(() => tagQuery.isLoading.value || treeQuery.isLoading.value)
+const loadError = computed(() => tagQuery.error.value ?? treeQuery.error.value)
+
+/**
+ * `toRaw` 是要点：vue-query 会把结果深层 `reactive()` 一遍，而下面每一趟都要走
+ * 五万个元素，带着代理走每次属性读取都是一次 WeakMap 查找。这里只读不写。
+ */
+const tagData = computed(() => toRaw(tagQuery.data.value) ?? [])
+const categories = computed(() => toRaw(treeQuery.data.value) ?? [])
+
+const tree = computed(() => buildTagTree(
+  categories.value,
+  tagData.value,
+  group => t(`tagsView.group.${group}`),
+  t('tagsView.uncategorised'),
+))
 
 const search = ref('')
-// 每敲一个字符都跑一遍五万条的过滤 + 分组是白干,等手停下来再算一次。
+// 每敲一个字符都跑一遍五万条的过滤是白干,等手停下来再算一次。
 // （和 TagFilter.vue 的标签搜索同一个节奏。）
 const debouncedSearch = useDebounce(search, 250)
+const query = computed(() => debouncedSearch.value.trim().toLowerCase())
 
-/**
- * 已按 count 降序排好的全表。
- *
- * `toRaw` 是要点：vue-query 会把结果深层 `reactive()` 一遍,而下面每一趟都要走
- * 五万个元素,带着代理走每次属性读取都是一次 WeakMap 查找。这里只读不写,拿原始
- * 数组即可。
- *
- * 排序放在过滤之前：过滤不会改变相对顺序,所以按 count 排一次就够,不必每次搜索
- * 都对每个分组重排。
- */
-const tagData = computed(() => {
-  const rows = toRaw(tagQuery.data.value) ?? []
-  return [...rows].sort((a, b) => b.count - a.count)
-})
-
-/**
- * 与 `tagData` 同序的小写检索串（原始下划线名 + 本地化显示名）。
- *
- * 每敲一个字符都对五万条各做两次 `toLowerCase` 是纯重复劳动 —— 预先算一遍，
- * 之后每次过滤只剩 `includes`。
- */
-const searchIndex = computed(() => tagData.value.map(d => `${d.name} ${d.translatedName ?? ''}`.toLowerCase()))
-
-const tagDataSearched = computed(() => {
-  // 原始下划线名或本地化显示名命中皆可,中文输入也能搜到 tag。
-  const q = debouncedSearch.value.trim().toLowerCase()
+/** 命中搜索的 tag 名；无搜索词时为 null（表示"全都要"，而不是"一个都没有"）。 */
+const matched = computed(() => {
+  const q = query.value
   if (q === '') {
-    return tagData.value
+    return null
   }
-  const index = searchIndex.value
-  return tagData.value.filter((_, i) => index[i].includes(q))
-})
-
-const tagGroupByFirstChar = computed(() => {
-  // Map 而不是 findIndex：分组有三十多个,线性查找会把 O(n) 变成 O(n×组数)。
-  const groups = new Map<string, TagWithCountPublic[]>()
-  for (const d of tagDataSearched.value) {
-    if (d.name.length === 0) {
-      continue
-    }
-    const firstChar = d.name[0].toUpperCase()
-    const bucket = groups.get(firstChar)
-    if (bucket) {
-      bucket.push(d)
-    }
-    else {
-      groups.set(firstChar, [d])
+  const hit = new Set<string>()
+  for (const tag of tagData.value) {
+    // 原始下划线名或本地化显示名命中皆可,中文输入也能搜到 tag。
+    if (tag.name.toLowerCase().includes(q) || tag.translatedName?.toLowerCase().includes(q)) {
+      hit.add(tag.name)
     }
   }
-
-  // 组内顺序继承自 tagData 的 count 降序,不用再排。
-  return [...groups.entries()].sort((a, b) => a[0].localeCompare(b[0]))
+  return hit
 })
+
+const shownTree = computed(() => {
+  const hit = matched.value
+  return hit === null ? tree.value : filterTagTree(tree.value, tag => hit.has(tag.name))
+})
+
+/** 手动展开的分类。 */
+const opened = ref(new Set<string>())
+const touched = ref(false)
+
+const expanded = computed(() => {
+  // 搜索时把幸存的分类全部展开 —— 它们已经被过滤成"含命中 tag"的那些了，再折叠起来
+  // 就是搜了等于没搜。只展开祖先链不够：叶子自己不展开，命中的 tag 一个也看不见。
+  if (matched.value !== null) {
+    return new Set(shownTree.value.map(n => n.path))
+  }
+  if (touched.value) {
+    return opened.value
+  }
+  // 默认展开顶层，让页面一进来就有内容，而不是十一行光秃秃的标题。
+  return new Set(shownTree.value.filter(n => n.depth === 0).map(n => n.path))
+})
+
+function toggle(path: string) {
+  const next = new Set(expanded.value)
+  if (next.has(path)) {
+    next.delete(path)
+  }
+  else {
+    next.add(path)
+  }
+  opened.value = next
+  touched.value = true
+}
 
 const listRef = ref<HTMLElement | null>(null)
 const { width: listWidth } = useElementSize(listRef)
-const columns = computed(() => {
-  // 容器左右各 1rem 内边距。
-  const usable = listWidth.value - 32
-  return Math.max(1, Math.floor(usable / MIN_COLUMN_WIDTH))
-})
 
 const rows = computed<Row[]>(() => {
-  const perRow = columns.value
   const result: Row[] = []
-  for (const [letter, tags] of tagGroupByFirstChar.value) {
-    result.push({ kind: 'header', letter, count: tags.length })
-    for (let i = 0; i < tags.length; i += perRow) {
-      result.push({ kind: 'tags', tags: tags.slice(i, i + perRow) })
+  for (const node of visibleNodes(shownTree.value, expanded.value)) {
+    const isOpen = expanded.value.has(node.path)
+    result.push({ kind: 'category', node, expanded: isOpen })
+    if (!isOpen || node.own.length === 0) {
+      continue
+    }
+    // tag 行跟着分类缩进，可用宽度随之变窄，列数也要跟着算。
+    const usable = listWidth.value - 32 - (node.depth + 1) * INDENT
+    const perRow = Math.max(1, Math.floor(usable / MIN_COLUMN_WIDTH))
+    for (let i = 0; i < node.own.length; i += perRow) {
+      result.push({
+        kind: 'tags',
+        path: node.path,
+        offset: i,
+        tags: node.own.slice(i, i + perRow),
+      })
     }
   }
   return result
 })
 
-function rowHeight(row: Row | undefined) {
-  return row?.kind === 'header' ? HEADER_HEIGHT : TAG_ROW_HEIGHT
+function rowHeight(row: Row) {
+  return row.kind === 'category' ? CATEGORY_HEIGHT : TAG_ROW_HEIGHT
+}
+
+function indentOf(row: Row) {
+  return row.kind === 'category'
+    ? row.node.depth * INDENT
+    : (row.path.split('.').length) * INDENT
 }
 </script>
 
@@ -139,7 +177,7 @@ function rowHeight(row: Row | undefined) {
       </PInput>
     </div>
     <div
-      v-if="tagQuery.isLoading.value"
+      v-if="isLoading"
       role="status"
       class="p-16 text-center op-50 flex flex-col gap-2 items-center"
     >
@@ -149,7 +187,7 @@ function rowHeight(row: Row | undefined) {
       </div>
     </div>
     <div
-      v-else-if="tagQuery.error.value"
+      v-else-if="loadError"
       role="alert"
       class="text-danger p-16 text-center op-80 flex flex-col gap-2 items-center"
     >
@@ -172,22 +210,33 @@ function rowHeight(row: Row | undefined) {
         class="h-full"
       >
         <template #default="{ item: row }">
-          <div :style="{ height: `${rowHeight(row)}px` }">
-            <div
-              v-if="row.kind === 'header'"
-              class="px-4 pb-2 flex gap-2 h-full items-end"
+          <div :style="{ height: `${rowHeight(row)}px`, paddingLeft: `${16 + indentOf(row)}px` }">
+            <button
+              v-if="row.kind === 'category'"
+              type="button"
+              class="tag-category pr-4 flex gap-1.5 h-full w-full items-center"
+              :aria-expanded="row.expanded"
+              @click="toggle(row.node.path)"
             >
-              <h2 class="text-2xl tracking-tight font-semibold">
-                {{ row.letter }}
-              </h2>
-              <span class="text-sm text-fg-subtle tabular-nums">
-                {{ row.count }}
+              <i
+                class="text-fg-subtle shrink-0"
+                :class="row.expanded ? 'i-tabler-chevron-down' : 'i-tabler-chevron-right'"
+                aria-hidden="true"
+              />
+              <span
+                class="truncate"
+                :class="row.node.depth === 0 ? 'text-base font-semibold' : 'text-sm'"
+              >
+                {{ row.node.name }}
               </span>
-            </div>
+              <span class="text-xs text-fg-subtle shrink-0 tabular-nums">
+                {{ formatNumber(row.node.total) }}
+              </span>
+            </button>
             <div
               v-else
-              class="px-4 gap-x-3 grid h-full items-center"
-              :style="{ gridTemplateColumns: `repeat(${columns}, minmax(0, 1fr))` }"
+              class="pr-4 gap-x-3 grid h-full items-center"
+              :style="{ gridTemplateColumns: `repeat(${row.tags.length}, minmax(0, 1fr))` }"
             >
               <div
                 v-for="tag of row.tags"
@@ -209,3 +258,17 @@ function rowHeight(row: Row | undefined) {
     </div>
   </div>
 </template>
+
+<style scoped>
+.tag-category {
+  background: transparent;
+  border: 0;
+  padding-block: 0;
+  color: var(--p-fg);
+  cursor: pointer;
+  text-align: left;
+}
+.tag-category:hover {
+  color: var(--p-primary);
+}
+</style>

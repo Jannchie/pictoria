@@ -59,6 +59,11 @@ export const queryKeys = {
    */
   tags: () => ['tags', resolvedLocale] as const,
   tagsRoot: ['tags'] as const,
+  /**
+   * 语义分类树（danbooru-tags-tree）。分类名是服务端按 lang 解析的，所以和
+   * `tags` 一样把 locale 折进 key；`tagsRoot` 前缀失效同样命中。
+   */
+  tagTree: () => ['tags', 'tree', resolvedLocale] as const,
   // 无参：`v2ListTagGroup` 返回的是全局分组表，与 post 无关。带上 postId 的话
   // 同一份数据会按 post 各缓存一份、各请求一次。
   tagGroups: () => ['tagGroups'] as const,

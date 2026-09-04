@@ -283,6 +283,14 @@ const zhHant: MessageSchema = {
     loading: '正在載入標籤…',
     loadFailed: '標籤載入失敗，請嘗試重新整理頁面。',
     noMatch: '沒有匹配“{search}”的標籤。',
+    uncategorised: '未分類',
+    group: {
+      general: '通用',
+      character: '角色',
+      artist: '繪師',
+      copyright: '作品',
+      meta: '中繼資訊',
+    },
   },
   tagSelector: {
     noPostSelected: '未選中圖片',
