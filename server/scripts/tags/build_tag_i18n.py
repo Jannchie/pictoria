@@ -203,7 +203,18 @@ def apply_reviewed(
         value = slots.get(lang_key)
         if value:
             named[tag] = value
-    applied = named if override else {t: v for t, v in named.items() if t not in table}
+    if override:
+        applied = named
+    else:
+        # 只填空缺 —— 外加一种例外:基线自己那份坏了。基线里有 264 个日文名带着标签的
+        # 下划线,而且往往连带截断(「1LDK、そして2JK。_~26歳サラリーマン、女子高生二人」
+        # 到此为止),那不是一个可以「保留」的名字。上游把下划线换成了空格也补全了后半段,
+        # 这种情况让它盖过去。判据是下划线本身:基线有、上游没有。
+        applied = {
+            tag: value
+            for tag, value in named.items()
+            if tag not in table or ("_" in table[tag] and not table[tag].isascii() and "_" not in value)
+        }
     table.update(applied)
     source.update(dict.fromkeys(applied, "tag-index"))
 
