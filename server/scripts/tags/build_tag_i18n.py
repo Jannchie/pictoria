@@ -36,7 +36,7 @@ removal with its source, ordered by post count. Read it before committing; the
 first connected run moves several thousand names.
 
 Run from server/:
-    uv run --with pyyaml python scripts/tags/build_tag_i18n.py \
+    uv run --with pyyaml --with opencc-python-reimplemented python scripts/tags/build_tag_i18n.py \
         [--tree path/to/tree.yaml] [--tag-index DIR] [--rank-db path/to/danbooru_metadata.db]
 (downloads the tree YAML when --tree is not given; --tag-index defaults to the
 sibling checkout, or $DANBOORU_TAG_INDEX)
@@ -77,6 +77,17 @@ DERIVED_LANGS = {"zh-Hant": "zh-Hans"}
 # 溢出 becomes 溢位, 打開書本 becomes 開啟書本. s2tw is glyphs only: 衆->眾,
 # 牀->床, 羣->群, 啓->啟. Taiwanese vocabulary belongs in a reviewed table.
 DERIVE_CONVERSION = "s2tw"
+# Characters s2tw replaces by meaning rather than by shape. 里 is the one that
+# matters here: OpenCC reads it as 裡 ("inside"), which is right in 角落里 and
+# wrong in every name -- 日暮里, 三上里, 手里剑, and the several hundred artist
+# handles that contain it. 1,346 of the 132,823 derived names are affected, and
+# they are mostly artist names, which is most of this table.
+#
+# The same set lives in danbooru-tag-index's scripts/_hanzi.py as TAIWAN_QUIRKS,
+# which is where it was measured and where the method for re-measuring it is
+# written down. Copied rather than imported because that project is not a
+# dependency of this one; if the two ever disagree, that file is right.
+TAIWAN_QUIRKS = frozenset("里占斗岩托")
 DISPLAY_NAMES_FILE = "display_names.json"
 # Languages whose upstream names may *replace* a baseline name rather than only
 # fill a gap. Chinese qualifies: danbooru-tag-index picks it with an LLM among the
@@ -239,7 +250,26 @@ def derive_table(
     display: dict[str, dict[str, str | None]],
 ) -> tuple[dict[str, str], dict[str, str], str]:
     """Convert another table wholesale, then lay the reviewed names over it."""
-    convert = opencc.OpenCC(DERIVE_CONVERSION).convert
+    opencc_convert = opencc.OpenCC(DERIVE_CONVERSION).convert
+
+    def convert(name: str) -> str:
+        """s2tw, with the quirk characters held out of its reach.
+
+        Held out rather than substituted back: putting them back afterwards is an
+        unconditional replacement that breaks names where the converted form was
+        the correct one all along.
+        """
+        parts, keep = [], ""
+        for char in name:
+            if char in TAIWAN_QUIRKS:
+                parts.append(opencc_convert(keep))
+                parts.append(char)
+                keep = ""
+            else:
+                keep += char
+        parts.append(opencc_convert(keep))
+        return "".join(parts)
+
     table = {tag: convert(name) for tag, name in base.items()}
     source = dict.fromkeys(table, f"{DERIVE_CONVERSION}({from_suffix})")
 
