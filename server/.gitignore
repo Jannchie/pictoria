@@ -8,3 +8,5 @@ illustration
 # gallery-dl creator archiving: private URL list + config with cookies/keys
 creators.txt
 gallery-dl.conf
+# LPIPS 对拍 / 阈值标定的中间产物（scripts/lpips_parity.py、lpips_calibrate.py）。
+.lpips/

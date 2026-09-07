@@ -26,13 +26,28 @@ def find_near_pairs(
     matrix: np.ndarray,
     threshold: float,
     chunk_size: int,
-) -> list[list[int]]:
-    """Upper-triangle near pairs ``[[i, j], ...]`` with ``i < j``.
+    *,
+    max_per_row: int = 0,
+) -> list[list[int | float]]:
+    """Upper-triangle near pairs ``[[i, j, distance], ...]`` with ``i < j``.
 
     A pair is near when the two rows are within ``threshold`` cosine *distance*.
-    Runs on CUDA in fp16 when available, else CPU in fp32. Only the upper
-    triangle is kept so the greedy assignment on the TS side stays
-    one-directional (and so each pair crosses the boundary once, not twice).
+    Runs on CUDA in fp16 when available, else CPU in fp32.
+
+    Every pair carries its cosine distance -- the caller sorts the grey band by
+    it and stores it as evidence, and there is no cheaper shape worth offering:
+    a pair without its distance cannot be told from "already the same image".
+    Note the fp16 path: on CUDA the similarities carry ~1e-3 of error, which is
+    far below any decision made with these numbers (the 0.01 same-image cut, the
+    0.06 grey band, and the arbitration that follows) but is not exact -- the
+    stored distance is evidence for ranking and review, not a reproducible key.
+
+    ``max_per_row`` keeps only each row's nearest K neighbours. The grey band
+    has no natural bound -- 200 images of one character by one artist can all
+    sit within 0.06 of each other, which is 20k pairs from one artist alone --
+    and arbitration is per-pair. Truncation is by *union*: a pair survives if
+    either side ranks it, so a genuine variant is not lost just because one of
+    the two happens to live in a crowded neighbourhood.
     """
     import torch  # noqa: PLC0415  # lazy: defer the ML stack load until a rebuild runs
 
@@ -50,19 +65,43 @@ def find_near_pairs(
     x = torch.nn.functional.normalize(x, dim=1)
     sim_threshold = 1.0 - threshold
 
-    pairs: list[list[int]] = []
+    lows: list[np.ndarray] = []
+    highs: list[np.ndarray] = []
+    sims: list[np.ndarray] = []
     for start in range(0, n, chunk_size):
         end = min(start + chunk_size, n)
         block = x[start:end] @ x.T  # (chunk, n) cosine similarities
-        hits = (block >= sim_threshold).nonzero(as_tuple=False)
-        if hits.numel() == 0:
+        if max_per_row > 0:
+            # +1 because a row's nearest neighbour is always itself.
+            values, indices = block.topk(min(max_per_row + 1, n), dim=1)
+            local_rows, slot = (values >= sim_threshold).nonzero(as_tuple=True)
+            cols = indices[local_rows, slot]
+            hit_sims = values[local_rows, slot]
+        else:
+            local_rows, cols = (block >= sim_threshold).nonzero(as_tuple=True)
+            hit_sims = block[local_rows, cols]
+        if local_rows.numel() == 0:
             continue
-        for local_row, col in hits.cpu().numpy():
-            gi = start + int(local_row)
-            j = int(col)
-            if j > gi:  # upper triangle only (drops self + lower mirror)
-                pairs.append([gi, j])
-    return pairs
+        rows = local_rows.cpu().numpy().astype(np.int64) + start
+        cols_np = cols.cpu().numpy().astype(np.int64)
+        keep = rows != cols_np  # drop the self-match
+        lows.append(np.minimum(rows, cols_np)[keep])
+        highs.append(np.maximum(rows, cols_np)[keep])
+        sims.append(hit_sims.float().cpu().numpy()[keep])
+
+    if not lows:
+        return []
+
+    low = np.concatenate(lows)
+    high = np.concatenate(highs)
+    sim = np.concatenate(sims)
+    # 折到上三角之后必须去重，而且不能靠"只留 j > i"那个老写法：`max_per_row` 下
+    # 一对可能只出现在下三角一侧（j 进了 i 的 top-K，i 没进 j 的），丢掉它就等于
+    # 把截断从并集悄悄变成交集。编码成一个 int64 再 unique，比 set of tuples 省内存，
+    # 也顺带给出确定的输出顺序。
+    codes = low * n + high
+    _, first = np.unique(codes, return_index=True)
+    return [[int(low[i]), int(high[i]), float(1.0 - sim[i])] for i in first]
 
 
 def load_matrix(path: Path, count: int, dim: int) -> np.ndarray:

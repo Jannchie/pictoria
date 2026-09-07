@@ -41,6 +41,7 @@ from worker.handlers import (
     handle_caption,
     handle_dedup,
     handle_embedding,
+    handle_lpips_verify,
     handle_rotate,
     handle_silva,
     handle_tagger,
@@ -79,6 +80,17 @@ INTERACTIVE_POLL_MS = 20
 #: wait, and unlike the GPU queue its concurrency can exceed 1.
 IO_QUEUE = "io"
 IO_CONCURRENCY = 4
+
+#: Queue for CPU-only compute that must not sit in front of a request.
+#: LPIPS arbitration for variant grouping lives here, and deliberately not on
+#: ``IO_QUEUE``: thumbnails are generated *on demand* when the image route is
+#: hit, so a half-hour arbitration run sharing that queue would make image
+#: loads wait behind it. Not the GPU queue either -- the card already carries
+#: four models, and a 400x400 AlexNet is 20-40 ms on CPU.
+CPU_QUEUE = "cpu"
+#: Two at a time against ``ai.lpips``'s four intra-op threads -- eight of the
+#: box's cores at full tilt, leaving the rest to the GPU worker's decoding.
+CPU_CONCURRENCY = 2
 
 
 def target_dir() -> Path:
@@ -138,6 +150,9 @@ async def main() -> None:
         concurrency=IO_CONCURRENCY,
         poll_interval_ms=INTERACTIVE_POLL_MS,
     )
+    # Default poll interval: arbitration arrives in batches during a rebuild and
+    # nobody is watching the clock on any one of them.
+    cpu_worker = Worker(store, queues=[CPU_QUEUE], concurrency=CPU_CONCURRENCY)
 
     # Payload paths are resolved inside this root and nowhere else.
     set_root(root)
@@ -153,6 +168,7 @@ async def main() -> None:
     # vectors. Same queue on purpose: it wants the GPU exclusively.
     worker.task("dedup")(lambda _ctx, payload: handle_dedup(payload))
     interactive.task("text-embed")(lambda _ctx, payload: handle_text_embed(payload))
+    cpu_worker.task("lpips-verify")(lambda _ctx, payload: handle_lpips_verify(payload))
     io_worker.task("thumbnail")(lambda _ctx, payload: handle_thumbnail(payload))
     io_worker.task("rotate")(lambda _ctx, payload: handle_rotate(payload))
     io_worker.task("caption")(lambda _ctx, payload: handle_caption(payload))
@@ -162,13 +178,15 @@ async def main() -> None:
     io_worker.task("url-download")(lambda _ctx, payload: handle_url_download(payload))
 
     log.info(
-        "worker up: silva, waifu, tagger, embedding, dedup on %s; text-embed on %s; thumbnail + rotate + caption + basics + import on %s  db=%s",
+        "worker up: silva, waifu, tagger, embedding, dedup on %s; text-embed on %s; "
+        "thumbnail + rotate + caption + basics + import on %s; lpips-verify on %s  db=%s",
         GPU_QUEUE,
         INTERACTIVE_QUEUE,
         IO_QUEUE,
+        CPU_QUEUE,
         db_path,
     )
-    await asyncio.gather(worker.run(), interactive.run(), io_worker.run())
+    await asyncio.gather(worker.run(), interactive.run(), io_worker.run(), cpu_worker.run())
 
 
 if __name__ == "__main__":

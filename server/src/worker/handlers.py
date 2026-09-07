@@ -275,9 +275,11 @@ async def handle_dedup(payload: dict[str, Any]) -> dict[str, Any]:
     per-post vec0 KNN — is ~48h at library scale. §D1 still holds; a file is not
     a database, and this process still opens no SQL connection.
 
-    Returns ``{pairs: [[i, j], ...]}`` of **row indices**, not post ids: the
-    matrix file has no ids in it. TS holds the parallel id array and does the
-    greedy canonical assignment.
+    Returns ``{pairs: [[i, j, distance], ...]}`` of **row indices**, not post
+    ids: the matrix file has no ids in it. TS holds the parallel id array and
+    turns the pairs into groups. The third element is the cosine distance --
+    that is what lets the grey band tell "already the same image" from "close
+    enough to be worth arbitrating".
     """
     from worker.dedup import find_near_pairs, load_matrix  # noqa: PLC0415  # lazy: pulls torch
 
@@ -295,8 +297,99 @@ async def handle_dedup(payload: dict[str, Any]) -> dict[str, Any]:
         matrix,
         float(payload["threshold"]),
         int(payload["chunkSize"]),
+        max_per_row=int(payload.get("maxPerRow") or 0),
     )
     return {"pairs": pairs}
+
+
+def _resolve_pairs(
+    pairs_in: list[dict[str, Any]],
+) -> tuple[list[tuple[int, int, Path, Path]], list[dict[str, Any]]]:
+    """``[{a: {postId, path}, b: {...}}]`` to resolvable-and-present pairs vs failed.
+
+    Same two-tier policy as ``_resolve_items`` and for the same reasons -- a path
+    escaping the library root is bad data and gets reported, a file that is
+    simply gone is dropped and left to sync. The unit here is the *pair*: one
+    missing file takes the pair with it, because a distance needs both sides.
+    """
+    pairs: list[tuple[int, int, Path, Path]] = []
+    failures: list[dict[str, Any]] = []
+    missing = 0
+    for item in pairs_in:
+        left, right = item["a"], item["b"]
+        try:
+            path_a = _resolve_inside(left["path"])
+            path_b = _resolve_inside(right["path"])
+        except ValueError as exc:
+            failures.append({"a": left["postId"], "b": right["postId"], "error": str(exc)})
+            continue
+        if path_a.exists() and path_b.exists():
+            pairs.append((left["postId"], right["postId"], path_a, path_b))
+        else:
+            missing += 1
+    if missing:
+        log.warning("%d/%d pair(s) have a side no longer on disk, dropped from this batch", missing, len(pairs_in))
+    return pairs, failures
+
+
+def _lpips_batch(resolved: list[tuple[int, int, Path, Path]]) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+    """Distances for a whole batch, falling back to one pair at a time.
+
+    Same shape as ``ladder.run_with_fallback`` but not it: that ladder shrinks a
+    batch of *images* and its mini-batch step exists to keep the GPU fed. Here
+    the work is on CPU and the unit is a pair, so the intermediate step buys
+    nothing -- go straight to per-pair on the first exception and only the
+    unreadable pair is lost.
+    """
+    from ai.lpips import pair_distances  # noqa: PLC0415  # lazy: pulls onnxruntime
+
+    try:
+        distances = pair_distances([(path_a, path_b) for _, _, path_a, path_b in resolved])
+    except Exception as exc:
+        log.warning("[lpips] batch of %d failed (%s); retrying pair by pair", len(resolved), exc)
+    else:
+        return [
+            {"a": id_a, "b": id_b, "distance": distance}
+            for (id_a, id_b, _, _), distance in zip(resolved, distances, strict=True)
+        ], []
+
+    results: list[dict[str, Any]] = []
+    failures: list[dict[str, Any]] = []
+    for id_a, id_b, path_a, path_b in resolved:
+        try:
+            (distance,) = pair_distances([(path_a, path_b)])
+        except Exception as exc:
+            failures.append({"a": id_a, "b": id_b, "error": str(exc)})
+        else:
+            results.append({"a": id_a, "b": id_b, "distance": distance})
+    return results, failures
+
+
+async def handle_lpips_verify(payload: dict[str, Any]) -> dict[str, Any]:
+    """Judge whether each pair is the same drawing, edited -- the grey-band arbiter.
+
+    Payload is ``{pairs: [{a: {postId, path}, b: {postId, path}}]}`` with
+    absolute *thumbnail* paths: LPIPS resizes to 400x400 anyway, so decoding the
+    full-resolution original would be pure waste, and thumbnails already exist
+    for everything the recall step can propose.
+
+    Returns raw distances and nothing else. Whether 0.31 counts as "the same
+    picture" is a threshold, thresholds live in TS, and the evidence table
+    stores these numbers rather than a verdict so that retuning costs no
+    recomputation (§D1's spirit: the worker computes, TS decides).
+    """
+    pairs_in = payload["pairs"]
+    if not pairs_in:
+        return {"results": [], "failures": []}
+
+    resolved, failures = _resolve_pairs(pairs_in)
+    if not resolved:
+        return {"results": [], "failures": failures}
+
+    # Off-loop like the GPU handlers: this thread also renews the task lease,
+    # and a 64-pair batch is tens of seconds of CPU-bound ONNX.
+    results, batch_failures = await asyncio.to_thread(_lpips_batch, resolved)
+    return {"results": results, "failures": failures + batch_failures}
 
 
 async def handle_text_embed(payload: dict[str, Any]) -> dict[str, Any]:
