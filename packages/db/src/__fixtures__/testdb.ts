@@ -67,6 +67,17 @@ export function insertPost(
     .run(id, `f${id}`, score)
 }
 
+/**
+ * 给一张 post 挂一个标签。
+ *
+ * `post_has_tag.tag_name` 有 FK 到 `tags(name)`，而测试库开了 `foreign_keys = ON`，
+ * 所以标签行要先存在 —— 这两步分开写过一次就会忘第二次，包在一起。
+ */
+export function tagPost(sqlite: Database.Database, id: number, tag: string): void {
+  sqlite.prepare('INSERT OR IGNORE INTO tags (name) VALUES (?)').run(tag)
+  sqlite.prepare('INSERT OR IGNORE INTO post_has_tag (post_id, tag_name) VALUES (?, ?)').run(id, tag)
+}
+
 /** 给一张 post 挂上 SigLIP2 向量。vec0 是虚表，post_id 要走 BigInt。 */
 export function insertVector(sqlite: Database.Database, id: number, blob = unitBlob(id)): void {
   sqlite.prepare('INSERT INTO post_vectors_siglip2(post_id, embedding) VALUES (?, ?)').run(BigInt(id), blob)

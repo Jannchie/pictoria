@@ -10,7 +10,11 @@
 import { placeholders } from '../sql.js'
 import type BetterSqlite3 from 'better-sqlite3'
 import { AESTHETIC_SCORES_TABLE, SILVA } from '../scorers.js'
+import { FORMAT_TAGS, formatOf } from '../formats.js'
+import type { Format } from '../formats.js'
 import { cosine, existingVectors, knn, unitVectors } from './vectors.js'
+import { scorerValuesFor } from './scores.js'
+import { edgeKey } from './variant-edges.js'
 
 // ─── similar 策略的可调参数 ─────────────────────────────────────────
 //
@@ -62,6 +66,26 @@ const MAX_PAIR_COSINE = 0.94
 const CLOSE_PAIR_DEGREE = 3
 
 /**
+ * 一次 listwise 出场，给每个成员记多少度。
+ *
+ * **不是 n−1。** 一组 n 张的全序展开成 C(n,2) 条边，但那不是 C(n,2) 次独立观测 ——
+ * 全序由 n 个潜变量的一个排列生成。Plackett-Luce 下（每张图抽一次 Gumbel 噪声效用后
+ * 排序），参数相等时每个成员拿到的 Fisher 信息是 (1/n)·Σ_{k=2..n}(1−1/k)，而一次
+ * 势均力敌的 pairwise 给每方 0.25。折算成 pairwise 当量就是 (4/n)(n − H_n)：
+ * n=4 → 1.92，n=6 → 2.37，n=8 → 2.64。**在 4..8 之间都约等于 2**，所以这里是常数
+ * 而不是 size 的函数 —— 精度远不值那份复杂度。
+ *
+ * 按 n−1 记的后果是实测过的：一次 6 张排序 +5 度直接跨过 CLOSE_PAIR_DEGREE，成员当场
+ * 永久退役，再不会被重访。2026-09-06 的库里因此堆着 1952 张度数 >= 5 的图，它们的 5 条
+ * 边**全部来自同一次排序** —— 同一个瞬间、同一个上下文。而 CLOSE_PAIR_DEGREE = 3 是在
+ * 成对时代按「三条独立边」校准的，这里给它喂的是一次观测。
+ *
+ * 记 2 之后，n=4 的组要出场两次才退役（2+2 >= 3），席位经济也正好闭合：每组 4 席里
+ * CLOSE_REVISIT_MEMBERS = 2 席重访、2 席新图，新图每张欠一次再出场 —— 需求 2、供给 2。
+ */
+const LISTWISE_APPEARANCE_DEGREE = 2
+
+/**
  * 一个 silva 窗口里取几个成员，以及这个窗口提供多少候选供挑选。
  *
  * 窗口是 close 采样的单位，它取代了原来的 KNN 邻域。邻域这个单位错在两处：它是**一个
@@ -99,6 +123,48 @@ const CLOSE_REVISIT_MEMBERS = 2
  * 的那次抽取无论 LIMIT 多少都是全扫，所以它按"够整批窗口用"来定，而不是按"喂饱一个窗口"。
  */
 const CLOSE_SEED_DRAW = 32
+
+/**
+ * listwise 组在基带里凑不齐人时，允许把 silva 窗口放宽到多少。
+ *
+ * 上限取 0.15 而不是 0.20，理由和 CALIBRATION_GAP 是同一条实测：0.15–0.25 的分差模型
+ * 已经判对 75%，再宽就不是边界对、只是在买模型早就知道的东西。基带 0.10 之外多出的
+ * 这 0.05 只是给小形态的尾部窗口一条活路（例如 comic 在 silva 0.90 附近只有 74 张有
+ * 绝对分的图），illust 在任何中心都有几千张候选，走不到这一级。
+ */
+const LISTWISE_BAND_RELAXED = 0.15
+
+/**
+ * 一个 listwise 组最少几张图。
+ *
+ * 比 MIN_CYCLE_MEMBERS(3) 高一张，因为这里买的是**锚对**而不是环边：4 张全序给 6 个
+ * 两端都有绝对分的成对约束，3 张只给 3 个 —— 那还不如把这个种子让给下一个窗口。
+ */
+const LISTWISE_MIN_GROUP = 4
+
+/**
+ * 窗口中心只从**这个星级以上**的图里抽。
+ *
+ * 2026-09-07 实测：把 head 和「你自己重评一次」放在同一个 val 划分、同一个二分类任务上
+ * 对打，差距全部在高分档 ——
+ *
+ *     任务      head val AUC   人预测人 AUC   还剩的空间
+ *     2 vs 3      0.8901         0.8806        -0.009   <- 已经到顶
+ *     3 vs 4      0.8186         0.9309        +0.112
+ *     4 vs 5      0.8023         0.9705        +0.168
+ *
+ * 也就是说 2-vs-3 那一档模型早就和你一样准了（贴着标注噪声的天花板），而 4-vs-5 你自己
+ * 判两次几乎不犯错（0.9705）、模型却只有 0.8023。在此之前窗口中心是从整个有锚池随机抽的，
+ * 于是组的分数分布跟随全库 —— 而全库有 38542 张 3 星、只有 9306 张 5 星，绝大多数标注工时
+ * 就花在了那条已经到顶的档上。
+ *
+ * 取 4 而不是 5：窗口按 silva 分收成员、不按星级，所以中心定在 4 星区时组内会自然混入
+ * silva 分相近的 3 星和 5 星图 —— 3-vs-4 和 4-vs-5 两条边界都能买到。定在 5 星则池子只剩
+ * 9306 张，窗口内凑不齐同形态的 4 张。
+ *
+ * 只约束**种子**，不约束成员：成员跨档正是要买的东西。
+ */
+const LISTWISE_SEED_MIN_STARS = 4
 
 /**
  * 重复测量：每批里有多大比例是**故意重问的老对**。
@@ -322,11 +388,6 @@ function connectedBlocks(edges: Array<[number, number]>, score: number): Block[]
   return blocks
 }
 
-/** 无序对的键 —— Python 侧 `frozenset((a, b))` 的等价物。 */
-export function edgeKey(a: number, b: number): string {
-  return a < b ? `${a}:${b}` : `${b}:${a}`
-}
-
 /**
  * 等概率决定这一对谁在左。
  *
@@ -353,6 +414,29 @@ function shuffle<T>(items: T[]): T[] {
 }
 
 /** 取 `n` 个 key 最小的元素，平局保持原顺序（≡ Python `heapq.nsmallest`）。 */
+/**
+ * 一趟流式随机取 `n` 个（蓄水池抽样），结果的顺序本身也是随机的。
+ *
+ * 存在的理由是 listwise 那条路径上池子在内存里而不是在 SQL 里：`shuffle([...map.keys()])`
+ * 要为 9.6 万个 id 建一个数组再全洗一遍，只为取头 32 个，而每个窗口都要做一次。蓄水池
+ * 是同一个分布，不分配中间数组，也不碰不需要的那部分。
+ */
+function reservoir<T>(items: Iterable<T>, n: number): T[] {
+  const out: T[] = []
+  let seen = 0
+  for (const item of items) {
+    seen++
+    if (out.length < n) {
+      out.push(item)
+      continue
+    }
+    const j = Math.floor(Math.random() * seen)
+    if (j < n)
+      out[j] = item
+  }
+  return out
+}
+
 function nSmallest<T>(n: number, items: T[], key: (x: T) => number): T[] {
   return items
     .map((item, i) => ({ item, i, k: key(item) }))
@@ -495,7 +579,39 @@ const SILVA_ELIGIBLE
   = `SELECT s.post_id AS id, s.score FROM ${AESTHETIC_SCORES_TABLE} s `
     + `WHERE s.scorer = '${SILVA.name}' AND ${SCORE_ROW_ELIGIBLE}`
 
+/**
+ * 能给 silva 的联合拟合当**锚**的图：有 silva 分、有人工绝对分、非近重复、不在未完成
+ * 的队列里。
+ *
+ * 和 SILVA_ELIGIBLE 的差别只有一条 `p.score >= 1`，但它值得单独存在，因为多出来的这
+ * 条改变了成本模型：silva 侧 `fit_latent.py` 给没有绝对分的成员分配的是一个自由参数
+ * （`extra[key] = n_items`），最后 `rank_to_grades` 只写回训练行 —— 而 `export_pairs.py`
+ * 又不展开 listwise。所以一个没有绝对分的组员对下游的贡献严格为零，不是"信息量低"。
+ * 2026-09-04 实测：导出的 138 组 797 个成员里只有 424 个有分，名义上 1961 个成对约束，
+ * 两端都有锚的只有 567 个（29%）。
+ *
+ * 这里**故意 join posts** —— 正是 SILVA_ELIGIBLE 的注释里实测否决过的那件事，但成本
+ * 模型不同：那条子句每个窗口跑一次（+148 ms/窗口），这条每**批**跑一次（95,856 行，
+ * 实测 245 ms），之后所有窗口都在内存里切片。而且 `p.score` 只能从 posts 拿。
+ *
+ * 整批的固定开销因此是 formatSets(~150 ms) + 这条(245 ms)，一次 limit=3 的补充实测
+ * 约 1.0 s（改动前约 0.45 s）。这笔钱花得起：一批 3 个组是标注者约 90 秒的工作量。
+ * 245 ms 里有 235 ms 是 `p.score >= 1` 那侧的全表扫（posts 上没有 score 索引），所以
+ * 如果哪天嫌慢，下一步是一条部分覆盖索引
+ * `CREATE INDEX ... ON posts(id) WHERE score >= 1 AND canonical_post_id IS NULL`
+ * ——而不是把这条查询拆回每个窗口一次。
+ */
+const ANCHORED_ELIGIBLE
+  = `SELECT s.post_id AS id, s.score AS silva, p.score AS stars FROM ${AESTHETIC_SCORES_TABLE} s`
+    + ` JOIN posts p ON p.id = s.post_id`
+    + ` WHERE s.scorer = '${SILVA.name}' AND p.score >= 1 AND p.canonical_post_id IS NULL`
+    + ` AND s.post_id NOT IN (SELECT post_a FROM pairwise_queue_items WHERE done = 0`
+    + ` UNION SELECT post_b FROM pairwise_queue_items WHERE done = 0)`
+
 interface IdScoreRow { id: number, score: number }
+
+/** anchoredPool 的一行：窗口要 silva 分，形态收口要 format，选种子要人工星级。 */
+interface AnchoredMember { readonly silva: number, readonly format: Format, readonly stars: number }
 
 export class Sampler {
   constructor(private readonly sqlite: BetterSqlite3.Database) {}
@@ -636,38 +752,241 @@ export class Sampler {
   }
 
   /**
-   * listwise 组：每组 `size` 张 silva 分落在同一窗口、视觉上铺开的图。
+   * 重排一批够老的老组：成员原样、顺序重新打乱，用来量**你自己判两次有多一致**。
    *
-   * 一组 n 张的全序买到 C(n,2) 个成对约束（8 张 = 28 对），而窗口约束（任意两成员
-   * silva 分差 ≤ CLOSE_PAIR_MAX_SILVA_DIFF）保证这些约束几乎全落在 head 分不开的
-   * 边界上 —— 与 close 成对采样同一逻辑，只是把"环"换成"整组排序"。复用同一套
-   * 窗口机器：种子按库的实际分布抽，窗口内先塞 1~2 张已判但比较不足的图（把这组
-   * 缝进已有比较图），其余用最远点铺开（转载/近重复被 MAX_PAIR_COSINE 硬停挡住）。
+   * 这是 listwise 侧唯一的噪声标尺，和 sampleRepeats 买的是同一样东西，只是单位从
+   * 「一对」换成「一组」。没有它，边界组上模型的 0.60 就无从判断 —— 究竟是模型还没
+   * 学会，还是那些对本来就是掷硬币，两种情况下该做的事正好相反。
    *
-   * 成员在返回前打乱：呈现顺序必须与任何有意义的量（分数、度数、抽样次序）无关，
-   * 否则顺序效应与真实偏好在导出的数据里不可分。
+   * 三条入选条件：
+   *
+   * **只排过一次**。排过两次的组已经是一个重复测量了，第三次买到的是第三个样本而不是
+   * 第一个标尺，而池子还没大到可以这么花。
+   *
+   * **每一次都够老**（不只是最近那次）—— 判据落在成员集合上而不是行上，所以先在 TS 里
+   * 按排序后的 id 列表归组再筛。SQL 里直接 `created_at <= cutoff` 会漏掉「上周排过、
+   * 昨天又排过一次」的组，把冷却期悄悄绕过去。
+   *
+   * **成员一个不缺**。少一张就不是同一组了，两次的成对集合对不上，一致率无从算起。
+   *
+   * 返回前打乱成员，和 sampleGroups 同一条理由 —— 而且这里更要紧：呈现顺序若和上次
+   * 相同，量到的就是「还记不记得上次的样子」。
+   *
+   * 批内还要**互不相交**。老组之间天然共享成员（重访席位就是干这个的），实测一次
+   * limit=3 的重测批里有两组同时含 9754/9758。同一屏之后紧接着再看同一张图，第二次
+   * 的判断就被第一次锚住了 —— 而这里量的恰恰是判断的独立重复。
    */
-  sampleGroups({ count, size = 6, dimension = 'overall' }: { count: number, size?: number, dimension?: string }): number[][] {
+  sampleRepeatGroups({ count, dimension = 'overall' }: { count: number, dimension?: string }): number[][] {
+    if (count <= 0)
+      return []
+    const rows = this.sqlite
+      .prepare<[string], { post_ids: string, created_at: string }>(
+        `SELECT post_ids, created_at FROM listwise_annotations WHERE dimension = ? AND ranking != '[]'`,
+      )
+      .all(dimension)
+    const seen = new Map<string, { ids: number[], times: number, newest: string }>()
+    for (const r of rows) {
+      const ids = JSON.parse(r.post_ids) as number[]
+      const key = [...ids].sort((a, b) => a - b).join(',')
+      const e = seen.get(key)
+      if (e) {
+        e.times++
+        if (r.created_at > e.newest)
+          e.newest = r.created_at
+      }
+      else { seen.set(key, { ids, times: 1, newest: r.created_at }) }
+    }
+    const { cutoff } = this.sqlite
+      .prepare<[], { cutoff: string }>(`SELECT datetime('now', '-${REPEAT_MIN_AGE_DAYS} days') AS cutoff`)
+      .get()!
+    const aged = [...seen.values()].filter(g => g.times === 1 && g.newest <= cutoff)
+    if (aged.length === 0)
+      return []
+    const ids = [...new Set(aged.flatMap(g => g.ids))]
+    const alive = new Set(
+      this.sqlite
+        .prepare<number[], { id: number }>(`SELECT id FROM posts WHERE id IN (${placeholders(ids.length)})`)
+        .all(...ids)
+        .map(r => r.id),
+    )
+    const pool = shuffle(aged.filter(g => g.ids.every(pid => alive.has(pid))).map(g => g.ids))
+    const picked: number[][] = []
+    const taken = new Set<number>()
+    for (const ids of pool) {
+      if (picked.length >= count)
+        break
+      if (ids.some(pid => taken.has(pid)))
+        continue
+      for (const pid of ids) taken.add(pid)
+      picked.push(shuffle(ids))
+    }
+    return picked
+  }
+
+  /**
+   * listwise 组：每组 `size` 张**同形态**、有人工绝对分、silva 分落在同一窗口、视觉上
+   * 铺开的图。
+   *
+   * 一组 n 张的全序展开成 C(n,2) 条成对约束，而窗口约束（任意两成员 silva 分差 <=
+   * CLOSE_PAIR_MAX_SILVA_DIFF）保证这些约束几乎全落在 head 分不开的边界上 —— 与 close
+   * 成对采样同一逻辑，只是把"环"换成"整组排序"。
+   *
+   * 但那 C(n,2) 条边**不是** C(n,2) 次独立观测：全序由 n 个潜变量的一个排列生成，
+   * Plackett-Luce 下整组的 Fisher 信息是 Σ_{k=2..n}(1−1/k)，折成势均力敌的 pairwise
+   * 是 4 张 3.8 对、6 张 7.1 对、8 张 10.6 对 —— 不是 6 / 15 / 28。下游正是这么吃的
+   * （silva 侧 `fit_latent.py --rankings` 走 `plackett_luce_nll`，不拆成独立成对）。
+   *
+   * **默认 4 张**，因为成本随 C(n,2) 走而信息只随 n − H_n 走。2026-09-06 实测每组中位
+   * 耗时 10.6 / 25.9 / 51.9 s（n = 62 / 195 / 62 组），换算成每边 1.77 / 1.72 / 1.85 s
+   * —— 三个点几乎重合在同一条正比于边数的直线上；于是每 PL 对当量 4 张 2.77 s 便宜过
+   * 6 张 3.64 s 和 8 张 4.91 s。
+   *
+   * 4 张同时让度数记账最诚实：judgedGraph 给每个成员记 n−1 = 3 度，而有效当量是
+   * (4/n)(n − H_n) = 1.92，虚高 1.56 倍；6 张是 5 度对 2.37（2.11 倍），8 张 7 对
+   * 2.64（2.68 倍）。于是 CLOSE_PAIR_DEGREE = 3 大致回到「两次出场才退役」，接近它在
+   * 成对时代被校准时的本意 —— 一次 6 张排序 +5 度直接跨过阈值、成员再不被重访，正是
+   * 那条校准在 listwise 上失效的地方。
+   *
+   * 两条 close 没有的约束，理由分别在标注者和下游身上：
+   *
+   * **同形态**（见 formats.ts）。跨形态对占历史判决的 16%，胜率 0.49、平局 0.24 —— 窗口
+   * 已经把质量配平了，剩下的是掷硬币；而标注者对着"立绘 vs 漫画哪个更好"确实开不了口。
+   * 形态之间的相对位置由人工绝对分锚住（comic 均值 2.71 vs illust 3.24），不必再买一次。
+   *
+   * **全员有绝对分**（ANCHORED_ELIGIBLE）。没有绝对分的成员在 silva 的联合拟合里是个被
+   * 丢弃的自由参数，对训练目标的贡献严格为零。2026-09-04 实测：138 组里两端都有锚的成对
+   * 约束只占 29%，每组平均 3.07 张有分成员。做硬过滤而不是配额，正是因为剩下那些席位买
+   * 到的不是"弱信号"而是"没有信号"。
+   *
+   * 凑不齐人时的退化顺序：放宽窗口到 LISTWISE_BAND_RELAXED -> 缩到 LISTWISE_MIN_GROUP
+   * 张 -> 换种子。**不放宽形态、不放进无分图** —— 那两条正是这个采样器存在的全部理由。
+   *
+   * 其余复用同一套窗口机器：种子按有锚池的实际分布抽（于是组的形态占比跟随库的形态占比，
+   * 这是中性默认；要给小形态加权是另一个常量的事），窗口内先塞 1~2 张已判但比较不足的
+   * 同形态图（把这组缝进已有比较图），其余用最远点铺开（转载/近重复被 MAX_PAIR_COSINE
+   * 硬停挡住）。
+   *
+   * 成员在返回前打乱：呈现顺序必须与任何有意义的量（分数、度数、抽样次序）无关，否则
+   * 顺序效应与真实偏好在导出的数据里不可分。
+   */
+  sampleGroups(
+    { count, size = 4, dimension = 'overall', repeatShare = REPEAT_SHARE, seedMinStars = LISTWISE_SEED_MIN_STARS }:
+    { count: number, size?: number, dimension?: string, repeatShare?: number, seedMinStars?: number },
+  ): number[][] {
+    // 重测席位加在**上面**而不是额外发一组 —— 和 samplePairs 同一条：REPEAT_SHARE 是
+    // 工时税，5% 就该是 5% 的工时。抽不满（新库还没有够老的组）时静默退化成全新组。
+    const repeats = this.sampleRepeatGroups({ count: repeatSlots(count, repeatShare), dimension })
+    count -= repeats.length
     const graph = this.judgedGraph(dimension)
+    const anchored = this.anchoredPool()
     const revisit = this.revisitPool(graph, dimension)
     // 与 samplePairsClose 同一个「已花费」概念：这一批已经拿走的图，**加上**纵观全部历史
     // 已经达到度数的图。漏掉后半截的话，窗口候选这条路径就永远不让任何人退役 —— 重访席位
     // 那条路径修好了也没用，同一张图照样能作为普通成员被反复抽中。
     const spent = new Set(graph.saturated)
+    // 重测组的成员也算已花费：它们多半早已饱和（一次 listwise 就 +n−1 度），但"多半"
+    // 不是保证，而同一批里让一张图既进重测组又进新组，两边都不干净。
+    for (const g of repeats) for (const pid of g) spent.add(pid)
+    const minGroup = Math.min(LISTWISE_MIN_GROUP, size)
     const groups: number[][] = []
-    for (const seed of this.windowSeeds(Math.max(CLOSE_SEED_DRAW, count * 2))) {
+    // 种子直接抽自有锚池，不再走 windowSeeds：那是一次全库 ORDER BY RANDOM()，而这里
+    // 池子已经在内存里，且种子必须自带形态和绝对分。
+    // 先按星级筛出够格的种子再抽样，而不是抽完再跳过：高分池只占有锚池的一半左右，
+    // 后者会让 CLOSE_SEED_DRAW 里一半的名额落空，count 大时凑不满一批。
+    const seedable = function* (): Generator<number> {
+      for (const [pid, m] of anchored)
+        if (m.stars >= seedMinStars)
+          yield pid
+    }
+    for (const seedId of reservoir(seedable(), Math.max(CLOSE_SEED_DRAW, count * 2))) {
       if (groups.length >= count)
         break
-      if (spent.has(seed.id))
+      if (spent.has(seedId))
         continue
-      const seeds = Sampler.revisitSeeds(revisit, graph, seed.score, spent, CLOSE_REVISIT_MEMBERS)
-      const members = this.diverseSubset(this.windowCandidates(seed.score, spent), size, seeds)
-      if (members.length < MIN_CYCLE_MEMBERS)
-        continue // 一屏排 2 张不如一次 pairwise；窗口太稀就换个中心
+      const { silva: centre, format } = anchored.get(seedId)!
+      const admit = (pid: number): boolean => anchored.get(pid)?.format === format
+      let members: number[] = []
+      for (const band of [CLOSE_PAIR_MAX_SILVA_DIFF, LISTWISE_BAND_RELAXED]) {
+        const seeds = Sampler.revisitSeeds(revisit, graph, centre, spent, CLOSE_REVISIT_MEMBERS, admit, band)
+        members = this.diverseSubset(Sampler.windowMembers(anchored, centre, band, format, spent), size, seeds)
+        if (members.length >= size)
+          break
+      }
+      if (members.length < minGroup)
+        continue // 4 张以下不如把这个种子让给下一个窗口
       for (const pid of members) spent.add(pid)
       groups.push(shuffle(members))
     }
-    return groups
+    // 混进去再打乱：重测组若总排在批次开头，它就自报家门了。
+    return shuffle([...repeats, ...groups])
+  }
+
+  /**
+   * 每个非 illust 形态的 `post_id` 集合，按 FORMAT_TAGS 的优先级序。
+   *
+   * 三条 `SELECT DISTINCT post_id ... WHERE tag_name IN (...)`，走
+   * `ix_post_has_tag_tag_name`，2026-09-04 在 1209 万行的 post_has_tag 上实测
+   * 92 / 43 / 64 ms，一批只付一次。
+   *
+   * 试过但**不划算**的两条：把形态 CASE 写进窗口查询的 WHERE（逐行 EXISTS，一次窗口
+   * 查询 123 ms -> 453 ms），以及物化成 `posts.format` 列（省下这 200 ms，代价是把一条
+   * 还在调的分类规则烧进迁移和触发器）。
+   */
+  private formatSets(): Map<Exclude<Format, 'illust'>, Set<number>> {
+    const out = new Map<Exclude<Format, 'illust'>, Set<number>>()
+    for (const [format, tags] of FORMAT_TAGS) {
+      // pluck：一列的结果不值得为每行造一个对象。三条查询合计从 163 ms 降到 ~90 ms。
+      const ids = new Set<number>(
+        this.sqlite
+          .prepare<string[], number>(
+            `SELECT DISTINCT post_id FROM post_has_tag WHERE tag_name IN (${placeholders(tags.length)})`,
+          )
+          .pluck()
+          .all(...tags),
+      )
+      out.set(format, ids)
+    }
+    return out
+  }
+
+  /**
+   * 这一批能用的全部有锚图：`post_id -> (silva 分, 形态)`。
+   *
+   * 整池一次读进内存（2026-09-04 实测 95,856 行、220–250 ms），之后每个窗口就是在内存里
+   * 扫一遍浮点数 —— 和 revisitPool 同一个取舍，理由也同一条：窗口是一个分数区间加一个
+   * 形态，没有哪个索引能比这更快地回答"落在这个区间、并且是这个形态、并且有绝对分"。
+   */
+  private anchoredPool(): Map<number, AnchoredMember> {
+    const sets = this.formatSets()
+    const out = new Map<number, AnchoredMember>()
+    // raw：9.6 万行各造一个 { id, silva } 对象要 419 ms，拿数组行是 ~250 ms。这条查询
+    // 每批只跑一次，但它是这批里最大的一笔固定开销，而 UI 一次只要 3 个组。
+    for (const [id, silva, stars] of this.sqlite.prepare(ANCHORED_ELIGIBLE).raw().all() as Array<[number, number, number]>)
+      out.set(id, { silva, format: formatOf(id, sets), stars })
+    return out
+  }
+
+  /**
+   * 有锚池里落在 `[centre ± band/2]`、同形态、这一批还没花掉的成员，打乱后取
+   * CLOSE_WINDOW_CANDIDATES 个。
+   *
+   * 语义和 windowCandidates 那条 SQL 一致（范围 + 排除 + 随机截断），只是数据已经在内存里。
+   * 先打乱再截断，让 diverseSubset 的起点是随机的 —— 它的第一个成员就是候选数组的头一个。
+   */
+  private static windowMembers(
+    anchored: Map<number, AnchoredMember>,
+    centre: number,
+    band: number,
+    format: Format,
+    exclude: Set<number>,
+  ): number[] {
+    const half = band / 2
+    function* inside(): Generator<number> {
+      for (const [pid, m] of anchored)
+        if (m.format === format && Math.abs(m.silva - centre) <= half && !exclude.has(pid))
+          yield pid
+    }
+    return reservoir(inside(), CLOSE_WINDOW_CANDIDATES)
   }
 
   // ─── similar：内容相似 + 旧分档位 ─────────────────────────────────
@@ -783,16 +1102,7 @@ export class Sampler {
 
   /** `post_id -> SILVA calibrated_score`（没有分的 id 会被丢掉）。 */
   private loadSilvaScores(ids: number[]): Map<number, number> {
-    const out = new Map<number, number>()
-    if (!ids.length)
-      return out
-    for (const row of this.sqlite
-      .prepare<unknown[], { post_id: number, score: number }>(
-        `SELECT post_id, score FROM ${AESTHETIC_SCORES_TABLE} WHERE scorer = ? AND post_id IN (${placeholders(ids.length)})`,
-      )
-      .all(SILVA.name, ...ids))
-      out.set(row.post_id, row.score)
-    return out
+    return scorerValuesFor(this.sqlite, ids, SILVA.name)
   }
 
   /**
@@ -932,6 +1242,10 @@ export class Sampler {
    * 张度数 1 的图，而 2026-08-20 的 44 个组里反复被征召的始终是同样那几张：它们只是恰好排在
    * 扫描序的前面。先洗牌再取，同度数的候选才是等概率的（drawAnchors 早就是这个路子：先按度数
    * 取一大片候选，再 ORDER BY RANDOM）。
+   *
+   * `admit` 和 `band` 是给 listwise 用的，两个都有默认值，所以 windowBlock 那条调用式
+   * 和行为都不变。重访席位必须和普通席位守同一条规矩：CLOSE_REVISIT_MEMBERS 是一组 6
+   * 张里的 2 张，不收它的话"同形态、有绝对分"就只是名义上的，三分之一的席位照样漏。
    */
   private static revisitSeeds(
     pool: Map<number, number>,
@@ -939,11 +1253,13 @@ export class Sampler {
     centre: number,
     exclude: Set<number>,
     n: number,
+    admit: (pid: number) => boolean = () => true,
+    band = CLOSE_PAIR_MAX_SILVA_DIFF,
   ): number[] {
-    const half = CLOSE_PAIR_MAX_SILVA_DIFF / 2
+    const half = band / 2
     const inside: number[] = []
     for (const [pid, score] of pool)
-      if (Math.abs(score - centre) <= half && !exclude.has(pid))
+      if (Math.abs(score - centre) <= half && !exclude.has(pid) && admit(pid))
         inside.push(pid)
     return nSmallest(n, shuffle(inside), pid => graph.degreeOf(pid))
   }
@@ -1002,7 +1318,7 @@ export class Sampler {
    */
   private judgedGraph(dimension: string): PairGraph {
     const graph = new PairGraph(CLOSE_PAIR_DEGREE)
-    for (const { a, b, winner } of comparisonEdges(this.sqlite, dimension)) {
+    for (const { a, b, winner, source } of comparisonEdges(this.sqlite, dimension)) {
       // 重复测量会让同一条边出现多行。度数量的是「跟多少张不同的图比过」，不是「产生过
       // 多少行」—— 同一对量三次仍然只是一次比较，不该把双方推向饱和。
       const key = edgeKey(a, b)
@@ -1015,8 +1331,22 @@ export class Sampler {
         graph.wins.set(won, (graph.wins.get(won) ?? 0) + 1)
         graph.losses.set(lost, (graph.losses.get(lost) ?? 0) + 1)
       }
+      // listwise 的度数不在这里记 —— 逐边记就是 n−1，见 LISTWISE_APPEARANCE_DEGREE。
+      // 边本身仍然要走完上面：emitted 决定不重问，wins/losses 决定谁的分还无界。
+      if (source === 'listwise')
+        continue
       graph.bump(a)
       graph.bump(b)
+    }
+    // listwise 按**出场**记：一次出场每个成员 +LISTWISE_APPEARANCE_DEGREE，与组多大无关。
+    // 同一成员集合被重测过两次就是两次出场，各记一次 —— 那确实是两次独立观测。
+    for (const { post_ids: postIds } of this.sqlite
+      .prepare<[string], { post_ids: string }>(
+        `SELECT post_ids FROM listwise_annotations WHERE dimension = ? AND ranking != '[]'`,
+      )
+      .all(dimension)) {
+      for (const pid of JSON.parse(postIds) as number[])
+        for (let i = 0; i < LISTWISE_APPEARANCE_DEGREE; i++) graph.bump(pid)
     }
     graph.component = graph.mainComponent()
     return graph
@@ -1265,7 +1595,7 @@ export function samplePairs(
 /** 为 listwise 标注抽分数相近、视觉铺开的组。 */
 export function sampleGroups(
   sqlite: BetterSqlite3.Database,
-  opts: { count: number, size?: number, dimension?: string },
+  opts: { count: number, size?: number, dimension?: string, repeatShare?: number, seedMinStars?: number },
 ): number[][] {
   return new Sampler(sqlite).sampleGroups(opts)
 }

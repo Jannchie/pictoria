@@ -305,7 +305,7 @@ const GenerateListwiseIn = z
   .object({
     dimension: z.string(),
     count: z.int(),
-    size: z.int().default(6),
+    size: z.int().default(4),
     name: z.union([z.string(), z.null()]).optional(),
   })
   .openapi('GenerateListwiseIn')
@@ -395,7 +395,7 @@ annotationQueuesRoutes.openapi(
     path: '/v2/annotation-queues/generate-listwise',
     operationId: 'v2GenerateListwise',
     summary: 'GenerateListwise',
-    description: 'Auto-generate a listwise queue: groups of ~size posts whose silva scores sit in one close window, visually spread. Ranking one group yields C(size,2) boundary comparisons.',
+    description: 'Auto-generate a listwise queue: groups of ~size posts whose silva scores sit in one close window, visually spread. Ranking one group yields C(size,2) boundary comparisons — worth Sum_{k=2..size}(1-1/k) in Plackett-Luce information, not C(size,2) independent observations.',
     request: { body: { required: true, content: { 'application/json': { schema: GenerateListwiseIn } } } },
     responses: {
       201: { description: 'Document created, URL follows', content: { 'application/json': { schema: QueueSummaryPublic } } },
@@ -412,7 +412,7 @@ annotationQueuesRoutes.openapi(
     const { sqlite } = getDb()
     const groups = sampleGroups(sqlite, { count: d.count, size: d.size, dimension: d.dimension })
     if (!groups.length)
-      return validationError('no eligible candidates (need silva-scored posts with embeddings)') as never
+      return validationError('no eligible candidates (need silva-scored posts with an absolute score and embeddings)') as never
     const name = d.name || `listwise-${d.dimension}-${groups.length}x${d.size}`
     const id = createListwiseQueue(sqlite, { name, dimensions: [d.dimension], groups })
     return c.json({

@@ -12,7 +12,8 @@
 import { afterAll, beforeAll, beforeEach, expect, it } from 'vitest'
 import { createTempDb, insertPost } from '../__fixtures__/testdb.js'
 import { insertPairwise } from './annotations.js'
-import { edgeKey, flipPair, isRepeatMeasurement, repeatSlots, Sampler } from './sampling.js'
+import { flipPair, isRepeatMeasurement, repeatSlots, Sampler } from './sampling.js'
+import { edgeKey } from './variant-edges.js'
 
 let sqlite: import('better-sqlite3').Database
 let cleanup: () => void

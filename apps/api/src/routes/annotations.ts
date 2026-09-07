@@ -20,8 +20,11 @@ import {
   sampleGroups,
   samplePairs,
   samplePostIds,
+  scorerValuesFor,
+  SILVA,
   undoAnnotations,
 } from '@pictoria/db'
+import { expandListwiseAnnotations } from '@pictoria/db'
 import { getDb } from '../db.js'
 import { OK, pyRepr, RESP_400, validationError, zodErrorHook } from '../openapi.js'
 import { toIsoDateTime } from '../schemas.js'
@@ -603,8 +606,18 @@ annotationsRoutes.openapi(
   },
 )
 
+/**
+ * `silva` 与 `posts` 同序，是标注端把「模型学到的顺序如何」直接量出来的原料：客户端
+ * 拿自己的排序和它算成对一致率。**呈现顺序仍然是随机的**（sampleGroups 返回前 shuffle），
+ * 分数只在提交后参与统计、不进入呈现 —— 一旦按 silva 排列或把分数显示在图上，那 8.6%
+ * 由位置惰性决定的边界判决就会系统性倒向模型，而 post_ids 里的呈现序也就再也审计不出
+ * 顺序效应（两者共线）。
+ *
+ * 缺分为 null：采样器只收有 silva 分的图（ANCHORED_ELIGIBLE），所以实际不会出现，
+ * 留着是因为 `0` 会被下游当成「最差」而不是「不知道」。
+ */
 const SampledGroupPublic = z
-  .object({ posts: z.array(QueueItemPostPublic) })
+  .object({ posts: z.array(QueueItemPostPublic), silva: z.array(z.number().nullable()) })
   .openapi('SampledGroupPublic')
 
 annotationsRoutes.openapi(
@@ -613,15 +626,21 @@ annotationsRoutes.openapi(
     path: '/v2/annotations/sample-listwise',
     operationId: 'v2SampleListwise',
     summary: 'SampleListwise',
-    description: 'Queue-less streaming: sample groups of ~size posts whose silva scores sit in one close window, visually spread. Ranking one group yields C(size,2) boundary comparisons.',
+    description: 'Queue-less streaming: sample groups of ~size posts whose silva scores sit in one close window, visually spread. Ranking one group yields C(size,2) boundary comparisons — worth Sum_{k=2..size}(1-1/k) in Plackett-Luce information, not C(size,2) independent observations.',
     request: {
       query: z.object({
         limit: z.coerce.number().int().default(5)
           .openapi({ param: { name: 'limit', in: 'query', required: false }, type: 'integer', default: 5 }),
-        size: z.coerce.number().int().default(6)
-          .openapi({ param: { name: 'size', in: 'query', required: false }, type: 'integer', default: 6 }),
+        size: z.coerce.number().int().default(4)
+          .openapi({ param: { name: 'size', in: 'query', required: false }, type: 'integer', default: 4 }),
         dimension: z.string().default('overall')
           .openapi({ param: { name: 'dimension', in: 'query', required: false } }),
+        // 一批里有多大比例是**重排的老组**（>= REPEAT_MIN_AGE_DAYS 天前排过、只排过一次、
+        // 成员重新打乱）。省略时走 REPEAT_SHARE 这条常年的工时税；传 1 就是一次专门的
+        // 自一致率测量会话 —— 那个数是判断「模型在边界上的 0.60 是没学会还是标签本来就
+        // 吵」的唯一标尺，而两种情况下该做的事正好相反。
+        repeat: z.coerce.number().min(0).max(1).optional()
+          .openapi({ param: { name: 'repeat', in: 'query', required: false }, type: 'number' }),
       }),
     },
     responses: {
@@ -630,19 +649,79 @@ annotationsRoutes.openapi(
     },
   }),
   (c) => {
-    const { limit, size, dimension } = c.req.valid('query')
+    const { limit, size, dimension, repeat } = c.req.valid('query')
     if (!VALID_DIMENSIONS.includes(dimension as never))
       return validationError(`invalid dimension: ${pyRepr(dimension)}`) as never
     if (size < 3 || size > 16)
       return validationError(`invalid size: ${size} (want 3..16)`) as never
 
     const { sqlite } = getDb()
-    const groups = sampleGroups(sqlite, { count: limit, size, dimension })
-    const byId = postsById(sqlite, groups.flat())
+    const groups = sampleGroups(sqlite, { count: limit, size, dimension, repeatShare: repeat })
+    const flat = groups.flat()
+    const byId = postsById(sqlite, flat)
+    const silvaById = scorerValuesFor(sqlite, flat, SILVA.name)
     return c.json(
       groups
-        .map(g => ({ posts: g.filter(pid => byId.has(pid)).map(pid => toQueuePost(byId.get(pid)!)) }))
+        .map((g) => {
+          const ids = g.filter(pid => byId.has(pid))
+          return { posts: ids.map(pid => toQueuePost(byId.get(pid)!)), silva: ids.map(pid => silvaById.get(pid) ?? null) }
+        })
         .filter(g => g.posts.length >= 3),
     ) as never
+  },
+)
+
+
+/**
+ * 训练用的 listwise 导出：每条人工排序，加上把其中的图换成同组差分后的变体。
+ *
+ * 依据是标注行为本身 —— 同一差分组内的成对判决 94% 是平局（跨组只有 22%），而且
+ * 决策快一倍。人把它们当可互换的，那么换掉排序里的一张图，人给出的名次不该变。
+ *
+ * 输出 JSONL（一行一条），而不是一个 JSON 数组：这份东西是拿去喂训练脚本的，流式
+ * 读一行解析一行比先把几千条载进内存自然。
+ *
+ * ⚠️ 每行都带 `annotationId`，**划分数据集必须按它分组**。同一条标注展开出的变体
+ * 共享同一个人类判决，信息量仍然是一条；让它们分落训练与验证两侧，验证指标就变成了
+ * 在考模型有没有背过这张图。
+ */
+annotationsRoutes.openapi(
+  createRoute({
+    method: 'get',
+    path: '/v2/annotations/listwise/export',
+    operationId: 'v2ExportListwise',
+    summary: 'ExportListwise',
+    description:
+      'Listwise annotations expanded through variant groups, as JSONL. '
+      + 'Every line carries annotationId; split datasets by it, never by row.',
+    request: {
+      query: z.object({
+        max_candidates_per_slot: z.coerce.number().int().min(1).max(8).default(3)
+          .openapi({ param: { name: 'max_candidates_per_slot', in: 'query', required: false } }),
+        max_variants_per_annotation: z.coerce.number().int().min(1).max(64).default(8)
+          .openapi({ param: { name: 'max_variants_per_annotation', in: 'query', required: false } }),
+        max_lpips: z.coerce.number().nullable().optional()
+          .openapi({ param: { name: 'max_lpips', in: 'query', required: false }, type: ['number', 'null'] }),
+      }),
+    },
+    responses: {
+      200: { description: OK, content: { 'application/x-ndjson': { schema: z.string() } } },
+      ...RESP_400,
+    },
+  }),
+  (c) => {
+    const q = c.req.valid('query')
+    const rows = expandListwiseAnnotations(getDb().sqlite, {
+      maxCandidatesPerSlot: q.max_candidates_per_slot,
+      maxVariantsPerAnnotation: q.max_variants_per_annotation,
+      ...(q.max_lpips == null ? {} : { maxLpips: q.max_lpips }),
+    })
+    return new Response(`${rows.map(row => JSON.stringify(row)).join('\n')}\n`, {
+      status: 200,
+      headers: {
+        'content-type': 'application/x-ndjson; charset=utf-8',
+        'content-disposition': 'attachment; filename="listwise-expanded.jsonl"',
+      },
+    }) as never
   },
 )
