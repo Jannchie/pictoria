@@ -37,6 +37,12 @@ export const queryKeys = {
   similarPosts: (id: MaybeRef<number>) => ['similarPosts', { postId: id }] as const,
   /** Near-duplicate group members for a canonical post (ref-keyed). */
   postGroup: (id: MaybeRef<number | undefined>) => ['postGroup', id] as const,
+  /**
+   * Per-pair near-duplicate evidence for a post. Deliberately nested under the
+   * `postGroup` prefix so one grouping edit invalidates the members and their
+   * evidence together (the pin badges are read off this).
+   */
+  postGroupEvidence: (id: MaybeRef<number | undefined>) => ['postGroup', id, 'evidence'] as const,
 
   /** Per-bucket counts (rating/score/extension/waifu) for a filter. */
   count: (kind: CountKind, filter: unknown) => ['count', kind, filter] as const,

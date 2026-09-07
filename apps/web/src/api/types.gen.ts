@@ -375,6 +375,7 @@ export type SampledPairPublic = {
  */
 export type SampledGroupPublic = {
     posts: Array<QueueItemPostPublic>;
+    silva: Array<number | null>;
 };
 
 /**
@@ -737,6 +738,20 @@ export type ScoreUpdate = {
 };
 
 /**
+ * GroupTogetherIn
+ */
+export type GroupTogetherIn = {
+    /**
+     * Posts to put in one group.
+     */
+    ids: Array<number>;
+    /**
+     * The group's representative; defaults to the lowest id.
+     */
+    canonicalId?: number | null;
+};
+
+/**
  * PostController.UploadFormData
  */
 export type PostControllerUploadFormData = {
@@ -906,6 +921,16 @@ export type TextSearchRequest = {
      * Natural-language search prompt.
      */
     query?: string;
+};
+
+/**
+ * GroupEvidenceItem
+ */
+export type GroupEvidenceItem = {
+    memberId: number;
+    siglipDist: number | null;
+    lpipsDist: number | null;
+    userVerdict: 'same' | 'different' | null;
 };
 
 export type V2GetWaifuScorerStatisticsData = {
@@ -1621,6 +1646,7 @@ export type V2SampleListwiseData = {
         limit?: number;
         size?: number;
         dimension?: string;
+        repeat?: number;
     };
     url: '/v2/annotations/sample-listwise';
 };
@@ -1648,6 +1674,41 @@ export type V2SampleListwiseResponses = {
 };
 
 export type V2SampleListwiseResponse = V2SampleListwiseResponses[keyof V2SampleListwiseResponses];
+
+export type V2ExportListwiseData = {
+    body?: never;
+    path?: never;
+    query?: {
+        max_candidates_per_slot?: number;
+        max_variants_per_annotation?: number;
+        max_lpips?: number | null;
+    };
+    url: '/v2/annotations/listwise/export';
+};
+
+export type V2ExportListwiseErrors = {
+    /**
+     * Validation Exception
+     */
+    400: {
+        status_code: number;
+        detail: string;
+        extra?: null | {
+            [key: string]: unknown;
+        } | Array<unknown>;
+    };
+};
+
+export type V2ExportListwiseError = V2ExportListwiseErrors[keyof V2ExportListwiseErrors];
+
+export type V2ExportListwiseResponses = {
+    /**
+     * Request fulfilled, document follows
+     */
+    200: string;
+};
+
+export type V2ExportListwiseResponse = V2ExportListwiseResponses[keyof V2ExportListwiseResponses];
 
 export type V2CreateAbsoluteData = {
     body: AbsoluteQueueCreate;
@@ -1961,6 +2022,12 @@ export type V2GroupDuplicatesData = {
     path?: never;
     query?: {
         threshold?: number | null;
+        grey_threshold?: number | null;
+        lpips_threshold?: number | null;
+        max_group_size?: number | null;
+        max_arbitrations?: number | null;
+        dry_run?: 'true' | 'false';
+        arbitration_sampling?: 'nearest' | 'spread';
     };
     url: '/v2/cmd/group-duplicates';
 };
@@ -2979,6 +3046,71 @@ export type V2MakePostCanonicalResponses = {
 
 export type V2MakePostCanonicalResponse = V2MakePostCanonicalResponses[keyof V2MakePostCanonicalResponses];
 
+export type V2GroupPostsTogetherData = {
+    body: GroupTogetherIn;
+    path?: never;
+    query?: never;
+    url: '/v2/posts/group-together';
+};
+
+export type V2GroupPostsTogetherErrors = {
+    /**
+     * Validation Exception
+     */
+    400: {
+        status_code: number;
+        detail: string;
+        extra?: null | {
+            [key: string]: unknown;
+        } | Array<unknown>;
+    };
+};
+
+export type V2GroupPostsTogetherError = V2GroupPostsTogetherErrors[keyof V2GroupPostsTogetherErrors];
+
+export type V2GroupPostsTogetherResponses = {
+    /**
+     * Request fulfilled, document follows
+     */
+    200: PostDetailPublic;
+};
+
+export type V2GroupPostsTogetherResponse = V2GroupPostsTogetherResponses[keyof V2GroupPostsTogetherResponses];
+
+export type V2MarkPostsDifferentData = {
+    body?: never;
+    path: {
+        post_id: number;
+        other_id: number;
+    };
+    query?: never;
+    url: '/v2/posts/{post_id}/not-same/{other_id}';
+};
+
+export type V2MarkPostsDifferentErrors = {
+    /**
+     * Validation Exception
+     */
+    400: {
+        status_code: number;
+        detail: string;
+        extra?: null | {
+            [key: string]: unknown;
+        } | Array<unknown>;
+    };
+};
+
+export type V2MarkPostsDifferentError = V2MarkPostsDifferentErrors[keyof V2MarkPostsDifferentErrors];
+
+export type V2MarkPostsDifferentResponses = {
+    /**
+     * Request fulfilled, document follows
+     */
+    200: PostDetailPublic;
+};
+
+export type V2MarkPostsDifferentResponse = V2MarkPostsDifferentResponses[keyof V2MarkPostsDifferentResponses];
+
 export type V2DeletePostsData = {
     body?: never;
     path?: never;
@@ -3245,6 +3377,39 @@ export type V2GetPostGroupResponses = {
 };
 
 export type V2GetPostGroupResponse = V2GetPostGroupResponses[keyof V2GetPostGroupResponses];
+
+export type V2GetPostGroupEvidenceData = {
+    body?: never;
+    path: {
+        post_id: number;
+    };
+    query?: never;
+    url: '/v2/posts/{post_id}/group-evidence';
+};
+
+export type V2GetPostGroupEvidenceErrors = {
+    /**
+     * Validation Exception
+     */
+    400: {
+        status_code: number;
+        detail: string;
+        extra?: null | {
+            [key: string]: unknown;
+        } | Array<unknown>;
+    };
+};
+
+export type V2GetPostGroupEvidenceError = V2GetPostGroupEvidenceErrors[keyof V2GetPostGroupEvidenceErrors];
+
+export type V2GetPostGroupEvidenceResponses = {
+    /**
+     * Request fulfilled, document follows
+     */
+    200: Array<GroupEvidenceItem>;
+};
+
+export type V2GetPostGroupEvidenceResponse = V2GetPostGroupEvidenceResponses[keyof V2GetPostGroupEvidenceResponses];
 
 export type V2GetSimilarPostsData = {
     body?: never;

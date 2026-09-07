@@ -7,10 +7,11 @@ import { useRouter } from 'vue-router'
 import { v2GetSilvaLunaScorerOne, v2GetSilvaScorerOne, v2GetWaifuScorerOne } from '@/api'
 import { useAPIError } from '@/composables/useAPIError'
 import { useScoreHotkeys } from '@/composables/useKeyScope'
+import { usePostGroupEvidenceQuery } from '@/composables/usePostGroupEvidenceQuery'
 import { usePostGroupQuery } from '@/composables/usePostGroupQuery'
 import { UNCATEGORISED, useTopCategoryGrouper } from '@/composables/useTagTree'
 import { formatDateTime } from '@/locale'
-import { commitCaption, commitRating, commitScore, commitSource, hideNSFW, makePostCanonical, openTagSelectorWindow, queryKeys, RATING_LEVEL_COLORS, RATING_LEVEL_ICONS, showPostDetail, ungroupPost } from '@/shared'
+import { commitCaption, commitRating, commitScore, commitSource, hideNSFW, makePostCanonical, markPostsDifferent, openTagSelectorWindow, queryKeys, RATING_LEVEL_COLORS, RATING_LEVEL_ICONS, showPostDetail, ungroupPost } from '@/shared'
 import { getPostThumbnailURL, isImageExtension } from '@/utils'
 import { colorNumToHex, labToRgbaString } from '@/utils/color'
 
@@ -39,6 +40,15 @@ async function onMakeCanonical(memberId: number) {
 }
 async function onUngroupMember(memberId: number) {
   await ungroupPost(queryClient, memberId)
+}
+// Members whose relation to this post was decided by hand — a rebuild honours
+// those verdicts, so the panel marks them apart from the automatic grouping.
+const evidenceQuery = usePostGroupEvidenceQuery(computed(() => props.post.id))
+const decidedMembers = computed(
+  () => new Set((evidenceQuery.data.value ?? []).filter(e => e.userVerdict !== null).map(e => e.memberId)),
+)
+async function onMarkDifferent(memberId: number) {
+  await markPostsDifferent(queryClient, post.value.id, memberId)
 }
 async function onUngroupSelf() {
   await ungroupPost(queryClient, post.value.id)
@@ -78,6 +88,10 @@ const updateSource = useDebounceFn(async (source: string | number | null | undef
 }, 500)
 const groupNameOrder = ['artist', 'copyright', 'character', 'general', 'meta']
 function sortByGroup(a: PostHasTagPublic, b: PostHasTagPublic) {
+  // 手动标签排在同一堆的前面：分类是一回事，谁打的是另一回事，人打的先看。
+  if (a.isAuto !== b.isAuto) {
+    return a.isAuto ? 1 : -1
+  }
   if (a.tagInfo.group && b.tagInfo.group) {
     return groupNameOrder.indexOf(a.tagInfo.group.name) - groupNameOrder.indexOf(b.tagInfo.group.name)
   }
@@ -92,19 +106,17 @@ function sortByGroup(a: PostHasTagPublic, b: PostHasTagPublic) {
 const tagSorted = computed(() => {
   return post.value.tags?.toSorted(sortByGroup) ?? []
 })
-const manualTags = computed(() => tagSorted.value.filter(t => !t.isAuto))
-const autoTags = computed(() => tagSorted.value.filter(t => t.isAuto))
+const autoTagCount = computed(() => tagSorted.value.reduce((n, t) => n + (t.isAuto ? 1 : 0), 0))
 
 // 按顶层语义分类（服饰 / 发型 / 表情…）分堆。自动标签动辄几十个，平铺成一片时
-// 眼睛没有着力点；手动标签一并分，两处结构一致。
+// 眼睛没有着力点。手动和自动混在同一堆里——分类回答的是「这张图画了什么」，来源
+// 不该把同一个问题的答案劈成两半；来源改由标签自身的样式（虚线 + 星标）承担。
 const groupByCategory = useTopCategoryGrouper()
 function categoryLabel(key: string) {
   return key === UNCATEGORISED ? t('tagsView.uncategorised') : t(`tagsView.group.${key}`)
 }
-const manualTagGroups = computed(() =>
-  groupByCategory(manualTags.value, tag => tag.tagInfo.name, tag => tag.tagInfo.group?.name, categoryLabel))
-const autoTagGroups = computed(() =>
-  groupByCategory(autoTags.value, tag => tag.tagInfo.name, tag => tag.tagInfo.group?.name, categoryLabel))
+const tagGroups = computed(() =>
+  groupByCategory(tagSorted.value, tag => tag.tagInfo.name, tag => tag.tagInfo.group?.name, categoryLabel))
 function onCopyTags() {
   const tags = tagSorted.value.map(tag => tag.tagInfo.name).join(', ')
   if (tags) {
@@ -222,7 +234,7 @@ const sectionTitleClass
           >
             <img
               :src="getPostThumbnailURL(post)"
-              class="rounded-lg h-40 max-w-full ring-1 ring-border-default shadow-sm object-contain"
+              class="rounded-md h-40 max-w-full ring-1 ring-border-subtle object-contain"
               :class="{
                 blur: (post?.rating ?? 0) >= 3 && hideNSFW,
               }"
@@ -383,21 +395,25 @@ const sectionTitleClass
           <div
             v-for="m in groupMembers"
             :key="m.id"
-            class="p-1 rounded bg-surface-2 flex gap-2 items-center"
+            class="p-1 rounded-md flex gap-2 transition-colors items-center -mx-1 hover:bg-surface-1"
           >
             <img
               :src="getPostThumbnailURL(m)"
-              class="rounded h-12 w-12 cursor-pointer object-cover"
+              class="rounded-sm h-12 w-12 cursor-pointer object-cover"
               :class="{ blur: (m.rating ?? 0) >= 3 && hideNSFW }"
               @click="router.push(`/post/${m.id}`)"
             >
             <div class="text-fg-subtle flex-1 tabular-nums">
               {{ m.width }} × {{ m.height }}
             </div>
+            <i
+              v-if="decidedMembers.has(m.id)"
+              class="i-tabler-pin text-fg-subtle"
+              :title="`${$t('post.groupPinned')} — ${$t('post.groupUserPriorityNote')}`"
+            />
             <PButton
               size="sm"
               icon
-              variant="subtle"
               :title="$t('post.setRepresentative')"
               @pointerup="onMakeCanonical(m.id)"
             >
@@ -406,7 +422,14 @@ const sectionTitleClass
             <PButton
               size="sm"
               icon
-              variant="subtle"
+              :title="$t('post.markDifferent')"
+              @pointerup="onMarkDifferent(m.id)"
+            >
+              <i class="i-tabler-equal-not" />
+            </PButton>
+            <PButton
+              size="sm"
+              icon
               :title="$t('post.removeFromGroup')"
               @pointerup="onUngroupMember(m.id)"
             >
@@ -500,51 +523,66 @@ const sectionTitleClass
             <i class="i-tabler-tag" />
             <span>{{ $t('post.tags') }}</span>
           </div>
-          <!-- xs + negative margin: the affordance stays clickable without
-               making this section heading taller than the others. -->
-          <PButton
-            v-if="post.tags && post.tags.length > 0"
-            size="xs"
-            icon
-            variant="subtle"
-            class="-my-1.5"
-            @click="onCopyTags"
-          >
-            <i class="i-tabler-copy" />
-          </PButton>
+          <div class="flex gap-1 items-center">
+            <!-- 星标在图例里出现一次，虚线标签自己再带一个：混排之后，「哪些是
+                 机器打的」得能不点开就看懂。 -->
+            <span
+              v-if="autoTagCount > 0"
+              class="text-2xs text-fg-subtle flex gap-1 items-center"
+              :title="$t('post.autoTags')"
+            >
+              <i class="i-tabler-sparkles" />
+              {{ autoTagCount }}
+            </span>
+            <!-- xs + negative margin: the affordance stays clickable without
+                 making this section heading taller than the others. -->
+            <PButton
+              v-if="post.tags && post.tags.length > 0"
+              size="xs"
+              icon
+              class="-my-1.5"
+              :aria-label="$t('post.copyTags')"
+              :title="$t('post.copyTags')"
+              @click="onCopyTags"
+            >
+              <i class="i-tabler-copy" />
+            </PButton>
+          </div>
         </div>
         <div
-          v-if="manualTags.length > 0"
+          v-if="tagSorted.length > 0"
           class="flex flex-col gap-2"
         >
           <div
-            v-for="cat of manualTagGroups"
+            v-for="cat of tagGroups"
             :key="cat.path"
             class="flex flex-col gap-1"
           >
             <div class="text-2xs text-fg-subtle tracking-wide uppercase">
               {{ cat.name }}
             </div>
-            <div class="flex flex-wrap gap-2">
+            <div class="flex flex-wrap gap-1">
               <!-- PostTag renders the localised display name itself (no slot). -->
               <PostTag
                 v-for="tag of cat.items"
                 :key="tag.tagInfo.name"
-                class="px-1 py-0.5 rounded bg-surface-2 cursor-pointer"
-                rounded="lg"
+                class="cursor-pointer"
                 :data="tag"
+                :auto="tag.isAuto"
                 :color="tag.tagInfo.group?.color"
                 @pointerup="openTagSelectorWindow()"
               />
             </div>
           </div>
           <PTag
-            variant="soft"
-            tone="primary"
+            variant="outline"
+            tone="neutral"
+            size="xs"
             class="cursor-pointer self-start"
             @pointerup="openTagSelectorWindow()"
           >
             <i class="i-tabler-plus" />
+            {{ $t('post.addTag') }}
           </PTag>
         </div>
         <div
@@ -567,39 +605,6 @@ const sectionTitleClass
           </PButton>
         </div>
       </section>
-
-      <!-- Auto tags -->
-      <PDisclosure
-        v-if="autoTags.length > 0"
-        storage-key="post.autoTags"
-        icon="i-tabler-sparkles"
-        :title="$t('post.autoTags')"
-        :summary="autoTags.length"
-        :default-open="false"
-      >
-        <div class="flex flex-col gap-2">
-          <div
-            v-for="cat of autoTagGroups"
-            :key="cat.path"
-            class="flex flex-col gap-1"
-          >
-            <div class="text-2xs text-fg-subtle tracking-wide uppercase">
-              {{ cat.name }}
-            </div>
-            <div class="flex flex-wrap gap-2">
-              <PostTag
-                v-for="tag of cat.items"
-                :key="tag.tagInfo.name"
-                class="px-1 py-0.5 rounded bg-surface-2 cursor-pointer"
-                rounded="lg"
-                :data="tag"
-                :color="tag.tagInfo.group?.color"
-                @pointerup="openTagSelectorWindow()"
-              />
-            </div>
-          </div>
-        </div>
-      </PDisclosure>
 
       <!-- Caption -->
       <PDisclosure

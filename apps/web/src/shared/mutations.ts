@@ -6,7 +6,9 @@ import {
   v2BulkUpdatePostScore,
   v2DeleteFolder,
   v2DeletePosts,
+  v2GroupPostsTogether,
   v2MakePostCanonical,
+  v2MarkPostsDifferent,
   v2RemoveTagFromPost,
   v2RotatePostImage,
   v2UngroupPost,
@@ -351,6 +353,31 @@ export async function ungroupPost(qc: QueryClient, id: number): Promise<void> {
 /** Promote a group member to be the group's canonical representative. */
 export async function makePostCanonical(qc: QueryClient, id: number): Promise<void> {
   await v2MakePostCanonical({ path: { post_id: id } })
+  invalidateGrouping(qc)
+}
+
+/**
+ * Merge posts into one near-duplicate group. Resolves to the group's canonical
+ * id (which may be a post outside `ids` when they joined an existing group).
+ */
+export async function groupPostsTogether(
+  qc: QueryClient,
+  ids: number[],
+  canonicalId?: number,
+): Promise<number | null> {
+  const resp = await v2GroupPostsTogether({ body: { ids, canonicalId } })
+  invalidateGrouping(qc)
+  // 回的是**封面**的详情，可能不是 ids 里的任何一张（并进一个已有的组时）。
+  return resp.data?.id ?? null
+}
+
+/** Record that two posts are not the same picture (and split them apart now). */
+export async function markPostsDifferent(
+  qc: QueryClient,
+  postId: number,
+  otherId: number,
+): Promise<void> {
+  await v2MarkPostsDifferent({ path: { post_id: postId, other_id: otherId } })
   invalidateGrouping(qc)
 }
 

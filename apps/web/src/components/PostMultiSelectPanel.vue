@@ -5,6 +5,7 @@ import { filesize } from 'filesize'
 import { computed, onUnmounted, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useRoute } from 'vue-router'
+import { useAPIError } from '@/composables/useAPIError'
 import { useSelectedPostStats } from '@/composables/useSelectedPostStats'
 import { formatNumber } from '@/locale'
 import {
@@ -13,6 +14,7 @@ import {
   commitScore,
   currentPostList,
   deletePosts,
+  groupPostsTogether,
   isCommittedSelected,
   RATING_LEVEL_COLORS,
   RATING_LEVEL_ICONS,
@@ -26,11 +28,14 @@ import {
   showPostDetail,
   similarPostList,
 } from '@/shared'
+import { useToast } from '@/shared/toast'
 import { getPostThumbnailURL } from '@/utils'
 
 const { t } = useI18n()
 const queryClient = useQueryClient()
 const route = useRoute()
+const { pushToast } = useToast()
+const { handle: handleAPIError } = useAPIError()
 
 // The ordered list currently in view: the similar-posts grid on a post detail
 // page, otherwise the gallery list. Keeping these separate (rather than reusing
@@ -247,6 +252,32 @@ async function copyPaths() {
   }
 }
 
+// Merge the whole selection into one near-duplicate group. The selection can
+// reach past the loaded list (selectedIdList, not selectedPosts) — the server
+// resolves the representative, so the panel does not need the rows.
+const isGrouping = ref(false)
+async function groupSelected() {
+  const ids = selectedIdList.value
+  if (isGrouping.value || ids.length < 2) {
+    return
+  }
+  isGrouping.value = true
+  try {
+    await groupPostsTogether(queryClient, ids)
+    pushToast({
+      type: 'success',
+      message: t('multiSelect.groupSelectedDone', { n: formatNumber(ids.length) }, ids.length),
+      duration: 3000,
+    })
+  }
+  catch (error) {
+    handleAPIError(error)
+  }
+  finally {
+    isGrouping.value = false
+  }
+}
+
 // Two-stage delete: first click arms the button, second confirms.
 const confirmingDelete = ref(false)
 async function deleteSelected() {
@@ -287,7 +318,7 @@ const sectionTitleClass
          the 12px gutter. min-h-full keeps mt-auto pinning the delete button
          to the bottom when the content is shorter than the pane. -->
     <div class="px-3 flex flex-col min-h-full">
-      <div class="pb-3 pt-3 flex flex-col gap-1">
+      <div class="pb-3 pt-3 p-divider flex flex-col gap-1">
         <div class="flex items-center justify-between">
           <div class="text-lg text-fg font-semibold tabular-nums">
             {{ formatNumber(count) }} <span class="text-sm text-fg-muted font-normal">{{ $t('multiSelect.selected') }}</span>
@@ -342,7 +373,7 @@ const sectionTitleClass
           v-for="d of displayedThumbs"
           :key="d.id"
           type="button"
-          class="ring-border rounded bg-white cursor-pointer ring-1 shadow-md left-1/2 top-1/2 absolute overflow-hidden hover:ring-2 hover:ring-primary hover:shadow-md"
+          class="rounded-sm bg-surface cursor-pointer ring-1 ring-border-default shadow-sm left-1/2 top-1/2 absolute overflow-hidden hover:ring-primary"
           :style="{
             ...thumbStyle(d.post, d.idx),
             opacity: d.opacity,
@@ -359,14 +390,14 @@ const sectionTitleClass
         </button>
         <div
           v-if="overflowCount > 0"
-          class="text-sm text-fg tracking-tight font-mono font-semibold px-2.5 py-1 rounded-full bg-surface-2/90 pointer-events-none ring-1 ring-border-default shadow-sm left-1/2 top-1/2 absolute backdrop-blur tabular-nums -translate-x-1/2 -translate-y-1/2"
+          class="text-sm text-fg tracking-tight font-mono font-semibold px-2.5 py-1 rounded-full bg-surface pointer-events-none ring-1 ring-border-default shadow-sm left-1/2 top-1/2 absolute tabular-nums -translate-x-1/2 -translate-y-1/2"
           :style="{ zIndex: Z_LEVELS }"
         >
           +{{ overflowCount }}
         </div>
       </div>
 
-      <section class="py-4">
+      <section class="py-3 p-divider">
         <div
           :class="sectionTitleClass"
           class="mb-2"
@@ -402,7 +433,7 @@ const sectionTitleClass
           >{{ $t('common.mixed') }}</span>
           <span v-else />
         </div>
-        <div class="mt-3">
+        <div class="mt-3 flex flex-col gap-2">
           <PButton
             size="sm"
             variant="subtle"
@@ -412,12 +443,24 @@ const sectionTitleClass
             <i class="i-tabler-copy" />
             {{ $t('multiSelect.copyPaths') }}
           </PButton>
+          <PButton
+            size="sm"
+            variant="subtle"
+            block
+            :disabled="count < 2"
+            :loading="isGrouping"
+            :title="$t('post.groupUserPriorityNote')"
+            @click="groupSelected"
+          >
+            <i class="i-tabler-stack-2" />
+            {{ $t('multiSelect.groupSelected') }}
+          </PButton>
         </div>
       </section>
 
       <section
         v-if="knownCount > 0"
-        class="py-4"
+        class="py-3 p-divider"
       >
         <div
           :class="sectionTitleClass"
@@ -432,7 +475,7 @@ const sectionTitleClass
               <span>{{ $t('post.ratingLabel') }}</span>
               <span class="text-[10px] text-fg-subtle font-mono">— · G · S · Q · E</span>
             </div>
-            <div class="rounded bg-surface-1 flex h-2 overflow-hidden">
+            <div class="rounded-full bg-surface-3 flex h-1.5 overflow-hidden">
               <div
                 v-for="(n, i) of ratingDist"
                 :key="i"
@@ -446,7 +489,7 @@ const sectionTitleClass
               <span>{{ $t('post.scoreLabel') }}</span>
               <span class="text-[10px] text-fg-subtle font-mono">— · 1 · 2 · 3 · 4 · 5</span>
             </div>
-            <div class="rounded bg-surface-1 flex h-2 overflow-hidden">
+            <div class="rounded-full bg-surface-3 flex h-1.5 overflow-hidden">
               <div
                 v-for="(n, i) of scoreDist"
                 :key="i"
@@ -460,7 +503,7 @@ const sectionTitleClass
 
       <section
         v-if="knownCount > 0"
-        class="py-4"
+        class="py-3"
       >
         <div
           :class="sectionTitleClass"
@@ -477,7 +520,7 @@ const sectionTitleClass
             <span
               v-for="[ext, n] of extensionDist"
               :key="ext"
-              class="text-[10px] font-mono px-1.5 py-0.5 rounded bg-surface-2 uppercase tabular-nums"
+              class="text-2xs font-mono px-1.5 py-0.5 border border-border-subtle rounded-sm uppercase tabular-nums"
             >
               {{ ext }} <span class="text-fg-subtle normal-case">×{{ n }}</span>
             </span>

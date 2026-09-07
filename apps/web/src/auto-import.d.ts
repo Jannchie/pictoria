@@ -249,6 +249,7 @@ declare global {
   const usePointer: typeof import('@vueuse/core').usePointer
   const usePointerLock: typeof import('@vueuse/core').usePointerLock
   const usePointerSwipe: typeof import('@vueuse/core').usePointerSwipe
+  const usePostGroupEvidenceQuery: typeof import('./composables/usePostGroupEvidenceQuery').usePostGroupEvidenceQuery
   const usePostGroupQuery: typeof import('./composables/usePostGroupQuery').usePostGroupQuery
   const usePostNavigation: typeof import('./composables/usePostNavigation').usePostNavigation
   const usePostQuery: typeof import('./composables/usePostQuery').usePostQuery
@@ -362,6 +363,9 @@ declare global {
   // @ts-ignore
   export type { KeyScope, KeyScopeInputs, ScoreScope } from './composables/useKeyScope'
   import('./composables/useKeyScope')
+  // @ts-ignore
+  export type { GroupEvidenceItem } from './composables/usePostGroupEvidenceQuery'
+  import('./composables/usePostGroupEvidenceQuery')
   // @ts-ignore
   export type { UseRovingIndexOptions } from './composables/useRovingIndex'
   import('./composables/useRovingIndex')
