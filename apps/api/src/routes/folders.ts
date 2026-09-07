@@ -6,7 +6,7 @@ import path from 'node:path'
 import { createRoute, OpenAPIHono, z } from '@hono/zod-openapi'
 import { addAgg, emptyAgg, folderScoreAggregates, listIdsInFolder, type FolderScoreAgg } from '@pictoria/db'
 import { getDb } from '../db.js'
-import { isInside, pictoriaDir, targetDir, thumbnailsDir } from '../paths.js'
+import { isInside, pictoriaDir, targetDir, thumbnailPathFor } from '../paths.js'
 import { deletePostFiles } from '../post-files.js'
 import { OK, RESP_400, domainError, httpError, zodErrorHook } from '../openapi.js'
 import { Result } from '../schemas.js'
@@ -290,7 +290,7 @@ foldersRoutes.delete('/v2/folders/:folder_path{.+}', (c) => {
 
   // 缩略图是尽力而为；主树失败要抛出去，好让一个被锁住的文件显示成 500 而不是
   // 悄悄活下来。
-  fs.rmSync(path.resolve(thumbnailsDir(), folder), { recursive: true, force: true })
+  fs.rmSync(thumbnailPathFor(folder), { recursive: true, force: true })
   fs.rmSync(target, { recursive: true })
   return c.json({ msg: `Deleted folder ${folder} (${ids.length} posts)` })
 })

@@ -10,7 +10,7 @@
 import fs from 'node:fs'
 import path from 'node:path'
 import { deleteManyReturningPaths } from '@pictoria/db'
-import { targetDir, thumbnailsDir } from './paths.js'
+import { targetDir, thumbnailPathFor } from './paths.js'
 
 type SqliteHandle = Parameters<typeof deleteManyReturningPaths>[0]
 
@@ -22,11 +22,10 @@ type SqliteHandle = Parameters<typeof deleteManyReturningPaths>[0]
  */
 export function deletePostFiles(sqlite: SqliteHandle, ids: number[]): string[] {
   const base = targetDir()
-  const thumbs = thumbnailsDir()
   const removed = deleteManyReturningPaths(sqlite, ids)
   for (const rel of removed) {
     fs.rmSync(path.resolve(base, rel), { force: true })
-    fs.rmSync(path.resolve(thumbs, rel), { force: true })
+    fs.rmSync(thumbnailPathFor(rel), { force: true })
   }
   return removed
 }

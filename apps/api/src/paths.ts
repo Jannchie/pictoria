@@ -60,6 +60,19 @@ export const pictoriaDir = once(() => path.resolve(targetDir(), '.pictoria'))
 export const thumbnailsDir = once(() => path.resolve(pictoriaDir(), 'thumbnails'))
 
 /**
+ * 一个 post 的缩略图绝对路径 —— 缩略图与原图**同相对路径**，只是换了根。
+ *
+ * 单独成一个导出而不是在调用点写 `path.resolve(thumbnailsDir(), rel)`：那一句在四处
+ * 出现过，而布局哪天变了，漏掉一处的表现不是编译错误，是 worker 打不开文件。
+ *
+ * 需要顺带挡住路径逃逸时（`rel` 来自请求）用 `resolveInside(thumbnailsDir(), rel)`，
+ * 不要用这个 —— 这个假设 `rel` 已经是库里的行。
+ */
+export function thumbnailPathFor(relPath: string): string {
+  return path.resolve(thumbnailsDir(), relPath)
+}
+
+/**
  * `DB_PATH` **环境变量**覆盖 `<target_dir>/.pictoria/pictoria.sqlite`。
  *
  * ⚠️ 是环境变量，不是 `.env` —— `apps/api` 不加载任何 dotenv（唯一读 `server/.env`

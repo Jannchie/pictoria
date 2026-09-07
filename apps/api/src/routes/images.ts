@@ -22,7 +22,7 @@ import { Readable } from 'node:stream'
 import { getDb } from '../db.js'
 import { RESP_400, httpError, zodErrorHook } from '../openapi.js'
 import { presignGetObject } from '../s3.js'
-import { resolveInside, targetDir, thumbnailsDir } from '../paths.js'
+import { resolveInside, targetDir, thumbnailPathFor, thumbnailsDir } from '../paths.js'
 import { getTasks } from '../tasks.js'
 
 export const imagesRoutes = new OpenAPIHono({ defaultHook: zodErrorHook })
@@ -248,7 +248,7 @@ imagesRoutes.openapi(
     if (!fs.existsSync(originalPath))
       return notFound(`Original image for post ${postId} not found`) as never
 
-    const thumbPath = path.resolve(thumbnailsDir(), post.fullPath)
+    const thumbPath = thumbnailPathFor(post.fullPath)
     const failed = await ensureThumbnail(originalPath, thumbPath)
     return (failed ?? fileResponse(thumbPath)) as never
   },
