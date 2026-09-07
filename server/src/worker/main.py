@@ -29,12 +29,13 @@ from __future__ import annotations
 import argparse
 import asyncio
 import logging
-import os
 from pathlib import Path
 
 from cairnq import SQLiteStore, Worker
 from dotenv import load_dotenv
 
+from paths import DEFAULT_TARGET_DIR, tasks_db_path
+from paths import target_dir as _target_dir
 from worker.handlers import (
     handle_basics,
     handle_caption,
@@ -80,17 +81,6 @@ IO_QUEUE = "io"
 IO_CONCURRENCY = 4
 
 
-#: Repo root, derived from this file's location rather than the cwd -- same
-#: reasoning as ``paths.ts``'s REPO_ROOT: the cwd depends on how you launched
-#: (``pnpm dev:worker`` cd's into ``server/``), so a relative config value would
-#: mean two different directories to the two halves. This file is
-#: ``server/src/worker/main.py``, hence three parents up.
-_REPO_ROOT = Path(__file__).resolve().parents[3]
-
-#: Must stay byte-identical to ``paths.ts``'s fallback in ``targetDir()``.
-_DEFAULT_TARGET_DIR = "server/illustration/images"
-
-
 def target_dir() -> Path:
     """The image library root. Mirrors ``paths.ts``'s ``targetDir()`` exactly.
 
@@ -105,27 +95,10 @@ def target_dir() -> Path:
     That is why the env var, the default, and the repo-root anchor are all
     duplicated from ``paths.ts`` rather than the worker taking a required
     ``--target_dir``: a flag that only one of the two processes reads is exactly
-    how the two drift apart.
+    how the two drift apart. The Python half of that duplication lives once, in
+    ``paths.py`` -- the scripts under ``server/scripts/`` read the same one.
     """
-    return (_REPO_ROOT / os.environ.get("PICTORIA_TARGET_DIR", _DEFAULT_TARGET_DIR)).resolve()
-
-
-def tasks_db_path(root: Path) -> Path:
-    """cairnq's queue database. Mirrors ``paths.ts``'s ``tasksDbPath()``.
-
-    The ``TASKS_DB_PATH`` override lives *here* rather than at the call site so
-    that this function is the whole rule -- on the TS side it is one expression,
-    and splitting default from override across two places is how the next reader
-    gets a different answer than the code does.
-
-    A relative override is anchored at the *repo root*, same as
-    ``PICTORIA_TARGET_DIR`` -- never at the cwd. This process's cwd is
-    ``server/`` (``pnpm dev:worker`` cd's there) while the API's is the repo
-    root, so cwd-relative resolution is exactly the split-brain described in
-    ``target_dir()``: two processes silently opening two different queue files.
-    """
-    override = os.environ.get("TASKS_DB_PATH")
-    return (_REPO_ROOT / override).resolve() if override else root / ".pictoria" / "tasks.sqlite"
+    return _target_dir()
 
 
 async def main() -> None:
@@ -134,7 +107,7 @@ async def main() -> None:
         "--target_dir",
         type=Path,
         default=None,
-        help=f"image library root; overrides $PICTORIA_TARGET_DIR (default: {_DEFAULT_TARGET_DIR})",
+        help=f"image library root; overrides $PICTORIA_TARGET_DIR (default: {DEFAULT_TARGET_DIR})",
     )
     parser.add_argument("--tasks_db", type=Path, default=None, help="override the tasks.sqlite path")
     args = parser.parse_args()
