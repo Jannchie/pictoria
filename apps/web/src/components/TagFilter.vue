@@ -114,7 +114,11 @@ const btnText = computed(() => (selected.value.length === 0 ? t('filter.tags') :
       v-model="opened"
       position="bottom-start"
     >
-      <PButton size="sm">
+      <PButton
+        size="sm"
+        :variant="selected.length > 0 ? 'subtle' : 'secondary'"
+        :active="opened"
+      >
         <i class="i-tabler-tag" />
         <!-- leading-normal: the button sets line-height:1, and `truncate`
              (overflow:hidden) would otherwise clip glyph descenders (e.g. "g"). -->

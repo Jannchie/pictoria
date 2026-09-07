@@ -74,7 +74,7 @@ function getIconByExtension(extension: string) {
       return 'i-tabler-archive'
     }
     case 'pdf': {
-      return 'i-tabler-file-pdf'
+      return 'i-tabler-file-type-pdf'
     }
     case 'doc':
     case 'docx': {
@@ -86,7 +86,7 @@ function getIconByExtension(extension: string) {
     }
     case 'ppt':
     case 'pptx': {
-      return 'i-tabler-file-powerpoint'
+      return 'i-tabler-file-type-ppt'
     }
     case 'txt': {
       return 'i-tabler-file-text'
@@ -230,12 +230,16 @@ function onKeyDown(e: KeyboardEvent) {
 </script>
 
 <template>
+  <!-- One caption line under the image (filename, muted); the dimensions are a
+       hover-only badge on the image itself. Everything permanent besides the
+       thumbnail is small and low-contrast so a full grid reads as pictures,
+       not as a table of labels. The caption height is part of GRID_Y_GAP. -->
   <div
     role="button"
     tabindex="0"
     :aria-pressed="selected"
     :aria-label="`${post.fileName}.${post.extension}`"
-    class="post-item flex flex-col gap-1 items-center focus:outline-none"
+    class="post-item group/post flex flex-col gap-1.5 focus:outline-none"
     :class="{ selected }"
     draggable="true"
     @dragstart.stop
@@ -248,10 +252,10 @@ function onKeyDown(e: KeyboardEvent) {
     <PAspectRatio
       v-if="isImage"
       :ratio="aspectRatio"
-      class="rounded-lg bg-primary w-full"
+      class="rounded-md bg-surface-1 w-full"
     >
       <div
-        class="post-content rounded-lg relative overflow-hidden"
+        class="post-content rounded-md relative overflow-hidden"
         :style="placeholderStyle"
       >
         <img
@@ -259,7 +263,7 @@ function onKeyDown(e: KeyboardEvent) {
           :alt="post.fileName"
           :width="post.width ?? undefined"
           :height="post.height ?? undefined"
-          class="rounded-lg h-full w-full transition-opacity duration-300 object-cover"
+          class="rounded-md h-full w-full transition-opacity duration-300 object-cover"
           draggable="true"
           loading="lazy"
           decoding="async"
@@ -274,7 +278,7 @@ function onKeyDown(e: KeyboardEvent) {
           :hash="post.arthash"
           :revealed="imageLoaded"
           :fancy="enableFancyPlaceholder"
-          class="rounded-lg"
+          class="rounded-md"
         />
         <div
           v-if="post.matchProb != null"
@@ -304,17 +308,24 @@ function onKeyDown(e: KeyboardEvent) {
         >
           <i class="i-tabler-stack-2" />+{{ post.groupMemberCount }}
         </div>
+        <!-- Dimensions on demand: visible on hover / keyboard focus only. -->
+        <div
+          v-if="post.width && post.height"
+          class="p-thumb-badge bg-black/60 opacity-0 transition-opacity bottom-1.5 left-1.5 absolute group-focus-visible/post:opacity-100 group-hover/post:opacity-100"
+        >
+          {{ post.width }}×{{ post.height }}
+        </div>
       </div>
     </PAspectRatio>
     <PAspectRatio
       v-else
       :ratio="1"
-      class="rounded-lg bg-surface-1 w-full"
+      class="rounded-md bg-surface-1 w-full"
     >
-      <div class="post-content text-fg-muted rounded-lg flex flex-col gap-2 items-center justify-center">
+      <div class="post-content text-fg-subtle rounded-md flex flex-col gap-2 items-center justify-center">
         <i
           aria-hidden="true"
-          class="text-5xl"
+          class="text-4xl"
           :class="getIconByExtension(post.extension)"
         />
         <div class="text-xs tracking-wider font-mono uppercase">
@@ -322,46 +333,40 @@ function onKeyDown(e: KeyboardEvent) {
         </div>
       </div>
     </PAspectRatio>
-    <div class="text-xs text-fg text-center flex flex-col w-full">
-      <div class="text-xs w-full truncate">
-        <div class="filename-wrapper px-1 rounded inline">
-          {{ `${post.fileName}.${post.extension}` }}
-        </div>
-      </div>
-      <div
-        v-if="post.width && post.height"
-        class="text-11px font-bold font-mono w-full truncate"
-      >
-        {{ post.width }} x {{ post.height }}
-      </div>
+    <div class="post-caption text-xs text-fg-muted leading-tight px-0.5 w-full truncate transition-colors">
+      {{ `${post.fileName}.${post.extension}` }}
     </div>
   </div>
 </template>
 
 <style lang="css" scoped>
-.post-item {
-  transition: transform var(--p-transition-fast);
-}
 .post-content {
-  transition:
-    outline-color var(--p-transition-fast),
-    box-shadow var(--p-transition-fast);
+  transition: outline-color var(--p-transition-fast);
   outline: 2px solid transparent;
   outline-offset: 2px;
+}
+/* Hover: a faint outline is enough to say "this one" without competing with
+   the selection ring; the caption lifts to full foreground at the same time. */
+.post-item:hover .post-content {
+  outline-color: rgb(var(--p-fg-rgb) / 0.2);
+}
+.post-item:hover .post-caption {
+  color: var(--p-fg);
 }
 .post-item:focus-visible .post-content {
   outline-color: rgb(var(--p-primary-rgb) / 0.7);
 }
-@media (prefers-reduced-motion: reduce) {
-  .post-item,
-  .post-content { transition: none; }
-}
-.selected .post-content {
+/* Selected: the primary ring alone, no halo — a halo on twenty selected
+   thumbnails turns the grid into a glow field. */
+.selected .post-content,
+.selected:hover .post-content {
   outline-color: var(--p-primary);
-  box-shadow: 0 0 0 4px rgb(var(--p-primary-rgb) / 0.18);
 }
-.selected .filename-wrapper {
-  background-color: var(--p-primary);
-  color: var(--p-on-primary);
+.selected .post-caption {
+  color: var(--p-primary);
+}
+@media (prefers-reduced-motion: reduce) {
+  .post-content,
+  .post-caption { transition: none; }
 }
 </style>

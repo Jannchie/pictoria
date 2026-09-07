@@ -65,6 +65,25 @@ button {
   outline-offset: 1px;
 }
 
+/* Text fields are the exception the design system already assumed: they show
+   focus with a caret and a border change, so the ring is redundant — and on a
+   field that deliberately has no frame (a search row that runs the width of
+   its panel) the ring is the frame, which is exactly what it must not be.
+   This lives here rather than on each field because `virtual:uno.css` loads
+   before this file, so a utility `outline-none` at equal specificity loses. */
+input:is(
+  [type="text"],
+  [type="search"],
+  [type="url"],
+  [type="email"],
+  [type="tel"],
+  [type="number"],
+  [type="password"]
+):focus-visible,
+textarea:focus-visible {
+  outline: none;
+}
+
 .sr-only {
   position: absolute;
   width: 1px;

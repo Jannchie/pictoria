@@ -36,6 +36,8 @@ const btnText = computed(() => {
     <PPopover v-model="opened" position="bottom-start">
       <PButton
         size="sm"
+        :variant="scoreFilterData.length > 0 ? 'subtle' : 'secondary'"
+        :active="opened"
       >
         <i class="i-tabler-star" />
         <span>

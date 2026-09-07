@@ -310,6 +310,7 @@ const en = {
     navigate: 'navigate',
     select: 'select',
     switchGroup: 'switch group',
+    pinWindow: 'Keep this window open',
   },
   annotate: {
     history: {

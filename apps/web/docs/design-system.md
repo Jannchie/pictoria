@@ -153,7 +153,7 @@ reference in `PSelectArea`.
 | `PVirtualScroll`   | Virtualized list                     | `items`, `is`                                               |
 | `PSelectArea`      | Drag-select box (exports `Area`)     | `target`                                                    |
 | `PTreeList`        | Virtualized tree (sidebar folders)   | typed `TreeListItemData`, `rounded`                         |
-| `PToast`           | Single toast                         | toast data                                                  |
+| `PToast`           | Notification card (toast + snackbar) | `message`, `icon`, `iconColor`, `closeable`, `fluid` (hug content instead of the fixed 384px), `#action` slot |
 | `PToastContainer`  | Toast stack layout                   | `items`                                                     |
 | `PLocaleSwitch`    | Language picker                      | (wired to locale state)                                     |
 | `PSchemeSwitch`    | Dark/light/auto picker               | (wired to `data-scheme`)                                    |
@@ -161,6 +161,24 @@ reference in `PSelectArea`.
 `src/ui/index.ts` also re-exports `modal.ts` (`openDialogCount`,
 `isAnyDialogOpen`) — a shared counter `PDialog` increments on mount so pages can
 gate their window-level hotkeys while any dialog is open.
+
+#### Icon-only buttons
+
+A button whose whole content is one icon uses `<PButton icon>`:
+
+- **Square by construction.** `icon` swaps the horizontal padding for a fixed
+  `inline-size` equal to the size class's height (22 / 28 / 36 / 44 px), so the
+  hit target is exactly square at every size. Don't add `w-*`/`h-*` or padding
+  utilities at the call site.
+- **The glyph is sized by the button** (14 / 16 / 20 / 24 px, driven off
+  `font-size` since iconify glyphs are `1em`). Don't put `h-3.5 w-3.5` on the
+  `<i>`.
+- **Lightest variant by default.** With no `variant`, an icon button is `ghost`
+  — transparent until hovered — because there is no label to justify a filled
+  box. Pass `variant` explicitly only when the button is part of a filled
+  composite (e.g. the sort reset button, welded to a `subtle` main button).
+- **Always named.** No visible text means `aria-label` (or `title`) is
+  mandatory, through `$t` like every other string.
 
 ### Mixed-boundary components (stay in `components/`)
 
@@ -170,7 +188,7 @@ primitives:
 | Component            | Why it stays                                                  |
 | -------------------- | ------------------------------------------------------------- |
 | `ToastSystem`        | Renders the global toast queue (`shared/toast.ts`) via `PToastContainer`; mounted once in `App.vue` |
-| `UndoSnackbar`       | Bound to `shared/undoSnackbar.ts` (`performUndo`/`performRedo`) |
+| `UndoSnackbar`       | Bound to `shared/undoSnackbar.ts` (`performUndo`/`performRedo`); renders a `fluid` `PToast` pinned bottom-centre, with undo/redo in its `#action` slot — same card as the top toast queue, different corner |
 | `TagSelectorWindow`  | Binds a `PFloatWindow` instance into the shared open-window ref |
 
 ## 6. Do / Don't
@@ -182,6 +200,7 @@ primitives:
 | Put new reusable primitives in `src/ui` with a `P` prefix + `index.ts` export | Add gradients                                     |
 | Size controls in scoped CSS via `--p-control-*`                     | Nest panels / use a second surface level inside a layer |
 | Keep shadows on floating layers only (`sm` / `md`)                  | Use `shadow-lg` in `components/` or `views/`      |
+| Let `<PButton icon>` size itself — square box, button-sized glyph    | Give an icon-only button a filled variant or a call-site `w-*`/`h-*` |
 | Separate detail-panel groups with `p-divider`; render numbers with `tabular-nums` | Lean on bare spacing alone to group metadata rows |
 
 ## 7. Guard tests

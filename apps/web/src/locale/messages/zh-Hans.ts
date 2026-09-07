@@ -307,6 +307,7 @@ const zhHans: MessageSchema = {
     navigate: '导航',
     select: '选择',
     switchGroup: '切换分组',
+    pinWindow: '固定窗口',
   },
   annotate: {
     history: {

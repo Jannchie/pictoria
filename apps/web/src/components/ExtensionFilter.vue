@@ -52,6 +52,8 @@ function getExtensionName(extension: string) {
     <PPopover v-model="opened" position="bottom-start">
       <PButton
         size="sm"
+        :variant="ratingFilterData.length > 0 ? 'subtle' : 'secondary'"
+        :active="opened"
       >
         <i class="i-tabler-file" />
         <span class="flex-grow">

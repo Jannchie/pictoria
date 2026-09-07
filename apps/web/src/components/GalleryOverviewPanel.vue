@@ -121,7 +121,7 @@ function fmtAvg(value: number | null | undefined): string {
             v-for="chip in chips"
             :key="chip.id"
             type="button"
-            class="text-[11px] text-fg-muted px-1.5 py-0.5 border border-border-subtle rounded flex gap-1 max-w-full transition-colors items-center hover:text-fg hover:border-border-strong"
+            class="text-xs text-primary px-1.5 py-0.5 border border-primary/20 rounded-sm bg-primary/10 flex gap-1 max-w-full transition-colors items-center hover:border-primary/35 hover:bg-primary/18"
             :title="$t('overview.removeFilter', { label: chip.label })"
             @click="chip.remove()"
           >
@@ -159,7 +159,7 @@ function fmtAvg(value: number | null | undefined): string {
             />
             <span class="text-fg-muted text-left shrink-0 w-14 truncate">{{ $t(row.labelKey) }}</span>
             <!-- Bar track: --p-surface-3 is the in-control pedestal case. -->
-            <span class="rounded-full bg-surface-3 flex-grow h-1.5 overflow-hidden">
+            <span class="rounded-full bg-surface-3 flex-grow h-1 overflow-hidden">
               <span
                 class="rounded-full h-full block"
                 :style="{ width: `${row.ratio * 100}%`, backgroundColor: row.color }"

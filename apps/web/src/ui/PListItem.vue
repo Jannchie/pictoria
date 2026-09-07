@@ -29,19 +29,24 @@ function onDrop(event: DragEvent) {
 }
 const folderItemRef = ref<HTMLElement | null>(null)
 const hover = useElementHover(folderItemRef)
+const isActive = computed(() => props.active && props.type === 'normal')
 defineExpose({
   title: props.title,
 })
 </script>
 
 <template>
+  <!-- Same selected / hover vocabulary as the sidebar folder tree (PTreeList):
+       a primary wash for the current item, a surface step for hover, and the
+       icon carrying the accent colour instead of the whole label. -->
   <div
     ref="folderItemRef"
-    class="px-2.5 rounded flex gap-1.5 min-h-7 w-full transition-colors items-center"
+    class="px-2.5 rounded flex gap-2 min-h-7 w-full cursor-pointer transition-colors items-center"
     :class="{
-      'bg-surface-2 text-primary font-medium': active && type === 'normal' && !(hover || dragover),
-      'bg-surface-2': (hover || dragover) && !(active && type === 'normal'),
-      'bg-surface-3 text-primary font-medium': (hover || dragover) && active && type === 'normal',
+      'text-fg-muted': !isActive && !(hover || dragover),
+      'text-fg bg-surface-1': !isActive && (hover || dragover),
+      'text-fg bg-primary/10 font-medium': isActive && !(hover || dragover),
+      'text-fg bg-primary/15 font-medium': isActive && (hover || dragover),
     }"
     @dragover="onDragOver"
     @dragleave="onDragleave"
@@ -54,15 +59,15 @@ defineExpose({
     />
     <i
       v-if="icon"
-      class="flex-shrink-0"
-      :class="icon"
+      class="flex-shrink-0 h-4 w-4"
+      :class="[icon, isActive ? 'text-primary' : 'text-fg-subtle']"
     />
     <div class="flex-grow truncate">
       {{ title }}
     </div>
     <div
       v-if="extraInfo"
-      class="text-xs text-fg-muted font-mono flex-shrink-0"
+      class="text-xs text-fg-subtle font-mono flex-shrink-0 tabular-nums"
     >
       {{ extraInfo }}
     </div>

@@ -174,6 +174,7 @@ function indentOf(row: Row) {
     <div class="px-4 py-3 border-b border-border-default bg-bg/85 top-0 sticky z-10 backdrop-blur">
       <PInput
         v-model="search"
+        variant="plain"
         :placeholder="$t('tagsView.searchPlaceholder')"
         :aria-label="$t('tagsView.searchAria')"
         block

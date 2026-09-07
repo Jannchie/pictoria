@@ -251,7 +251,7 @@ watch(commandPaletteOpen, (open) => {
       :aria-label="$t('command.title')"
       class="border border-border-default rounded-lg bg-surface flex flex-col max-h-[70vh] max-w-[90vw] w-160 shadow-md overflow-hidden"
     >
-      <div class="px-3 border-b border-border-subtle flex shrink-0 gap-2 h-11 items-center">
+      <div class="px-3 border-b border-border-subtle flex shrink-0 gap-2.5 h-12 items-center">
         <i class="i-tabler-search text-fg-subtle shrink-0" aria-hidden="true" />
         <input
           ref="inputRef"
@@ -261,10 +261,10 @@ watch(commandPaletteOpen, (open) => {
           spellcheck="false"
           :placeholder="$t('command.placeholder')"
           :aria-label="$t('command.title')"
-          class="text-sm text-fg outline-none bg-transparent flex-grow"
+          class="text-base text-fg outline-none bg-transparent flex-grow"
           @keydown="onKeydown"
         >
-        <kbd class="text-[10px] text-fg-subtle font-mono px-1.5 py-0.5 border border-border-subtle rounded shrink-0">Esc</kbd>
+        <kbd class="text-2xs text-fg-subtle font-mono px-1.5 py-0.5 border border-border-subtle rounded shrink-0">Esc</kbd>
       </div>
 
       <!-- Parse feedback: shows terms that were understood but matched nothing
@@ -291,7 +291,7 @@ watch(commandPaletteOpen, (open) => {
           <span class="flex-grow truncate">{{ cmd.label }}</span>
           <kbd
             v-if="cmd.hint"
-            class="text-[10px] text-fg-subtle font-mono px-1.5 py-0.5 border border-border-subtle rounded shrink-0"
+            class="text-2xs text-fg-subtle font-mono px-1.5 py-0.5 border border-border-subtle rounded shrink-0"
           >{{ cmd.hint }}</kbd>
         </button>
         <div
@@ -303,7 +303,7 @@ watch(commandPaletteOpen, (open) => {
       </div>
 
       <!-- Syntax cheat line: the DSL is only usable if it's visible. -->
-      <div class="text-[11px] text-fg-subtle px-3 py-1.5 border-t border-border-subtle flex shrink-0 gap-3 overflow-x-auto">
+      <div class="text-xs text-fg-subtle px-3 py-1.5 border-t border-border-subtle flex shrink-0 gap-3 overflow-x-auto">
         <span class="font-mono whitespace-nowrap">rating:&gt;=3</span>
         <span class="font-mono whitespace-nowrap">score:5</span>
         <span class="font-mono whitespace-nowrap">tag:1girl</span>

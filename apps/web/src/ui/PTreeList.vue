@@ -411,8 +411,8 @@ export default defineComponent({
       return (
         <span
           class={[
-            'ml-auto shrink-0 rounded px-1.5 py-0.5 text-[10px] font-mono tabular-nums transition-colors',
-            selected ? 'bg-primary/15 text-primary' : 'text-fg-subtle group-hover/row:text-fg-muted',
+            'ml-auto shrink-0 pl-1.5 text-[10px] font-mono tabular-nums transition-colors',
+            selected ? 'text-primary' : 'text-fg-subtle group-hover/row:text-fg-muted',
           ]}
         >
           {formatNumber(n)}
@@ -431,7 +431,7 @@ export default defineComponent({
           class={[
             ROW_BASE,
             roundedClass.value,
-            isSelected ? 'text-fg bg-primary/10' : 'text-fg-muted hover:bg-surface-1 hover:text-fg',
+            isSelected ? 'text-fg bg-primary/10 hover:bg-primary/15' : 'text-fg-muted hover:bg-surface-1 hover:text-fg',
           ]}
           style={indentStyle(level)}
           onClick={() => emit('update:modelValue', item.value)}
@@ -442,7 +442,6 @@ export default defineComponent({
           {...item.attrs}
         >
           {guidesFor(level, inChain)}
-          {isSelected && <span class="rounded-r-full bg-primary w-[2px] pointer-events-none bottom-1.5 left-0 top-1.5 absolute" />}
           {item.icon && <i class={['h-3.5 w-3.5 shrink-0', item.icon as string]} />}
           {highlight(item.title)}
           {countNode(item.count, isSelected)}
@@ -461,7 +460,7 @@ export default defineComponent({
             ROW_BASE,
             roundedClass.value,
             'text-left',
-            isSelected ? 'text-fg bg-primary/10' : 'text-fg-muted hover:bg-surface-1 hover:text-fg',
+            isSelected ? 'text-fg bg-primary/10 hover:bg-primary/15' : 'text-fg-muted hover:bg-surface-1 hover:text-fg',
           ]}
           style={indentStyle(level)}
           onClick={() => {
@@ -484,7 +483,6 @@ export default defineComponent({
           }}
         >
           {guidesFor(level, inChain)}
-          {isSelected && <span class="rounded-r-full bg-primary w-[2px] pointer-events-none bottom-1.5 left-0 top-1.5 absolute" />}
           <i
             class={[
               'i-tabler-chevron-down h-3.5 w-3.5 shrink-0 text-fg-subtle transition-transform',

@@ -346,9 +346,9 @@ function splitHighlight(text: string, filter: string): HighlightPart[] {
       <div
         role="menu"
         :aria-label="contextTarget?.title"
-        class="text-sm border border-border-default rounded-lg bg-surface min-w-44 shadow-md overflow-hidden"
+        class="text-sm p-1 border border-border-default rounded-md bg-surface min-w-44 shadow-md"
       >
-        <div class="text-xs text-fg-subtle tracking-wide font-semibold px-2.5 py-2 border-b border-border-subtle uppercase">
+        <div class="text-xs text-fg-subtle px-2.5 pb-1.5 pt-1">
           <span class="max-w-60 block truncate">{{ contextTarget?.title ?? $t('sidebar.actions') }}</span>
         </div>
         <PListItem
@@ -385,16 +385,18 @@ function splitHighlight(text: string, filter: string): HighlightPart[] {
         :min-size="8"
         :size="12"
         :max-size="36"
-        class="border-r border-border-default flex flex-col min-w-64"
+        class="border-r border-border-subtle flex flex-col min-w-64"
       >
-        <div class="text-xl tracking-tight font-semibold px-3 py-3 flex shrink-0 gap-2 items-center justify-center">
+        <!-- Wordmark sits on the nav rows' icon column (24px: pane px-2 + row
+             px-4) at body size: it is a label for the pane, not a hero. -->
+        <div class="text-base tracking-tight font-semibold px-6 pb-1.5 pt-3 flex shrink-0 gap-2 items-center">
           <img
             src="/Pictoria.svg"
             alt=""
             aria-hidden="true"
-            width="20"
-            height="20"
-            class="h-5 w-5"
+            width="16"
+            height="16"
+            class="h-4 w-4"
           >
           <span>Pictoria</span>
         </div>
@@ -403,7 +405,7 @@ function splitHighlight(text: string, filter: string): HighlightPart[] {
         </div>
         <div class="px-2 pb-2 flex gap-1.5 items-center">
           <div class="flex-grow relative">
-            <i class="i-tabler-search text-fg-subtle h-3.5 w-3.5 left-2.5 top-1/2 absolute -translate-y-1/2" aria-hidden="true" />
+            <i class="i-tabler-search text-fg-subtle h-3.5 w-3.5 pointer-events-none left-2.5 top-1/2 absolute -translate-y-1/2" aria-hidden="true" />
             <label for="folder-filter-input" class="sr-only">{{ $t('sidebar.filterFolders') }}</label>
             <input
               id="folder-filter-input"
@@ -413,7 +415,7 @@ function splitHighlight(text: string, filter: string): HighlightPart[] {
               autocomplete="off"
               spellcheck="false"
               :placeholder="$t('sidebar.filterFoldersPlaceholder')"
-              class="text-sm text-fg pl-8 pr-7 outline-none border border-border-subtle rounded-md bg-surface h-7 w-full transition-colors focus:border-primary/50 hover:border-border-default focus:bg-bg"
+              class="text-sm text-fg pl-8 pr-7 outline-none border border-border-subtle rounded-md bg-surface-1 h-7 w-full transition-colors placeholder:text-fg-subtle focus:border-primary/60 hover:border-border-default focus:bg-bg"
               @keydown.escape="clearFilter"
             >
             <button
@@ -427,37 +429,32 @@ function splitHighlight(text: string, filter: string): HighlightPart[] {
             </button>
           </div>
           <PPopover v-model="folderSortShow" position="bottom-end">
-            <PButton size="sm" icon variant="secondary" :aria-label="$t('sidebar.sortFolders')" :title="$t('sidebar.sortTitle', { label: sortKeyLabel })">
-              <i class="i-tabler-arrows-sort h-3.5 w-3.5" aria-hidden="true" />
+            <PButton size="sm" icon variant="ghost" :active="folderSortShow" :aria-label="$t('sidebar.sortFolders')" :title="$t('sidebar.sortTitle', { label: sortKeyLabel })">
+              <i class="i-tabler-arrows-sort" aria-hidden="true" />
             </PButton>
             <template #content>
-              <div class="p-popover-panel min-w-36">
-                <div class="flex flex-col gap-1">
-                  <div class="flex gap-1">
-                    <PButton
-                      v-for="order in orderOptions"
-                      :key="order.id"
-                      size="sm"
-                      block
-                      :variant="folderSortOrder === order.id ? 'primary' : 'secondary'"
-                      @click="folderSortOrder = order.id"
-                    >
-                      <i :class="order.icon" aria-hidden="true" />
-                      <span class="flex-grow">{{ $t(order.labelKey) }}</span>
-                    </PButton>
-                  </div>
+              <div class="p-popover-panel min-w-40">
+                <div class="mb-1 pb-1 p-divider flex gap-1">
                   <PButton
-                    v-for="opt in sortOptions"
-                    :key="opt.key"
+                    v-for="order in orderOptions"
+                    :key="order.id"
                     size="sm"
                     block
-                    :variant="folderSortKey === opt.key ? 'primary' : 'secondary'"
-                    @click="folderSortKey = opt.key; folderSortShow = false"
+                    :variant="folderSortOrder === order.id ? 'subtle' : 'ghost'"
+                    @click="folderSortOrder = order.id"
                   >
-                    <i :class="opt.icon" aria-hidden="true" />
-                    <span class="flex-grow">{{ $t(opt.labelKey) }}</span>
+                    <i :class="order.icon" aria-hidden="true" />
+                    <span class="flex-grow">{{ $t(order.labelKey) }}</span>
                   </PButton>
                 </div>
+                <PListItem
+                  v-for="opt in sortOptions"
+                  :key="opt.key"
+                  :icon="opt.icon"
+                  :title="$t(opt.labelKey)"
+                  :active="folderSortKey === opt.key"
+                  @click="folderSortKey = opt.key; folderSortShow = false"
+                />
               </div>
             </template>
           </PPopover>
@@ -488,9 +485,9 @@ function splitHighlight(text: string, filter: string): HighlightPart[] {
                   tabindex="0"
                   :data-tree-value="data.value"
                   :title="data.value"
-                  class="group/row text-sm pr-4 rounded-md flex h-full w-full cursor-pointer transition-colors items-center relative focus-visible:[outline-offset:-2px]"
+                  class="group/row text-sm pr-3 rounded-md flex h-full w-full cursor-pointer transition-colors items-center relative focus-visible:[outline-offset:-2px]"
                   :class="[
-                    isSelected ? 'text-fg bg-primary/10' : 'text-fg-muted hover:bg-surface-1 hover:text-fg',
+                    isSelected ? 'text-fg bg-primary/10 hover:bg-primary/15' : 'text-fg-muted hover:bg-surface-1 hover:text-fg',
                   ]"
                   :style="{ paddingLeft: `${CHEVRON_SLOT + level * LEVEL_INDENT}px` }"
                   @contextmenu.prevent="onItemContext({ data, event: $event })"
@@ -503,10 +500,6 @@ function splitHighlight(text: string, filter: string): HighlightPart[] {
                       inChain && i === level ? 'bg-primary/40' : 'bg-border-subtle',
                     ]"
                     :style="{ left: `${10 + (i - 1) * LEVEL_INDENT}px` }"
-                  />
-                  <span
-                    v-if="isSelected"
-                    class="rounded-r-full bg-primary w-[2px] pointer-events-none bottom-1.5 left-0 top-1.5 absolute"
                   />
                   <div class="flex flex-grow flex-col min-w-0 justify-center">
                     <div class="flex gap-1.5 h-6 items-center">
@@ -531,9 +524,9 @@ function splitHighlight(text: string, filter: string): HighlightPart[] {
                     />
                   </div>
                   <span
-                    class="text-[10px] font-mono ml-1.5 px-1.5 py-0.5 rounded shrink-0 transition-colors tabular-nums"
+                    class="text-[10px] font-mono ml-1.5 shrink-0 transition-colors tabular-nums"
                     :class="[
-                      isSelected ? 'bg-primary/15 text-primary' : 'text-fg-subtle group-hover/row:text-fg-muted',
+                      isSelected ? 'text-primary' : 'text-fg-subtle group-hover/row:text-fg-muted',
                     ]"
                   >
                     {{ formatNumber(data.count ?? 0) }}
@@ -541,7 +534,7 @@ function splitHighlight(text: string, filter: string): HighlightPart[] {
                 </RouterLink>
                 <button
                   type="button"
-                  class="text-fg-subtle rounded flex shrink-0 h-5 w-5 transition items-center top-1/2 justify-center absolute hover:text-fg focus-visible:outline-none hover:bg-surface-2 focus-visible:ring-1 focus-visible:ring-primary/50 -translate-y-1/2"
+                  class="text-fg-subtle rounded flex shrink-0 h-5 w-5 transition-colors items-center top-1/2 justify-center absolute hover:text-fg hover:bg-surface-2 -translate-y-1/2"
                   :style="{ left: `${CHEVRON_SLOT + level * LEVEL_INDENT - 3}px` }"
                   :aria-label="isOpen ? $t('sidebar.collapse') : $t('sidebar.expand')"
                   :aria-expanded="isOpen"
@@ -564,9 +557,9 @@ function splitHighlight(text: string, filter: string): HighlightPart[] {
                 tabindex="0"
                 :data-tree-value="data.value"
                 :title="data.value"
-                class="group/row text-sm pr-4 rounded-md flex h-full w-full cursor-pointer transition-colors items-center relative focus-visible:[outline-offset:-2px]"
+                class="group/row text-sm pr-3 rounded-md flex h-full w-full cursor-pointer transition-colors items-center relative focus-visible:[outline-offset:-2px]"
                 :class="[
-                  isSelected ? 'text-fg bg-primary/10' : 'text-fg-muted hover:bg-surface-1 hover:text-fg',
+                  isSelected ? 'text-fg bg-primary/10 hover:bg-primary/15' : 'text-fg-muted hover:bg-surface-1 hover:text-fg',
                 ]"
                 :style="{ paddingLeft: `${CHEVRON_SLOT + level * LEVEL_INDENT}px` }"
                 @contextmenu.prevent="onItemContext({ data, event: $event })"
@@ -579,10 +572,6 @@ function splitHighlight(text: string, filter: string): HighlightPart[] {
                     inChain && i === level ? 'bg-primary/40' : 'bg-border-subtle',
                   ]"
                   :style="{ left: `${10 + (i - 1) * LEVEL_INDENT}px` }"
-                />
-                <span
-                  v-if="isSelected"
-                  class="rounded-r-full bg-primary w-[2px] pointer-events-none bottom-1.5 left-0 top-1.5 absolute"
                 />
                 <div class="flex flex-grow flex-col min-w-0 justify-center">
                   <div class="flex gap-1.5 h-6 items-center">
@@ -610,9 +599,9 @@ function splitHighlight(text: string, filter: string): HighlightPart[] {
                 </div>
                 <span
                   v-if="data.count != null"
-                  class="text-[10px] font-mono ml-1.5 px-1.5 py-0.5 rounded shrink-0 transition-colors tabular-nums"
+                  class="text-[10px] font-mono ml-1.5 shrink-0 transition-colors tabular-nums"
                   :class="[
-                    isSelected ? 'bg-primary/15 text-primary' : 'text-fg-subtle group-hover/row:text-fg-muted',
+                    isSelected ? 'text-primary' : 'text-fg-subtle group-hover/row:text-fg-muted',
                   ]"
                 >
                   {{ formatNumber(data.count) }}
@@ -645,7 +634,7 @@ function splitHighlight(text: string, filter: string): HighlightPart[] {
         :min-size="12"
         :size="12"
         :max-size="36"
-        class="border-l border-border-default min-w-64"
+        class="border-l border-border-subtle min-w-64"
       >
         <aside :aria-label="$t('rightPanel.aria')" class="h-full">
           <RightPanel />

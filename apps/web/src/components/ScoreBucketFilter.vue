@@ -60,6 +60,8 @@ const btnText = computed(() => {
     <PPopover v-model="opened" position="bottom-start">
       <PButton
         size="sm"
+        :variant="selectedLevels.length > 0 ? 'subtle' : 'secondary'"
+        :active="opened"
       >
         <i :class="icon" />
         <span>{{ btnText }}</span>

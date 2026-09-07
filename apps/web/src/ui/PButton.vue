@@ -1,9 +1,11 @@
 <script setup lang="ts">
+import { computed } from 'vue'
+
 type Variant = 'primary' | 'secondary' | 'ghost' | 'subtle' | 'danger' | 'success' | 'warning' | 'info'
 type Size = 'xs' | 'sm' | 'md' | 'lg'
 type Rounded = 'sm' | 'md' | 'lg' | 'full'
 
-withDefaults(defineProps<{
+const props = withDefaults(defineProps<{
   variant?: Variant
   size?: Size
   rounded?: Rounded
@@ -14,11 +16,15 @@ withDefaults(defineProps<{
   active?: boolean
   type?: 'button' | 'submit' | 'reset'
 }>(), {
-  variant: 'secondary',
   size: 'md',
   rounded: 'md',
   type: 'button',
 })
+
+// An icon-only button carries no label to anchor a filled box, so it defaults
+// to the lightest variant in the set: transparent until hovered. Passing
+// `variant` explicitly still wins (the sort segmented control needs `subtle`).
+const variant = computed<Variant>(() => props.variant ?? (props.icon ? 'ghost' : 'secondary'))
 </script>
 
 <template>
@@ -78,17 +84,30 @@ withDefaults(defineProps<{
   .p-btn:active:not(:disabled) { transform: none; }
 }
 .p-btn--block { width: 100%; }
-.p-btn--icon { padding-inline: 0; aspect-ratio: 1 / 1; }
 
 .p-btn--r-sm  { border-radius: var(--p-radius-sm); }
 .p-btn--r-md  { border-radius: var(--p-radius-md); }
 .p-btn--r-lg  { border-radius: var(--p-radius-lg); }
 .p-btn--r-full{ border-radius: var(--p-radius-full); }
 
-.p-btn--xs { height: var(--p-control-h-xs); padding: 0 var(--p-control-px-xs); font-size: var(--p-text-xs); }
-.p-btn--sm { height: var(--p-control-h-sm); padding: 0 var(--p-control-px-sm); font-size: var(--p-text-xs); }
-.p-btn--md { height: var(--p-control-h-md); padding: 0 var(--p-control-px-md); font-size: var(--p-text-base); }
-.p-btn--lg { height: var(--p-control-h-lg); padding: 0 var(--p-control-px-lg); font-size: var(--p-text-md); }
+.p-btn--xs { --p-btn-h: var(--p-control-h-xs); --p-btn-icon-size: 14px; height: var(--p-btn-h); padding: 0 var(--p-control-px-xs); font-size: var(--p-text-xs); }
+.p-btn--sm { --p-btn-h: var(--p-control-h-sm); --p-btn-icon-size: 16px; height: var(--p-btn-h); padding: 0 var(--p-control-px-sm); font-size: var(--p-text-xs); }
+.p-btn--md { --p-btn-h: var(--p-control-h-md); --p-btn-icon-size: 20px; height: var(--p-btn-h); padding: 0 var(--p-control-px-md); font-size: var(--p-text-base); }
+.p-btn--lg { --p-btn-h: var(--p-control-h-lg); --p-btn-icon-size: 24px; height: var(--p-btn-h); padding: 0 var(--p-control-px-lg); font-size: var(--p-text-md); }
+
+/* Icon-only: exactly square. Declared *after* the size classes on purpose —
+   they set `padding` and `font-size` at the same specificity, so an earlier
+   rule (which is what `padding-inline: 0` + `aspect-ratio` used to be) loses
+   the cascade and leaves the button a horizontal pill. */
+.p-btn--icon {
+  inline-size: var(--p-btn-h);
+  padding: 0;
+  flex: none;
+  /* Iconify glyphs are 1em, so the icon is sized here once instead of at
+     every call site. */
+  font-size: var(--p-btn-icon-size);
+}
+.p-btn--icon.p-btn--block { inline-size: 100%; }
 
 /* Primary — solid brand */
 .p-btn--primary {
@@ -106,12 +125,14 @@ withDefaults(defineProps<{
 .p-btn--secondary {
   background: var(--p-surface-1);
   color: var(--p-fg);
-  border-color: var(--p-border);
+  /* The faintest border in the set: enough of an edge to read as a control,
+     not enough to turn a row of facets into a row of boxes. */
+  border-color: var(--p-border-subtle);
 }
 .p-btn--secondary:hover:not(:disabled),
 .p-btn--secondary.p-btn--active {
   background: var(--p-surface-2);
-  border-color: var(--p-border-strong);
+  border-color: var(--p-border);
 }
 
 /* Ghost — transparent, surface fill on hover */
@@ -129,10 +150,14 @@ withDefaults(defineProps<{
 .p-btn--subtle {
   background: var(--p-primary-soft);
   color: var(--p-primary);
+  /* Same edge as secondary so a filtered facet sits at the same visual
+     weight as an unfiltered one — only the fill changes. */
+  border-color: rgb(var(--p-primary-rgb) / 0.22);
 }
 .p-btn--subtle:hover:not(:disabled),
 .p-btn--subtle.p-btn--active {
   background: rgb(var(--p-primary-rgb) / 0.28);
+  border-color: rgb(var(--p-primary-rgb) / 0.32);
 }
 
 /* Status colors — light variant (soft fill, status fg) */

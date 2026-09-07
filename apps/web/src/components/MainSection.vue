@@ -11,6 +11,7 @@ import { Waterfall } from 'vue-wf'
 import { v2SearchPostsByText } from '@/api'
 import { notUsingInput, useKeyScope, useScoreHotkeys } from '@/composables/useKeyScope'
 import { clear as clearSelection, commitRotate, commitScore, currentPostList, deletePosts, galleryScrollPositions, postFilter, queryKeys, selectAll, selectedCount, selectedIdList, selectOnly, textSearchQuery, useInfinityPostsQuery, waterfallRowCount } from '@/shared'
+import { GRID_GAP, GRID_PAD, GRID_Y_GAP } from '@/shared/gridLayout'
 import { POverlay } from '@/ui'
 import PDialog from '@/ui/PDialog.vue'
 import { isImageExtension } from '@/utils'
@@ -89,10 +90,13 @@ watchEffect(() => {
 const waterfallRef = ref<InstanceType<typeof Waterfall> | null>(null)
 const waterfallWrapperDom = computed(() => waterfallRef.value?.wrapper)
 const waterfallWrapperBounds = useElementBounding(waterfallWrapperDom)
+// Column width from the wrapper: N columns share the width minus the outer
+// padding and the N-1 gaps. `cols` re-derives the count from that width so the
+// skeleton and the Waterfall agree even while the wrapper is still 0 wide.
 const waterfallItemWidth = computed(() => {
-  return Math.floor((waterfallWrapperBounds.width.value - 8 * 2 - 24 * (waterfallRowCount.value - 1)) / waterfallRowCount.value)
+  return Math.floor((waterfallWrapperBounds.width.value - GRID_PAD * 2 - GRID_GAP * (waterfallRowCount.value - 1)) / waterfallRowCount.value)
 })
-const cols = computed(() => Math.floor((waterfallWrapperBounds.width.value + 20 - 8 * 2) / (waterfallItemWidth.value + 20)))
+const cols = computed(() => Math.floor((waterfallWrapperBounds.width.value - GRID_PAD * 2 + GRID_GAP) / (waterfallItemWidth.value + GRID_GAP)))
 const layoutData = computed(() => {
   return waterfallRef.value?.layoutData
 })
@@ -486,22 +490,20 @@ onMounted(() => {
       @select="onMenuSelect"
     >
       <FolderSection />
-      <div v-if="isTextSearchActive && textSearchQueryResult.isLoading.value">
-        <div class="p-16 op-50 flex flex-col gap-2 items-center">
-          <i class="i-tabler-loader text-2xl animate-spin" />
-          <div class="text-sm">
-            {{ $t('gallery.searching', { query: textSearchPrompt }) }}
-          </div>
-        </div>
-      </div>
-      <div v-else-if="isTextSearchActive && textSearchQueryResult.error.value">
-        <div class="text-danger p-16 text-center op-50 flex flex-col gap-2 items-center">
-          <i class="i-tabler-alert-circle text-2xl" />
-          <div class="text-sm">
-            {{ $t('gallery.searchFailed') }}
-          </div>
-        </div>
-      </div>
+      <PEmpty
+        v-if="isTextSearchActive && textSearchQueryResult.isLoading.value"
+        icon="i-tabler-loader animate-spin"
+        class="p-16"
+      >
+        {{ $t('gallery.searching', { query: textSearchPrompt }) }}
+      </PEmpty>
+      <PEmpty
+        v-else-if="isTextSearchActive && textSearchQueryResult.error.value"
+        icon="i-tabler-alert-circle"
+        class="text-danger p-16"
+      >
+        {{ $t('gallery.searchFailed') }}
+      </PEmpty>
       <PEmpty
         v-else-if="isTextSearchActive && posts.length === 0"
         icon="i-tabler-mood-empty"
@@ -531,10 +533,10 @@ onMounted(() => {
         :items="items"
         :item-width="waterfallItemWidth"
         :cols="cols"
-        :gap="24"
-        :padding-x="8"
-        :padding-y="8"
-        :y-gap="36"
+        :gap="GRID_GAP"
+        :padding-x="GRID_PAD"
+        :padding-y="GRID_PAD"
+        :y-gap="GRID_Y_GAP"
         @pointerdown="emptyPointerDown"
       >
         <PostItem
@@ -562,6 +564,8 @@ onMounted(() => {
         </div>
         <PButton
           v-else
+          size="sm"
+          variant="ghost"
           @click="infinityPostsQuery.fetchNextPage()"
         >
           {{ $t('gallery.loadMore') }}

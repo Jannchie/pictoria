@@ -34,30 +34,30 @@ function onAction() {
 <template>
   <div class="px-4 pb-6 flex pointer-events-none bottom-0 left-0 right-0 justify-center fixed z-[var(--p-z-toast)]">
     <Transition name="undo-snackbar">
-      <div
+      <!-- 同一张卡片，只是换了个角落：顶部通知队列用的也是 PToast。这里单条、
+           宽度随内容(fluid)，并把撤销/重做塞进 action 插槽。 -->
+      <PToast
         v-if="data"
-        role="status"
-        aria-live="polite"
-        class="text-sm text-fg px-4 py-3 border border-border-default rounded-xl bg-surface flex gap-3 max-w-full pointer-events-none shadow-md items-center"
+        fluid
+        class="pointer-events-none"
+        :message="data.message"
+        :icon="data.tone === 'error' ? 'i-tabler-alert-triangle' : undefined"
+        icon-color="var(--p-fg-muted)"
       >
-        <i
-          v-if="data.tone === 'error'"
-          class="i-tabler-alert-triangle text-fg-muted flex-shrink-0"
-          aria-hidden="true"
-        />
-        <span class="truncate">{{ data.message }}</span>
-        <button
-          v-if="data.action"
-          type="button"
-          class="text-primary font-medium px-2 py-0.5 rounded flex flex-shrink-0 gap-1 pointer-events-auto transition-colors items-center focus-visible:outline-2 focus-visible:outline-primary focus-visible:outline-offset-2 focus-visible:outline hover:bg-surface-2"
-          @click="onAction"
-          @mouseenter="stop"
-          @mouseleave="start"
-        >
-          <i :class="actionIcon" aria-hidden="true" />
-          {{ actionLabel }}
-        </button>
-      </div>
+        <template #action>
+          <button
+            v-if="data.action"
+            type="button"
+            class="text-primary font-medium px-2 py-0.5 rounded flex flex-shrink-0 gap-1 pointer-events-auto transition-colors items-center focus-visible:outline-2 focus-visible:outline-primary focus-visible:outline-offset-2 focus-visible:outline hover:bg-surface-2"
+            @click="onAction"
+            @mouseenter="stop"
+            @mouseleave="start"
+          >
+            <i :class="actionIcon" aria-hidden="true" />
+            {{ actionLabel }}
+          </button>
+        </template>
+      </PToast>
     </Transition>
   </div>
 </template>

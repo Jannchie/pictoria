@@ -307,6 +307,7 @@ const zhHant: MessageSchema = {
     navigate: '導航',
     select: '選擇',
     switchGroup: '切換分組',
+    pinWindow: '固定視窗',
   },
   annotate: {
     history: {

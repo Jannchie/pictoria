@@ -58,6 +58,8 @@ function getRatingName(rating: number) {
     <PPopover v-model="opened" position="bottom-start">
       <PButton
         size="sm"
+        :variant="sortedSelection.length > 0 ? 'subtle' : 'secondary'"
+        :active="opened"
       >
         <template v-if="sortedSelection.length > 0">
           <i

@@ -26,12 +26,12 @@ html.is-theme-switching *::after {
   --p-brand-900-rgb:  56  36  78;
 
   /* Radius */
-  --p-radius-xs: 4px;
-  --p-radius-sm: 6px;
-  --p-radius-md: 8px;
-  --p-radius-lg: 10px;
-  --p-radius-xl: 14px;
-  --p-radius-2xl: 18px;
+  --p-radius-xs: 3px;
+  --p-radius-sm: 4px;
+  --p-radius-md: 6px;
+  --p-radius-lg: 8px;
+  --p-radius-xl: 10px;
+  --p-radius-2xl: 14px;
   --p-radius-full: 9999px;
 
   /* Spacing */
@@ -130,20 +130,23 @@ html[data-scheme="dark"] {
   --p-primary-active-rgb: var(--p-brand-300-rgb);
   --p-on-primary-rgb:     14 8 22;
 
-  --p-bg-rgb:        20 20 23;
-  --p-surface-rgb:   27 27 31;
-  --p-surface-1-rgb: 34 35 39;
-  --p-surface-2-rgb: 43 44 49;
-  --p-surface-3-rgb: 56 57 63;
+  --p-bg-rgb:        18 18 20;
+  --p-surface-rgb:   25 25 28;
+  --p-surface-1-rgb: 32 32 36;
+  --p-surface-2-rgb: 41 41 46;
+  --p-surface-3-rgb: 54 54 60;
 
-  --p-border-rgb:        52 53 58;
-  --p-border-strong-rgb: 78 79 86;
-  --p-border-subtle-rgb: 42 43 48;
+  --p-border-rgb:        54 54 60;
+  --p-border-strong-rgb: 84 84 92;
+  --p-border-subtle-rgb: 42 42 47;
 
-  --p-fg-rgb:          244 244 245;
-  --p-fg-muted-rgb:    161 161 170;
-  --p-fg-subtle-rgb:   113 113 122;
-  --p-fg-disabled-rgb:  82  82  91;
+  /* Contrast against --p-surface, all AA or better: fg 15:1, muted 8.0:1,
+     subtle 5.0:1. `subtle` carries real text (thumbnail captions, sidebar
+     counts), so it is not allowed to sit at the 3.5:1 it used to. */
+  --p-fg-rgb:          244 244 246;
+  --p-fg-muted-rgb:    176 176 184;
+  --p-fg-subtle-rgb:   138 138 147;
+  --p-fg-disabled-rgb:  88  88  97;
 
   --p-success-rgb: 16 185 129;
   --p-warning-rgb: 245 158 11;
@@ -155,9 +158,9 @@ html[data-scheme="dark"] {
   --p-on-danger-rgb:  255 255 255;
   --p-on-info-rgb:    255 255 255;
 
-  --p-shadow-sm: 0 1px 2px rgb(0 0 0 / 0.4);
-  --p-shadow-md: 0 1px 2px rgb(0 0 0 / 0.4), 0 4px 12px rgb(0 0 0 / 0.45);
-  --p-shadow-lg: 0 8px 24px rgb(0 0 0 / 0.55);
+  --p-shadow-sm: 0 1px 2px rgb(0 0 0 / 0.35);
+  --p-shadow-md: 0 1px 2px rgb(0 0 0 / 0.35), 0 6px 16px rgb(0 0 0 / 0.35);
+  --p-shadow-lg: 0 8px 24px rgb(0 0 0 / 0.5);
 
   color-scheme: dark;
 }
@@ -169,20 +172,22 @@ html[data-scheme="light"] {
   --p-primary-active-rgb: var(--p-brand-800-rgb);
   --p-on-primary-rgb:     255 255 255;
 
-  --p-bg-rgb:        241 242 245;
-  --p-surface-rgb:   251 251 253;
-  --p-surface-1-rgb: 235 236 240;
-  --p-surface-2-rgb: 225 227 232;
-  --p-surface-3-rgb: 210 213 220;
+  --p-bg-rgb:        243 243 245;
+  --p-surface-rgb:   255 255 255;
+  --p-surface-1-rgb: 236 236 239;
+  --p-surface-2-rgb: 227 227 231;
+  --p-surface-3-rgb: 212 212 218;
 
-  --p-border-rgb:        212 216 224;
-  --p-border-strong-rgb: 180 186 198;
-  --p-border-subtle-rgb: 226 228 234;
+  --p-border-rgb:        209 209 216;
+  --p-border-strong-rgb: 176 176 186;
+  --p-border-subtle-rgb: 224 224 229;
 
-  --p-fg-rgb:           26  29  36;
-  --p-fg-muted-rgb:     82  90 107;
-  --p-fg-subtle-rgb:   110 118 137;
-  --p-fg-disabled-rgb: 163 169 182;
+  /* Same targets as dark, measured against --p-bg (the darker of the two
+     grounds text sits on here): muted 6.8:1, subtle 5.3:1. */
+  --p-fg-rgb:           24  24  27;
+  --p-fg-muted-rgb:     82  82  92;
+  --p-fg-subtle-rgb:   100 100 111;
+  --p-fg-disabled-rgb: 160 160 170;
 
   --p-success-rgb:   4 120  87;
   --p-warning-rgb: 180  83   9;
@@ -194,9 +199,9 @@ html[data-scheme="light"] {
   --p-on-danger-rgb:  255 255 255;
   --p-on-info-rgb:    255 255 255;
 
-  --p-shadow-sm: 0 1px 2px rgb(15 23 42 / 0.04);
-  --p-shadow-md: 0 1px 2px rgb(15 23 42 / 0.04), 0 4px 12px rgb(15 23 42 / 0.06);
-  --p-shadow-lg: 0 12px 32px rgb(15 23 42 / 0.08);
+  --p-shadow-sm: 0 1px 2px rgb(0 0 0 / 0.05);
+  --p-shadow-md: 0 1px 2px rgb(0 0 0 / 0.05), 0 6px 16px rgb(0 0 0 / 0.08);
+  --p-shadow-lg: 0 12px 32px rgb(0 0 0 / 0.1);
 
   color-scheme: light;
 }
@@ -240,7 +245,7 @@ html[data-scheme="light"] {
   /* Keyboard-focus ring — one ring for every interactive element. */
   --p-focus-ring: 2px solid rgb(var(--p-primary-rgb) / 0.55);
 
-  --p-primary-soft: rgb(var(--p-primary-rgb) / 0.18);
+  --p-primary-soft: rgb(var(--p-primary-rgb) / 0.16);
   --p-success-soft: rgb(var(--p-success-rgb) / 0.16);
   --p-warning-soft: rgb(var(--p-warning-rgb) / 0.18);
   --p-danger-soft:  rgb(var(--p-danger-rgb) / 0.18);

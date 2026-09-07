@@ -45,7 +45,7 @@ function fmtAvg(value: number | null | undefined, fractionDigits = 2): string {
 
 <template>
   <div
-    class="text-xs text-fg-muted px-2 border-t border-border-default bg-bg flex shrink-0 gap-4 h-24px items-center"
+    class="text-xs text-fg-muted px-2 border-t border-border-subtle bg-bg flex shrink-0 gap-4 h-24px items-center"
   >
     <!-- Pane toggles live here rather than in the panes themselves: a pane's
          own header disappears with it, this one never does. -->

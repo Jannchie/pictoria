@@ -63,6 +63,7 @@ function resetSort() {
     <PButton
       v-if="sortOverriddenBySearch"
       size="sm"
+      variant="ghost"
       disabled
       :title="$t('sort.searchOverride')"
       :aria-label="$t('sort.searchOverride')"
@@ -70,7 +71,7 @@ function resetSort() {
       <i class="i-tabler-arrows-sort" aria-hidden="true" />
       <span class="flex-grow">
         {{ $t('sort.sortBy') }}
-        <span class="font-bold">
+        <span class="font-semibold">
           {{ $t('sort.relevance') }}
         </span>
       </span>
@@ -80,9 +81,13 @@ function resetSort() {
       v-model="show"
       position="bottom-end"
     >
+      <!-- Same rest/active vocabulary as the facet buttons to its left: ghost
+           until a non-default sort is applied, then the primary wash. -->
       <PButton
         size="sm"
         class="sort-main-btn"
+        :variant="isNonDefaultSort ? 'subtle' : 'secondary'"
+        :active="show"
         :class="{ joined: isNonDefaultSort }"
         :aria-label="$t('sort.sortPosts')"
       >
@@ -92,7 +97,7 @@ function resetSort() {
           class="flex-grow"
         >
           {{ $t('sort.sortBy') }}
-          <span class="font-bold">
+          <span class="font-semibold">
             {{ currentSortLabel }}
           </span>
         </span>
@@ -105,72 +110,71 @@ function resetSort() {
       </PButton>
       <template #content>
         <div
-          class="p-popover-panel min-w-36"
+          class="p-popover-panel min-w-44"
         >
-          <div class="flex flex-col gap-1">
-            <div class="mt-1 p-2 border border-border-default rounded flex gap-2 items-center">
-              <div class="flex-grow">
-                <label for="post-sort-color" class="text-xs text-fg-subtle mb-1 block">
-                  {{ $t('sort.sortColor') }}
-                </label>
-                <div class="flex gap-2 items-center">
-                  <div
-                    class="border border-border-default rounded h-6 w-6 overflow-hidden"
-                    :style="{ backgroundColor: postSortColor || '#ffffff' }"
+          <!-- Colour sort: a divider-separated group, not a boxed sub-panel. -->
+          <div class="px-2 pb-2 pt-1 p-divider flex gap-2 items-center">
+            <div class="flex-grow">
+              <label for="post-sort-color" class="text-xs text-fg-subtle mb-1 block">
+                {{ $t('sort.sortColor') }}
+              </label>
+              <div class="flex gap-2 items-center">
+                <div
+                  class="border border-border-default rounded h-5 w-5 overflow-hidden"
+                  :style="{ backgroundColor: postSortColor || '#ffffff' }"
+                >
+                  <input
+                    id="post-sort-color"
+                    v-model="postSortColor"
+                    type="color"
+                    :aria-label="$t('sort.sortColor')"
+                    class="opacity-0 h-full w-full cursor-pointer"
                   >
-                    <input
-                      id="post-sort-color"
-                      v-model="postSortColor"
-                      type="color"
-                      :aria-label="$t('sort.sortColor')"
-                      class="opacity-0 h-full w-full cursor-pointer"
-                    >
-                  </div>
-                  <div class="text-xs font-mono">
-                    {{ postSortColor?.toUpperCase() || $t('sort.colorNone') }}
-                  </div>
+                </div>
+                <div class="text-xs font-mono" :class="postSortColor ? 'text-fg' : 'text-fg-subtle'">
+                  {{ postSortColor?.toUpperCase() || $t('sort.colorNone') }}
                 </div>
               </div>
-              <PButton
-                v-if="postSortColor"
-                icon
-                variant="ghost"
-                :aria-label="$t('sort.clearSortColor')"
-                @click="postSortColor = undefined"
-              >
-                <i class="i-tabler-x" aria-hidden="true" />
-              </PButton>
-            </div>
-            <div class="flex gap-1">
-              <PButton
-                v-for="order in orderOptions"
-                :key="order.id"
-                :disabled="!!postSortColor"
-                size="sm"
-                block
-                :variant="postSortOrder === order.id && !postSortColor ? 'primary' : 'secondary'"
-                @click="postSortOrder = order.id; show = false"
-              >
-                <i :class="order.icon" aria-hidden="true" />
-                <span class="flex-grow">
-                  {{ $t(order.labelKey) }}
-                </span>
-              </PButton>
             </div>
             <PButton
-              v-for="option in sortOptions"
-              :key="option.id"
+              v-if="postSortColor"
+              icon
+              size="sm"
+              variant="ghost"
+              :aria-label="$t('sort.clearSortColor')"
+              @click="postSortColor = undefined"
+            >
+              <i class="i-tabler-x" aria-hidden="true" />
+            </PButton>
+          </div>
+          <div class="my-1 pb-1 p-divider flex gap-1">
+            <PButton
+              v-for="order in orderOptions"
+              :key="order.id"
+              :disabled="!!postSortColor"
               size="sm"
               block
-              :disabled="!!postSortColor"
-              :variant="postSort === option.id && !postSortColor ? 'primary' : 'secondary'"
-              @click="postSort = postSort === option.id ? 'id' : option.id; show = false"
+              :variant="postSortOrder === order.id && !postSortColor ? 'subtle' : 'ghost'"
+              @click="postSortOrder = order.id; show = false"
             >
-              <i :class="option.icon" aria-hidden="true" />
+              <i :class="order.icon" aria-hidden="true" />
               <span class="flex-grow">
-                {{ $t(option.labelKey) }}
+                {{ $t(order.labelKey) }}
               </span>
             </PButton>
+          </div>
+          <div
+            class="flex flex-col"
+            :class="{ 'op-50 pointer-events-none': !!postSortColor }"
+          >
+            <PListItem
+              v-for="option in sortOptions"
+              :key="option.id"
+              :icon="option.icon"
+              :title="$t(option.labelKey)"
+              :active="postSort === option.id && !postSortColor"
+              @click="postSort = postSort === option.id ? 'id' : option.id; show = false"
+            />
           </div>
         </div>
       </template>
@@ -179,6 +183,7 @@ function resetSort() {
       v-if="isNonDefaultSort && !sortOverriddenBySearch"
       size="sm"
       icon
+      variant="subtle"
       class="sort-reset-btn"
       :aria-label="$t('sort.resetSort')"
       :title="$t('sort.resetSort')"
@@ -190,8 +195,8 @@ function resetSort() {
 </template>
 
 <style scoped>
-/* 取消排序按钮做成 Sort 主按钮的“附属”：去掉相邻侧圆角、让边框重叠，
-   两个 sm 按钮拼成一个 segmented 复合按钮。仅在 X 存在(.joined)时抹平主按钮右圆角。 */
+/* 取消排序按钮做成 Sort 主按钮的“附属”：去掉相邻侧圆角，两个 sm 按钮拼成一个
+   segmented 复合按钮。仅在 X 存在(.joined)时抹平主按钮右圆角。 */
 .sort-group :deep(.sort-main-btn.joined) {
   border-top-right-radius: 0;
   border-bottom-right-radius: 0;
@@ -199,11 +204,6 @@ function resetSort() {
 .sort-group :deep(.sort-reset-btn) {
   border-top-left-radius: 0;
   border-bottom-left-radius: 0;
-  margin-left: -1px;
-}
-/* hover 时把该按钮的边框抬到上层，避免重叠处被相邻边框压住 */
-.sort-group :deep(.p-btn:hover) {
-  position: relative;
-  z-index: 1;
+  margin-left: 1px;
 }
 </style>

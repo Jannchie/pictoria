@@ -70,31 +70,70 @@ const currentTags = computed(() => {
   return tags.filter(tag => tag.tagInfo.group?.id === currentGroupId.value)
 })
 
-const initCurrentTags = controlledComputed(() => [currentGroupId.value, postId.value, search.value, postQuery.isFetched.value], () => {
+// 快照「进来时这个 post 已有哪些 tag」，让勾选/取消不会让行在两个分区之间跳。
+// **不依赖 search**：搜索只是视图上的过滤，重算快照会连带把下面整棵列表推翻，
+// 那正是每敲一个字就卡一下的原因。
+const initCurrentTags = controlledComputed(() => [currentGroupId.value, postId.value, postQuery.isFetched.value], () => {
   return currentTags.value
 })
 
-const initCurrentTagNames = computed(() => {
-  return initCurrentTags.value.map(tag => tag.tagInfo.name)
+const initCurrentTagNames = computed(() => new Set(initCurrentTags.value.map(tag => tag.tagInfo.name)))
+// 行的勾选态每渲染一行查一次；库里 tag 上万时线性 some() 是平方级开销。
+const currentTagNames = computed(() => new Set(currentTags.value.map(tag => tag.tagInfo.name)))
+
+/** 只在 tag 表变化时算一次的小写检索串：每次按键重新 toLowerCase 全库太贵。 */
+const searchHaystack = computed(() => {
+  const map = new Map<string, string>()
+  for (const tag of tags.value) {
+    // `|` 只是防止跨字段误匹配的分隔符：tag 名是下划线英文，译名是中日文，都不含它。
+    map.set(tag.name, `${tag.name}|${tag.translatedName ?? ''}`.toLowerCase())
+  }
+  return map
 })
 
-const currentGroupTags = computed(() => {
-  if (currentGroupId.value === undefined) {
-    return tags.value.filter(tag => !initCurrentTagNames.value.includes(tag.name)) ?? []
+// 输入即时回显，过滤走防抖：连打时中间态不值得各跑一遍全库扫描。
+const debouncedSearch = useDebounce(search, 120)
+
+const DISPLAY_LIMIT = 100
+
+/**
+ * 分组过滤 + 排除已选 + 搜索匹配，一次遍历做完，顺带数出命中总数。
+ *
+ * 之前这里是三个链式 computed 加模板里再来一次 `filter().length`，同一份上万行
+ * 的 tag 表每次按键要走四遍。
+ */
+const groupMatches = computed(() => {
+  const q = debouncedSearch.value.toLowerCase()
+  const excluded = initCurrentTagNames.value
+  const haystack = searchHaystack.value
+  const gid = currentGroupId.value
+  const list: typeof tags.value = []
+  let total = 0
+  for (const tag of tags.value) {
+    if (gid !== undefined && tag.group?.id !== gid) {
+      continue
+    }
+    if (excluded.has(tag.name)) {
+      continue
+    }
+    if (q && !haystack.get(tag.name)?.includes(q)) {
+      continue
+    }
+    total++
+    if (list.length < DISPLAY_LIMIT) {
+      list.push(tag)
+    }
   }
-  return tags.value.filter(tag => tag.group?.id === currentGroupId.value).filter(tag => !initCurrentTagNames.value.includes(tag.name)) ?? []
+  return { list, total }
 })
-const displayCurrentGroupTags = computed(() => {
-  // only top 100
-  return currentGroupTags.value.filter(d => isSearchMatch(d)).slice(0, 100)
-})
+const displayCurrentGroupTags = computed(() => groupMatches.value.list)
 
 // 同时匹配原始下划线名与本地化显示名（忽略大小写），中文输入也能搜到 tag。
 function isSearchMatch(tag: { name: string, translatedName?: string | null }) {
-  if (!search.value) {
+  if (!debouncedSearch.value) {
     return true
   }
-  const q = search.value.toLowerCase()
+  const q = debouncedSearch.value.toLowerCase()
   return tag.name.toLowerCase().includes(q) || !!tag.translatedName?.toLowerCase().includes(q)
 }
 
@@ -136,7 +175,7 @@ async function addTag(tagName: string) {
 }
 
 const showAddTag = computed(() => {
-  return search.value !== '' && !tags.value?.some(tag => search.value === tag.name)
+  return search.value !== '' && !searchHaystack.value.has(search.value)
 })
 
 // 行文本：自然英文名为主（去下划线兜底），有翻译时附在后面。
@@ -151,10 +190,11 @@ const initCurrentTagsRef = ref([])
 const currentGroupTagsRef = ref([])
 const addTagRef = ref(null)
 const referenceList = computed<any[]>(() => {
-  const refs = addTagRef.value
+  // 拼接顺序即渲染顺序，也正是 getIndexOfRef 假设的顺序。别按 offsetTop 重排：
+  // 读一次 offsetTop 就强制一次同步布局，排序里读上百次会把输入卡死。
+  return addTagRef.value
     ? [addTagRef.value, ...initCurrentTagsRef.value, ...currentGroupTagsRef.value]
     : [...initCurrentTagsRef.value, ...currentGroupTagsRef.value]
-  return refs.toSorted((a: any, b: any) => a.$el.offsetTop - b.$el.offsetTop)
 })
 
 function getIndexOfRef(type: string, index: number) {
@@ -230,21 +270,32 @@ const searchingInitCurrentTags = computed(() => {
     v-else
     class="text-sm text-fg border border-border-default rounded bg-bg flex flex-col h-96 max-h-96 max-w-96 w-96 shadow-md"
   >
-    <div class="p-2 border-b border-border-default flex gap-2">
+    <!-- The search row is the panel's own top edge: one border-b divides it
+         from the list, and the field carries no frame or focus highlight of
+         its own. Same shape as the command palette. -->
+    <div class="px-3 border-b border-border-default flex shrink-0 gap-2 h-10 items-center">
+      <i class="i-tabler-search text-fg-subtle shrink-0" aria-hidden="true" />
       <PInput
         ref="searchRef"
         v-model="search"
+        variant="plain"
         size="sm"
+        class="!px-0"
         :placeholder="$t('tagSelector.searchPlaceholder')"
         block
       />
       <PButton
         icon
         size="sm"
-        :variant="pinned ? 'primary' : 'secondary'"
+        variant="ghost"
+        :active="pinned"
+        :aria-pressed="pinned"
+        :aria-label="$t('tagSelector.pinWindow')"
+        :title="$t('tagSelector.pinWindow')"
+        class="shrink-0 -mr-1.5"
         @pointerup="pinned = !pinned"
       >
-        <i class="i-tabler-pin" />
+        <i :class="pinned ? 'i-tabler-pin-filled text-primary' : 'i-tabler-pin'" />
       </PButton>
     </div>
     <div class="flex flex-grow overflow-auto">
@@ -279,24 +330,23 @@ const searchingInitCurrentTags = computed(() => {
           />
         </div>
         <div
-          v-if="initCurrentTags.some(tag => isSearchMatch(tag.tagInfo))"
+          v-if="searchingInitCurrentTags.length > 0"
           class="border-b border-border-default"
         >
           <div class="text-xs text-fg-subtle tracking-wider font-medium px-3 py-1.5 uppercase">
             {{ $t('tagSelector.alreadySelected') }} · {{ searchingInitCurrentTags.length }}
           </div>
           <template
-            v-for="tag, i in initCurrentTags"
-            :key="i"
+            v-for="tag, i in searchingInitCurrentTags"
+            :key="tag.tagInfo.name"
           >
             <PListItem
-              v-if="isSearchMatch(tag.tagInfo)"
               ref="initCurrentTagsRef"
-              v-highlight="search"
+              v-highlight="debouncedSearch"
               class="cursor-pointer"
               :data-tag-name="tag.tagInfo.name"
               :title="tagLabel(tag.tagInfo.name, tag.tagInfo.translatedName)"
-              :active="currentTags.some(predicate => predicate.tagInfo.name === tag.tagInfo.name)"
+              :active="currentTagNames.has(tag.tagInfo.name)"
               type="checkbox"
               :class="{
                 'bg-surface-2': currentHoverIndex === getIndexOfRef('current', i),
@@ -308,7 +358,7 @@ const searchingInitCurrentTags = computed(() => {
         </div>
         <div>
           <div class="text-xs text-fg-subtle tracking-wider font-medium px-3 py-1.5 uppercase">
-            {{ $t('tagSelector.all') }} · {{ currentGroupTags.filter(tag => isSearchMatch(tag)).length }}
+            {{ $t('tagSelector.all') }} · {{ groupMatches.total }}
           </div>
           <template
             v-for="tag, i in displayCurrentGroupTags"
@@ -316,11 +366,11 @@ const searchingInitCurrentTags = computed(() => {
           >
             <PListItem
               ref="currentGroupTagsRef"
-              v-highlight="search"
+              v-highlight="debouncedSearch"
               class="cursor-pointer"
               :data-tag-name="tag.name"
               :title="tagLabel(tag.name, tag.translatedName)"
-              :active="currentTags.some(predicate => predicate.tagInfo.name === tag.name)"
+              :active="currentTagNames.has(tag.name)"
               type="checkbox"
               :class="{
                 'bg-surface-2': currentHoverIndex === getIndexOfRef('group', i),
@@ -331,7 +381,7 @@ const searchingInitCurrentTags = computed(() => {
           </template>
         </div>
         <div
-          v-if="displayCurrentGroupTags.length === 100"
+          v-if="groupMatches.total > DISPLAY_LIMIT"
           class="text-xs p-1 text-center op50"
         >
           {{ $t('tagSelector.onlyTop') }}

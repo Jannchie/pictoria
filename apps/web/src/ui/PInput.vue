@@ -2,11 +2,18 @@
 import { ref, useSlots } from 'vue'
 
 type Size = 'sm' | 'md' | 'lg'
+/**
+ * `plain` 是「长在容器里」的输入框：没有自己的边框和底色，聚焦也不高亮。
+ * 用在面板顶部那种本身已经有 border-b 划界的搜索行——再给它一层框，读起来
+ * 就成了浮在面板上的另一个控件。
+ */
+type Variant = 'default' | 'plain'
 
 defineOptions({ inheritAttrs: false })
 
 withDefaults(defineProps<{
   size?: Size
+  variant?: Variant
   placeholder?: string
   disabled?: boolean
   readonly?: boolean
@@ -25,6 +32,7 @@ withDefaults(defineProps<{
   block?: boolean
 }>(), {
   size: 'md',
+  variant: 'default',
   type: 'text',
 })
 
@@ -40,6 +48,7 @@ const hasRight = !!slots.rightSection
     class="p-input"
     :class="[
       `p-input--${size}`,
+      `p-input--v-${variant}`,
       { 'p-input--focused': focused, 'p-input--disabled': disabled, 'p-input--block': block },
     ]"
   >
@@ -82,15 +91,22 @@ const hasRight = !!slots.rightSection
   padding: 0 var(--p-control-px-sm);
   transition:
     border-color var(--p-transition-fast),
-    box-shadow var(--p-transition-fast),
     background-color var(--p-transition-fast);
 }
 .p-input:hover:not(.p-input--disabled) {
   border-color: var(--p-border-strong);
 }
+/* Focus = the border, per the design-system focus rule (inputs highlight the
+   border instead of drawing a ring) — no halo. */
 .p-input--focused {
   border-color: var(--p-primary);
-  box-shadow: 0 0 0 3px rgb(var(--p-primary-rgb) / 0.18);
+  background: var(--p-bg);
+}
+.p-input--v-plain,
+.p-input--v-plain:hover:not(.p-input--disabled),
+.p-input--v-plain.p-input--focused {
+  background: transparent;
+  border-color: transparent;
 }
 .p-input--disabled {
   opacity: 0.55;

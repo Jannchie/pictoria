@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed } from 'vue'
+import { GRID_GAP, GRID_PAD, GRID_Y_GAP } from '@/shared/gridLayout'
 
 // Placeholder grid shown while the first page of posts is in flight. It mirrors
 // the Waterfall's column geometry (same itemWidth / cols / gap) so the real
@@ -32,25 +33,27 @@ const columns = computed(() => {
 
 <template>
   <div
-    class="px-2 py-2 flex gap-6 items-start"
+    class="flex items-start"
+    :style="{ padding: `${GRID_PAD}px`, gap: `${GRID_GAP}px` }"
     aria-hidden="true"
   >
     <div
       v-for="(column, ci) in columns"
       :key="ci"
-      class="flex flex-col gap-9"
-      :style="{ width: itemWidth > 0 ? `${itemWidth}px` : undefined, flex: itemWidth > 0 ? undefined : '1 1 0' }"
+      class="flex flex-col"
+      :style="{ gap: `${GRID_Y_GAP}px`, width: itemWidth > 0 ? `${itemWidth}px` : undefined, flex: itemWidth > 0 ? undefined : '1 1 0' }"
     >
       <div
         v-for="(ratio, ri) in column"
         :key="ri"
-        class="flex flex-col gap-1"
+        class="flex flex-col gap-1.5"
       >
         <div
-          class="rounded-lg bg-surface-1 w-full animate-pulse"
+          class="rounded-md bg-surface-1 w-full animate-pulse"
           :style="{ aspectRatio: String(ratio) }"
         />
-        <div class="rounded bg-surface-1 h-3 w-3/4 self-center animate-pulse" />
+        <!-- One caption line, left-aligned, like PostItem's filename. -->
+        <div class="rounded-xs bg-surface-1 h-3 w-2/3 animate-pulse" />
       </div>
     </div>
   </div>
