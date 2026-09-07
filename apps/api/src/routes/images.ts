@@ -78,6 +78,24 @@ function adler32(input: string): number {
  * 复刻它是为了让浏览器手里的旧缓存仍然能命中 304，而不是从 Hono 切过来之后
  * 全库图片重下一遍。
  */
+/**
+ * `content-disposition` 的文件名部分，对非 ASCII 文件名安全。
+ *
+ * HTTP header 的值是 ByteString（latin-1），塞一个中文字符进去，undici 的
+ * `new Headers()` 直接抛 `TypeError: Cannot convert argument to a ByteString`。
+ * 这条抛在图片路由里，没有 try 接住，于是**浏览一张中文文件名的图就会让整个 API
+ * 进程退出**（dev 下 `node --watch` 再把它拉起来，看着像"偶尔重启"，实际上正在跑的
+ * 后台任务全都跟着死一次 —— 一次两小时的差分仲裁就是这么在 59% 上没的）。
+ *
+ * RFC 6266 的解法是给两份：一份 ASCII 兜底给老客户端，一份 `filename*` 用
+ * RFC 5987 的 UTF-8 百分号编码。所有现代浏览器都优先读后者。
+ */
+export function contentDisposition(name: string): string {
+  // 非 ASCII、引号、反斜杠都换掉：前两者会让 header 非法，反斜杠会让引号转义错位。
+  const fallback = name.replace(/[^\x20-\x7E]/g, '_').replace(/["\\]/g, '_')
+  return `inline; filename="${fallback}"; filename*=UTF-8''${encodeURIComponent(name)}`
+}
+
 function fileResponse(absPath: string): Response {
   let stat: fs.BigIntStats
   try {
@@ -96,7 +114,7 @@ function fileResponse(absPath: string): Response {
 
   const headers = new Headers({
     'cache-control': IMAGE_CACHE,
-    'content-disposition': `inline; filename="${path.basename(absPath)}"`,
+    'content-disposition': contentDisposition(path.basename(absPath)),
     'content-length': String(size),
     'last-modified': new Date(mtime * 1000).toUTCString(),
     'etag': `"${mtime}-${size}-${adler32(absPath)}"`,
