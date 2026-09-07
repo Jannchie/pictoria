@@ -19,13 +19,14 @@ import {
   fetchEmbeddingBlobs,
   listSilvaPending,
   ensureCanonicalTagGroups,
+  listBasicsPending,
   listEmbeddingPending,
   listTaggerPending,
   listWaifuPending,
   persistTaggerResults,
   ratingToInt,
   recordFailures,
-  resetEmbeddingScanMemo,
+  resetScanFloors,
   upsertAestheticScores,
   upsertVectors,
   upsertWaifuScores,
@@ -68,6 +69,9 @@ afterAll(() => {
 beforeEach(() => {
   for (const t of ['post_aesthetic_scores', 'post_process_failures', 'post_vectors_siglip2', 'posts'])
     sqlite.exec(`DELETE FROM ${t}`)
+  // 水位线是连接级的，清表清不掉它。不清的话上一个用例留下的 `MAX(id)+1`
+  // 会让这个用例插进去的低 id 行整批看不见 —— 见 `resetScanFloors` 的注释。
+  resetScanFloors(sqlite)
 })
 
 describe('silva 待办查询', () => {
@@ -111,6 +115,39 @@ describe('silva 待办查询', () => {
     }
     expect(listSilvaPending(sqlite, 'silva')).toEqual([1, 2, 3, 4, 5])
     expect(listSilvaPending(sqlite, 'silva', 3)).toEqual([1, 2, 3])
+  })
+
+  // 水位线在这条查询上比别处松一格：它记的是第一个**候选**，不是第一个 pending。
+  // 一个还没有向量的候选是"这一轮算不了"，不是"已经算完了" —— 推过它就等于
+  // embedding 补上向量之后 silva 再也不回来看它一眼。
+  it('水位线不越过还没有向量的候选', () => {
+    insertPost(1)
+    insertPost(2)
+    sqlite.prepare('INSERT INTO post_vectors_siglip2(post_id, embedding) VALUES (?, ?)').run(BigInt(2), vectorBlob(2))
+    // 1 是候选但没向量，2 有向量 → 这一轮只算得了 2，水位线停在 1
+    expect(listSilvaPending(sqlite, 'silva')).toEqual([2])
+
+    sqlite.prepare('INSERT INTO post_aesthetic_scores(post_id, scorer, score) VALUES (2, \'silva\', 0.5)').run()
+    sqlite.prepare('INSERT INTO post_vectors_siglip2(post_id, embedding) VALUES (?, ?)').run(BigInt(1), vectorBlob(1))
+    expect(listSilvaPending(sqlite, 'silva')).toEqual([1])
+  })
+
+  it('算完的前缀被跳过', () => {
+    for (const id of [1, 2, 3]) {
+      insertPost(id)
+      sqlite.prepare('INSERT INTO post_vectors_siglip2(post_id, embedding) VALUES (?, ?)').run(BigInt(id), vectorBlob(id))
+    }
+    expect(listSilvaPending(sqlite, 'silva')).toEqual([1, 2, 3])
+
+    sqlite.prepare('INSERT INTO post_aesthetic_scores(post_id, scorer, score) VALUES (1, \'silva\', 0.5)').run()
+    expect(listSilvaPending(sqlite, 'silva')).toEqual([2, 3])
+    // 全部算完 → 水位线推到 MAX(id)+1，之后的新 post 照样看得见
+    for (const id of [2, 3])
+      sqlite.prepare('INSERT INTO post_aesthetic_scores(post_id, scorer, score) VALUES (?, \'silva\', 0.5)').run(id)
+    expect(listSilvaPending(sqlite, 'silva')).toEqual([])
+    insertPost(4)
+    sqlite.prepare('INSERT INTO post_vectors_siglip2(post_id, embedding) VALUES (?, ?)').run(BigInt(4), vectorBlob(4))
+    expect(listSilvaPending(sqlite, 'silva')).toEqual([4])
   })
 })
 
@@ -415,29 +452,26 @@ describe('embedding 向量落库', () => {
   })
 })
 
-// 这条循环的两次全扫要 401 ms（真实库实测），而它每 30 秒跑一次、库全算完之后也照跑。
-// vec0 是虚表，`NOT EXISTS (SELECT 1 FROM vec WHERE post_id = p.id)` 不走 rowid 点查
-// 而是每行全扫一遍虚表（实测 7,335 ms，反而慢 18 倍），所以只能靠跳过整轮来省。
-describe('embedding 待办扫描的指纹门控', () => {
-  beforeEach(() => {
-    resetEmbeddingScanMemo(sqlite)
-  })
-
+// 这条循环的两次全扫要 401 ms（真实库实测），每一批都付一次。vec0 是虚表，
+// `NOT EXISTS (SELECT 1 FROM vec WHERE post_id = p.id)` 不走 rowid 点查而是每行全扫
+// 一遍虚表（实测 7,335 ms，反而慢 18 倍），所以只能靠把扫描范围压到库尾来省。
+describe('embedding 待办扫描的水位线', () => {
   it('待办清空后重复调用直接短路', () => {
     insertPost(1)
     upsertVectors(sqlite, [{ postId: 1, embedding: vectorBlob(1) }])
     expect(listEmbeddingPending(sqlite, '/lib')).toEqual([])
 
-    // 指纹已记下。把向量删掉但不动 posts —— 门控看不到这个变化，仍然短路。
-    // 这正是设计意图：待办只会因为**新 post** 而出现，没有别的来源。
+    // 水位线已推到 MAX(id)+1。把向量删掉但不动 posts —— post 1 的 id 在水位线
+    // **以下**，扫描根本不会走到它。这正是那段 ⚠️ 说的缺口：让老 post 重新变成
+    // 待办的写路径必须自己调 wakeAllBackfills()，否则它永远不再被碰。
     sqlite.exec('DELETE FROM post_vectors_siglip2')
     expect(listEmbeddingPending(sqlite, '/lib')).toEqual([])
 
-    resetEmbeddingScanMemo(sqlite)
+    resetScanFloors(sqlite)
     expect(listEmbeddingPending(sqlite, '/lib').map(p => p.postId)).toEqual([1])
   })
 
-  it('有新 post 时指纹失效，重新扫出来', () => {
+  it('新 post 的 id 在水位线之上，照样扫得出来', () => {
     insertPost(1)
     upsertVectors(sqlite, [{ postId: 1, embedding: vectorBlob(1) }])
     expect(listEmbeddingPending(sqlite, '/lib')).toEqual([])
@@ -446,11 +480,95 @@ describe('embedding 待办扫描的指纹门控', () => {
     expect(listEmbeddingPending(sqlite, '/lib').map(p => p.postId)).toEqual([2])
   })
 
-  it('这一轮有待办就不记指纹（下一轮还得接着扫）', () => {
+  it('水位线停在第一个待办上，不越过它', () => {
     insertPost(1)
     insertPost(2)
     expect(listEmbeddingPending(sqlite, '/lib').map(p => p.postId)).toEqual([1, 2])
-    // 没有任何东西变，但因为上一轮非空，这一轮照样得跑完整查询
+    // 什么都没算完，所以水位线还压在 1 上 —— 两条都得再扫出来。
     expect(listEmbeddingPending(sqlite, '/lib').map(p => p.postId)).toEqual([1, 2])
   })
+
+  it('算完的前缀被跳过，剩下的照常扫出来', () => {
+    insertPost(1)
+    insertPost(2)
+    insertPost(3)
+    expect(listEmbeddingPending(sqlite, '/lib').map(p => p.postId)).toEqual([1, 2, 3])
+
+    // 只算完 1。水位线该推到 2，而 3 不能被带过去。
+    upsertVectors(sqlite, [{ postId: 1, embedding: vectorBlob(1) }])
+    expect(listEmbeddingPending(sqlite, '/lib').map(p => p.postId)).toEqual([2, 3])
+    upsertVectors(sqlite, [{ postId: 2, embedding: vectorBlob(2) }])
+    expect(listEmbeddingPending(sqlite, '/lib').map(p => p.postId)).toEqual([3])
+  })
+
+  it('force 把水位线清零，重新看得见老 post', () => {
+    insertPost(1)
+    upsertVectors(sqlite, [{ postId: 1, embedding: vectorBlob(1) }])
+    expect(listEmbeddingPending(sqlite, '/lib')).toEqual([])
+
+    sqlite.exec('DELETE FROM post_vectors_siglip2')
+    expect(listEmbeddingPending(sqlite, '/lib')).toEqual([])
+    expect(listEmbeddingPending(sqlite, '/lib', undefined, { force: true }).map(p => p.postId)).toEqual([1])
+  })
+})
+
+// 四条"查 posts 单行状态"的待办查询共用同一条水位线规则（第一个待办 / MAX(id)+1）。
+// silva 是例外，它的水位线记的是第一个候选，单独在上面测。
+describe('待办水位线（waifu / tagger / basics）', () => {
+  /** 让 post 在这个 worker 眼里变成"已算完"。 */
+  const complete: Record<string, (id: number) => void> = {
+    waifu: id => sqlite.prepare('INSERT INTO post_waifu_scores(post_id, score) VALUES (?, 0.5)').run(id) as never,
+    tagger: (id) => {
+      sqlite.prepare('INSERT INTO tag_groups(name, color) VALUES (?, ?) ON CONFLICT DO NOTHING').run('general', '#000000')
+      sqlite.prepare('INSERT INTO tags(name) VALUES (?) ON CONFLICT DO NOTHING').run(`t${id}`)
+      sqlite.prepare('INSERT INTO post_has_tag(post_id, tag_name, is_auto) VALUES (?, ?, 1)').run(id, `t${id}`)
+    },
+    basics: id => sqlite
+      .prepare('UPDATE posts SET sha256 = ?, arthash = ?, dominant_color = vec_f32(?) WHERE id = ?')
+      .run(`h${id}`, `a${id}`, '[0.1,0.2,0.3]', id) as never,
+  }
+  const list: Record<string, () => number[]> = {
+    waifu: () => listWaifuPending(sqlite, '/lib').map(p => p.postId),
+    tagger: () => listTaggerPending(sqlite, '/lib').map(p => p.postId),
+    basics: () => listBasicsPending(sqlite, '/lib').map(p => p.postId),
+  }
+
+  for (const worker of ['waifu', 'tagger', 'basics']) {
+    it(`${worker}：算完的前缀被跳过，新 post 照样看得见`, () => {
+      for (const id of [1, 2, 3]) insertPost(id)
+      expect(list[worker]!()).toEqual([1, 2, 3])
+
+      complete[worker]!(1)
+      expect(list[worker]!()).toEqual([2, 3])
+      complete[worker]!(2)
+      complete[worker]!(3)
+      expect(list[worker]!()).toEqual([])
+
+      // 水位线在 MAX(id)+1 上，新 post 的 id 更大 —— 不需要 force 就扫得到
+      insertPost(4)
+      expect(list[worker]!()).toEqual([4])
+    })
+
+    it(`${worker}：水位线以下重新变成待办的行要靠 force 才看得见`, () => {
+      insertPost(1)
+      complete[worker]!(1)
+      expect(list[worker]!()).toEqual([])
+
+      // 手工撤销"已算完"：id 在水位线以下，扫描走不到它
+      if (worker === 'waifu')
+        sqlite.exec('DELETE FROM post_waifu_scores')
+      else if (worker === 'tagger')
+        sqlite.exec('DELETE FROM post_has_tag')
+      else
+        sqlite.prepare('UPDATE posts SET sha256 = ?, arthash = NULL, dominant_color = NULL').run('')
+      expect(list[worker]!()).toEqual([])
+
+      const forced = worker === 'waifu'
+        ? listWaifuPending(sqlite, '/lib', undefined, { force: true })
+        : worker === 'tagger'
+          ? listTaggerPending(sqlite, '/lib', undefined, { force: true })
+          : listBasicsPending(sqlite, '/lib', undefined, { force: true })
+      expect(forced.map(p => p.postId)).toEqual([1])
+    })
+  }
 })

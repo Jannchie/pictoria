@@ -139,7 +139,7 @@ tagWritesRoutes.openapi(
   (c) => {
     deleteTag(getDb().sqlite, c.req.valid('param').name)
     // `post_has_tag` 走 FK 级联，这一下可能剥掉很多图的最后一个自动标签 —— 那些图
-    // 重新变成 tagger 待办，而待办查询的指纹门只认 `MAX(id)` 变化，不叫醒的话它们
+    // 重新变成 tagger 待办，而它们的 id 都在待办查询的水位线**以下**，不叫醒的话
     // 会静默地永远不被重新打标。
     wakeAllBackfills()
     return c.body(null, 204) as never

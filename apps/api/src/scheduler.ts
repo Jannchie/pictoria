@@ -90,7 +90,7 @@ function batchKey(prefix: string, ids: number[]): string {
 
 export interface BackfillHandle {
   stop: () => void
-  /** 立刻结束这一轮空等，并让下一轮**强制重扫**（绕开待办查询的指纹门）。 */
+  /** 立刻结束这一轮空等，并让下一轮**强制重扫**（把待办查询的水位线清零）。 */
   wake: () => void
 }
 
@@ -105,10 +105,10 @@ const handles = new Set<BackfillHandle>()
 /**
  * 叫醒全部 backfill 循环，并让它们下一轮**强制重扫一次**。
  *
- * ⚠️ 第二件事是这个函数现在**必须**做的，不是顺带的优化。五个待办查询都带了指纹门
- * （`packages/db` 的 `scanMemo`）：上一轮扫出来是空、而 `posts` 的 `MAX(id)` 没变，
- * 就直接返回空、连查都不查。那道门只覆盖"有新 post 进来"这一种新工作来源，而别的
- * 来源不动 `MAX(id)`：
+ * ⚠️ 第二件事是这个函数现在**必须**做的，不是顺带的优化。五个待办查询都带了水位线
+ * （`packages/db` 的 `scanFloor`）：每条循环记着一个"这个 id 以下已经确认没有待办"的
+ * 下界，查询只从那儿往后扫。待办的**主要**来源是新 post（id 更大，天然在水位线之上），
+ * 而别的来源会让一个 id 在水位线**以下**的老 post 重新变成待办：
  *
  * * 清空 `post_process_failures` 黑名单（一批被拉黑的图重新变成待办）；
  * * 手工摘掉一张图最后一个 `is_auto = 1` 标签（重新变成 tagger 待办）；
@@ -116,12 +116,12 @@ const handles = new Set<BackfillHandle>()
  * * 把 `sha256` / `arthash` / `dominant_color` 清回空值（重新变成 basics 待办）。
  *
  * 这些路径**每一条**都得走到这里。漏掉一条的表现是**完全静默的**：没有异常、没有
- * 日志，那张图就是永远不再被 backfill 碰一下，直到下一个新 post 把 `MAX(id)` 顶上去
- * 才顺带解冻。这是这道门最大的风险，也是它唯一的正确性前提。
+ * 日志，那张图就是永远不再被 backfill 碰一下。这是这道门最大的风险，也是它唯一的
+ * 正确性前提。
  *
- * 实现上不是"清 memo"而是给每条循环立一个 `force` 标志：memo 长在 `packages/db` 里、
- * 按连接存，而循环本来就要被叫醒 —— 让同一个信号顺手把下一轮的 `{ force: true }`
- * 带进去，比再导出一个"按连接清 memo"的函数少一条能忘掉的路。
+ * 实现上不是"清水位线"而是给每条循环立一个 `force` 标志：水位线长在 `packages/db`
+ * 里、按连接存，而循环本来就要被叫醒 —— 让同一个信号顺手把下一轮的 `{ force: true }`
+ * 带进去，比再导出一个"按连接清水位线"的函数少一条能忘掉的路。
  */
 export function wakeAllBackfills(): void {
   for (const h of handles) h.wake()
@@ -158,7 +158,7 @@ function sleep(ms: number, signal: AbortSignal, waker: { resolve?: () => void })
  * `IDLE_MS`。**串行**：GPU 一次只跑一个批次，多提交只是让任务在队列里排着，除了把
  * 内存花在 payload 上什么也换不到。
  *
- * `tick` 收到的 `force` 是 `wake()` 立的旗：这一轮的待办查询要绕开指纹门重新全扫
+ * `tick` 收到的 `force` 是 `wake()` 立的旗：这一轮的待办查询要清掉水位线重新全扫
  * （理由见 `wakeAllBackfills`）。读了就清，而 wake() 可能发生在一次 tick 正跑到一半
  * 的时候 —— 那时 `waker.resolve` 是 undefined（没在空等），旗子就是唯一还留得住这个
  * 信号的东西，它会被**下一轮**读走。读和清之间没有 await，所以中间插不进 wake()。

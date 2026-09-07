@@ -29,55 +29,71 @@ export function notFailedClause(alias = 'p'): string {
   return `NOT EXISTS (SELECT 1 FROM post_process_failures f WHERE f.post_id = ${alias}.id AND f.worker = ?)`
 }
 
-// ─── 待办扫描的指纹门控 ────────────────────────────────────────────────
+// ─── 待办扫描的水位线 ──────────────────────────────────────────────────
 
 /**
- * 上一次"扫出来是空"的那一刻 `posts` 的 `MAX(id)`，按**连接**、按**循环**存。
+ * 「这个 id 以下已经确认没有待办了」的水位线，按**连接**、按**循环**存。
  *
- * 五个 `list*Pending` 都由调度器每 `IDLE_MS`（30 秒）调一轮，而库全算完之后它们
- * **恒返回 0 行** —— 那份工作 100% 是白干的。真实库（`posts` 229,129 行、
- * `post_has_tag` 12,094,557 行）实测一轮同步阻塞约 650 ms（warm）/ 2.7 s（cold），
- * tagger 那条 `NOT EXISTS` 打在 1209 万行上独占其中的 400~700 ms。better-sqlite3
- * 是同步的，所以这就是每 30 秒把事件循环占住一次，永远。
+ * 五个 `list*Pending` 的形状都是"按 `p.id` 升序、扫到够数为止"，而待办**总是在库尾**
+ * （新 post 的 id 最大，老 post 早就算完了）。没有下界的话，每一批都要从 id=1 开始
+ * 把整张 `posts` 逐行探一遍才碰到第一个候选：真实库（`posts` 232,240 行、
+ * `post_has_tag` 12,373,331 行）实测一批的代价是 basics 214 ms、waifu 287 ms、
+ * embedding 531 ms、silva ×2 各 ~440 ms、tagger 1,811 ms —— 六条循环一轮**约 3.7 秒**
+ * 的同步阻塞。better-sqlite3 是同步的，所以那 3.7 秒里事件循环上的一切都停着。
  *
- * 指纹是 `posts` 的 `MAX(id)` —— 一次 O(log n) 的主键探测，亚毫秒。新 post 是待办的
- * **主要**来源，而 id 是 AUTOINCREMENT、永不复用，所以任何新 post 都严格增大
- * MAX(id)：指纹没变 + 上一轮扫出来是空 ⇒ 这一轮也是空。
+ * 空闲时这还只是每 30 秒一次，但大规模导入期间待办**持续非空**，六条循环各自
+ * "算完一批立刻扫下一批"，于是这 3.7 秒变成几乎连续的 —— 这就是导入时其它 API
+ * 请求会卡住的原因。
  *
- * 有意**不**掺 `COUNT(*)`：它多检测到的只有删除，而删除永远不产生待办，却会击穿
- * 这道门 —— 每 tick 删一张图的工作流会让全库已算完的库每 30 秒白付一次全扫；且
- * 稳态下 COUNT 本身就是一次全表扫。
+ * 水位线把它变成主键上的一次范围定位：查询加一条 `p.id >= ?`，同一批实测
+ * tagger 2.1 ms、waifu 0.4 ms、basics 0.2 ms。
  *
- * ⚠️⚠️ **`MAX(id)` 不是待办的唯一来源，这是整套门控唯一的、也是会致命的缺口。**
+ * 推进规则只有两条，两条都是"扫描本身已经证明了的事"：
+ *
+ * * 这一轮扫出了候选 → 水位线落在**第一个候选**的 id 上。查询按 id 升序，所以它
+ *   之前的每一行都被判定过、都不是待办。
+ * * 这一轮一条都没扫到 → 水位线落在**扫描开始那一刻**的 `MAX(id) + 1`。
+ *   （`maxPostId` 必须在查询**之前**读：查询期间插进来的新 post id 更大，读在后面
+ *   就会把它们一起跳过，表现是新导入的图永远不被 backfill 碰。）
+ *
+ * ⚠️⚠️ **不变式只对"单行状态从待办变成已完成"成立，反方向必须靠 `force`。**
  * 清空 `post_process_failures` 黑名单、手工摘掉某张图最后一个 `is_auto` 标签、删掉
- * 某个 scorer 的分数行 —— 这些都会造出新待办，而一条也不动 `MAX(id)`。门控命中的
+ * 某个 scorer 的分数行、把 `sha256`/`arthash`/`dominant_color` 清回空值 —— 这些都会
+ * 让一个 id **低于**水位线的老 post 重新变成待办，而水位线不会自己退回去。命中的
  * 表现是**静默的**：没有报错、没有日志，backfill 就是永远不再动那张图。所以每一条
- * "产生了新工作但 MAX(id) 没变"的路径都必须走到 `wakeAllBackfills()`
+ * "让老 post 重新变成待办"的路径都必须走到 `wakeAllBackfills()`
  * （`apps/api/src/scheduler.ts`），它会给每条循环立一个 `force` 标志，下一轮带
- * `{ force: true }` 进来把这道门整个绕开、强制重扫一次。加新的这类写点时，漏掉那一句
- * 的代价就是 backfill 永久停摆。
+ * `{ force: true }` 进来把水位线清零、从头重扫一次。加新的这类写点时，漏掉那一句
+ * 的代价就是那些 post 永久停在待办状态。
+ *
+ * 这一段替换掉的是原来的 `MAX(id)` 指纹门（"上一轮扫空且 MAX(id) 没变就跳过"）。
+ * 逃生通道和风险面与那一版**完全相同** —— 同样是 `force`、同样是那几条写路径；
+ * 差别在于指纹门只在**全库算完**时才省得下钱（一有待办就整个失效，而那正是导入
+ * 期间的常态），水位线则是每一批都省。空库/空扫的场景两者等价：`MAX(id)+1` 的
+ * 水位线让下一轮的 `p.id >= ?` 直接定位到表尾，扫 0 行。
  *
  * 按**连接**存而不是整个模块存一份：这个包里其它函数都是 `(sqlite, args)` 的纯形式，
- * 一份模块级单例会让同进程里的两条连接（测试、脚本、将来的只读副本）共用一个指纹，
- * 而两个库恰好同 max id 时的表现是"待办被永久判成空"。`WeakMap` 让它跟着连接一起消失。
+ * 一份模块级单例会让同进程里的两条连接（测试、脚本、将来的只读副本）共用一条水位线，
+ * 而两个库的 id 空间不同，表现是一个库的待办被另一个库的进度永久跳过。`WeakMap`
+ * 让它跟着连接一起消失。
  *
- * 按**循环**存（`Map<key, maxId>`）而不是一个共用值：六条循环各自消化待办的进度不同，
- * 共用一个指纹会让先扫空的那条把还有活的那条一起关掉。
+ * 按**循环**存（`Map<key, floor>`）而不是一个共用值：六条循环各自消化待办的进度不同，
+ * 共用一条水位线会让跑得快的那条把还有活的那条一起推过头。
  */
-const scanMemo = new WeakMap<BetterSqlite3.Database, Map<string, number>>()
+const scanFloor = new WeakMap<BetterSqlite3.Database, Map<string, number>>()
 
 /** 五个待办查询共用的可选参数。 */
 export interface PendingScanOpts {
   /**
-   * 绕过指纹门，强制这一次重新全扫（并丢掉已记下的指纹）。
+   * 把水位线清零，强制这一次从 id=1 重新全扫。
    *
-   * 由 `wakeAllBackfills()` 一路传下来 —— 见上面那段 ⚠️：它是"新工作出现了但
-   * `MAX(id)` 没变"唯一的逃生通道。
+   * 由 `wakeAllBackfills()` 一路传下来 —— 见上面那段 ⚠️：它是"低于水位线的老 post
+   * 重新变成待办"唯一的逃生通道。
    */
   force?: boolean
 }
 
-/** 指纹本身。主键探测，亚毫秒。 */
+/** 扫描开始那一刻的 `MAX(id)`。主键探测，亚毫秒。 */
 function maxPostId(sqlite: BetterSqlite3.Database): number {
   return sqlite
     .prepare<[], { max_id: number }>('SELECT COALESCE(MAX(id), 0) AS max_id FROM posts')
@@ -85,26 +101,65 @@ function maxPostId(sqlite: BetterSqlite3.Database): number {
     .max_id
 }
 
-/** 这一轮能不能直接短路。`force` 除了返回 false 还要把旧指纹删掉，否则下一轮又被挡住。 */
-function memoHit(sqlite: BetterSqlite3.Database, key: string, maxId: number, force: boolean): boolean {
+/** 这一轮该从哪个 id 开始扫。`force` 除了返回 0 还要把旧水位删掉，否则下一轮又被推回去。 */
+function readFloor(sqlite: BetterSqlite3.Database, key: string, force: boolean): number {
   if (force) {
-    scanMemo.get(sqlite)?.delete(key)
-    return false
+    scanFloor.get(sqlite)?.delete(key)
+    return 0
   }
-  return scanMemo.get(sqlite)?.get(key) === maxId
+  return scanFloor.get(sqlite)?.get(key) ?? 0
 }
 
-/** 只有"这一轮确实一条待办都没有"才记指纹；有待办就清掉 —— 下一轮还得回来接着扫。 */
-function memoWrite(sqlite: BetterSqlite3.Database, key: string, maxId: number, empty: boolean): void {
-  let per = scanMemo.get(sqlite)
+/** 记下这一轮证明出来的新水位。`floor` 由调用方按上面那两条规则算好。 */
+function writeFloor(sqlite: BetterSqlite3.Database, key: string, floor: number): void {
+  let per = scanFloor.get(sqlite)
   if (!per) {
     per = new Map()
-    scanMemo.set(sqlite, per)
+    scanFloor.set(sqlite, per)
   }
-  if (empty)
-    per.set(key, maxId)
-  else
-    per.delete(key)
+  per.set(key, floor)
+}
+
+/**
+ * 带水位线的待办扫描 —— `listWaifuPending` / `listTaggerPending` / `listBasicsPending`
+ * 共用的那一半。
+ *
+ * 三条循环差的只有"什么算待办"（`where`，外加 waifu 需要的那条 LEFT JOIN）和要取哪几列；
+ * 水位线的读写、`p.id >= ?` 的下界、扩展名与黑名单过滤、`ORDER BY p.id` 加可选 `LIMIT`、
+ * 以及参数的拼装顺序在三处逐字相同。收在这里的**主要**理由不是省那 40 行，而是
+ * `scanFloor` 那段注释里的两条推进规则和一条读取顺序（`maxPostId` 必须在查询之前读，
+ * 否则查询期间插进来的新 post 会被永久跳过）现在只有一处实现能违反。
+ */
+function scanByFloor<R extends { id: number }>(
+  sqlite: BetterSqlite3.Database,
+  opts: {
+    /** 水位线的键。六条循环各存各的，见 `scanFloor`。 */
+    key: string
+    /** `post_process_failures` 的 worker 列值。 */
+    workerKey: string
+    /** `SELECT` 之后、`FROM posts p` 之前的列清单。 */
+    columns: string
+    /** 可选的 JOIN 片段，接在 `FROM posts p` 之后。 */
+    join?: string
+    /** 这条循环自己的"算待办"条件，与下界和公共过滤 AND 在一起。 */
+    where: string
+    limit?: number
+    force: boolean
+  },
+): R[] {
+  const floor = readFloor(sqlite, opts.key, opts.force)
+  // 必须在查询**之前**读，理由见 `scanFloor` 的注释。
+  const maxId = maxPostId(sqlite)
+
+  const sql
+    = `SELECT ${opts.columns} FROM posts p ${opts.join ?? ''}`
+      + `WHERE p.id >= ? AND ${opts.where} AND ${IMAGE_EXT_WHERE} AND ${notFailedClause('p')} `
+      + `ORDER BY p.id${opts.limit === undefined ? '' : ' LIMIT ?'}`
+  const params: unknown[] = [floor, opts.workerKey, ...(opts.limit === undefined ? [] : [opts.limit])]
+  const rows = sqlite.prepare<unknown[], R>(sql).all(...params)
+
+  writeFloor(sqlite, opts.key, rows[0]?.id ?? maxId + 1)
+  return rows
 }
 
 /**
@@ -125,39 +180,46 @@ export function listSilvaPending(
   limit?: number,
   { force = false }: PendingScanOpts = {},
 ): number[] {
-  // 一个 scorer 一个指纹：silva 打完了不该把还在跑的 silva_luna 一起关掉。
+  // 一个 scorer 一条水位线：silva 打完了不该把还在跑的 silva_luna 一起推过头。
   const key = `silva:${scorer}`
+  const floor = readFloor(sqlite, key, force)
   const maxId = maxPostId(sqlite)
-  if (memoHit(sqlite, key, maxId, force))
-    return []
 
   const rows = sqlite
-    .prepare<[string, string], { id: number }>(
+    .prepare<[number, string, string], { id: number }>(
       `SELECT p.id FROM posts p `
-      + `WHERE NOT EXISTS (SELECT 1 FROM ${AESTHETIC_SCORES_TABLE} pas WHERE pas.post_id = p.id AND pas.scorer = ?) `
+      + `WHERE p.id >= ? `
+      + `AND NOT EXISTS (SELECT 1 FROM ${AESTHETIC_SCORES_TABLE} pas WHERE pas.post_id = p.id AND pas.scorer = ?) `
       + `AND ${notFailedClause('p')} `
       + `ORDER BY p.id`,
     )
-    .iterate(scorer, aestheticWorkerKey(scorer))
+    .iterate(floor, scorer, aestheticWorkerKey(scorer))
 
-  // 那次 vec0 全扫（78 ms）推迟到**真的出现第一个候选**才付：全库打完分之后候选恒为
-  // 空，被 wakeAllBackfills 强制重扫的那些轮次也就不必白扫一遍虚表。
+  // 那次 vec0 扫描推迟到**真的出现第一个候选**才付：全库打完分之后候选恒为空，
+  // 被 wakeAllBackfills 强制重扫的那些轮次也就不必白扫一遍虚表。
   // better-sqlite3 允许在一个迭代器打开期间跑别的**读**语句（写才会报
   // "database connection is busy"），所以懒加载放在循环里是安全的。
   let embedded: Set<number> | undefined
   const pending: number[] = []
+  // 水位线记的是**第一个候选**，不是第一个 pending：候选里没向量的那些仍然是待办
+  // （只是这一轮还算不了），把水位推过它们等于等它们拿到向量之后再也不来看一眼。
+  let firstCandidate: number | undefined
   for (const row of rows) {
+    firstCandidate ??= row.id
     // 判断放在 push 之前：limit === 0 时要返回空，而不是"至少一个"。
     if (limit !== undefined && pending.length >= limit)
       break
     embedded ??= new Set(
-      sqlite.prepare<[], { post_id: number }>(`SELECT post_id FROM ${SIGLIP2_TABLE}`).all().map(r => r.post_id),
+      sqlite
+        .prepare<[number], { post_id: number }>(`SELECT post_id FROM ${SIGLIP2_TABLE} WHERE post_id >= ?`)
+        .all(floor)
+        .map(r => r.post_id),
     )
     if (embedded.has(row.id))
       pending.push(row.id)
   }
 
-  memoWrite(sqlite, key, maxId, pending.length === 0)
+  writeFloor(sqlite, key, firstCandidate ?? maxId + 1)
   return pending
 }
 
@@ -226,8 +288,7 @@ export interface PendingImage {
  * 绝对路径在 SQL 里就拼好（`full_path` 是生成列），省掉一趟"查 id 再查行"。
  * `targetDir` 必须是绝对路径 —— worker 那边会把它当根来校验路径没有逃逸。
  *
- * 带指纹门（见 `scanMemo`）：全库打完分之后这条查询恒返回 0 行，实测每轮仍要
- * 73 ms（warm）/ 150 ms（cold）的同步阻塞。
+ * 带水位线（见 `scanFloor`）：没有下界的一批实测 287 ms，`p.id >= ?` 之后 0.4 ms。
  */
 export function listWaifuPending(
   sqlite: BetterSqlite3.Database,
@@ -235,19 +296,15 @@ export function listWaifuPending(
   limit?: number,
   { force = false }: PendingScanOpts = {},
 ): PendingImage[] {
-  const maxId = maxPostId(sqlite)
-  if (memoHit(sqlite, 'waifu', maxId, force))
-    return []
-
-  const sql
-    = `SELECT p.id, p.full_path FROM posts p `
-      + `LEFT JOIN post_waifu_scores pws ON pws.post_id = p.id `
-      + `WHERE pws.post_id IS NULL AND ${IMAGE_EXT_WHERE} AND ${notFailedClause('p')} `
-      + `ORDER BY p.id${limit === undefined ? '' : ' LIMIT ?'}`
-  const params: unknown[] = limit === undefined ? [WAIFU_WORKER_KEY] : [WAIFU_WORKER_KEY, limit]
-  const rows = sqlite.prepare<unknown[], { id: number, full_path: string }>(sql).all(...params)
-
-  memoWrite(sqlite, 'waifu', maxId, rows.length === 0)
+  const rows = scanByFloor<{ id: number, full_path: string }>(sqlite, {
+    key: 'waifu',
+    workerKey: WAIFU_WORKER_KEY,
+    columns: 'p.id, p.full_path',
+    join: 'LEFT JOIN post_waifu_scores pws ON pws.post_id = p.id ',
+    where: 'pws.post_id IS NULL',
+    limit,
+    force,
+  })
   return rows.map(r => ({ postId: r.id, path: `${targetDir}/${r.full_path}` }))
 }
 
@@ -328,12 +385,12 @@ const CANONICAL_GROUP_COLOR = '#000000'
 /**
  * 还没有任何自动标签、且没被拉黑的图片，按 id 升序。
  *
- * 带指纹门（见 `scanMemo`），而且这里最值钱：那条 `NOT EXISTS` 打在
- * `post_has_tag` 的 1209 万行上，全库标完之后恒返回 0 行却仍要 421 ms（warm）/
- * 2403 ms（cold）—— 五条循环那 650 ms 的一轮里它一个人占了大半。
+ * 带水位线（见 `scanFloor`），而且这里最值钱：那条 `NOT EXISTS` 打在
+ * `post_has_tag` 的 1237 万行上，没有下界时一批要 1,811 ms —— 六条循环那 3.7 秒
+ * 的一轮里它一个人占了一半。`p.id >= ?` 之后是 2.1 ms。
  *
- * ⚠️ 手工摘掉一张图最后一个 `is_auto = 1` 标签会让它重新变成待办，而 `MAX(id)`
- * 一动不动。那条路径必须走 `wakeAllBackfills()`，否则它永远不会被重新打标。
+ * ⚠️ 手工摘掉一张图最后一个 `is_auto = 1` 标签会让它重新变成待办，而它的 id 在
+ * 水位线**以下**。那条路径必须走 `wakeAllBackfills()`，否则它永远不会被重新打标。
  */
 export function listTaggerPending(
   sqlite: BetterSqlite3.Database,
@@ -341,19 +398,14 @@ export function listTaggerPending(
   limit?: number,
   { force = false }: PendingScanOpts = {},
 ): PendingImage[] {
-  const maxId = maxPostId(sqlite)
-  if (memoHit(sqlite, 'tagger', maxId, force))
-    return []
-
-  const sql
-    = `SELECT p.id, p.full_path FROM posts p `
-      + `WHERE NOT EXISTS (SELECT 1 FROM post_has_tag pht WHERE pht.post_id = p.id AND pht.is_auto = 1) `
-      + `AND ${IMAGE_EXT_WHERE} AND ${notFailedClause('p')} `
-      + `ORDER BY p.id${limit === undefined ? '' : ' LIMIT ?'}`
-  const params: unknown[] = limit === undefined ? [TAGGER_WORKER_KEY] : [TAGGER_WORKER_KEY, limit]
-  const rows = sqlite.prepare<unknown[], { id: number, full_path: string }>(sql).all(...params)
-
-  memoWrite(sqlite, 'tagger', maxId, rows.length === 0)
+  const rows = scanByFloor<{ id: number, full_path: string }>(sqlite, {
+    key: 'tagger',
+    workerKey: TAGGER_WORKER_KEY,
+    columns: 'p.id, p.full_path',
+    where: 'NOT EXISTS (SELECT 1 FROM post_has_tag pht WHERE pht.post_id = p.id AND pht.is_auto = 1)',
+    limit,
+    force,
+  })
   return rows.map(r => ({ postId: r.id, path: `${targetDir}/${r.full_path}` }))
 }
 
@@ -462,10 +514,11 @@ export function persistTaggerResults(
  * `LEFT JOIN ... IS NULL` —— vec0 的点查是虚表探测不是 B-tree 探测，join 会让它
  * 每行 posts 跑一次（17 万行时是几十秒）。
  *
- * 指纹门（见 `scanMemo`）最早就是为这条循环写的：它是五个待办查询里唯一没法用 SQL
+ * 门控（见 `scanFloor`）最早就是为这条循环写的：它是五个待办查询里唯一没法用 SQL
  * 做反连接的 —— `NOT EXISTS (SELECT 1 FROM vec WHERE post_id = p.id)` 不会走 rowid
  * 点查而是**每行都全扫一遍虚表**，实测 7,335 ms，比这里"两次全扫 + JS 差集"的
- * 401 ms 还慢 18 倍。所以那两次全扫留着，改成能跳过它们。
+ * 401 ms 还慢 18 倍。所以那两次扫描留着，改成让水位线把它们的范围压到库尾：
+ * `p.id >= ?` 之外，vec0 那次也带上 `post_id >= ?`（实测 76 ms → 39 ms）。
  *
  * ⚠️ 不能用"`count(posts) == count(vec0)` 就返回空"那种门控：两边的差不只是待办，
  * 还有孤儿向量（迁移 0015 清了 67 条存量，`upsertVectors` 堵了源头）。只要有一条
@@ -477,35 +530,49 @@ export function listEmbeddingPending(
   limit?: number,
   { force = false }: PendingScanOpts = {},
 ): PendingImage[] {
+  const floor = readFloor(sqlite, 'embedding', force)
   const maxId = maxPostId(sqlite)
-  if (memoHit(sqlite, 'embedding', maxId, force))
-    return []
 
   const candidates = sqlite
-    .prepare<[string], { id: number, full_path: string }>(
+    .prepare<[number, string], { id: number, full_path: string }>(
       `SELECT p.id, p.full_path FROM posts p `
-      + `WHERE ${IMAGE_EXT_WHERE} AND ${notFailedClause('p')} ORDER BY p.id`,
+      + `WHERE p.id >= ? AND ${IMAGE_EXT_WHERE} AND ${notFailedClause('p')} ORDER BY p.id`,
     )
-    .all(EMBEDDING_WORKER_KEY)
+    .all(floor, EMBEDDING_WORKER_KEY)
+
+  // 候选为空 = 水位线以上一张图都没有，vec0 那次扫描问不出任何东西。这是稳态
+  // （全库算完、水位线在 MAX(id)+1）的常态，而 vec0 是虚表：`post_id >= ?` 不走
+  // rowid 索引，即便一行都不返回也要 40 ms。空转的每一轮都省这一下。
+  if (!candidates.length) {
+    writeFloor(sqlite, 'embedding', maxId + 1)
+    return []
+  }
 
   const embedded = new Set(
-    sqlite.prepare<[], { post_id: number }>(`SELECT post_id FROM ${SIGLIP2_TABLE}`).all().map(r => r.post_id),
+    sqlite
+      .prepare<[number], { post_id: number }>(`SELECT post_id FROM ${SIGLIP2_TABLE} WHERE post_id >= ?`)
+      .all(floor)
+      .map(r => r.post_id),
   )
   const pending = candidates.filter(r => !embedded.has(r.id))
-  memoWrite(sqlite, 'embedding', maxId, pending.length === 0)
+  // 这里可以推到第一个 **pending** 而不是第一个候选（silva 那边不行）：已经有向量的
+  // 候选就是已完成，跳过它和跳过任何一行已完成的行是同一件事。
+  writeFloor(sqlite, 'embedding', pending[0]?.id ?? maxId + 1)
   const slice = limit === undefined ? pending : pending.slice(0, limit)
   return slice.map(r => ({ postId: r.id, path: `${targetDir}/${r.full_path}` }))
 }
 
 /**
- * 丢掉这条连接上 **embedding** 那条循环的指纹，强制下一次重新全扫。
+ * 把这条连接上**所有**循环的水位线清零，等价于下一次每条都 `{ force: true }`。
  *
  * 生产路径不走这里 —— 调度器用的是 `PendingScanOpts.force`（由 `wakeAllBackfills()`
- * 一路传下来），那条通道对五条循环一视同仁。这个函数留着是给测试用的：它只清
- * embedding 一个键，别指望它能把 tagger / waifu / silva / basics 的指纹一起掀掉。
+ * 一路传下来）。这个函数是给测试用的：水位线是**连接级**状态，而测试套件共用一条
+ * 连接、每个用例之间只 `DELETE FROM` 清表，清不掉水位线。不在 `beforeEach` 里调它
+ * 的话，前一个用例把水位推到 `MAX(id)+1` 会让后一个用例插进去的低 id 行整批看不见 ——
+ * 表现是一堆"待办查询返回空"的失败，而查询本身没有任何问题。
  */
-export function resetEmbeddingScanMemo(sqlite: BetterSqlite3.Database): void {
-  scanMemo.get(sqlite)?.delete('embedding')
+export function resetScanFloors(sqlite: BetterSqlite3.Database): void {
+  scanFloor.get(sqlite)?.clear()
 }
 
 /**
@@ -568,8 +635,7 @@ export interface BasicsPending {
  * 三个条件是 OR：缺任意一样就要重新解码一次（反正解码是同一次）。worker 拿到
  * `has*` 三个布尔值，只算缺的那几样。
  *
- * 带指纹门（见 `scanMemo`）：全库算完之后恒返回 0 行，实测每轮 32 ms（warm）/
- * 33 ms（cold）。
+ * 带水位线（见 `scanFloor`）：没有下界的一批实测 214 ms，`p.id >= ?` 之后 0.2 ms。
  */
 export function listBasicsPending(
   sqlite: BetterSqlite3.Database,
@@ -577,27 +643,20 @@ export function listBasicsPending(
   limit?: number,
   { force = false }: PendingScanOpts = {},
 ): BasicsPending[] {
-  const maxId = maxPostId(sqlite)
-  if (memoHit(sqlite, 'basics', maxId, force))
-    return []
-
-  const sql
-    = `SELECT p.id, p.full_path, p.sha256, p.arthash, p.dominant_color FROM posts p `
-      + `WHERE (p.sha256 = '' OR p.arthash IS NULL OR p.arthash = '' OR p.dominant_color IS NULL) `
-      + `AND ${IMAGE_EXT_WHERE} AND ${notFailedClause('p')} `
-      + `ORDER BY p.id${limit === undefined ? '' : ' LIMIT ?'}`
-  const params: unknown[] = limit === undefined ? [BASICS_WORKER_KEY] : [BASICS_WORKER_KEY, limit]
-  const rows = sqlite
-    .prepare<unknown[], {
-      id: number
-      full_path: string
-      sha256: string | null
-      arthash: string | null
-      dominant_color: Buffer | null
-    }>(sql)
-    .all(...params)
-
-  memoWrite(sqlite, 'basics', maxId, rows.length === 0)
+  const rows = scanByFloor<{
+    id: number
+    full_path: string
+    sha256: string | null
+    arthash: string | null
+    dominant_color: Buffer | null
+  }>(sqlite, {
+    key: 'basics',
+    workerKey: BASICS_WORKER_KEY,
+    columns: 'p.id, p.full_path, p.sha256, p.arthash, p.dominant_color',
+    where: `(p.sha256 = '' OR p.arthash IS NULL OR p.arthash = '' OR p.dominant_color IS NULL)`,
+    limit,
+    force,
+  })
   return rows
     .map(r => ({
       postId: r.id,
