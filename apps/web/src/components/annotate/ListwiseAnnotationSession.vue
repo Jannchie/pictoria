@@ -10,12 +10,14 @@ import { getPostImageURL } from '@/utils'
 
 interface BufferItem {
   posts: QueueItemPostPublic[]
+  /** 与 posts 同序的 silva 分，流式采样才有（queue 模式的固定批次不带分）。 */
+  silva?: (number | null)[]
   position?: number // queue 模式才有
 }
 
 // queue 与 dimension 二选一：有 queue 走固定批次，否则流式采样。
 // 每组是同一 silva 分窗口里视觉铺开的 ~size 张图；排一组 = C(size,2) 个边界对。
-const props = defineProps<{ queue?: QueueSummaryPublic, dimension?: string, size?: number }>()
+const props = defineProps<{ queue?: QueueSummaryPublic, dimension?: string, size?: number, repeat?: number }>()
 const emit = defineEmits<{ exit: [] }>()
 
 const { handle: handleAPIError } = useAPIError()
@@ -23,7 +25,7 @@ const queryClient = useQueryClient()
 
 const sessionId = crypto.randomUUID()
 const dimension = computed(() => props.queue?.dimensions[0] ?? props.dimension ?? 'overall')
-const groupSize = computed(() => props.size ?? 6)
+const groupSize = computed(() => props.size ?? 4)
 
 const buffer = ref<BufferItem[]>([])
 const doneCount = ref(props.queue?.done ?? 0)
@@ -37,6 +39,52 @@ const order = ref<number[]>([])
 const touched = ref(false) // 至少拖动过一次才认为这是判断而不是初始随机序
 const confirmArmed = ref(false) // 未调整时 Enter 需要按两次，防止把随机序当标注提交
 const postById = computed(() => new Map((current.value?.posts ?? []).map(p => [p.id, p])))
+
+// ── 与模型的一致率 ──────────────────────────────────────────────
+// 「模型学到的顺序如何」直接量出来，而不是让你从拖了几下去猜。分数只在**提交之后**
+// 参与统计：呈现顺序仍然随机，图上也不显示分数 —— 看见模型的答案会系统性地把判断
+// 拉向它（anchoring），那比随机的位置惰性坏得多，而且事后无法从数据里减掉。
+//
+// 累计而不是逐组：一组 4 张只有 6 对，54% 和 65% 在这个样本量下肉眼完全分不出；
+// 十几组之后这个数才稳得下来。
+const agreeOk = ref(0)
+const agreeTotal = ref(0)
+const agreeLabel = computed(() => (agreeTotal.value > 0 ? `${Math.round((agreeOk.value / agreeTotal.value) * 100)}%` : null))
+
+/**
+ * 这一组里你和 silva 方向相同的对数 / 可比的对数。
+ *
+ * 同分对不计 —— 模型没有表态，谈不上一致或不一致；skip（ranking 为空）同理不计。
+ */
+function agreementOf(item: BufferItem, ranking: number[]): [number, number] {
+  if (!item.silva || ranking.length < 2) {
+    return [0, 0]
+  }
+  const score = new Map(item.posts.map((p, i) => [p.id, item.silva![i] ?? null]))
+  let ok = 0
+  let total = 0
+  for (let i = 0; i < ranking.length; i++) {
+    for (let j = i + 1; j < ranking.length; j++) {
+      const a = score.get(ranking[i]!)
+      const b = score.get(ranking[j]!)
+      if (a == null || b == null || a === b) {
+        continue
+      }
+      total++
+      if (a > b) { // 你排在前 = 你认为更好；silva 分更高 = 模型认为更好
+        ok++
+      }
+    }
+  }
+  return [ok, total]
+}
+
+/** 提交时 +1、撤销时 -1，让顶栏那个数始终等于**当前留在库里**的那些组。 */
+function applyAgreement(item: BufferItem, ranking: number[], sign: 1 | -1) {
+  const [ok, total] = agreementOf(item, ranking)
+  agreeOk.value += sign * ok
+  agreeTotal.value += sign * total
+}
 
 const seenKeys = new Set<string>()
 let emptyStreak = 0
@@ -92,9 +140,9 @@ async function refillOnce(): Promise<void> {
       fresh = (resp.data ?? []).filter(i => !known.has(i.position)).map(i => ({ posts: i.posts, position: i.position }))
     }
     else {
-      const resp = await v2SampleListwise({ query: { limit: 3, size: groupSize.value, dimension: dimension.value } })
+      const resp = await v2SampleListwise({ query: { limit: 3, size: groupSize.value, dimension: dimension.value, repeat: props.repeat } })
       fresh = (resp.data ?? [])
-        .map(g => ({ posts: g.posts }))
+        .map(g => ({ posts: g.posts, silva: g.silva }))
         .filter((g) => {
           const key = groupKeyOf(g.posts)
           if (seenKeys.has(key)) {
@@ -293,6 +341,7 @@ function recordRanking(item: BufferItem, ranking: number[], elapsedMs: number, i
       eventIds = await postRanking(item, ranking, elapsedMs)
       advancePast()
       noteInHistory(item, ranking, eventIds)
+      applyAgreement(item, ranking, 1)
     },
     revert: async () => {
       await v2UndoAnnotations({
@@ -314,6 +363,7 @@ function recordRanking(item: BufferItem, ranking: number[], elapsedMs: number, i
       confirmArmed.value = false
       exhausted.value = false
       doneCount.value -= 1
+      applyAgreement(item, ranking, -1)
       shownAt = performance.now()
     },
   })
@@ -330,6 +380,7 @@ async function submit(ranking: number[]) {
     const ids = await postRanking(item, ranking, elapsedMs)
     advancePast()
     noteInHistory(item, ranking, ids)
+    applyAgreement(item, ranking, 1)
     recordRanking(item, ranking, elapsedMs, ids)
   }
   catch (error) {
@@ -409,6 +460,8 @@ watch(() => [props.queue?.id, props.dimension] as const, () => {
   emptyStreak = 0
   exhausted.value = false
   doneCount.value = props.queue?.done ?? 0
+  agreeOk.value = 0
+  agreeTotal.value = 0
   shownAt = performance.now()
   refill()
 }, { immediate: true })
@@ -429,6 +482,11 @@ const totalLabel = computed(() => (props.queue ? `${doneCount.value} / ${props.q
       </div>
       <div class="text-xs text-fg-muted flex shrink-0 gap-4 items-center">
         <span class="text-fg font-medium tabular-nums">{{ totalLabel }}</span>
+        <span
+          v-if="agreeLabel"
+          class="tabular-nums"
+          :title="`本次 ${agreeTotal} 对可比（同分不计）。呈现顺序是随机的，所以这个数只反映判断本身。`"
+        >与模型一致 <span class="text-fg font-medium">{{ agreeLabel }}</span></span>
         <span class="listwise-hotkeys"><kbd>拖拽</kbd> 排序 <kbd>点击</kbd> 大图 <kbd>Enter</kbd> 提交 <kbd>Space</kbd> 跳过 <kbd>Esc</kbd> 退出</span>
       </div>
     </div>

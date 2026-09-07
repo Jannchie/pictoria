@@ -9,6 +9,7 @@ import ListwiseAnnotationSession from '@/components/annotate/ListwiseAnnotationS
 import PairwiseAnnotationSession from '@/components/annotate/PairwiseAnnotationSession.vue'
 import { useAPIError } from '@/composables/useAPIError'
 import { queryKeys } from '@/shared/queryKeys'
+import { PSwitch } from '@/ui'
 
 const { handle: handleAPIError } = useAPIError()
 
@@ -16,7 +17,7 @@ type Session
   = | { mode: 'queue', queue: QueueSummaryPublic }
     | { mode: 'stream-absolute', config: StreamConfig }
     | { mode: 'stream-pairwise', dimension: string, strategy: 'random' | 'similar' | 'close' }
-    | { mode: 'stream-listwise', dimension: string, size: number }
+    | { mode: 'stream-listwise', dimension: string, size: number, repeat?: number }
 
 const session = ref<Session | null>(null)
 
@@ -53,21 +54,29 @@ const DIMENSIONS: DimensionMeta[] = [
   { key: 'composition', label: '构图', hint: '姿势·角度·布景有想法吗', icon: 'i-tabler-layout-collage' },
 ]
 
-// 默认 = 双图对比 + 难分对：比较判断绕开绝对分的天花板/通胀/漂移，
-// 难分对把标注花在模型自己分不开的边界上。
+// 默认 = 组内排序 4 张。比较判断绕开绝对分的天花板/通胀/漂移、窗口把标注花在模型自己
+// 分不开的边界上 —— 这两条对双图对比同样成立；选组内排序是因为同样的信息它更便宜：
+// 一次 n 张全序在 Plackett-Luce 下值 Σ_{k=2..n}(1−1/k)（silva 侧 fit_latent.py
+// --rankings 正是这么吃的），而耗时几乎正比于 C(n,2)。2026-09-06 实测每 PL 对当量：
+// 4 张 2.77 s、6 张 3.64 s、8 张 4.91 s，双图对比 2.12 s 但每次都要重新认识两张新图。
 const form = ref({
-  kind: 'pairwise' as 'absolute' | 'pairwise' | 'listwise',
+  kind: 'listwise' as 'absolute' | 'pairwise' | 'listwise',
   dimensions: ['overall'] as string[], // 仅单图评分使用
   scale: 2,
   strategy: 'stratified' as 'random' | 'stratified', // 单图评分采样
   pairwiseStrategy: 'close' as 'random' | 'similar' | 'close',
-  listwiseSize: 6,
+  listwiseSize: 4,
+  // 重测会话：整批都抽老组，用来量你自己判两次有多一致。平时是 undefined（服务端按
+  // REPEAT_SHARE 收 5% 的税），只有专门测天花板时才打开。
+  listwiseRetest: false,
 })
-// 一屏 = C(n,2) 对；6 张是甜点：15 对/屏，人排起来还不费神。8 张信息最多但接近工作记忆上限。
+// hint 报「秒 / 对当量」而不是「对 / 屏」：一屏展开的 C(n,2) 条边不是 C(n,2) 次独立
+// 观测，全序由 n 个潜变量的一个排列生成，PL 信息 Σ_{k=2..n}(1−1/k) 折成势均力敌的
+// pairwise 只有 3.8 / 7.1 / 10.6 对。而耗时几乎正比于边数，所以小组每单位信息更便宜。
 const LISTWISE_SIZES = [
-  { value: 4, label: '4 张', hint: '6 对 / 屏，最轻快' },
-  { value: 6, label: '6 张', hint: '15 对 / 屏，信息量与负担的平衡点（推荐）' },
-  { value: 8, label: '8 张', hint: '28 对 / 屏，单屏信息最多但明显更费神' },
+  { value: 4, label: '4 张', hint: '约 11 秒 / 屏，2.8 秒买一对当量 —— 实测最划算（推荐）' },
+  { value: 6, label: '6 张', hint: '约 26 秒 / 屏，3.6 秒买一对当量' },
+  { value: 8, label: '8 张', hint: '约 52 秒 / 屏，4.9 秒买一对当量，接近工作记忆上限' },
 ]
 const canStart = computed(() => form.value.kind !== 'absolute' || form.value.dimensions.length > 0)
 
@@ -105,7 +114,12 @@ function startStream() {
         },
       }
     : form.value.kind === 'listwise'
-      ? { mode: 'stream-listwise', dimension: PAIRWISE_DIMENSION, size: form.value.listwiseSize }
+      ? {
+          mode: 'stream-listwise',
+          dimension: PAIRWISE_DIMENSION,
+          size: form.value.listwiseSize,
+          repeat: form.value.listwiseRetest ? 1 : undefined,
+        }
       : { mode: 'stream-pairwise', dimension: PAIRWISE_DIMENSION, strategy: form.value.pairwiseStrategy }
 }
 
@@ -179,6 +193,7 @@ async function generateQueue() {
       v-else-if="session?.mode === 'stream-listwise'"
       :dimension="session.dimension"
       :size="session.size"
+      :repeat="session.repeat"
       @exit="exitSession"
     />
 
@@ -291,6 +306,18 @@ async function generateQueue() {
         <p class="text-xs text-fg-subtle leading-relaxed mt-2">
           {{ LISTWISE_SIZES.find(s => s.value === form.listwiseSize)?.hint }}
         </p>
+
+        <label class="mt-4 flex gap-3 cursor-pointer items-start">
+          <PSwitch v-model="form.listwiseRetest" size="sm" class="mt-0.5 shrink-0" />
+          <span class="min-w-0">
+            <span class="text-sm text-fg">重测会话</span>
+            <span class="text-xs text-fg-subtle leading-relaxed mt-0.5 block">
+              整批都抽 7 天前排过的老组，成员重新打乱。量的是<b>你自己判两次有多一致</b> ——
+              没有这个数，就分不清模型在边界上分不开是它没学会、还是那些对本来就是掷硬币。
+              约 50 组（9 分钟）就够。平时关着，服务端仍按 5% 自然积累。
+            </span>
+          </span>
+        </label>
       </section>
 
       <!-- 维度 chips（仅单图评分） -->
