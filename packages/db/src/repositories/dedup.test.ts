@@ -1,9 +1,10 @@
 /**
- * 近重复分组的数据侧 —— 导出、贪心分配、原子换组。
+ * 近重复分组的数据侧 —— 导出、union-find 分配、原子换组。
  *
  * 这三段是 dedup 里**不需要 GPU** 的全部，也正因如此值得单独钉住：矩阵乘的对错
- * 靠 `pnpm parity:worker` 的逐位对拍，而"谁当 canonical、组会不会成链、重建过程中
- * 库里能不能看到半成品"这些是纯逻辑，跑一次真实迁移建出来的临时库就能证明。
+ * 靠 `pnpm parity:worker` 的逐位对拍，而"谁当 canonical、链会不会被并起来、一条弱边
+ * 能不能串起两坨、重建过程中库里能不能看到半成品"这些是纯逻辑，跑一次真实迁移
+ * 建出来的临时库就能证明。
  */
 import fs from 'node:fs'
 import os from 'node:os'
@@ -13,7 +14,8 @@ import Database from 'better-sqlite3'
 import * as sqliteVec from 'sqlite-vec'
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest'
 import { MIGRATIONS_DIR, runMigrations } from '../migrate.js'
-import { assignFromPairs, exportVectorMatrix, replaceAllGroups } from './dedup.js'
+import type { VariantEdge } from './dedup.js'
+import { assignFromEdges, exportVectorMatrix, replaceAllGroups } from './dedup.js'
 
 const here = path.dirname(fileURLToPath(import.meta.url))
 
@@ -71,38 +73,97 @@ beforeEach(() => {
   for (const t of ['post_vectors_siglip2', 'posts']) sqlite.exec(`DELETE FROM ${t}`)
 })
 
-describe('贪心分配', () => {
+/** 一条边，strength 默认 1（worker 目前只回传"在阈值内"，不回传距离）。 */
+function edge(a: number, b: number, strength = 1): VariantEdge {
+  return { a, b, strength }
+}
+
+/** 分配结果的顺序取决于 Map 的遍历，比较之前先排序。 */
+function sorted(out: Array<[number, number]>): Array<[number, number]> {
+  return [...out].sort((x, y) => x[0] - y[0] || x[1] - y[1])
+}
+
+describe('union-find 分配', () => {
   it('簇里 id 最小的那个当 canonical', () => {
-    // 0-1-2 互为近邻（下标即 id 序）
-    const ids = [10, 20, 30]
-    const pairs: Array<[number, number]> = [[0, 1], [0, 2], [1, 2]]
-    expect(assignFromPairs(ids, pairs).sort()).toEqual([[20, 10], [30, 10]].sort())
+    expect(sorted(assignFromEdges([edge(10, 20), edge(10, 30), edge(20, 30)])))
+      .toEqual([[20, 10], [30, 10]])
   })
 
-  it('组只有一层，永远不成链', () => {
-    // 0-1 近，1-2 近，但 0-2 不近。1 被 0 认领之后不能再成为 2 的种子，
-    // 于是 2 保持独立 —— 而不是变成"指向 1，而 1 指向 0"的链。
-    const ids = [1, 2, 3]
-    expect(assignFromPairs(ids, [[0, 1], [1, 2]])).toEqual([[2, 1]])
+  it('链式相似传递成一组 —— A–B、B–C 像，A–C 不像也在同一组', () => {
+    // 差分集就是这个形状（原图 → 换表情 → 换表情 + 对白）：首尾两张离得比阈值远。
+    // 旧的星形贪心在这里会把 3 扔在组外，那是一层与信号无关的漏检。
+    expect(sorted(assignFromEdges([edge(1, 2), edge(2, 3)])))
+      .toEqual([[2, 1], [3, 1]])
   })
 
-  it('已被认领的成员不会被第二个种子抢走', () => {
-    // 0 先认领 2；3 也和 2 近，但 2 已经名花有主
-    const ids = [1, 2, 3, 4]
-    const out = new Map(assignFromPairs(ids, [[0, 2], [3, 2]]).map(([m, c]) => [m, c]))
-    expect(out.get(3)).toBe(1)
-    expect(out.has(4)).toBe(false)
+  it('更长的链照样是一个连通分量', () => {
+    expect(sorted(assignFromEdges([edge(1, 2), edge(2, 3), edge(3, 4), edge(4, 5)])))
+      .toEqual([[2, 1], [3, 1], [4, 1], [5, 1]])
   })
 
-  it('下三角和自环是输入，不是承诺 —— 照样规整', () => {
+  it('maxGroupSize 到顶时跳过那条边，已有的组不受影响', () => {
+    // 1-2-3 先满三个位；1-4 撞上限被跳过 —— 4 落单，而不是把 3 挤出去，
+    // 也不是把整个组作废。
+    const out = assignFromEdges([edge(1, 2), edge(1, 3), edge(1, 4)], { maxGroupSize: 3 })
+    expect(sorted(out)).toEqual([[2, 1], [3, 1]])
+  })
+
+  it('两个满员的组不会被一条边缝成一个巨无霸', () => {
+    const out = assignFromEdges(
+      [edge(1, 2), edge(3, 4), edge(2, 3, 0.1)],
+      { maxGroupSize: 2 },
+    )
+    expect(sorted(out)).toEqual([[2, 1], [4, 3]])
+  })
+
+  it('excluded 的 post 不进任何组', () => {
+    // 2 是用户拆出来的：它和 1 再像也不再被并回去，而 1-3 照常成组。
+    const out = assignFromEdges([edge(1, 2), edge(1, 3)], { excluded: new Set([2]) })
+    expect(sorted(out)).toEqual([[3, 1]])
+  })
+
+  it('excluded 不当桥 —— 经过它的链不会被接起来', () => {
+    expect(assignFromEdges([edge(1, 2), edge(2, 3)], { excluded: new Set([2]) })).toEqual([])
+  })
+
+  it('pinned 成员胜过 min id', () => {
+    const out = assignFromEdges([edge(1, 2), edge(2, 3)], { pinned: new Set([3]) })
+    expect(sorted(out)).toEqual([[1, 3], [2, 3]])
+  })
+
+  it('一组里有多个 pinned 时取最小 id —— 结果不依赖遍历顺序', () => {
+    const out = assignFromEdges([edge(1, 2), edge(2, 3)], { pinned: new Set([2, 3]) })
+    expect(sorted(out)).toEqual([[1, 2], [3, 2]])
+  })
+
+  it('边按 strength 降序处理 —— 被闸掉的是弱的那条', () => {
+    // 3 同时和 1（弱）、2（强）像，但组只能装两个：强边先落袋。
+    const out = assignFromEdges(
+      [edge(1, 3, 0.5), edge(2, 3, 0.9)],
+      { maxGroupSize: 2 },
+    )
+    expect(out).toEqual([[3, 2]])
+    // 反过来喂同样两条边，结果必须一样 —— 排序基于 strength，不是输入顺序
+    const reversed = assignFromEdges(
+      [edge(2, 3, 0.9), edge(1, 3, 0.5)],
+      { maxGroupSize: 2 },
+    )
+    expect(reversed).toEqual([[3, 2]])
+  })
+
+  it('反向边和自环是输入，不是承诺 —— 照样规整', () => {
     // worker 承诺回传上三角，但它跨了一个进程边界；反着给也要得到同样的结果
-    const ids = [7, 8]
-    expect(assignFromPairs(ids, [[1, 0]])).toEqual([[8, 7]])
-    expect(assignFromPairs(ids, [[0, 0]])).toEqual([])
+    expect(assignFromEdges([edge(8, 7)])).toEqual([[8, 7]])
+    expect(assignFromEdges([edge(7, 7)])).toEqual([])
+  })
+
+  it('重复的边不会把组算大', () => {
+    const out = assignFromEdges([edge(1, 2), edge(2, 1), edge(1, 2)], { maxGroupSize: 2 })
+    expect(out).toEqual([[2, 1]])
   })
 
   it('没有近邻就没有分组', () => {
-    expect(assignFromPairs([1, 2, 3], [])).toEqual([])
+    expect(assignFromEdges([])).toEqual([])
   })
 })
 
@@ -115,8 +176,8 @@ describe('向量导出', () => {
     const file = path.join(tmpDir, 'm.f32')
     const { ids, count, dim } = exportVectorMatrix(sqlite, file)
 
-    // 升序不是为了好看：贪心分配按行下标从小到大跑，行序即 id 序才能保证
-    // 簇里最早的 post 拿到 canonical 位
+    // 升序不是为了好看：worker 回传的是行下标，行序一抖，同一个库两次重建
+    // 就会得到不同的边序（进而不同的组）
     expect(ids).toEqual([10, 20, 30])
     expect(count).toBe(3)
     expect(dim).toBe(1152)

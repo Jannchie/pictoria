@@ -121,6 +121,21 @@ commandsRoutes.openapi(
       query: z.object({
         threshold: z.coerce.number().nullable().optional()
           .openapi({ param: { name: 'threshold', in: 'query', required: false }, type: ['number', 'null'] }),
+        grey_threshold: z.coerce.number().nullable().optional()
+          .openapi({ param: { name: 'grey_threshold', in: 'query', required: false }, type: ['number', 'null'] }),
+        lpips_threshold: z.coerce.number().nullable().optional()
+          .openapi({ param: { name: 'lpips_threshold', in: 'query', required: false }, type: ['number', 'null'] }),
+        max_group_size: z.coerce.number().nullable().optional()
+          .openapi({ param: { name: 'max_group_size', in: 'query', required: false }, type: ['number', 'null'] }),
+        max_arbitrations: z.coerce.number().nullable().optional()
+          .openapi({ param: { name: 'max_arbitrations', in: 'query', required: false }, type: ['number', 'null'] }),
+        // 字符串枚举而不是 z.coerce.boolean()：后者把 'false' 也强制成 true
+        // （非空字符串都是真），于是一个想关掉 dry run 的请求反而打开了它。
+        dry_run: z.enum(['true', 'false']).optional()
+          .openapi({ param: { name: 'dry_run', in: 'query', required: false } }),
+        // spread = 在整条灰带上均匀取样，用来标定阈值；nearest = 先算最像的，用来收敛。
+        arbitration_sampling: z.enum(['nearest', 'spread']).optional()
+          .openapi({ param: { name: 'arbitration_sampling', in: 'query', required: false } }),
       }),
     },
     responses: {
@@ -129,7 +144,15 @@ commandsRoutes.openapi(
     },
   }),
   async (c) => {
-    const { threshold } = c.req.valid('query')
+    const {
+      threshold,
+      grey_threshold: greyThreshold,
+      lpips_threshold: lpipsThreshold,
+      max_group_size: maxGroupSize,
+      max_arbitrations: maxArbitrations,
+      arbitration_sampling: arbitrationSampling,
+      dry_run: dryRunFlag,
+    } = c.req.valid('query')
     // ⚠️ 必须在忙检查**之前** await。检查和启动之间夹一个 await，两个几乎同时到达
     // 的请求就会双双通过检查，然后排成两次全量重算 —— 一次分钟级的 GPU 白烧。
     // 先把这个 await 做掉，检查和启动就都落在同一个同步片段里。
@@ -139,14 +162,30 @@ commandsRoutes.openapi(
     if (isRebuilding())
       return c.json({ msg: 'Near-duplicate grouping already running' }, 201)
 
-    const opts = threshold == null ? {} : { threshold }
+    // dry run 走完整流程（含 GPU 召回和 LPIPS 仲裁，仲裁结果照常写进证据表 ——
+    // 那是缓存，算了就该留下），只是不动 canonical_post_id。用来在真正改变界面
+    // 之前，先从日志里看一眼"这一轮会多合并多少、组大小分布长什么样"。
+    const dryRun = dryRunFlag === 'true'
+    // 直接传，不逐个 `...(x == null ? {} : { x })`：`RebuildOptions` 的每一项都收
+    // null，默认值在 `doRebuild` 里用 `??` 兜。加一个旋钮只要加一行。
+    const opts = {
+      threshold,
+      greyThreshold,
+      lpipsThreshold,
+      maxGroupSize,
+      maxArbitrations,
+      arbitrationSampling,
+      dryRun,
+    }
     // fire-and-forget：请求立刻返回，结果打进日志。失败在这里吞掉并记下 ——
     // 没有人在等这个 promise，未处理的 rejection 会让整个进程退出。
     void rebuildGroups(getDb().sqlite, tasks, opts)
       .catch((err: unknown) => console.warn(`[dedup] 重建失败：${String(err)}`))
 
     const thr = threshold ?? DEDUP_THRESHOLD
-    return c.json({ msg: `Near-duplicate grouping started (threshold=${thr}).` }, 201)
+    return c.json({
+      msg: `Near-duplicate grouping started (threshold=${thr}${dryRun ? ', dry run' : ''}).`,
+    }, 201)
   },
 )
 

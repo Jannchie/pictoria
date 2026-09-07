@@ -7,12 +7,12 @@ import fs from 'node:fs'
 import path from 'node:path'
 import { IO_QUEUE, rotateTask } from '@pictoria/contracts'
 import { Buffer } from 'node:buffer'
-import { bulkUpdateField, clearCanonical, createPost, getDetail, getPostPath, makeCanonical, postExists, touchAccessed, updateField, updateForRotate } from '@pictoria/db'
+import { bulkUpdateField, clearCanonical, createPost, getDetail, getPostPath, groupTogether, makeCanonical, markDifferent, postExists, touchAccessed, updateField, updateForRotate } from '@pictoria/db'
 import { getDb } from '../db.js'
 import { OK, RESP_400, domainError, postNotFound, pyRepr, queryFlag, validationError, zodErrorHook } from '../openapi.js'
 import { wakeAllBackfills } from '../scheduler.js'
 import { PostDetailPublic, toPostDetail } from '../schemas.js'
-import { isInside, targetDir, thumbnailsDir } from '../paths.js'
+import { isInside, targetDir, thumbnailPathFor } from '../paths.js'
 import { deletePostFiles } from '../post-files.js'
 import { translateTag } from '../tag-i18n.js'
 import { getTasks } from '../tasks.js'
@@ -234,6 +234,99 @@ for (const op of groupOps) {
 }
 
 /**
+ * 手动合并：把选中的这些 post 并成一个差分组。
+ *
+ * 体里传 ids 而不是像 `bulk/*` 那样堆在 query 上 —— 那两条是既有形状要照抄，这条是
+ * 新的，而一次多选合并动辄几十个 id，重复的 `?ids=` 会把 URL 顶到网关的长度上限。
+ *
+ * 回读的是**canonical 的详情**，不是请求里的第一个 id：合并之后前端要跳到的是那个
+ * 代表，而代表可能是这批 id 之外的（并进一个已有组时沿用原组封面）。
+ */
+postWritesRoutes.openapi(
+  createRoute({
+    method: 'post',
+    path: '/v2/posts/group-together',
+    operationId: 'v2GroupPostsTogether',
+    summary: 'GroupPostsTogether',
+    description: 'Merge these posts into one near-duplicate group (a manual user decision).',
+    request: {
+      body: {
+        required: true,
+        content: {
+          'application/json': {
+            schema: z.object({
+              ids: z.array(z.int()).min(2).describe('Posts to put in one group.'),
+              canonicalId: z.int().nullable().optional()
+                .describe("The group's representative; defaults to the lowest id."),
+            }).openapi('GroupTogetherIn'),
+          },
+        },
+      },
+    },
+    responses: detailResponse,
+  }),
+  (c) => {
+    const { ids, canonicalId } = c.req.valid('json')
+    const { sqlite } = getDb()
+    const head = canonicalId ?? undefined
+    for (const id of head == null ? ids : [...ids, head]) {
+      if (!postExists(sqlite, id))
+        return postNotFound(id) as never
+    }
+    if (!groupTogether(sqlite, ids, head))
+      return domainError(`Need at least 2 distinct posts to group, got ${new Set(ids).size}.`, 'InvalidArgumentError', 409) as never
+
+    // 合并后任一成员的指针都指向代表（成员）或为 NULL（它自己就是代表）。
+    const first = getDetail(sqlite, ids[0]!, n => translateTag(n))
+    if (!first)
+      return postNotFound(ids[0]!) as never
+    const canonical = (first.canonical_post_id as number | null) ?? ids[0]!
+    const detail = canonical === ids[0] ? first : getDetail(sqlite, canonical, n => translateTag(n))
+    if (!detail)
+      return postNotFound(canonical) as never
+    return Response.json(toPostDetail(detail)) as never
+  },
+)
+
+/**
+ * 手动拆分：这两张不是同一张画。
+ *
+ * 裁决写进 `post_variant_edges`（重建时这条边被排除），如果它们此刻同组还会立刻拆开
+ * —— 否则用户点完看不到任何变化。回读 `post_id` 的详情：调用方是它的详情面板。
+ */
+postWritesRoutes.openapi(
+  createRoute({
+    method: 'put',
+    path: '/v2/posts/{post_id}/not-same/{other_id}',
+    operationId: 'v2MarkPostsDifferent',
+    summary: 'MarkPostsDifferent',
+    description: 'Record that these two posts are not the same picture, and split them apart now.',
+    request: {
+      params: z.object({
+        post_id: postIdParam,
+        other_id: z.coerce.number().int()
+          .openapi({ param: { name: 'other_id', in: 'path', required: true }, type: 'integer' }),
+      }),
+    },
+    responses: detailResponse,
+  }),
+  (c) => {
+    const { post_id: postId, other_id: otherId } = c.req.valid('param')
+    const { sqlite } = getDb()
+    if (!postExists(sqlite, postId))
+      return postNotFound(postId) as never
+    if (!postExists(sqlite, otherId))
+      return postNotFound(otherId) as never
+    if (!markDifferent(sqlite, postId, otherId))
+      return domainError('A post cannot differ from itself.', 'InvalidArgumentError', 409) as never
+    const detail = getDetail(sqlite, postId, n => translateTag(n))
+    if (!detail)
+      return postNotFound(postId) as never
+    return Response.json(toPostDetail(detail)) as never
+  },
+)
+
+/**
  * 删 post：DB 行 + 原图 + 缩略图。
  *
  * `ids` 在 query 上（重复的 `?ids=1&ids=2`），不是请求体 —— 照抄 Litestar。
@@ -299,14 +392,14 @@ postWritesRoutes.openapi(
     const tasks = await getTasks()
     const result = await tasks.call(rotateTask, {
       originalPath: path.resolve(base, post.fullPath),
-      thumbnailPath: path.resolve(thumbnailsDir(), post.fullPath),
+      thumbnailPath: thumbnailPathFor(post.fullPath),
       clockwise,
     }, { queue: IO_QUEUE, waitTimeoutMs: 120_000, pollMs: 20, maxAttempts: 1 })
 
     updateForRotate(sqlite, postId, result)
     // `arthash` 是 `string | null`，而 `updateForRotate` 直接 `SET arthash = ?`（不是
-    // COALESCE）。写进 NULL 就是一条新的 basics 待办，而待办查询的指纹门只认
-    // `MAX(id)` 变化 —— 不叫醒的话这张图的 arthash 永远补不回来。只在真写空时叫，
+    // COALESCE）。写进 NULL 就是一条新的 basics 待办，而这张图的 id 在待办查询的
+    // 水位线**以下** —— 不叫醒的话它的 arthash 永远补不回来。只在真写空时叫，
     // 免得每次旋转都逼一轮全库重扫。
     if (result.arthash === null)
       wakeAllBackfills()

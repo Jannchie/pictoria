@@ -114,6 +114,35 @@ export const postHasColor = sqliteTable('post_has_color', {
   color: integer('color').notNull(),
 }, t => [primaryKey({ columns: [t.postId, t.order] })])
 
+/**
+ * 用户对近重复分组的手动决定（migration 0018）。
+ *
+ * 全量重建会清空全部 canonical 指针，所以「拆开」「设为封面」必须存在 posts 之外
+ * 才能活过下一次重建。`kind` 在 SQL 侧有 CHECK (kind IN ('standalone','canonical'))。
+ */
+export const postGroupOverrides = sqliteTable('post_group_overrides', {
+  postId: integer('post_id').primaryKey().references(() => posts.id, { onDelete: 'cascade' }),
+  kind: text('kind').$type<'standalone' | 'canonical'>().notNull(),
+  createdAt: text('created_at').notNull().default(sql`CURRENT_TIMESTAMP`),
+})
+
+/**
+ * 差分归组的证据表（migration 0019）：一对 post 之间的原始度量与用户裁决。
+ *
+ * 存距离而不是判定 —— 阈值在 TS 侧，改阈值不必重算。`post_a < post_b` 在 SQL 侧有
+ * CHECK，`user_verdict` 有 CHECK (user_verdict IN ('same','different'))，表是
+ * WITHOUT ROWID。
+ */
+export const postVariantEdges = sqliteTable('post_variant_edges', {
+  postA: integer('post_a').notNull().references(() => posts.id, { onDelete: 'cascade' }),
+  postB: integer('post_b').notNull().references(() => posts.id, { onDelete: 'cascade' }),
+  siglipDist: real('siglip_dist'),
+  lpipsDist: real('lpips_dist'),
+  userVerdict: text('user_verdict').$type<'same' | 'different'>(),
+  computedAt: text('computed_at'),
+  decidedAt: text('decided_at'),
+}, t => [primaryKey({ columns: [t.postA, t.postB] })])
+
 export const postProcessFailures = sqliteTable('post_process_failures', {
   postId: integer('post_id').notNull().references(() => posts.id, { onDelete: 'cascade' }),
   /** 'basics' | 'embedding' | 'tagger' | 'waifu' | ... */

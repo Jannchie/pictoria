@@ -196,16 +196,29 @@ export interface DedupPayload {
   threshold: number
   /** 一次矩阵乘吃多少行。每块物化一个 `(chunk, count)` 的相似度块。 */
   chunkSize: number
+  /**
+   * 每行最多保留最近的几个邻居。0 或省略表示不截断。
+   *
+   * 灰带的对数没有上界：一个画师的 200 张同角色图彼此都在 0.06 以内就是 2 万对。
+   * 截断把仲裁成本钉死在 O(N·K)，而差分组的真实规模远小于 K —— 被截掉的邻居本来
+   * 也不会是同一张画。
+   */
+  maxPerRow?: number
 }
 
 export interface DedupResult {
   /**
-   * 上三角邻接：`[i, j]` 且 `i < j`，都是**行下标**而不是 post id。
+   * 上三角邻接：`[i, j, dist]` 且 `i < j`，前两项是**行下标**而不是 post id。
    *
    * 回传下标而不是 id，是因为 worker 手里根本没有 id —— 矩阵文件里只有向量。
    * 翻译由持有 ids 数组的 TS 侧做，这也让 worker 的输出与库完全无关。
+   *
+   * 第三个元素是这一对的余弦距离，**恒定带着**。差分归组要它：`threshold` 放宽到
+   * 灰带之后，"多近"决定这一对是直接判同还是送去 LPIPS 仲裁，而这个数还要存进
+   * 证据表 —— 存原始距离而不是判定，改阈值才不用重算。它不是可选项：没有距离
+   * 就分不了档，而"缺了就当 0"的兜底方向正是"直接判同"。
    */
-  pairs: Array<[number, number]>
+  pairs: Array<[number, number, number]>
 }
 
 export const dedupTask = defineTask<DedupPayload, DedupResult>('dedup')
@@ -220,6 +233,88 @@ export const DEDUP_THRESHOLD = 0.01
 
 /** 每块 1024 行 —— 即使 N=170k，一个 `(1024, N)` 的块也远在 1 GB 以内。 */
 export const DEDUP_CHUNK_SIZE = 1024
+
+/**
+ * 差分召回的灰带上限：距离在 `DEDUP_THRESHOLD` 与它之间的对，不判同，送去仲裁。
+ *
+ * 为什么要有灰带：0.01 只覆盖"重编码 / 换分辨率"这一档。只换表情、加了对白、
+ * 打了局部马赛克的差分落在 0.02–0.06 这一带 —— 但"同画师同角色的另一张画"也落在
+ * 这里。SigLIP 2 是图文对齐训出来的，对"caption 会写出来的东西"敏感、对像素排布
+ * 钝，所以它在这个区间**没有分辨力**。放宽阈值直接判同就是把假阳性换假阴性；
+ * 正确的用法是让它只负责召回，判定交给 LPIPS。
+ */
+export const DEDUP_GREY_THRESHOLD = 0.06
+
+/** 灰带召回每行只留最近的 20 个邻居。理由见 `DedupPayload.maxPerRow`。 */
+export const DEDUP_GREY_MAX_PER_ROW = 20
+
+/**
+ * CPU 队列 —— 不碰 GPU，也不该和请求路径抢的活。
+ *
+ * LPIPS 仲裁属于这里，而且**不能**塞进 `IO_QUEUE`：缩略图是请求时按需生成的
+ * （`routes/images.ts`），一轮几十分钟的仲裁批会让图片路由排在它后面等缩略图。
+ * 也不进 GPU 队列 —— 显卡已经被四个模型占到 23.7 GB，而 AlexNet 400×400 在 CPU
+ * 上一张只要 20–40 ms，对"只看召回拿不准的那些对"这个量级足够。
+ */
+export const CPU_QUEUE = 'cpu'
+
+/** 一对待仲裁的图。两侧都是 `{postId, path}`，path 给的是缩略图绝对路径。 */
+export interface LpipsPair {
+  a: ImageItem
+  b: ImageItem
+}
+
+export interface LpipsVerifyPayload {
+  pairs: LpipsPair[]
+}
+
+export interface LpipsVerifyResult {
+  /** 与输入等长、同序减去失败项；`distance` 越小越像。 */
+  results: Array<{ a: number, b: number, distance: number }>
+  /** 路径越界或文件读不出来的那些对。整批不因为一对坏图而失败。 */
+  failures: Array<{ a: number, b: number, error: string }>
+}
+
+/**
+ * 逐对算 LPIPS 感知距离 —— 差分归组的仲裁者。
+ *
+ * 为什么需要第二个模型：SigLIP 2 回答的是"是不是同一个**主题**"，而差分图要问的是
+ * "是不是同一张**画**"。LPIPS 逐空间位置比 CNN 特征，所以只改了脸或者多了一个对话框
+ * 的编辑只在它实际所在的位置上产生差异，全图其余部分照旧为零。
+ *
+ * 只回距离，不回"是不是同一张"：阈值是 TS 的知识（`LPIPS_SAME_THRESHOLD`），
+ * 而证据表存的也是原始距离 —— 改阈值不需要重算任何东西。
+ */
+export const lpipsVerifyTask = defineTask<LpipsVerifyPayload, LpipsVerifyResult>('lpips-verify')
+
+/**
+ * 一批 64 对。
+ *
+ * 批内按路径去重特征（同一个 post 常常和它的好几个邻居成对），所以 64 对最坏是
+ * 128 张唯一图。一张图的五层特征约 6.4 MB，Python 侧再按 16 张分子批走，峰值可控。
+ * 与 Python 侧同值。
+ */
+export const LPIPS_TASK_BATCH = 64
+
+/**
+ * 判定"同一张画"的 LPIPS 距离上限。
+ *
+ * 上游 deepghs/imgutils 标的是 **0.45**（动漫差分数据集，adjusted rand score
+ * 0.995）。那个数绑死在它那套预处理上（双线性 resize 到 400×400、不保宽高比、
+ * RGBA 合成到白底），所以 `ai/lpips.py` 是逐字复刻而不是复用仓库里已有的图像加载，
+ * `scripts/lpips_parity.py` 钉住这份复刻（实测 max|delta| = 1.2e-7）。
+ *
+ * 我们用 **0.40**，比上游紧一档，因为这个库上 0.45 会漏进一类它们数据集里大概没有的
+ * 东西：**同画风同构图但内容不同的图**（连号 id 的整批产出最典型）。它们的 LPIPS
+ * 落在 0.39–0.44，单条边看都"勉强算同一张"，而传递闭包会把几百条这样的弱边堆成一个
+ * 121 张的假组。真正的差分集长得完全不一样 —— 边的中位数在 0.145，全库判同边的
+ * 中位数也是 0.149，0.42 属于判同边里最差的一档。
+ *
+ * 0.40 是实测的拐点（23.5 万张全量仲裁后）：两个假组彻底散掉、最大组回到真实的 43 张，
+ * 代价只有 2.3% 的成员；再压到 0.35 又少 1.9%，而结构上没有任何额外改善。
+ * 换句话说 0.40 正落在"压线弱边"和"真差分边"之间的空隙上。
+ */
+export const LPIPS_SAME_THRESHOLD = 0.40
 
 /**
  * 交互队列。**和 GPU backfill 队列分开**，由 worker 进程里第二个 `Worker` 实例
