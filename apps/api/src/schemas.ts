@@ -112,7 +112,9 @@ export function toIsoDateTime<T>(v: T): T {
  * `matchProb` / `sortValue` 只有搜索路径会填，但**必须出现在输出里**（Pydantic 会
  * 把未设置的可选字段序列化成 null），否则和 Litestar 的响应对不上。
  */
-export function toPostSimple(row: Record<string, unknown>): Record<string, unknown> {
+export type PostSimple = z.infer<typeof PostSimplePublic>
+
+export function toPostSimple(row: Record<string, any>): PostSimple {
   return {
     id: row.id,
     filePath: row.file_path,

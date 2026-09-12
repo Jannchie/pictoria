@@ -31,7 +31,15 @@ interface DirectorySummary {
  */
 const IGNORED_DIR_NAME = path.basename(pictoriaDir())
 
-const DirectorySummarySchema: z.ZodType<DirectorySummary> = z.lazy(() =>
+/**
+ * 契约里的形状：除 name / path / file_count 外都是可选的（Litestar 时代的 default），
+ * walker 产出的 `DirectorySummary` 总是把它们填上，所以它能直接赋给这个类型。
+ */
+type DirectorySummaryPublic = Pick<DirectorySummary, 'name' | 'path' | 'file_count'>
+  & Partial<Omit<DirectorySummary, 'name' | 'path' | 'file_count' | 'children'>>
+  & { children?: DirectorySummaryPublic[] }
+
+const DirectorySummarySchema: z.ZodType<DirectorySummaryPublic> = z.lazy(() =>
   z.object({
     name: z.string(),
     path: z.string(),

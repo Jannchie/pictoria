@@ -15,7 +15,7 @@ watchEffect(() => {
   pinned.value = props.pinned ?? false
 })
 provide('pinned', pinned)
-const show = defineModel({
+const show = defineModel<boolean>({
   default: false,
 })
 const position = ref({ left: '0px', top: '0px' })

@@ -23,6 +23,13 @@ const MAX_POST_RATING = 4
 // score 的范围交给 zod：Litestar 侧 msgspec 同样在**校验层**拒绝，返回 400，
 // 不是 handler 里的 InvalidArgumentError(409)。rating 则相反 —— 它在 query 上
 // 没有 schema 约束，由 handler 判断，所以是 409。这个不对称是既有行为。
+/**
+ * 二进制文件字段的文档元数据。单独提出来是因为 `contentMediaType` 只在 OAS 3.1
+ * 里有，而 zod-to-openapi 的元数据类型是 3.0 ∩ 3.1 的公共键 —— 内联字面量会被
+ * 多余属性检查拦下，走一个变量就不检查了；运行时它原样透传进 openapi.json。
+ */
+const BINARY_FILE_SCHEMA = { type: 'string', format: 'binary', contentMediaType: 'application/octet-stream' } as const
+
 /** 上传表单，键序照抄 baseline：url → path → source → file。 */
 const UploadFormData = z
   .object({
@@ -31,7 +38,7 @@ const UploadFormData = z
     source: z.string().nullable().optional(),
     // `.any()` 会让 zod-openapi 把它当可选，于是 required:['file'] 消失。
     // 这个 schema 只是文档 —— 实际校验在 handler 里 —— 所以 required 手工补上。
-    file: z.any().openapi({ type: 'string', format: 'binary', contentMediaType: 'application/octet-stream' }),
+    file: z.any().openapi(BINARY_FILE_SCHEMA),
   })
   .openapi('PostController.UploadFormData', { required: ['file'] })
 

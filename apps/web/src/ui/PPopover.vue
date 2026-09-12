@@ -117,7 +117,7 @@ const positionStyle = computed(() => {
   }
 })
 const hover = useElementHover(wrapperRef)
-const active = defineModel({
+const active = defineModel<boolean>({
   default: false,
 })
 const showContent = computed(() => {

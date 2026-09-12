@@ -13,7 +13,7 @@ const emit = defineEmits<{
   select: [number]
 }>()
 const count = computed(() => props.count ?? 5)
-const model = defineModel({
+const model = defineModel<number>({
   default: 0,
 })
 const highlightSelectedOnly = computed(() => {
