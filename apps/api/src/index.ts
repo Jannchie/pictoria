@@ -88,10 +88,10 @@ app.get('/schema/openapi.json', (c) => {
 
 // 没有路由匹配时的 404 和没被路由接住的异常：Hono 默认回纯文本，前端的错误处理
 // 只认 `ErrorBody`。500 的细节进日志不进响应。
-app.notFound(c => fail(c, 404, 'NotFound', 'Not Found'))
-app.onError((err, c) => {
+app.notFound(() => fail(404, 'NotFound', 'Not Found'))
+app.onError((err) => {
   console.error(`[pictoria-api] 未处理的异常：${err.stack ?? String(err)}`)
-  return fail(c, 500, 'InternalServerError', 'Internal Server Error')
+  return fail(500, 'InternalServerError', 'Internal Server Error')
 })
 
 // schema 先于流量：迁移失败就不该开始服务，否则第一批请求会打在半旧的 schema 上。

@@ -5,6 +5,7 @@
  * 并查集、多样性子集、重访池在 `queries/sampling.ts`。
  */
 import type BetterSqlite3 from 'better-sqlite3'
+import type { MutableKind } from './annotations.js'
 
 export const QUEUE_COLUMNS = 'id, name, kind, dimensions, scale, created_at, strategy'
 
@@ -29,9 +30,9 @@ function aliasedPostCols(tableAlias: string, outPrefix: string): string {
 export interface AnnotationQueueRow {
   id: number
   name: string
-  kind: 'absolute' | 'pairwise' | 'listwise'
-  /** JSON 数组字符串。 */
-  dimensions: string
+  kind: MutableKind
+  /** DB 里是 JSON 数组字符串，读出来已解析。 */
+  dimensions: string[]
   scale: number | null
   created_at: string
   /** pairwise 队列的采样策略；其余形态为 NULL。 */
@@ -106,8 +107,9 @@ export interface QueueWithProgress {
  */
 export function listQueues(sqlite: BetterSqlite3.Database): QueueWithProgress[] {
   const queues = sqlite
-    .prepare<[], AnnotationQueueRow>(`SELECT ${QUEUE_COLUMNS} FROM annotation_queues ORDER BY id DESC`)
+    .prepare<[], Omit<AnnotationQueueRow, 'dimensions'> & { dimensions: string }>(`SELECT ${QUEUE_COLUMNS} FROM annotation_queues ORDER BY id DESC`)
     .all()
+    .map((q): AnnotationQueueRow => ({ ...q, dimensions: JSON.parse(q.dimensions) as string[] }))
 
   const progress = new Map<string, { total: number, done: number }>()
   for (const [kind, table] of Object.entries(ITEM_TABLES)) {

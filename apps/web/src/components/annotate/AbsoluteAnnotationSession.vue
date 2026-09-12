@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import type { QueueItemPostPublic, QueueSummaryPublic } from '@/api'
-import type { AbsoluteStrategy, AnnotationDimension, AnnotationScale } from '@/shared/annotationTypes'
+import type { AbsoluteStrategy, AnnotationDimension, AnnotationScale, ContentFlag } from '@/shared/annotationTypes'
 import { useQueryClient } from '@tanstack/vue-query'
 import { onKeyStroke } from '@vueuse/core'
 import { computed, ref, watch } from 'vue'
@@ -53,7 +53,7 @@ const shownScale = computed(() => review.value?.scale ?? scale.value)
 const seenIds = new Set<number>()
 
 const choices = ref<Record<string, number>>({})
-const flagState = ref<'none' | 'love' | 'hate'>('none')
+const flagState = ref<ContentFlag>('none')
 let shownAt = performance.now()
 const elapsed = ref<Record<string, number>>({})
 

@@ -10,7 +10,6 @@ import {
   createTag,
   deleteTag,
   deleteTags,
-  getDetail,
   getTag,
   getTagGroup,
   postExists,
@@ -20,8 +19,9 @@ import {
 import { getDb } from '../db.js'
 import { CREATED, OK, errors, fail, postNotFound, zodErrorHook } from '../openapi.js'
 import { wakeAllBackfills } from '../scheduler.js'
-import { PostDetailPublic, Result, TagGroupPublic, toPostDetail } from '../schemas.js'
+import { PostDetailPublic, Result, TagGroupPublic } from '../schemas.js'
 import { translateTag } from '../tag-i18n.js'
+import { postDetailResponse, postIdParam } from './post-shared.js'
 
 const MAX_TAG_LENGTH = 200
 
@@ -63,9 +63,9 @@ tagWritesRoutes.openapi(
     const name = data.name.trim()
     const { sqlite } = getDb()
     if (getTag(sqlite, name))
-      return fail(c, 409, 'TagNameExistsError', `Tag '${name}' already exists.`)
+      return fail(409, 'TagNameExistsError', `Tag '${name}' already exists.`)
     if (data.groupId && !getTagGroup(sqlite, data.groupId))
-      return fail(c, 422, 'TagGroupNotFoundError', `Tag group with ID ${data.groupId} does not exist.`)
+      return fail(422, 'TagGroupNotFoundError', `Tag group with ID ${data.groupId} does not exist.`)
     createTag(sqlite, name, data.groupId ?? null)
     return c.json({ msg: `Tag '${name}' created successfully.` }, 201)
   },
@@ -99,12 +99,12 @@ tagWritesRoutes.openapi(
     const data = c.req.valid('json')
     const { sqlite } = getDb()
     if (!getTag(sqlite, name))
-      return fail(c, 404, 'TagNameNotFoundError', `Tag '${name}' does not exist.`)
+      return fail(404, 'TagNameNotFoundError', `Tag '${name}' does not exist.`)
     if (data.groupId && !getTagGroup(sqlite, data.groupId))
-      return fail(c, 422, 'TagGroupNotFoundError', `Tag group with ID ${data.groupId} does not exist.`)
+      return fail(422, 'TagGroupNotFoundError', `Tag group with ID ${data.groupId} does not exist.`)
     const updated = updateTagGroup(sqlite, name, data.groupId ?? null)
     if (!updated)
-      return fail(c, 404, 'TagNameNotFoundError', `Tag '${name}' does not exist.`)
+      return fail(404, 'TagNameNotFoundError', `Tag '${name}' does not exist.`)
     const group = updated.group_id ? getTagGroup(sqlite, updated.group_id) : undefined
     return c.json({
       name: updated.name,
@@ -157,8 +157,7 @@ tagWritesRoutes.openapi(
 
 /** post ↔ tag 关联：两个端点都在成功后回读整个详情。 */
 const postTagParams = z.object({
-  post_id: z.coerce.number().int()
-    .openapi({ param: { name: 'post_id', in: 'path', required: true }, type: 'integer' }),
+  post_id: postIdParam,
   tag_name: z.string().openapi({ param: { name: 'tag_name', in: 'path', required: true } }),
 })
 
@@ -178,10 +177,10 @@ tagWritesRoutes.openapi(
     const { post_id: postId, tag_name: tagName } = c.req.valid('param')
     const { sqlite } = getDb()
     if (!postExists(sqlite, postId))
-      return postNotFound(c, postId)
+      return postNotFound(postId)
     if (!addTagToPost(sqlite, postId, tagName))
-      return fail(c, 409, 'TagAlreadyExistsError', `Tag ${tagName} already exists in post ${postId}.`)
-    return c.json(toPostDetail(getDetail(sqlite, postId, n => translateTag(n))!), 200)
+      return fail(409, 'TagAlreadyExistsError', `Tag ${tagName} already exists in post ${postId}.`)
+    return postDetailResponse(c, postId)
   },
 )
 
@@ -201,11 +200,11 @@ tagWritesRoutes.openapi(
     const { post_id: postId, tag_name: tagName } = c.req.valid('param')
     const { sqlite } = getDb()
     if (!postExists(sqlite, postId))
-      return postNotFound(c, postId)
+      return postNotFound(postId)
     if (!removeTagFromPost(sqlite, postId, tagName))
-      return fail(c, 409, 'TagNotOnPostError', `Tag ${tagName} does not exist in post ${postId}.`)
+      return fail(409, 'TagNotOnPostError', `Tag ${tagName} does not exist in post ${postId}.`)
     // 摘掉的若是这张图最后一个 `is_auto = 1` 行，它就重新是 tagger 待办了。
     wakeAllBackfills()
-    return c.json(toPostDetail(getDetail(sqlite, postId, n => translateTag(n))!), 200)
+    return postDetailResponse(c, postId)
   },
 )

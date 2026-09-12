@@ -1,3 +1,4 @@
+import type { ScorerUi } from '@/shared/scorers'
 /**
  * A small text syntax for the gallery filter, so the whole narrowing can be
  * typed, read back, and shared as one string instead of living invisibly across
@@ -22,14 +23,11 @@
 import { toBucketAlias, toBucketLevel } from '@/shared/buckets'
 import { SCORERS } from '@/shared/scorers'
 
-export interface ParsedFilter {
+export interface ParsedFilter extends Record<ScorerUi['levelsField'], string[]> {
   rating: number[]
   score: number[]
   tags: string[]
   extension: string[]
-  waifuScoreLevels: string[]
-  silvaScoreLevels: string[]
-  silvaLunaScoreLevels: string[]
   /** Leftover free text — the semantic-search prompt. */
   text: string
   /** Terms that looked like `key:value` but weren't understood. */
@@ -58,7 +56,7 @@ export const RATING_ALIASES: Record<string, number> = {
  */
 const BUCKET_FACETS = Object.fromEntries(
   SCORERS.map(s => [s.dslKey, s.levelsField]),
-) as Record<string, 'waifuScoreLevels' | 'silvaScoreLevels' | 'silvaLunaScoreLevels'>
+) as Record<string, ScorerUi['levelsField']>
 
 const MAX_SCORE = 5
 /** rating 是 0..4（0 = 未评级）。 */
@@ -226,10 +224,7 @@ export function stringifyFilterQuery(filter: {
   score: number[]
   tags: string[]
   extension: string[]
-  waifuScoreLevels: string[]
-  silvaScoreLevels: string[]
-  silvaLunaScoreLevels: string[]
-}, text = ''): string {
+} & Record<ScorerUi['levelsField'], string[]>, text = ''): string {
   const parts: string[] = []
   const ratingName = ['unrated', 'general', 'sensitive', 'questionable', 'explicit']
 

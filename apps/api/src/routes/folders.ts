@@ -182,7 +182,7 @@ function attachStats(
  * `existsSync` 对这些一律返回 false。stat 不出来就是"没有这个目录"，所以任何
  * 失败都归到 404，别让它们冒成上面说的那种裸 500。
  */
-function requireDirectory(abs: string, label: string): { status: 400 | 404, error: string, detail: string } | null {
+function requireDirectory(abs: string, label: string) {
   let st: fs.Stats | undefined
   try {
     st = fs.statSync(abs, { throwIfNoEntry: false })
@@ -191,9 +191,9 @@ function requireDirectory(abs: string, label: string): { status: 400 | 404, erro
     st = undefined
   }
   if (!st)
-    return { status: 404, error: 'DirectoryNotFoundError', detail: `Directory not found: ${label}` }
+    return fail(404, 'DirectoryNotFoundError', `Directory not found: ${label}`)
   if (!st.isDirectory())
-    return { status: 400, error: 'PathNotADirectoryError', detail: `Not a directory: ${label}` }
+    return fail(400, 'PathNotADirectoryError', `Not a directory: ${label}`)
   return null
 }
 
@@ -214,7 +214,7 @@ foldersRoutes.openapi(
     const base = targetDir()
     const bad = requireDirectory(base, base)
     if (bad)
-      return fail(c, bad.status, bad.error, bad.detail)
+      return bad
 
     // 先遍历（异步、逐目录让出）再聚合（better-sqlite3 是同步的，没有并行的余地）。
     // 两个并发请求各自建自己的 `next`，都是完整且经 mtime 校验过的树，谁后完成谁
@@ -262,10 +262,10 @@ foldersRoutes.delete('/v2/folders/:folder_path{.+}', (c) => {
   const target = path.resolve(base, folder)
 
   if (!folder || folder === '.' || folder === '@' || target === base || !isInside(target, base) || isInside(target, pictoriaDir()))
-    return fail(c, 400, 'PathNotADirectoryError', `Refusing to delete: '${folder}' is not a library folder.`)
+    return fail(400, 'PathNotADirectoryError', `Refusing to delete: '${folder}' is not a library folder.`)
   const bad = requireDirectory(target, folder)
   if (bad)
-    return fail(c, bad.status, bad.error, bad.detail)
+    return bad
 
   const { sqlite } = getDb()
   const ids = listIdsInFolder(sqlite, folder)

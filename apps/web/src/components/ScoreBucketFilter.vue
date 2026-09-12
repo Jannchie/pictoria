@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import type { PostFilterValue } from '@/composables/useFacetFilter'
+import type { ScorerUi } from '@/shared/scorers'
 import { computed } from 'vue'
 import { useFacetFilter } from '@/composables/useFacetFilter'
 import { WAIFU_LEVEL_RGB } from '@/shared'
@@ -13,7 +14,7 @@ interface BucketDef {
 
 const props = defineProps<{
   /** The `postFilter` array facet this filter drives. */
-  field: 'waifuScoreLevels' | 'silvaScoreLevels' | 'silvaLunaScoreLevels'
+  field: ScorerUi['levelsField']
   countKind: 'waifu' | 'silva' | 'silvaLuna'
   fetchCounts: (filter: PostFilterValue) => Promise<{ bucket: string, count: number }[] | undefined>
   /** Bucket rows in popover order (top → bottom). */

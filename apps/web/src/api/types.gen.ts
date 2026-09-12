@@ -300,7 +300,7 @@ export type PairwiseCountPublic = {
 export type PostAnnotationsPublic = {
     absolute: Array<AbsoluteAnnotationPublic>;
     pairwise: Array<PairwiseAnnotationPublic>;
-    contentFlag?: string | null;
+    contentFlag?: 'love' | 'hate' | null;
 };
 
 /**
@@ -310,8 +310,8 @@ export type AbsoluteAnnotationPublic = {
     id: number;
     createdAt: string;
     postId: number;
-    dimension: string;
-    scale: number;
+    dimension: 'color' | 'finish' | 'composition' | 'overall';
+    scale: 2 | 3 | 5;
     value: number;
     rubricVersion: string;
     sessionId: string;
@@ -327,8 +327,8 @@ export type PairwiseAnnotationPublic = {
     createdAt: string;
     postA: number;
     postB: number;
-    dimension: string;
-    winner: string;
+    dimension: 'color' | 'finish' | 'composition' | 'overall';
+    winner: 'a' | 'b' | 'tie' | 'skip';
     rubricVersion: string;
     sessionId: string;
     elapsedMs?: number | null;

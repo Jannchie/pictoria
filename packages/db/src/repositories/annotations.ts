@@ -31,16 +31,15 @@ export const FLAG_COLUMNS = 'id, created_at, post_id, flag, session_id'
  * 不在此列：除了 `latestContentFlag` 没人读它，而且 `'none'` 本身就是它的撤回 ——
  * 多一个事件，而不是删掉一个。
  */
-const MUTABLE = {
+export const MUTABLE_KINDS = ['absolute', 'pairwise', 'listwise'] as const
+export type MutableKind = typeof MUTABLE_KINDS[number]
+
+// `Record<MutableKind, …>`：元组多一个或少一个，这张表都编译不过。
+const MUTABLE: Record<MutableKind, { table: string, column: string }> = {
   absolute: { table: 'absolute_annotations', column: 'value' },
   pairwise: { table: 'pairwise_annotations', column: 'winner' },
   listwise: { table: 'listwise_annotations', column: 'ranking' },
-} as const satisfies Record<string, { table: string, column: string }>
-
-export type MutableKind = keyof typeof MUTABLE
-
-/** 字面量元组，给路由层的 `z.enum()` 用；和 `MUTABLE` 的键一一对应，漂了编译不过。 */
-export const MUTABLE_KINDS = ['absolute', 'pairwise', 'listwise'] as const satisfies readonly MutableKind[]
+}
 
 /**
  * 三条事件流合成一条，最新在前。列形状统一好让 UNION 通过类型检查；某一类缺的列

@@ -47,6 +47,4 @@ export const VALID_PAIRWISE_STRATEGIES = ['random', 'similar', 'close'] as const
  * 量表字段：2 / 3 / 5 级。写成三个 literal 的 union 而不是 `z.literal([2, 3, 5])`：zod-to-openapi
  * 把多值 literal 渲染成 `enum: [2]`（只取第一个），生成的客户端类型就只剩 `2`。
  */
-export function scaleSchema() {
-  return z.union([z.literal(2), z.literal(3), z.literal(5)])
-}
+export const ScaleSchema = z.union([z.literal(2), z.literal(3), z.literal(5)])

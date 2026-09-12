@@ -19,7 +19,8 @@ import fs from 'node:fs'
 import path from 'node:path'
 import { Readable } from 'node:stream'
 import { getDb } from '../db.js'
-import { errorResponse, errors, zodErrorHook } from '../openapi.js'
+import { postIdParam } from './post-shared.js'
+import { errors, fail, zodErrorHook } from '../openapi.js'
 import { presignGetObject } from '../s3.js'
 import { resolveInside, targetDir, thumbnailPathFor, thumbnailsDir } from '../paths.js'
 import { getTasks } from '../tasks.js'
@@ -53,12 +54,9 @@ function guessType(filePath: string): string | undefined {
   return MIME[path.extname(filePath).slice(1).toLowerCase()]
 }
 
-/**
- * 这个文件里的 404 全是"图不在"这一族，裸 `Response` 而不是 `fail(c, …)`：
- * 文件响应本身就是裸 `Response`，handler 的返回类型两边得一致。
- */
-function notFound(detail: string): Response {
-  return errorResponse(404, 'NotFound', detail)
+/** 这个文件里的 404 全是"图不在"这一族。 */
+function notFound(detail: string) {
+  return fail(404, 'NotFound', detail)
 }
 
 /**
@@ -154,9 +152,6 @@ const FILE_RESPONSES = {
   },
   ...errors(400, 404),
 }
-
-const postIdParam = z.coerce.number().int()
-  .openapi({ param: { name: 'post_id', in: 'path', required: true }, type: 'integer' })
 
 const postPathParam = z.string()
   .openapi({ param: { name: 'post_path', in: 'path', required: true } })

@@ -1,3 +1,4 @@
+import type { ScorerUi } from '@/shared/scorers'
 import { computed } from 'vue'
 import { useI18n } from 'vue-i18n'
 import {
@@ -31,7 +32,7 @@ export interface FilterChip {
   remove: () => void
 }
 
-type ArrayFacet = 'rating' | 'score' | 'extension' | 'tags' | 'waifuScoreLevels' | 'silvaScoreLevels' | 'silvaLunaScoreLevels'
+type ArrayFacet = 'rating' | 'score' | 'extension' | 'tags' | ScorerUi['levelsField']
 
 /** Drops one value from an array facet, leaving the rest of the filter alone. */
 function removeFrom<T>(field: ArrayFacet, value: T) {

@@ -7,16 +7,16 @@ import fs from 'node:fs'
 import path from 'node:path'
 import { IO_QUEUE, rotateTask } from '@pictoria/contracts'
 import { Buffer } from 'node:buffer'
-import { bulkUpdateField, clearCanonical, createPost, getDetail, getPostPath, groupTogether, makeCanonical, markDifferent, postExists, touchAccessed, updateField, updateForRotate } from '@pictoria/db'
+import { bulkUpdateField, clearCanonical, createPost, getPostPath, groupHeadOf, groupTogether, makeCanonical, markDifferent, postExists, touchAccessed, updateField, updateForRotate } from '@pictoria/db'
 import { getDb } from '../db.js'
 import type { Context } from 'hono'
-import { boolQuery, CREATED, OK, errors, fail, postNotFound, zodErrorHook } from '../openapi.js'
+import { boolQuery, CREATED, OK, errors, fail, postNotFound, validationError, zodErrorHook } from '../openapi.js'
 import { wakeAllBackfills } from '../scheduler.js'
-import { PostDetailPublic, toPostDetail } from '../schemas.js'
+import { PostDetailPublic } from '../schemas.js'
 import { isInside, targetDir, thumbnailPathFor } from '../paths.js'
 import { deletePostFiles } from '../post-files.js'
-import { translateTag } from '../tag-i18n.js'
 import { getTasks } from '../tasks.js'
+import { postDetailResponse, postIdParam } from './post-shared.js'
 
 const MAX_POST_SCORE = 5
 const MAX_POST_RATING = 4
@@ -46,22 +46,10 @@ export const postWritesRoutes = new OpenAPIHono({ defaultHook: zodErrorHook })
 
 /** 更新一个标量列后回读详情。 */
 function updateAndReturnDetail(c: Context<any, any, any>, postId: number, field: string, value: unknown) {
-  const { sqlite } = getDb()
-  if (!updateField(sqlite, postId, field, value))
-    return postNotFound(c, postId)
-  return detailOf(c, postId)
+  if (!updateField(getDb().sqlite, postId, field, value))
+    return postNotFound(postId)
+  return postDetailResponse(c, postId)
 }
-
-/** 写完回读详情的公共尾巴：行在写和读之间被删掉就是 404。 */
-function detailOf(c: Context<any, any, any>, postId: number) {
-  const detail = getDetail(getDb().sqlite, postId, n => translateTag(n))
-  if (!detail)
-    return postNotFound(c, postId)
-  return c.json(toPostDetail(detail), 200)
-}
-
-const postIdParam = z.coerce.number().int()
-  .openapi({ param: { name: 'post_id', in: 'path', required: true }, type: 'integer' })
 
 const detailResponse = {
   200: { description: OK, content: { 'application/json': { schema: PostDetailPublic } } },
@@ -183,7 +171,7 @@ postWritesRoutes.openapi(
   (c) => {
     const { post_id: postId } = c.req.valid('param')
     if (!touchAccessed(getDb().sqlite, postId))
-      return postNotFound(c, postId)
+      return postNotFound(postId)
     return c.body(null, 204)
   },
 )
@@ -219,9 +207,9 @@ for (const op of groupOps) {
       const { post_id: postId } = c.req.valid('param')
       const { sqlite } = getDb()
       if (!postExists(sqlite, postId))
-        return postNotFound(c, postId)
+        return postNotFound(postId)
       op.run(sqlite, postId)
-      return detailOf(c, postId)
+      return postDetailResponse(c, postId)
     },
   )
 }
@@ -264,19 +252,16 @@ postWritesRoutes.openapi(
     const head = canonicalId ?? undefined
     for (const id of head == null ? ids : [...ids, head]) {
       if (!postExists(sqlite, id))
-        return postNotFound(c, id)
+        return postNotFound(id)
     }
     if (!groupTogether(sqlite, ids, head))
-      return fail(c, 400, 'InvalidArgumentError', `Need at least 2 distinct posts to group, got ${new Set(ids).size}.`)
+      return fail(400, 'InvalidArgumentError', `Need at least 2 distinct posts to group, got ${new Set(ids).size}.`)
 
-    // 合并后任一成员的指针都指向代表（成员）或为 NULL（它自己就是代表）。
-    const first = getDetail(sqlite, ids[0]!, n => translateTag(n))
-    if (!first)
-      return postNotFound(c, ids[0]!)
-    const canonical = (first.canonical_post_id as number | null) ?? ids[0]!
-    if (canonical === ids[0])
-      return c.json(toPostDetail(first), 200)
-    return detailOf(c, canonical)
+    // 合并后任一成员都能解析到代表：成员指向它，代表就是它自己。
+    const canonical = groupHeadOf(sqlite, ids[0]!)
+    if (canonical == null)
+      return postNotFound(ids[0]!)
+    return postDetailResponse(c, canonical)
   },
 )
 
@@ -306,12 +291,12 @@ postWritesRoutes.openapi(
     const { post_id: postId, other_id: otherId } = c.req.valid('param')
     const { sqlite } = getDb()
     if (!postExists(sqlite, postId))
-      return postNotFound(c, postId)
+      return postNotFound(postId)
     if (!postExists(sqlite, otherId))
-      return postNotFound(c, otherId)
+      return postNotFound(otherId)
     if (!markDifferent(sqlite, postId, otherId))
-      return fail(c, 400, 'InvalidArgumentError', 'A post cannot differ from itself.')
-    return detailOf(c, postId)
+      return fail(400, 'InvalidArgumentError', 'A post cannot differ from itself.')
+    return postDetailResponse(c, postId)
   },
 )
 
@@ -369,7 +354,7 @@ postWritesRoutes.openapi(
     const { sqlite } = getDb()
     const post = getPostPath(sqlite, postId)
     if (!post)
-      return postNotFound(c, postId)
+      return postNotFound(postId)
 
     const base = targetDir()
     const tasks = await getTasks()
@@ -386,7 +371,7 @@ postWritesRoutes.openapi(
     // 免得每次旋转都逼一轮全库重扫。
     if (result.arthash === null)
       wakeAllBackfills()
-    return detailOf(c, postId)
+    return postDetailResponse(c, postId)
   },
 )
 
@@ -429,7 +414,7 @@ postWritesRoutes.openapi(
 
     const hasFile = file instanceof File && file.size > 0
     if (!hasFile && !url)
-      return fail(c, 400, 'InvalidUploadError', 'Either file or url must be provided.')
+      return fail(400, 'InvalidUploadError', 'Either file or url must be provided.')
 
     const fileName = hasFile ? (file as File).name : ''
     let rel: string
@@ -444,9 +429,9 @@ postWritesRoutes.openapi(
     // 逃出库目录就是**校验失败**，不是"文件已存在"。原来这里复用了下一条的文案，
     // 于是探测目录穿越的人收到的是一句关于文件存在性的谎话。
     if (!isInside(absPath, base))
-      return fail(c, 400, 'ValidationError', `path escapes the library: ${JSON.stringify(rel)}`)
+      return validationError(`path escapes the library: ${JSON.stringify(rel)}`)
     if (fs.existsSync(absPath))
-      return fail(c, 409, 'FileAlreadyExistsError', 'File already exists.')
+      return fail(409, 'FileAlreadyExistsError', 'File already exists.')
 
     let bytes: Buffer
     if (hasFile) {

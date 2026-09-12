@@ -156,7 +156,6 @@ export const WAIFU = defineScorer('waifu', 'waifu', WAIFU_SCORE_BUCKETS, {
  */
 export const FILTERABLE_SCORERS = [WAIFU, SILVA, SILVA_LUNA] as const
 
-export type FilterableScorerName = typeof FILTERABLE_SCORERS[number]['name']
 export type FilterableScorerKey = typeof FILTERABLE_SCORERS[number]['key']
 
 /** `PostFilter` 上的分档字段名，例如 `silvaLunaScoreLevels`。 */

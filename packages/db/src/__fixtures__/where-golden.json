@@ -12,7 +12,7 @@
   {
     "name": "only_canonical_false",
     "filter": {
-      "only_canonical": false
+      "onlyCanonical": false
     },
     "where": [],
     "params": [],
@@ -162,7 +162,7 @@
   {
     "name": "waifu_range",
     "filter": {
-      "waifu_score_range": [
+      "waifuScoreRange": [
         2.5,
         8.0
       ]
@@ -183,7 +183,7 @@
   {
     "name": "waifu_levels",
     "filter": {
-      "waifu_score_levels": [
+      "waifuScoreLevels": [
         "A",
         "B"
       ]
@@ -206,7 +206,7 @@
   {
     "name": "waifu_unscored",
     "filter": {
-      "waifu_score_levels": [
+      "waifuScoreLevels": [
         "UNSCORED"
       ]
     },
@@ -223,7 +223,7 @@
   {
     "name": "waifu_levels_and_unscored",
     "filter": {
-      "waifu_score_levels": [
+      "waifuScoreLevels": [
         "A",
         "UNSCORED"
       ]
@@ -244,7 +244,7 @@
   {
     "name": "waifu_bogus_level",
     "filter": {
-      "waifu_score_levels": [
+      "waifuScoreLevels": [
         "Z"
       ]
     },
@@ -260,11 +260,11 @@
   {
     "name": "waifu_range_and_levels",
     "filter": {
-      "waifu_score_range": [
+      "waifuScoreRange": [
         1.0,
         9.0
       ],
-      "waifu_score_levels": [
+      "waifuScoreLevels": [
         "C"
       ]
     },
@@ -287,7 +287,7 @@
   {
     "name": "silva_levels",
     "filter": {
-      "silva_score_levels": [
+      "silvaScoreLevels": [
         "A",
         "E"
       ]
@@ -310,7 +310,7 @@
   {
     "name": "silva_luna_levels",
     "filter": {
-      "silva_luna_score_levels": [
+      "silvaLunaScoreLevels": [
         "B"
       ]
     },
@@ -330,10 +330,10 @@
   {
     "name": "both_silva",
     "filter": {
-      "silva_score_levels": [
+      "silvaScoreLevels": [
         "A"
       ],
-      "silva_luna_score_levels": [
+      "silvaLunaScoreLevels": [
         "A"
       ]
     },
@@ -357,7 +357,7 @@
   {
     "name": "silva_unscored",
     "filter": {
-      "silva_score_levels": [
+      "silvaScoreLevels": [
         "UNSCORED"
       ]
     },
@@ -389,22 +389,22 @@
         "jpg"
       ],
       "folder": "art",
-      "waifu_score_range": [
+      "waifuScoreRange": [
         3.0,
         7.0
       ],
-      "waifu_score_levels": [
+      "waifuScoreLevels": [
         "B",
         "UNSCORED"
       ],
-      "silva_score_levels": [
+      "silvaScoreLevels": [
         "A"
       ],
-      "silva_luna_score_levels": [
+      "silvaLunaScoreLevels": [
         "E",
         "UNSCORED"
       ],
-      "only_canonical": false
+      "onlyCanonical": false
     },
     "where": [
       "p.rating IN (?,?)",

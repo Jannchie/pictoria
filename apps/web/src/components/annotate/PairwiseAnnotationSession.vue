@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import type { QueueItemPostPublic, QueueSummaryPublic } from '@/api'
-import type { AnnotationDimension, PairwiseStrategy } from '@/shared/annotationTypes'
+import type { AnnotationDimension, PairwiseStrategy, PairwiseWinner } from '@/shared/annotationTypes'
 import { useQueryClient } from '@tanstack/vue-query'
 import { onKeyStroke } from '@vueuse/core'
 import { computed, ref, watch } from 'vue'
@@ -158,9 +158,7 @@ async function refillOnce(): Promise<void> {
   }
 }
 
-type Winner = 'a' | 'b' | 'tie' | 'skip'
-
-async function postJudgement(item: BufferItem, winner: Winner, elapsedMs: number): Promise<number[]> {
+async function postJudgement(item: BufferItem, winner: PairwiseWinner, elapsedMs: number): Promise<number[]> {
   const resp = await v2SubmitPairwise({
     body: {
       postA: item.postA.id,
@@ -179,13 +177,13 @@ async function postJudgement(item: BufferItem, winner: Winner, elapsedMs: number
 }
 
 /** Put this judgement at the head of the history sidebar without refetching it. */
-function noteInHistory(item: BufferItem, winner: Winner, ids: number[]) {
+function noteInHistory(item: BufferItem, winner: PairwiseWinner, ids: number[]) {
   if (ids[0] != null) {
     prependEntry(queryClient, { kind: 'pairwise', id: ids[0], post: item.postA, postB: item.postB, dimension: dimension.value, winner })
   }
 }
 
-function advancePast(winner: Winner) {
+function advancePast(winner: PairwiseWinner) {
   buffer.value.shift()
   doneCount.value += 1
   if (winner !== 'skip' && cumulativeCount.value != null) {
@@ -208,7 +206,7 @@ function advancePast(winner: Winner) {
  * 撤销必须真删事件行（后端 /annotations/undo），不能只退界面：误判会直接进
  * export_annotations 的训练集，而采样器的 _judged_graph 会永久认为这对问过了。
  */
-function recordJudgement(item: BufferItem, winner: Winner, elapsedMs: number, ids: number[]) {
+function recordJudgement(item: BufferItem, winner: PairwiseWinner, elapsedMs: number, ids: number[]) {
   // 会话切到别的维度后，把旧维度的一对塞回新 buffer 会让它被按错维度重判。
   // 那种情况下只删事件，不动界面。
   const judgedIn = dimension.value
@@ -250,11 +248,11 @@ function recordJudgement(item: BufferItem, winner: Winner, elapsedMs: number, id
 
 /** The single entry point for a verdict: it lands on the record under review, or on
  *  the next pair in the queue. Every key and click goes through here. */
-function decide(winner: Winner) {
+function decide(winner: PairwiseWinner) {
   return review.value ? amend(winner) : judge(winner)
 }
 
-async function judge(winner: Winner) {
+async function judge(winner: PairwiseWinner) {
   const item = current.value
   if (!item || submitting.value) {
     return

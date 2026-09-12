@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import type { QueueSummaryPublic } from '@/api'
 import type { StreamConfig } from '@/components/annotate/AbsoluteAnnotationSession.vue'
-import type { AbsoluteStrategy, AnnotationDimension, AnnotationScale, PairwiseStrategy } from '@/shared/annotationTypes'
+import type { AbsoluteStrategy, AnnotationDimension, AnnotationScale, PairwiseStrategy, QueueKind } from '@/shared/annotationTypes'
 import { useQuery } from '@tanstack/vue-query'
 import { computed, ref } from 'vue'
 import { v2GenerateAbsolute, v2GenerateListwise, v2GeneratePairwise, v2ListQueues } from '@/api'
@@ -61,7 +61,7 @@ const DIMENSIONS: DimensionMeta[] = [
 // --rankings 正是这么吃的），而耗时几乎正比于 C(n,2)。2026-09-06 实测每 PL 对当量：
 // 4 张 2.77 s、6 张 3.64 s、8 张 4.91 s，双图对比 2.12 s 但每次都要重新认识两张新图。
 const form = ref({
-  kind: 'listwise' as 'absolute' | 'pairwise' | 'listwise',
+  kind: 'listwise' as QueueKind,
   dimensions: ['overall'] as AnnotationDimension[], // 仅单图评分使用
   scale: 2 as AnnotationScale,
   strategy: 'stratified' as AbsoluteStrategy, // 单图评分采样
@@ -86,10 +86,10 @@ function toggleDimension(d: AnnotationDimension) {
   form.value.dimensions = dims.includes(d) ? dims.filter(x => x !== d) : [...dims, d]
 }
 
-const SCALES = [
-  { value: 2 as const, label: '二元', hint: '好 / 不好' },
-  { value: 3 as const, label: '三元', hint: '差 / 中 / 好' },
-  { value: 5 as const, label: '五级', hint: '1 – 5' },
+const SCALES: { value: AnnotationScale, label: string, hint: string }[] = [
+  { value: 2, label: '二元', hint: '好 / 不好' },
+  { value: 3, label: '三元', hint: '差 / 中 / 好' },
+  { value: 5, label: '五级', hint: '1 – 5' },
 ]
 const STRATEGIES = [
   { value: 'stratified' as const, label: '按旧分分层', hint: '1–5 分各层均匀' },

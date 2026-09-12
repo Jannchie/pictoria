@@ -1,5 +1,6 @@
 import type { Ref } from 'vue'
 import type { CountKind } from '@/shared'
+import type { ScorerUi } from '@/shared/scorers'
 import { keepPreviousData, useQuery } from '@tanstack/vue-query'
 import { computed, ref } from 'vue'
 import { postFilter, queryKeys } from '@/shared'
@@ -14,7 +15,7 @@ import { postFilter, queryKeys } from '@/shared'
  */
 
 export type PostFilterValue = typeof postFilter.value
-type ArrayFilterField = 'rating' | 'score' | 'extension' | 'waifuScoreLevels' | 'silvaScoreLevels' | 'silvaLunaScoreLevels'
+type ArrayFilterField = 'rating' | 'score' | 'extension' | ScorerUi['levelsField']
 
 /**
  * Percentage share of `count` in `total`, formatted to one decimal ('0.0' when

@@ -20,20 +20,19 @@ import {
   samplePostIds,
 } from '@pictoria/db'
 import { getDb } from '../db.js'
-import type { Context } from 'hono'
 import { CREATED, OK, errors, fail, zodErrorHook } from '../openapi.js'
 import {
   QueueItemPostPublic,
   toQueuePost,
   VALID_DIMENSIONS,
   VALID_PAIRWISE_STRATEGIES,
-  scaleSchema,
+  ScaleSchema,
   VALID_STRATEGIES,
 } from './annotation-shared.js'
 
 /** 采样器一个候选都挑不出来：请求合法，只是库的状态满足不了它。 */
-function noCandidates(c: Context<any, any, any>, detail: string) {
-  return fail(c, 409, 'NoEligibleCandidatesError', detail)
+function noCandidates(detail: string) {
+  return fail(409, 'NoEligibleCandidatesError', detail)
 }
 
 const QueueCreatedPublic = z.object({ id: z.int() }).openapi('QueueCreatedPublic')
@@ -44,7 +43,7 @@ const QueueSummaryPublic = z
     name: z.string(),
     kind: z.enum(MUTABLE_KINDS),
     dimensions: z.array(z.enum(VALID_DIMENSIONS)),
-    scale: scaleSchema().nullable().optional(),
+    scale: ScaleSchema.nullable().optional(),
     total: z.int(),
     done: z.int(),
     /** pairwise 队列的采样策略；其余形态为 null。提交时前端带回到事件行。 */
@@ -58,7 +57,7 @@ const AbsoluteQueueCreate = z
   .object({
     name: z.string(),
     dimensions: z.array(z.enum(VALID_DIMENSIONS)).min(1),
-    scale: scaleSchema(),
+    scale: ScaleSchema,
     postIds: z.array(z.int()),
   })
   .openapi('AbsoluteQueueCreate')
@@ -178,12 +177,12 @@ annotationQueuesRoutes.openapi(
     },
   }),
   c => c.json(
-    // 各列在写入时都经过了 enum 校验，读回来只需断言；DB 里 dimensions 存的是 JSON 字符串。
+    // dimensions / scale / strategy 在写入时都经过了 enum 校验，读回来只需断言。
     listQueues(getDb().sqlite).map(({ queue, total, done }): QueueSummary => ({
       id: queue.id,
       name: queue.name,
-      kind: queue.kind as QueueSummary['kind'],
-      dimensions: JSON.parse(queue.dimensions) as QueueSummary['dimensions'],
+      kind: queue.kind,
+      dimensions: queue.dimensions as QueueSummary['dimensions'],
       scale: queue.scale as QueueSummary['scale'],
       total,
       done,
@@ -296,7 +295,7 @@ annotationQueuesRoutes.openapi(
 const GenerateAbsoluteIn = z
   .object({
     dimensions: z.array(z.enum(VALID_DIMENSIONS)).min(1),
-    scale: scaleSchema(),
+    scale: ScaleSchema,
     count: z.int().min(1),
     strategy: z.enum(VALID_STRATEGIES).default('random'),
     name: z.union([z.string(), z.null()]).optional(),
@@ -339,7 +338,7 @@ annotationQueuesRoutes.openapi(
     const { sqlite } = getDb()
     const postIds = samplePostIds(sqlite, { count: d.count, strategy: d.strategy, dimensions: d.dimensions })
     if (!postIds.length)
-      return noCandidates(c, 'no eligible candidates (need posts with embeddings, not yet annotated or queued)')
+      return noCandidates('no eligible candidates (need posts with embeddings, not yet annotated or queued)')
     const name = d.name || `${d.strategy}-${d.dimensions.join('+')}-${postIds.length}`
     const id = createAbsoluteQueue(sqlite, { name, dimensions: d.dimensions, scale: d.scale, postIds })
     return c.json({
@@ -372,7 +371,7 @@ annotationQueuesRoutes.openapi(
     const { sqlite } = getDb()
     const pairs = samplePairs(sqlite, { count: d.count, strategy: d.strategy, dimension: d.dimension })
     if (!pairs.length)
-      return noCandidates(c, 'no eligible candidates (need posts with embeddings, not already queued)')
+      return noCandidates('no eligible candidates (need posts with embeddings, not already queued)')
     const name = d.name || `pairs-${d.dimension}-${pairs.length}`
     const id = createPairwiseQueue(sqlite, { name, dimensions: [d.dimension], pairs, strategy: d.strategy })
     return c.json({
@@ -406,7 +405,7 @@ annotationQueuesRoutes.openapi(
     const { sqlite } = getDb()
     const groups = sampleGroups(sqlite, { count: d.count, size: d.size, dimension: d.dimension })
     if (!groups.length)
-      return noCandidates(c, 'no eligible candidates (need silva-scored posts with an absolute score and embeddings)')
+      return noCandidates('no eligible candidates (need silva-scored posts with an absolute score and embeddings)')
     const name = d.name || `listwise-${d.dimension}-${groups.length}x${d.size}`
     const id = createListwiseQueue(sqlite, { name, dimensions: [d.dimension], groups })
     return c.json({

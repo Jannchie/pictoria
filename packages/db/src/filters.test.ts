@@ -4,9 +4,8 @@
  * 固件 `__fixtures__/where-golden.json` 是从已退役的 Python 参照实现直接 dump 的，
  * 不是手写的期望值 —— 手写期望值只能证明"我以为它该输出什么"。用例覆盖每个分支
  * 及其组合，包括那个别名前缀坑的现场（`both_silva`：`pas_silva` 是 `pas_silva_luna`
- * 的子串）。它比的是 SQL 文本，确定性的，不会因为库里的数据变化而陈旧；也再生成
- * 不出新的，所以固件里的过滤器键仍是当年的 snake_case，进 `buildWhere` 前换成
- * 现在的 camelCase。
+ * 的子串）。它比的是 SQL 文本，确定性的，不会因为库里的数据变化而陈旧。冻结的是
+ * 期望的 SQL；输入侧的过滤器键只是普通 JSON，随 `PostFilter` 改成了 camelCase。
  */
 import { describe, expect, it } from 'vitest'
 import golden from './__fixtures__/where-golden.json' with { type: 'json' }
@@ -24,14 +23,6 @@ interface GoldenCase {
 
 const cases = golden as unknown as GoldenCase[]
 
-/** 固件里的 snake_case 键 → 现在的 `PostFilter` 字段名。 */
-function toPostFilter(filter: Record<string, unknown>): PostFilter {
-  const out: Record<string, unknown> = {}
-  for (const [k, v] of Object.entries(filter))
-    out[k.replace(/_([a-z])/g, (_, c: string) => c.toUpperCase())] = v
-  return out as PostFilter
-}
-
 describe('buildWhere 与冻结固件逐字符一致', () => {
   it('固件确实覆盖了所有分支', () => {
     expect(cases.length).toBeGreaterThanOrEqual(20)
@@ -40,7 +31,7 @@ describe('buildWhere 与冻结固件逐字符一致', () => {
   })
 
   it.each(cases.map(c => [c.name, c] as const))('%s', (_name, c) => {
-    const actual = buildWhere(toPostFilter(c.filter))
+    const actual = buildWhere(c.filter as PostFilter)
     expect(actual.where).toEqual(c.where)
     expect(actual.params).toEqual(c.params)
     expect(actual.joins).toEqual(c.joins)
@@ -49,7 +40,7 @@ describe('buildWhere 与冻结固件逐字符一致', () => {
 
 describe('hasActiveFilters 与冻结固件一致', () => {
   it.each(cases.map(c => [c.name, c] as const))('%s', (_name, c) => {
-    expect(hasActiveFilters(toPostFilter(c.filter))).toBe(c.has_active_filters)
+    expect(hasActiveFilters(c.filter as PostFilter)).toBe(c.has_active_filters)
   })
 })
 

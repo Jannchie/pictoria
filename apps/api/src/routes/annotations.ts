@@ -2,7 +2,6 @@
  * `/v2/annotations` —— 提交、撤回、更正、timeline、按 post 查历史、pairwise 计数，
  * 以及两个无队列的 `sample-*` 流式取样。
  */
-import type { Context } from 'hono'
 import { createRoute, OpenAPIHono, z } from '@hono/zod-openapi'
 import {
   countPairwise,
@@ -27,24 +26,19 @@ import {
 } from '@pictoria/db'
 import { expandListwiseAnnotations } from '@pictoria/db'
 import { getDb } from '../db.js'
-import { CREATED, OK, errors, fail, zodErrorHook } from '../openapi.js'
+import { CREATED, OK, errors, invalidRequest, validationError, zodErrorHook } from '../openapi.js'
 import { toIsoDateTime } from '../schemas.js'
 import {
   QueueItemPostPublic,
   toQueuePost,
   VALID_DIMENSIONS,
   VALID_PAIRWISE_STRATEGIES,
-  scaleSchema,
+  ScaleSchema,
   VALID_STRATEGIES,
 } from './annotation-shared.js'
 
 const VALID_WINNERS = ['a', 'b', 'tie', 'skip'] as const
 const VALID_FLAGS = ['love', 'hate', 'none'] as const
-
-/** 手抛的 400：和 schema 校验失败同一个码，只是没有 `issues`。 */
-function invalid(c: Context<any, any, any>, detail: string) {
-  return fail(c, 400, 'ValidationError', detail)
-}
 
 const InsertedPublic = z.object({ inserted: z.int(), ids: z.array(z.int()) }).openapi('InsertedPublic')
 const DeletedPublic = z.object({ deleted: z.int() }).openapi('DeletedPublic')
@@ -58,7 +52,7 @@ const AbsoluteEventIn = z
   .object({
     postId: z.int(),
     dimension: z.enum(VALID_DIMENSIONS),
-    scale: scaleSchema(),
+    scale: ScaleSchema,
     value: z.int().min(1),
     rubricVersion: z.string(),
     sessionId: z.string(),
@@ -124,8 +118,8 @@ const AbsoluteAnnotationPublic = z
     id: z.int(),
     createdAt: z.iso.datetime(),
     postId: z.int(),
-    dimension: z.string(),
-    scale: z.int(),
+    dimension: z.enum(VALID_DIMENSIONS),
+    scale: ScaleSchema,
     value: z.int(),
     rubricVersion: z.string(),
     sessionId: z.string(),
@@ -140,8 +134,8 @@ const PairwiseAnnotationPublic = z
     createdAt: z.iso.datetime(),
     postA: z.int(),
     postB: z.int(),
-    dimension: z.string(),
-    winner: z.string(),
+    dimension: z.enum(VALID_DIMENSIONS),
+    winner: z.enum(VALID_WINNERS),
     rubricVersion: z.string(),
     sessionId: z.string(),
     elapsedMs: z.int().nullable().optional(),
@@ -153,7 +147,7 @@ const PostAnnotationsPublic = z
   .object({
     absolute: z.array(AbsoluteAnnotationPublic),
     pairwise: z.array(PairwiseAnnotationPublic),
-    contentFlag: z.string().nullable().optional(),
+    contentFlag: z.enum(['love', 'hate']).nullable().optional(),
   })
   .openapi('PostAnnotationsPublic')
 
@@ -176,7 +170,7 @@ annotationsRoutes.openapi(
     const data = c.req.valid('json')
     for (const e of data.events) {
       if (e.value > e.scale)
-        return invalid(c, `value ${e.value} out of range for scale ${e.scale}`)
+        return validationError(`value ${e.value} out of range for scale ${e.scale}`)
     }
     const { sqlite } = getDb()
     const ids = data.events.map((e: any) => insertAbsolute(sqlite, e))
@@ -225,14 +219,14 @@ annotationsRoutes.openapi(
   (c) => {
     const data = c.req.valid('json')
     if (new Set(data.postIds).size !== data.postIds.length)
-      return invalid(c, `postIds must be distinct, got ${JSON.stringify(data.postIds)}`)
+      return validationError(`postIds must be distinct, got ${JSON.stringify(data.postIds)}`)
     // 排序必须是这组成员的一个排列 —— 少一张、多一张、排到别的组的图，都是客户端 bug，
     // 拦在这里比拦在训练导出里便宜四个数量级。空数组 = skip，合法。
     const sameMembers = data.ranking.length === data.postIds.length
       && new Set(data.ranking).size === data.ranking.length
       && data.ranking.every((pid: number) => data.postIds.includes(pid))
     if (data.ranking.length && !sameMembers)
-      return invalid(c, 'ranking must be a permutation of postIds (or [] to skip)')
+      return validationError('ranking must be a permutation of postIds (or [] to skip)')
     const { sqlite } = getDb()
     const rowId = insertListwise(sqlite, data)
     if (data.queueId != null && data.queuePosition != null)
@@ -308,9 +302,9 @@ annotationsRoutes.openapi(
     const { kind, annotation_id: annotationId } = c.req.valid('param')
     const { verdict } = c.req.valid('json')
     if (kind === 'pairwise' && !VALID_WINNERS.includes(verdict as never))
-      return invalid(c, `invalid winner: ${JSON.stringify(verdict)}`)
+      return validationError(`invalid winner: ${JSON.stringify(verdict)}`)
     if (kind === 'absolute' && !(typeof verdict === 'number' && Number.isInteger(verdict) && verdict >= 1))
-      return invalid(c, `invalid value: ${JSON.stringify(verdict)}`)
+      return validationError(`invalid value: ${JSON.stringify(verdict)}`)
     const changed = editAnnotation(getDb().sqlite, { kind, annotationId, verdict })
     return c.json({ updated: changed ? 1 : 0 }, 200)
   },
@@ -388,7 +382,7 @@ annotationsRoutes.openapi(
         editedAt: toIsoDateTime(p.edited_at),
       })),
       // 'none' 是撤回，对外等同于"没有 flag"。
-      contentFlag: !flag || flag.flag === 'none' ? null : (flag.flag as string),
+      contentFlag: !flag || flag.flag === 'none' ? null : (flag.flag as 'love' | 'hate'),
     }, 200)
   },
 )
@@ -464,7 +458,7 @@ annotationsRoutes.openapi(
     const { limit, before } = c.req.valid('query')
     const cursor = parseCursor(before)
     if (cursor === 'malformed')
-      return invalid(c, `malformed cursor: ${JSON.stringify(before)}`)
+      return validationError(`malformed cursor: ${JSON.stringify(before)}`)
 
     const page = Math.min(Math.max(limit, 1), TIMELINE_MAX_LIMIT)
     const { sqlite } = getDb()
@@ -687,7 +681,7 @@ annotationsRoutes.openAPIRegistry.registerPath({
 annotationsRoutes.get('/v2/annotations/listwise/export', (c) => {
   const parsed = ExportQuery.safeParse(c.req.query())
   if (!parsed.success)
-    return zodErrorHook(parsed, c)!
+    return invalidRequest(c, parsed.error)
   const q = parsed.data
   const rows = expandListwiseAnnotations(getDb().sqlite, {
     maxCandidatesPerSlot: q.max_candidates_per_slot,

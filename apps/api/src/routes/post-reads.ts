@@ -2,11 +2,11 @@
  * posts 的按 id 读取：详情、同组成员、差分证据、图搜图。
  */
 import { createRoute, OpenAPIHono, z } from '@hono/zod-openapi'
-import { getDetail, getGroupMembers, groupHeadOf, knn, listEdgesFor, listSimpleByIdsPreservingOrder } from '@pictoria/db'
+import { getGroupMembers, groupHeadOf, knn, listEdgesFor, listSimpleByIdsPreservingOrder } from '@pictoria/db'
 import { getDb } from '../db.js'
-import { OK, errors, postNotFound, zodErrorHook } from '../openapi.js'
-import { PostDetailPublic, PostSimplePublic, toPostDetail, toPostSimple } from '../schemas.js'
-import { translateTag } from '../tag-i18n.js'
+import { OK, errors, zodErrorHook } from '../openapi.js'
+import { PostDetailPublic, PostSimplePublic, toPostSimple } from '../schemas.js'
+import { postDetailResponse, postIdParam } from './post-shared.js'
 
 export const postReadsRoutes = new OpenAPIHono({ defaultHook: zodErrorHook })
 
@@ -17,10 +17,7 @@ postReadsRoutes.openapi(
     operationId: 'v2GetPost',
     summary: 'GetPost',
     request: {
-      params: z.object({
-        post_id: z.coerce.number().int()
-          .openapi({ param: { name: 'post_id', in: 'path', required: true }, type: 'integer' }),
-      }),
+      params: z.object({ post_id: postIdParam }),
       query: z.object({
         lang: z.string().default('zh-Hans')
           .openapi({ param: { name: 'lang', in: 'query', required: false } }),
@@ -34,11 +31,7 @@ postReadsRoutes.openapi(
   (c) => {
     const { post_id: postId } = c.req.valid('param')
     const { lang } = c.req.valid('query')
-    const row = getDetail(getDb().sqlite, postId, n => translateTag(n, lang))
-    if (!row)
-      return postNotFound(c, postId)
-
-    return c.json(toPostDetail(row), 200)
+    return postDetailResponse(c, postId, lang)
   },
 )
 
@@ -50,10 +43,7 @@ postReadsRoutes.openapi(
     summary: 'GetPostGroup',
     description: "List the hidden near-duplicate members of this post's group.",
     request: {
-      params: z.object({
-        post_id: z.coerce.number().int()
-          .openapi({ param: { name: 'post_id', in: 'path', required: true }, type: 'integer' }),
-      }),
+      params: z.object({ post_id: postIdParam }),
     },
     responses: {
       200: { description: OK, content: { 'application/json': { schema: z.array(PostSimplePublic) } } },
@@ -91,10 +81,7 @@ postReadsRoutes.openapi(
     summary: 'GetPostGroupEvidence',
     description: 'Per-pair near-duplicate evidence (distances + user verdicts) for this post.',
     request: {
-      params: z.object({
-        post_id: z.coerce.number().int()
-          .openapi({ param: { name: 'post_id', in: 'path', required: true }, type: 'integer' }),
-      }),
+      params: z.object({ post_id: postIdParam }),
     },
     responses: {
       200: { description: OK, content: { 'application/json': { schema: z.array(GroupEvidenceItem) } } },
@@ -119,10 +106,7 @@ postReadsRoutes.openapi(
     operationId: 'v2GetSimilarPosts',
     summary: 'GetSimilarPosts',
     request: {
-      params: z.object({
-        post_id: z.coerce.number().int()
-          .openapi({ param: { name: 'post_id', in: 'path', required: true }, type: 'integer' }),
-      }),
+      params: z.object({ post_id: postIdParam }),
       query: z.object({
         limit: z.coerce.number().int().default(100)
           .openapi({ param: { name: 'limit', in: 'query', required: false }, type: 'integer', default: 100 }),

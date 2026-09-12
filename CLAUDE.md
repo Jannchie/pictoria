@@ -91,7 +91,7 @@ uv run python scripts/inspect_db.py
 - **src/db.ts**: the process-wide SQLite handle; **runs `runMigrations` on first open**
 - **src/routes/**: one file per resource (posts read/write/list/counts, tags, images, folders, annotations, annotation-queues, commands, statistics)
 - **src/scheduler.ts**: picks pending work per worker and submits cairnq tasks; **src/sync.ts**: disk↔`posts` reconciliation + file watching; **src/dedup.ts**: near-duplicate grouping
-- **src/openapi.ts**: the single error shape `ErrorBody` (`{error, detail, issues?}`) and its helpers — `errors(400, 404)` declares an endpoint's error responses, `fail(c, 404, 'PostNotFoundError', detail)` returns one (type-checked against the declaration), `errorResponse()` is the bare-`Response` variant for file-streaming handlers. Handlers that use `errors()` must return `c.json(x, 200)` with an explicit status. Do not hand-roll another shape
+- **src/openapi.ts**: the single error shape `ErrorBody` (`{error, detail, issues?}`) and its helpers — `errors(400, 404)` declares an endpoint's error responses, `fail(404, 'PostNotFoundError', detail)` returns one (type-checked against the declaration; it needs no `c`, so guards can build it early), `invalidRequest(c, zodError)` is the 400 for routes that `safeParse` by hand. Handlers that use `errors()` must return `c.json(x, 200)` with an explicit status. Do not hand-roll another shape
 
 #### `packages/db` — data access (the only writer)
 

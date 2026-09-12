@@ -25,7 +25,6 @@ import {
   ensureCanonicalTagGroups,
   fetchEmbeddingBlobs,
   getAestheticScore,
-  getDetail,
   getPostPath,
   getWaifuScore,
   isImagePath,
@@ -45,11 +44,11 @@ import path from 'node:path'
 import { DEDUP_THRESHOLD, isRebuilding, rebuildGroups } from '../dedup.js'
 import { getDb } from '../db.js'
 import { boolQuery, CREATED, OK, errors, fail, postNotFound, zodErrorHook } from '../openapi.js'
-import { PostDetailPublic, Result, toPostDetail } from '../schemas.js'
+import { postDetailResponse, postIdParam } from './post-shared.js'
+import { PostDetailPublic, Result } from '../schemas.js'
 import { wakeAllBackfills } from '../scheduler.js'
 import { targetDir } from '../paths.js'
 import { startSync } from '../sync.js'
-import { translateTag } from '../tag-i18n.js'
 import { getTasks } from '../tasks.js'
 
 const SnapshotResult = z.object({ path: z.string(), dir: z.string() }).openapi('SnapshotResult')
@@ -68,25 +67,22 @@ const DanbooruDownloadStats = z
 
 export const commandsRoutes = new OpenAPIHono({ defaultHook: zodErrorHook })
 
-const postIdParam = z.coerce.number().int()
-  .openapi({ param: { name: 'post_id', in: 'path', required: true }, type: 'integer' })
-
 /**
  * 即时命令共用的两道守卫：post 不存在 → 404，不是图片 → 400。
  * 先查存在再判类型，所以一个不存在的 id 永远是 404 而不是 400。
  */
-function requireImage(c: Context<any, any, any>, postId: number) {
+function requireImage(postId: number) {
   const post = getPostPath(getDb().sqlite, postId)
   if (!post)
-    return { ok: false as const, response: postNotFound(c, postId) }
+    return { ok: false as const, response: postNotFound(postId) }
   if (!isImagePath(post.fullPath))
-    return { ok: false as const, response: notAnImage(c, postId) }
+    return { ok: false as const, response: notAnImage(postId) }
   return { ok: true as const, path: `${targetDir()}/${post.fullPath}` }
 }
 
 /** "扩展名像图片"和"解码器能读"是两件事：算完仍然没有分，也归到这一句。 */
-function notAnImage(c: Context<any, any, any>, postId: number) {
-  return fail(c, 400, 'NotAnImageError', `Post ${postId} is not an image.`)
+function notAnImage(postId: number) {
+  return fail(400, 'NotAnImageError', `Post ${postId} is not an image.`)
 }
 
 /**
@@ -102,14 +98,6 @@ function notAnImage(c: Context<any, any, any>, postId: number) {
  */
 function oneShot(key: string) {
   return { queue: GPU_QUEUE, key, waitTimeoutMs: 300_000, maxAttempts: 1 } as const
-}
-
-/** 回读详情。命令端点算完之后一律返回最新的 PostDetailPublic。 */
-function detailResponse(c: Context<any, any, any>, postId: number) {
-  const detail = getDetail(getDb().sqlite, postId, n => translateTag(n))
-  if (!detail)
-    return postNotFound(c, postId)
-  return c.json(toPostDetail(detail), 200)
 }
 
 commandsRoutes.openapi(
@@ -131,6 +119,9 @@ commandsRoutes.openapi(
           .openapi({ param: { name: 'max_group_size', in: 'query', required: false }, type: ['number', 'null'] }),
         max_arbitrations: z.coerce.number().nullable().optional()
           .openapi({ param: { name: 'max_arbitrations', in: 'query', required: false }, type: ['number', 'null'] }),
+        // dry run 走完整流程（含 GPU 召回和 LPIPS 仲裁，仲裁结果照常写进证据表 ——
+        // 那是缓存，算了就该留下），只是不动 canonical_post_id。用来在真正改变界面
+        // 之前，先从日志里看一眼"这一轮会多合并多少、组大小分布长什么样"。
         dry_run: boolQuery('dry_run', false),
         // spread = 在整条灰带上均匀取样，用来标定阈值；nearest = 先算最像的，用来收敛。
         arbitration_sampling: z.enum(['nearest', 'spread']).optional()
@@ -161,10 +152,6 @@ commandsRoutes.openapi(
     if (isRebuilding())
       return c.json({ msg: 'Near-duplicate grouping already running' }, 201)
 
-    // dry run 走完整流程（含 GPU 召回和 LPIPS 仲裁，仲裁结果照常写进证据表 ——
-    // 那是缓存，算了就该留下），只是不动 canonical_post_id。用来在真正改变界面
-    // 之前，先从日志里看一眼"这一轮会多合并多少、组大小分布长什么样"。
-    //
     // 直接传，不逐个 `...(x == null ? {} : { x })`：`RebuildOptions` 的每一项都收
     // null，默认值在 `doRebuild` 里用 `??` 兜。加一个旋钮只要加一行。
     const opts = {
@@ -209,7 +196,7 @@ commandsRoutes.openapi(
   }),
   async (c) => {
     const { post_id: postId } = c.req.valid('param')
-    const guard = requireImage(c, postId)
+    const guard = requireImage(postId)
     if (!guard.ok)
       return guard.response
 
@@ -226,7 +213,7 @@ commandsRoutes.openapi(
 
     const score = getWaifuScore(sqlite, postId)
     if (score === null)
-      return notAnImage(c, postId)
+      return notAnImage(postId)
     return c.json(score, 200)
   },
 )
@@ -240,7 +227,7 @@ commandsRoutes.openapi(
 function silvaOneShot(scorer: 'silva' | 'silva_luna') {
   return async (c: Context<any, any, any>) => {
     const { post_id: postId } = c.req.valid('param') as { post_id: number }
-    const guard = requireImage(c, postId)
+    const guard = requireImage(postId)
     if (!guard.ok)
       return guard.response
 
@@ -263,7 +250,7 @@ function silvaOneShot(scorer: 'silva' | 'silva_luna') {
     }
     // 向量算不出来 = 这张图读不进来。和 waifu 一样报 400。
     if (!blobs.has(postId))
-      return notAnImage(c, postId)
+      return notAnImage(postId)
 
     const result = await tasks.call(silvaTask, {
       scorer,
@@ -273,7 +260,7 @@ function silvaOneShot(scorer: 'silva' | 'silva_luna') {
 
     const score = getAestheticScore(sqlite, postId, scorer)
     if (score === null)
-      return notAnImage(c, postId)
+      return notAnImage(postId)
     return c.json(score, 200)
   }
 }
@@ -334,7 +321,7 @@ commandsRoutes.openapi(
     const { sqlite } = getDb()
     const post = getPostPath(sqlite, postId)
     if (!post)
-      return postNotFound(c, postId)
+      return postNotFound(postId)
 
     const tasks: CairnQ = await getTasks()
     const result = await tasks.call(taggerTask, {
@@ -354,7 +341,7 @@ commandsRoutes.openapi(
       characterTags: row.characterTags,
       rating: ratingToInt(row.rating),
     }, ensureCanonicalTagGroups(sqlite))
-    return detailResponse(c, postId)
+    return postDetailResponse(c, postId)
   },
 )
 
@@ -381,7 +368,7 @@ commandsRoutes.openapi(
     const { sqlite } = getDb()
     const post = getPostPath(sqlite, postId)
     if (!post)
-      return postNotFound(c, postId)
+      return postNotFound(postId)
 
     const tasks: CairnQ = await getTasks()
     const result = await tasks.call(captionTask, {
@@ -389,10 +376,10 @@ commandsRoutes.openapi(
     }, { queue: IO_QUEUE, waitTimeoutMs: 120_000, pollMs: 20, maxPollMs: 50, maxAttempts: 1 })
 
     if (!result.configured)
-      return fail(c, 400, 'MissingConfigError', 'OpenAI API key is not set.')
+      return fail(400, 'MissingConfigError', 'OpenAI API key is not set.')
 
     updateField(sqlite, postId, 'caption', result.caption)
-    return detailResponse(c, postId)
+    return postDetailResponse(c, postId)
   },
 )
 
@@ -575,10 +562,6 @@ let urlImportStatus: {
   syncTriggered: false,
 }
 
-function nowIso(): string {
-  return new Date().toISOString()
-}
-
 /**
  * 后台跑一次 gallery-dl 导入。
  *
@@ -594,12 +577,12 @@ async function runUrlImport(url: string): Promise<void> {
   catch (err) {
     status.state = 'failed'
     status.error = String(err)
-    status.finishedAt = nowIso()
+    status.finishedAt = new Date().toISOString()
     console.warn(`[url-import] ${url} 失败：${String(err)}`)
     return
   }
   status.state = 'done'
-  status.finishedAt = nowIso()
+  status.finishedAt = new Date().toISOString()
   // 新图需要向量 / 分数 / 自动标签（kemono 的帖子根本不带标签）—— 踢一脚既有的
   // backfill 流程。⚠️ 必须在 state='done' **之后**，因为 done 是前端停止轮询的信号，
   // 而 syncTriggered 是它要读的最后一个字段。
@@ -684,7 +667,7 @@ commandsRoutes.openapi(
       url,
       stats: null,
       error: null,
-      startedAt: nowIso(),
+      startedAt: new Date().toISOString(),
       finishedAt: null,
       syncTriggered: false,
     }
