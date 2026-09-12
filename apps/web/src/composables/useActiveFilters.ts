@@ -31,7 +31,7 @@ export interface FilterChip {
   remove: () => void
 }
 
-type ArrayFacet = 'rating' | 'score' | 'extension' | 'tags' | 'waifu_score_levels' | 'silva_score_levels' | 'silva_luna_score_levels'
+type ArrayFacet = 'rating' | 'score' | 'extension' | 'tags' | 'waifuScoreLevels' | 'silvaScoreLevels' | 'silvaLunaScoreLevels'
 
 /** Drops one value from an array facet, leaving the rest of the filter alone. */
 function removeFrom<T>(field: ArrayFacet, value: T) {
@@ -48,7 +48,7 @@ function clearAll() {
     tags: [],
     extension: [],
     ...Object.fromEntries(SCORERS.map(s => [s.levelsField, []])),
-    waifu_score_range: undefined,
+    waifuScoreRange: undefined,
   }
   textSearchQuery.value = ''
   postSortColor.value = undefined
@@ -110,14 +110,14 @@ export function useActiveFilters() {
         })
       }
     }
-    if (f.waifu_score_range) {
-      const [lo, hi] = f.waifu_score_range
+    if (f.waifuScoreRange) {
+      const [lo, hi] = f.waifuScoreRange
       out.push({
         id: 'waifu-range',
         icon: 'i-tabler-heart',
         label: `${lo}–${hi}`,
         remove: () => {
-          postFilter.value.waifu_score_range = undefined
+          postFilter.value.waifuScoreRange = undefined
         },
       })
     }

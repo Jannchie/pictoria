@@ -9,7 +9,7 @@
 import type BetterSqlite3 from 'better-sqlite3'
 
 /**
- * `is_image` 认的扩展名 —— 逐个照抄 `server/src/server/utils/__init__.py`。
+ * "看起来是一张图"认的扩展名。
  *
  * ⚠️ 比 `backfill.ts` 的 `IMAGE_EXTS` **宽**（多了 bmp/tiff/tif/svg），两者不能合并：
  * 那一个决定"backfill 要不要碰它"，这一个决定"端点返不返 400"。把 svg 塞进 backfill
@@ -18,7 +18,7 @@ import type BetterSqlite3 from 'better-sqlite3'
  */
 const IS_IMAGE_EXTS = ['jpg', 'jpeg', 'png', 'gif', 'webp', 'avif', 'bmp', 'tiff', 'tif', 'svg']
 
-/** 路径看起来是不是一张图。等价于 Python 的 `is_image`（大小写不敏感的后缀判断）。 */
+/** 路径看起来是不是一张图（大小写不敏感的后缀判断）。 */
 export function isImagePath(filePath: string): boolean {
   const lower = filePath.toLowerCase()
   return IS_IMAGE_EXTS.some(ext => lower.endsWith(`.${ext}`))
@@ -71,8 +71,6 @@ export function getAestheticScore(
  * ⚠️ 与 `persistTaggerResults` 有**一处刻意的不同**：rating 在这里**无条件**覆盖，
  * 而 backfill 那条只在原值为 0 时写。这不是疏忽 —— backfill 是后台自动跑的，不该
  * 推翻人工评级；而这个端点是用户主动点的"重新自动标注"，覆盖正是他要的。
- * Python 侧同样分成两条路径（`auto_tags` 直接 `update_field`，backfill 走
- * `_persist_wdtagger_results`），照抄。
  */
 export function persistAutoTagsForPost(
   sqlite: BetterSqlite3.Database,

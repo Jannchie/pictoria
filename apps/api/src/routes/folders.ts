@@ -8,49 +8,40 @@ import { addAgg, emptyAgg, folderScoreAggregates, listIdsInFolder, type FolderSc
 import { getDb } from '../db.js'
 import { isInside, pictoriaDir, targetDir, thumbnailPathFor } from '../paths.js'
 import { deletePostFiles } from '../post-files.js'
-import { OK, RESP_400, domainError, httpError, zodErrorHook } from '../openapi.js'
+import { OK, errors, fail, zodErrorHook } from '../openapi.js'
 import { Result } from '../schemas.js'
 
 interface DirectorySummary {
   name: string
   path: string
-  file_count: number
-  post_count: number
-  silva_avg: number | null
-  silva_luna_avg: number | null
-  score_avg: number | null
-  rating_avg: number | null
-  scored_ratio: number | null
+  fileCount: number
+  postCount: number
+  silvaAvg: number | null
+  silvaLunaAvg: number | null
+  scoreAvg: number | null
+  ratingAvg: number | null
+  scoredRatio: number | null
   children: DirectorySummary[]
 }
 
 /**
- * walk 跳过的目录名。按**名字**比，任意深度都跳 —— 逐字对齐 Litestar 的
- * `entry.name == ignore_dirs.name`。从 pictoriaDir() 取而不是写死字面量，这样
- * `.pictoria` 改名时只有 paths.ts 一处要动。
+ * walk 跳过的目录名。按**名字**比，任意深度都跳。从 pictoriaDir() 取而不是写死
+ * 字面量，这样 `.pictoria` 改名时只有 paths.ts 一处要动。
  */
 const IGNORED_DIR_NAME = path.basename(pictoriaDir())
 
-/**
- * 契约里的形状：除 name / path / file_count 外都是可选的（Litestar 时代的 default），
- * walker 产出的 `DirectorySummary` 总是把它们填上，所以它能直接赋给这个类型。
- */
-type DirectorySummaryPublic = Pick<DirectorySummary, 'name' | 'path' | 'file_count'>
-  & Partial<Omit<DirectorySummary, 'name' | 'path' | 'file_count' | 'children'>>
-  & { children?: DirectorySummaryPublic[] }
-
-const DirectorySummarySchema: z.ZodType<DirectorySummaryPublic> = z.lazy(() =>
+const DirectorySummarySchema: z.ZodType<DirectorySummary> = z.lazy(() =>
   z.object({
     name: z.string(),
     path: z.string(),
-    file_count: z.int(),
-    post_count: z.int().default(0).optional(),
-    silva_avg: z.number().nullable().optional(),
-    silva_luna_avg: z.number().nullable().optional(),
-    score_avg: z.number().nullable().optional(),
-    rating_avg: z.number().nullable().optional(),
-    scored_ratio: z.number().nullable().optional(),
-    children: z.array(DirectorySummarySchema).optional(),
+    fileCount: z.int(),
+    postCount: z.int(),
+    silvaAvg: z.number().nullable(),
+    silvaLunaAvg: z.number().nullable(),
+    scoreAvg: z.number().nullable(),
+    ratingAvg: z.number().nullable(),
+    scoredRatio: z.number().nullable(),
+    children: z.array(DirectorySummarySchema),
   }),
 ).openapi('DirectorySummary')
 
@@ -69,7 +60,7 @@ interface DirCacheEntry {
  * 形状照抄 `sync.ts` 的 `ScanCache`（同一个库、同一个理由），但**不共用同一份**：
  * 两个遍历器的过滤规则不一样 —— sync 跳过顶层所有 `.` 开头的项、以及任意位置的
  * `*.part`（下载器的在途临时文件，不能登记成 post），而这里只跳过名叫 `.pictoria`
- * 的目录，其余一律计数。共用一份的表现是一边读到另一边过滤后的结果，`file_count`
+ * 的目录，其余一律计数。共用一份的表现是一边读到另一边过滤后的结果，`fileCount`
  * 静默变小，没有任何报错。存的东西也不同：sync 要三元组去和 `posts` 对账，这里只要
  * 一个计数。
  *
@@ -107,13 +98,13 @@ async function walk(
     // 不是目录名。前端靠这个区分根节点。
     name: rel === '' ? '' : path.basename(absDir),
     path: rel === '' ? '.' : rel,
-    file_count: 0,
-    post_count: 0,
-    silva_avg: null,
-    silva_luna_avg: null,
-    score_avg: null,
-    rating_avg: null,
-    scored_ratio: null,
+    fileCount: 0,
+    postCount: 0,
+    silvaAvg: null,
+    silvaLunaAvg: null,
+    scoreAvg: null,
+    ratingAvg: null,
+    scoredRatio: null,
     children: [],
   }
 
@@ -146,11 +137,11 @@ async function walk(
   if (mtimeNs !== undefined)
     next.set(absDir, entry)
 
-  summary.file_count = entry.fileCount
+  summary.fileCount = entry.fileCount
   for (const name of entry.subdirs) {
     const child = await walk(path.join(absDir, name), base, next)
     summary.children.push(child)
-    summary.file_count += child.file_count
+    summary.fileCount += child.fileCount
   }
   return summary
 }
@@ -170,21 +161,18 @@ function attachStats(
     addAgg(total, direct)
   for (const child of node.children) addAgg(total, attachStats(child, aggregates))
 
-  node.post_count = total.posts
-  node.silva_avg = total.silvaN ? total.silvaTotal / total.silvaN : null
-  node.silva_luna_avg = total.silvaLunaN ? total.silvaLunaTotal / total.silvaLunaN : null
-  node.score_avg = total.scored ? total.scoreTotal / total.scored : null
-  node.rating_avg = total.posts ? total.ratingTotal / total.posts : null
-  node.scored_ratio = total.posts ? total.scored / total.posts : null
+  node.postCount = total.posts
+  node.silvaAvg = total.silvaN ? total.silvaTotal / total.silvaN : null
+  node.silvaLunaAvg = total.silvaLunaN ? total.silvaLunaTotal / total.silvaLunaN : null
+  node.scoreAvg = total.scored ? total.scoreTotal / total.scored : null
+  node.ratingAvg = total.posts ? total.ratingTotal / total.posts : null
+  node.scoredRatio = total.posts ? total.scored / total.posts : null
   return total
 }
 
 /**
- * "这个路径得是个存在的目录" —— 两条错误照抄 Python 侧（`exists()` → 404、
- * `is_dir()` → 400），GET 和 DELETE 共用。
- *
- * 少了它们，一个没挂上或被挪走的库根会让 `readdirSync` 抛 ENOENT 冒成 500，响应体
- * 既不是 `{detail, error}` 也不是 `{status_code, detail}` —— 前端两种都不认。
+ * "这个路径得是个存在的目录"：不存在 → 404，存在但不是目录 → 400。GET 和 DELETE
+ * 共用。少了它们，一个没挂上或被挪走的库根会让 `readdirSync` 抛 ENOENT 冒成 500。
  *
  * 一次 `statSync` 而不是 `existsSync` + `statSync`：后者是两次系统调用，而且
  * "先问在不在、再问是什么"本来就有竞态。`label` 是给用户看的那半边路径。
@@ -194,7 +182,7 @@ function attachStats(
  * `existsSync` 对这些一律返回 false。stat 不出来就是"没有这个目录"，所以任何
  * 失败都归到 404，别让它们冒成上面说的那种裸 500。
  */
-function requireDirectory(abs: string, label: string): Response | null {
+function requireDirectory(abs: string, label: string): { status: 400 | 404, error: string, detail: string } | null {
   let st: fs.Stats | undefined
   try {
     st = fs.statSync(abs, { throwIfNoEntry: false })
@@ -203,9 +191,9 @@ function requireDirectory(abs: string, label: string): Response | null {
     st = undefined
   }
   if (!st)
-    return domainError(`Directory not found: ${label}`, 'DirectoryNotFoundError', 404)
+    return { status: 404, error: 'DirectoryNotFoundError', detail: `Directory not found: ${label}` }
   if (!st.isDirectory())
-    return domainError(`Not a directory: ${label}`, 'PathNotADirectoryError', 400)
+    return { status: 400, error: 'PathNotADirectoryError', detail: `Not a directory: ${label}` }
   return null
 }
 
@@ -219,15 +207,14 @@ foldersRoutes.openapi(
     summary: 'GetFolders',
     responses: {
       200: { description: OK, content: { 'application/json': { schema: DirectorySummarySchema } } },
+      ...errors(400, 404),
     },
   }),
   async (c) => {
     const base = targetDir()
-    // `as never`：这两条错误不在 `responses` 里声明（baseline 的 GET /v2/folders 只有
-    // 200，声明进去 `contract:diff` 就会报），但错误体照样要发出去。
     const bad = requireDirectory(base, base)
     if (bad)
-      return bad as never
+      return fail(c, bad.status, bad.error, bad.detail)
 
     // 先遍历（异步、逐目录让出）再聚合（better-sqlite3 是同步的，没有并行的余地）。
     // 两个并发请求各自建自己的 `next`，都是完整且经 mtime 校验过的树，谁后完成谁
@@ -236,7 +223,7 @@ foldersRoutes.openapi(
     const summary = await walk(base, base, next)
     dirCache = next
     attachStats(summary, folderScoreAggregates(getDb().sqlite))
-    return c.json(summary)
+    return c.json(summary, 200)
   },
 )
 
@@ -265,21 +252,9 @@ foldersRoutes.openAPIRegistry.registerPath({
   },
   responses: {
     200: { description: OK, content: { 'application/json': { schema: Result } } },
-    ...RESP_400,
+    ...errors(400, 404),
   },
 })
-
-/**
- * `DELETE /v2/folders/` —— 空目录名。
- *
- * Litestar 的路由是 `{folder_path:path}`，`path` 参数至少要一个字符，所以带斜杠但
- * 后面什么都没有的请求根本匹配不上；`/v2/folders` 上只有 GET，于是它答 405。
- * Hono 默认会给 404（这个**路径**没有任何路由），所以这一条要手工补上，否则
- * 同一个请求两边一个 404 一个 405。
- *
- * `/v2/folders/.` 走的也是这里：fetch 客户端在发出前就把 `/.` 归一成了 `/`。
- */
-foldersRoutes.delete('/v2/folders/', () => httpError(405, 'Method Not Allowed', { allow: 'GET, OPTIONS' }))
 
 foldersRoutes.delete('/v2/folders/:folder_path{.+}', (c) => {
   const folder = (c.req.param('folder_path') ?? '').replace(/^\/+|\/+$/g, '')
@@ -287,10 +262,10 @@ foldersRoutes.delete('/v2/folders/:folder_path{.+}', (c) => {
   const target = path.resolve(base, folder)
 
   if (!folder || folder === '.' || folder === '@' || target === base || !isInside(target, base) || isInside(target, pictoriaDir()))
-    return domainError(`Refusing to delete: '${folder}' is not a library folder.`, 'PathNotADirectoryError', 400)
+    return fail(c, 400, 'PathNotADirectoryError', `Refusing to delete: '${folder}' is not a library folder.`)
   const bad = requireDirectory(target, folder)
   if (bad)
-    return bad
+    return fail(c, bad.status, bad.error, bad.detail)
 
   const { sqlite } = getDb()
   const ids = listIdsInFolder(sqlite, folder)
@@ -300,5 +275,5 @@ foldersRoutes.delete('/v2/folders/:folder_path{.+}', (c) => {
   // 悄悄活下来。
   fs.rmSync(thumbnailPathFor(folder), { recursive: true, force: true })
   fs.rmSync(target, { recursive: true })
-  return c.json({ msg: `Deleted folder ${folder} (${ids.length} posts)` })
+  return c.json({ msg: `Deleted folder ${folder} (${ids.length} posts)` }, 200)
 })

@@ -1,8 +1,6 @@
 /**
  * `/v2/posts/count*` 与 `/v2/posts/stats` —— 过滤后的计数与聚合。
- *
- * 这一组全是 `POST` + `PostFilter` 请求体、只读、无副作用，是 posts 这 29 个端点里
- * 最适合先搬的一批：请求体形状统一，输出都是标量或小数组，对拍成本低。
+ * 全是 `POST` + `PostFilter` 请求体、只读、无副作用。
  */
 import { createRoute, OpenAPIHono, z } from '@hono/zod-openapi'
 import {
@@ -18,7 +16,7 @@ import {
 } from '@pictoria/db'
 import { getDb } from '../db.js'
 import { PostFilterSchema as PostFilter, TagCountRequestSchema as TagCountRequest } from '../filter-schema.js'
-import { OK, RESP_400, zodErrorHook } from '../openapi.js'
+import { OK, errors, zodErrorHook } from '../openapi.js'
 import { searchTagsByTranslation, translateTag } from '../tag-i18n.js'
 
 const CountPostsResponse = z.object({ count: z.int() }).openapi('CountPostsResponse')
@@ -28,13 +26,10 @@ const ExtensionCountItem = z.object({ extension: z.string(), count: z.int() }).o
 const WaifuBucketCountItem = z.object({ bucket: z.string(), count: z.int() }).openapi('WaifuBucketCountItem')
 const SilvaBucketCountItem = z.object({ bucket: z.string(), count: z.int() }).openapi('SilvaBucketCountItem')
 const SilvaLunaBucketCountItem = z.object({ bucket: z.string(), count: z.int() }).openapi('SilvaLunaBucketCountItem')
-// 键序照抄 baseline：tag_name → count → translated_name。
 const TagCountItem = z
-  .object({ tag_name: z.string(), count: z.int(), translated_name: z.string().nullable().optional() })
+  .object({ tagName: z.string(), count: z.int(), translatedName: z.string().nullable().optional() })
   .openapi('TagCountItem')
 
-// 注意 camelCase：PostStatsResponse 继承 DTOBaseModel（alias_generator=to_camel），
-// 和上面 snake_case 的 PostFilter 在同一个请求里并存。
 const PostStatsResponse = z
   .object({
     total: z.int(),
@@ -55,7 +50,7 @@ function filterBody() {
 function jsonOk(schema: z.ZodType) {
   return {
     200: { description: OK, content: { 'application/json': { schema } } },
-    ...RESP_400,
+    ...errors(400),
   }
 }
 
@@ -69,7 +64,7 @@ postCountsRoutes.openapi(
     request: { body: filterBody() },
     responses: jsonOk(CountPostsResponse),
   }),
-  c => c.json({ count: countPosts(getDb().sqlite, c.req.valid('json') as DbPostFilter) }),
+  c => c.json({ count: countPosts(getDb().sqlite, c.req.valid('json') as DbPostFilter) }, 200),
 )
 
 /** rating / score / extension 三个都是同一条 GROUP BY，只是列不同。 */
@@ -90,7 +85,7 @@ for (const facet of columnFacets) {
       request: { body: filterBody() },
       responses: jsonOk(z.array(facet.schema)),
     }),
-    c => c.json(countByColumn(getDb().sqlite, facet.column, c.req.valid('json') as DbPostFilter)),
+    c => c.json(countByColumn(getDb().sqlite, facet.column, c.req.valid('json') as DbPostFilter), 200),
   )
 }
 
@@ -112,7 +107,7 @@ for (const facet of bucketFacets) {
       request: { body: filterBody() },
       responses: jsonOk(z.array(facet.schema)),
     }),
-    c => c.json(countByScorerBucket(getDb().sqlite, c.req.valid('json') as DbPostFilter, facet.scorer)),
+    c => c.json(countByScorerBucket(getDb().sqlite, c.req.valid('json') as DbPostFilter, facet.scorer), 200),
   )
 }
 
@@ -135,7 +130,7 @@ postCountsRoutes.openapi(
       avgWaifuScore: s.avg_waifu_score,
       waifuCount: s.waifu_count,
       ratingDistribution: s.rating_distribution,
-    })
+    }, 200)
   },
 )
 
@@ -165,9 +160,9 @@ postCountsRoutes.openapi(
       extraNames: searchTagsByTranslation(data.query ?? '', data.lang ?? 'zh-Hans'),
     })
     return c.json(rows.map(r => ({
-      tag_name: r.tag_name,
+      tagName: r.tag_name,
       count: r.count,
-      translated_name: translateTag(r.tag_name, data.lang ?? 'zh-Hans'),
-    })))
+      translatedName: translateTag(r.tag_name, data.lang ?? 'zh-Hans'),
+    })), 200)
   },
 )

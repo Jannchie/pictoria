@@ -19,7 +19,10 @@ export const AESTHETIC_SCORES_TABLE = 'post_aesthetic_scores'
 export type Buckets = Record<string, readonly [number, number]>
 
 export interface ScorerSpec {
+  /** `post_aesthetic_scores.scorer` 里的值，也是 SQL 别名和排序列的词根。 */
   readonly name: string
+  /** JSON 字段名的词根（camelCase）：`silva_luna` → `silvaLuna` → `silvaLunaScoreLevels`。 */
+  readonly key: string
   readonly buckets: Buckets
   /** 抬到 1–5 标度：native * scale + offset。 */
   readonly scale: number
@@ -49,17 +52,19 @@ interface DefineOptions {
 }
 
 /**
- * 返回类型带上字面量 `name`，`FILTERABLE_SCORERS` 才能派生出
- * `'waifu' | 'silva' | 'silva_luna'` 这个联合类型，进而派生出 `PostFilter` 上的
- * `<name>_score_levels` 字段名。收窄成 `string` 的话下游就只能手写字段名了。
+ * 返回类型带上字面量 `name` / `key`，`FILTERABLE_SCORERS` 才能派生出
+ * `'waifu' | 'silva' | 'silvaLuna'` 这个联合类型，进而派生出 `PostFilter` 上的
+ * `<key>ScoreLevels` 字段名。收窄成 `string` 的话下游就只能手写字段名了。
  */
-function defineScorer<N extends string>(
+function defineScorer<N extends string, K extends string>(
   name: N,
+  key: K,
   buckets: Buckets,
   { table = AESTHETIC_SCORES_TABLE, alias = `pas_${name}`, scale = 4, offset = 1, scoped = true }: DefineOptions = {},
-): ScorerSpec & { readonly name: N } {
+): ScorerSpec & { readonly name: N, readonly key: K } {
   return {
     name,
+    key,
     buckets,
     scale,
     offset,
@@ -90,13 +95,13 @@ export const SILVA_SCORE_BUCKETS: Buckets = {
   A: [0.8, 1.0001],
 }
 
-export const SILVA = defineScorer('silva', SILVA_SCORE_BUCKETS)
+export const SILVA = defineScorer('silva', 'silva', SILVA_SCORE_BUCKETS)
 
 /**
  * 第二个蒸馏评委（`Jannchie/silva-luna`），架构与输出域都和 SILVA 相同，所以复用
  * 同一套分档边界。它是**另一种口味**，不是更高一档 —— 两者并排存储，任选其一排序。
  */
-export const SILVA_LUNA = defineScorer('silva_luna', SILVA_SCORE_BUCKETS)
+export const SILVA_LUNA = defineScorer('silva_luna', 'silvaLuna', SILVA_SCORE_BUCKETS)
 
 /**
  * `post_aesthetic_scores` 里 `scorer` 列的取值注册表。
@@ -130,7 +135,7 @@ export const WAIFU_SCORE_BUCKETS: Buckets = {
  * join 过了”的判断在 3 处用的是**裸子串** `includes('post_waifu_scores')` —— 和
  * `isJoined` 的整词匹配是两种方言，混用迟早出事。
  */
-export const WAIFU = defineScorer('waifu', WAIFU_SCORE_BUCKETS, {
+export const WAIFU = defineScorer('waifu', 'waifu', WAIFU_SCORE_BUCKETS, {
   table: 'post_waifu_scores',
   alias: 'pws',
   scoped: false,
@@ -139,7 +144,7 @@ export const WAIFU = defineScorer('waifu', WAIFU_SCORE_BUCKETS, {
 })
 
 /**
- * 前端能按它**过滤**（`<name>_score_levels`）和**排序**（`<name>_score`）的分数，
+ * 前端能按它**过滤**（`<key>ScoreLevels`）和**排序**（`<name>_score`）的分数，
  * 按 UI 顺序。加一个打分器 = 这里多一项。
  *
  * `filters.ts` 的分档过滤与 `hasActiveFilters`、`ORDERABLE_COLUMNS`、
@@ -152,10 +157,11 @@ export const WAIFU = defineScorer('waifu', WAIFU_SCORE_BUCKETS, {
 export const FILTERABLE_SCORERS = [WAIFU, SILVA, SILVA_LUNA] as const
 
 export type FilterableScorerName = typeof FILTERABLE_SCORERS[number]['name']
+export type FilterableScorerKey = typeof FILTERABLE_SCORERS[number]['key']
 
-/** `PostFilter` 上的分档字段名，例如 `silva_luna_score_levels`。 */
-export function levelsField<N extends string>(spec: { readonly name: N }): `${N}_score_levels` {
-  return `${spec.name}_score_levels`
+/** `PostFilter` 上的分档字段名，例如 `silvaLunaScoreLevels`。 */
+export function levelsField<K extends string>(spec: { readonly key: K }): `${K}ScoreLevels` {
+  return `${spec.key}ScoreLevels`
 }
 
 /** 排序列名，例如 `silva_luna_score`。 */

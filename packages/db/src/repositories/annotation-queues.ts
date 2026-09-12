@@ -1,9 +1,8 @@
 /**
- * 标注队列仓储（CRUD 与取件部分）—— 形状承自已退役的 Python 侧
- * `db/repositories/annotation_queues.py` 里不涉及采样的那一半。
+ * 标注队列仓储（CRUD 与取件部分）。
  *
- * **采样不在这里**：`sample_post_ids` / `sample_pairs` 及其 `_PairGraph`、并查集、
- * 多样性子集、重访池等约 700 行算法仍在 Python 侧，对应的四个端点还走代理。
+ * **采样不在这里**：`samplePostIds` / `samplePairs` / `sampleGroups` 及其 PairGraph、
+ * 并查集、多样性子集、重访池在 `queries/sampling.ts`。
  */
 import type BetterSqlite3 from 'better-sqlite3'
 

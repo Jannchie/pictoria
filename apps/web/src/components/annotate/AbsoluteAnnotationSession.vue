@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import type { QueueItemPostPublic, QueueSummaryPublic } from '@/api'
+import type { AbsoluteStrategy, AnnotationDimension, AnnotationScale } from '@/shared/annotationTypes'
 import { useQueryClient } from '@tanstack/vue-query'
 import { onKeyStroke } from '@vueuse/core'
 import { computed, ref, watch } from 'vue'
@@ -12,9 +13,9 @@ import { endReview, prependEntry, pushCommand, removeEntries } from '@/shared'
 import { getPostImageURL } from '@/utils'
 
 export interface StreamConfig {
-  dimensions: string[]
-  scale: number
-  strategy: 'random' | 'stratified'
+  dimensions: AnnotationDimension[]
+  scale: AnnotationScale
+  strategy: AbsoluteStrategy
 }
 
 interface BufferItem {
@@ -157,9 +158,9 @@ function recordItem(item: BufferItem, ids: number[], label: string, redo: () => 
         body: {
           kind: 'absolute',
           ids: eventIds,
-          session_id: sessionId,
-          queue_id: props.queue?.id ?? null,
-          queue_position: item.position ?? null,
+          sessionId,
+          queueId: props.queue?.id ?? null,
+          queuePosition: item.position ?? null,
         },
       })
       removeEntries(queryClient, 'absolute', eventIds) // 事件已删，历史列表也不该再有它
@@ -180,16 +181,16 @@ async function postAnnotation(item: BufferItem): Promise<number[]> {
   const resp = await v2SubmitAbsolute({
     body: {
       events: dims.map(d => ({
-        post_id: item.post.id,
+        postId: item.post.id,
         dimension: d,
         scale: scale.value,
         value: choices.value[d],
-        rubric_version: rubricVersions.value[d],
-        session_id: sessionId,
-        elapsed_ms: elapsed.value[d] ?? null,
+        rubricVersion: rubricVersions.value[d],
+        sessionId,
+        elapsedMs: elapsed.value[d] ?? null,
       })),
-      queue_id: props.queue?.id ?? null,
-      queue_position: item.position ?? null,
+      queueId: props.queue?.id ?? null,
+      queuePosition: item.position ?? null,
     },
   })
   const ids = resp.data?.ids ?? []
@@ -263,7 +264,7 @@ onKeyStroke('0', async (e) => {
   const post = current.value.post
   flagState.value = next
   try {
-    const resp = await v2SubmitContentFlag({ body: { post_id: post.id, flag: next, session_id: sessionId } })
+    const resp = await v2SubmitContentFlag({ body: { postId: post.id, flag: next, sessionId } })
     // Flags are the third stream in the history list and were the one that never
     // reached its head — they only appeared, mid-list, after a manual refresh.
     const id = resp.data?.ids?.[0]
@@ -287,7 +288,7 @@ onKeyStroke(' ', async (e) => {
     submitting.value = true
     try {
       const skipItem = async (): Promise<number[]> => {
-        await v2SubmitAbsolute({ body: { events: [], queue_id: props.queue!.id, queue_position: item.position ?? null } })
+        await v2SubmitAbsolute({ body: { events: [], queueId: props.queue!.id, queuePosition: item.position ?? null } })
         advance()
         return [] // 跳过不写事件，只翻 done 标记
       }

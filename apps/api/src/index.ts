@@ -6,7 +6,7 @@ import { cors } from 'hono/cors'
 import { rebuildGroups } from './dedup.js'
 import { SILVA_SCORERS } from '@pictoria/contracts'
 import { getDb, migrate } from './db.js'
-import { httpError } from './openapi.js'
+import { fail } from './openapi.js'
 import { startBasicsBackfill, startEmbeddingBackfill, startSilvaBackfill, startTaggerBackfill, startWaifuBackfill, wakeAllBackfills } from './scheduler.js'
 import { startAutoSync } from './sync.js'
 import { getTasks } from './tasks.js'
@@ -26,12 +26,9 @@ import { tagWritesRoutes } from './routes/tag-writes.js'
 /**
  * Pictoria API。
  *
- * 70 个端点全部在这里。反向代理和 Litestar 参照实现都已删除 —— 迁移期它们分别负责
- * 透传未搬完的路由、以及给 12 套对拍当基准，两件事在 70/70 之后都失去了意义。
- *
- * 契约现在由 `pnpm contract:diff`（对 `docs/openapi.baseline.json`）单独守着，那是
- * 唯一还活着的守卫；退役前最后一次全量对拍的记录在 `docs/refactor-monorepo-hono.md`
- * 的 Phase 7。
+ * 全部端点都在这里。契约的守卫是 `pnpm contract:check`：从活的 API 重新生成前端
+ * 客户端，和已提交的有 diff 就失败。从 Litestar 迁过来的记录在
+ * `docs/refactor-monorepo-hono.md`。
  */
 
 const PORT = Number(process.env.PICTORIA_API_PORT ?? 4777)
@@ -40,14 +37,9 @@ const app = new OpenAPIHono()
 /**
  * CORS —— 前端在 4778，API 在 4777，每一个请求都是跨源的。
  *
- * ⚠️ 迁移期间这件事是**隐形**的：响应头由代理从 Litestar 透传回来，所以浏览器一直
- * 是通的；端点搬成原生 Hono 之后就断了。对拍套件全程没发现，因为它们不带 `Origin`
- * 头 —— 后来补了专门的检查，但那套脚本已随参照实现一起退役。改这一段没有自动守卫，
- * 要手测一次预检。
- *
- * 配置对齐退役前 Litestar 的 `CORSConfig(allow_origins=["*"])` 实测输出：预检 204 +
- * max-age 600 + 七个方法 + 四个安全头。`allowHeaders` 显式列出而不是留空让 Hono
- * 回显请求头 —— 两者在浏览器看来等价，但显式的那份在响应里是稳定的，好对拍。
+ * ⚠️ 没有自动守卫：测试和 genapi 都不带 `Origin` 头，改这一段要在浏览器里手测一次
+ * 预检。`allowHeaders` 显式列出而不是留空让 Hono 回显请求头 —— 浏览器看来等价，
+ * 但显式的那份在响应里是稳定的。
  */
 app.use('*', cors({
   origin: '*',
@@ -57,7 +49,7 @@ app.use('*', cors({
 }))
 
 // 按 content-type 白名单压缩：不压 JPEG/PNG（已经是压缩格式，实测省 0.2% 纯烧
-// CPU —— Litestar 那边不分类型全压，这里是有意的差别），也跳过 206。
+// CPU），也跳过 206。
 app.use('*', compress())
 
 app.route('/', statisticsRoutes)
@@ -76,23 +68,16 @@ app.route('/', postWritesRoutes)
 app.route('/', postListRoutes)
 app.route('/', postReadsRoutes)
 
-/**
- * `/schema/openapi.json` —— 前端 `pnpm genapi` 打的就是这个地址。
- *
- * 迁移期这里要把本地和上游 Litestar 的 schema 合起来。那段已经删掉：退役前实测
- * 过，把上游指向死端口起一个实例，本地这一份自己就是 70 个操作、与 baseline 逐项
- * 相同。合并唯一的实际效果是在参照实现跑着时用它的组件补上本地缺的，也就是
- * **掩盖** `contract:diff` 本该报出来的缺口。
- */
+/** `/schema/openapi.json` —— 前端 `pnpm genapi` 打的就是这个地址。 */
 app.get('/schema/openapi.json', (c) => {
   const local = app.getOpenAPI31Document({
     openapi: '3.1.0',
     info: { title: 'Pictoria', version: '0.1.0' },
   })
 
-  // Litestar 给每个组件都带 `title`（恒等于组件名），hey-api 把它转成 TS 类型上的
-  // JSDoc。zod-openapi 不产出这个字段，缺了会让 genapi 的产物少掉 260 行注释 ——
-  // 类型不变，但编辑器里的悬停提示会空掉。统一在这里补，比在 50 处手写可靠。
+  // hey-api 把组件的 `title` 转成 TS 类型上的 JSDoc，zod-openapi 不产出这个字段，
+  // 缺了 genapi 的产物会少掉 260 行注释 —— 类型不变，但编辑器里的悬停提示会空掉。
+  // 统一在这里补，比在 50 处手写可靠。
   for (const [name, schema] of Object.entries(local.components?.schemas ?? {})) {
     const s = schema as Record<string, unknown>
     s.title ??= name
@@ -101,25 +86,12 @@ app.get('/schema/openapi.json', (c) => {
   return c.json(local)
 })
 
-/**
- * 没有路由匹配时的 404。
- *
- * Hono 默认回一句纯文本 `404 Not Found`，Litestar 回的是
- * `{"status_code":404,"detail":"Not Found"}`。代理还在的时候这个差别被藏住了
- * （未匹配的一律透传），删掉代理才露出来。前端的错误处理认 JSON 那一种。
- */
-app.notFound(() => httpError(404, 'Not Found'))
-
-/**
- * 没被路由自己接住的异常。
- *
- * Hono 默认回纯文本 `Internal Server Error`，两种契约错误形状都不是，前端一律
- * 解析失败。Litestar 的 500 是 `{"status_code":500,"detail":"Internal Server
- * Error"}`，这里对齐它。细节进日志不进响应 —— 和 Litestar 的 debug=False 一致。
- */
-app.onError((err) => {
+// 没有路由匹配时的 404 和没被路由接住的异常：Hono 默认回纯文本，前端的错误处理
+// 只认 `ErrorBody`。500 的细节进日志不进响应。
+app.notFound(c => fail(c, 404, 'NotFound', 'Not Found'))
+app.onError((err, c) => {
   console.error(`[pictoria-api] 未处理的异常：${err.stack ?? String(err)}`)
-  return httpError(500, 'Internal Server Error')
+  return fail(c, 500, 'InternalServerError', 'Internal Server Error')
 })
 
 // schema 先于流量：迁移失败就不该开始服务，否则第一批请求会打在半旧的 schema 上。

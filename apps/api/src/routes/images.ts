@@ -4,8 +4,7 @@
  * 三件事值得单独说：
  *
  * 1. **路由顺序**。`/original/{post_path}` 是通配的，必须排在 `/original/id/{post_id}`
- *    **后面**，否则 `id/5` 会被当成一个叫 "id/5" 的文件路径。Litestar 靠"字面量比
- *    参数更具体"自动处理，Hono 靠注册顺序。
+ *    **后面**，否则 `id/5` 会被当成一个叫 "id/5" 的文件路径 —— Hono 按注册顺序匹配。
  * 2. **路径是输入**。`{post_path}` 来自客户端且可能含 `..`（ASGI/Node 都在客户端
  *    归一化之后才百分号解码），直接 join 就能读到库外任意文件。一律 resolve 后
  *    要求仍在根之内，否则 404。
@@ -20,7 +19,7 @@ import fs from 'node:fs'
 import path from 'node:path'
 import { Readable } from 'node:stream'
 import { getDb } from '../db.js'
-import { RESP_400, httpError, zodErrorHook } from '../openapi.js'
+import { errorResponse, errors, zodErrorHook } from '../openapi.js'
 import { presignGetObject } from '../s3.js'
 import { resolveInside, targetDir, thumbnailPathFor, thumbnailsDir } from '../paths.js'
 import { getTasks } from '../tasks.js'
@@ -34,7 +33,7 @@ export const imagesRoutes = new OpenAPIHono({ defaultHook: zodErrorHook })
  */
 const IMAGE_CACHE = 'max-age=2592000, public, immutable'
 
-/** 扩展名 → MIME。逐条抄自 `server/images.py` 顶部那串 `mimetypes.add_type`。 */
+/** 扩展名 → MIME。 */
 const MIME: Record<string, string> = {
   jpg: 'image/jpeg',
   jpeg: 'image/jpeg',
@@ -54,30 +53,14 @@ function guessType(filePath: string): string | undefined {
   return MIME[path.extname(filePath).slice(1).toLowerCase()]
 }
 
-/** Litestar `NotFoundException` 的响应体 —— 这个文件里出现 12 次，留个短名字。 */
-function notFound(detail: string) {
-  return httpError(404, detail)
-}
-
-/** Flask 传下来的那个 adler32，Litestar 的 etag 用它。Node 的 zlib 没有导出。 */
-function adler32(input: string): number {
-  const bytes = Buffer.from(input, 'utf8')
-  let a = 1
-  let b = 0
-  for (const byte of bytes) {
-    a = (a + byte) % 65521
-    b = (b + a) % 65521
-  }
-  return ((b << 16) | a) >>> 0
-}
-
 /**
- * 一个文件的 200 响应，头逐个对齐 Litestar 的 `File`。
- *
- * etag 的格式是 `"{mtime}-{size}-{adler32(绝对路径)}"` —— Litestar 从 Flask 抄的。
- * 复刻它是为了让浏览器手里的旧缓存仍然能命中 304，而不是从 Hono 切过来之后
- * 全库图片重下一遍。
+ * 这个文件里的 404 全是"图不在"这一族，裸 `Response` 而不是 `fail(c, …)`：
+ * 文件响应本身就是裸 `Response`，handler 的返回类型两边得一致。
  */
+function notFound(detail: string): Response {
+  return errorResponse(404, 'NotFound', detail)
+}
+
 /**
  * `content-disposition` 的文件名部分，对非 ASCII 文件名安全。
  *
@@ -96,28 +79,22 @@ export function contentDisposition(name: string): string {
   return `inline; filename="${fallback}"; filename*=UTF-8''${encodeURIComponent(name)}`
 }
 
+/** 一个文件的 200 响应。etag 是 `"{mtimeNs}-{size}"`：同一个文件改过就变，够用。 */
 function fileResponse(absPath: string): Response {
   let stat: fs.BigIntStats
   try {
-    // ⚠️ `bigint: true`。`mtimeMs / 1000` 会掉精度：同一个文件 Node 给
-    // 1736134859.4932125 而 Python 给 …22，etag 就对不上，浏览器手里的缓存
-    // 全部作废。CPython 的 `st_mtime` 是 `sec + 1e-9 * nsec`（不是 ns/1e9），
-    // 下面逐字复刻这个算式。
     stat = fs.statSync(absPath, { bigint: true })
   }
   catch {
     return notFound('Image not found')
   }
 
-  const size = Number(stat.size)
-  const mtime = Number(stat.mtimeNs / 1_000_000_000n) + 1e-9 * Number(stat.mtimeNs % 1_000_000_000n)
-
   const headers = new Headers({
     'cache-control': IMAGE_CACHE,
     'content-disposition': contentDisposition(path.basename(absPath)),
-    'content-length': String(size),
-    'last-modified': new Date(mtime * 1000).toUTCString(),
-    'etag': `"${mtime}-${size}-${adler32(absPath)}"`,
+    'content-length': String(stat.size),
+    'last-modified': new Date(Number(stat.mtimeMs)).toUTCString(),
+    'etag': `"${stat.mtimeNs}-${stat.size}"`,
   })
   const type = guessType(absPath)
   if (type)
@@ -160,20 +137,23 @@ async function ensureThumbnail(originalPath: string, thumbPath: string): Promise
   return null
 }
 
-/** File Download 响应的声明，逐字段抄自 baseline。 */
-const FILE_RESPONSE = {
+/**
+ * 文件下载的响应声明。媒体类型写 octet-stream 是因为实际是 jpg/png/webp 里的任一种；
+ * 非 JSON 的 content 让 handler 可以返回裸 `Response`（文件流）。
+ */
+const FILE_RESPONSES = {
   200: {
     description: 'File Download',
-    headers: {
-      'content-length': { schema: { type: 'string' }, description: 'File size in bytes', required: false, deprecated: false },
-      'last-modified': { schema: { type: 'string', format: 'date-time' }, description: 'Last modified data-time in RFC 2822 format', required: false, deprecated: false },
-      'etag': { schema: { type: 'string' }, description: 'Entity tag', required: false, deprecated: false },
-      'cache-control': { schema: { type: 'string' }, required: false, deprecated: false },
-    },
-    content: { '': { schema: { type: 'string', contentMediaType: 'application/octet-stream' } } },
+    headers: z.object({
+      'content-length': z.string().openapi({ description: 'File size in bytes' }),
+      'last-modified': z.string().openapi({ description: 'Last modified date-time, RFC 7231 format' }),
+      'etag': z.string().openapi({ description: 'Entity tag' }),
+      'cache-control': z.string(),
+    }),
+    content: { 'application/octet-stream': { schema: z.string().openapi({ format: 'binary' }) } },
   },
-  ...RESP_400,
-} as any
+  ...errors(400, 404),
+}
 
 const postIdParam = z.coerce.number().int()
   .openapi({ param: { name: 'post_id', in: 'path', required: true }, type: 'integer' })
@@ -190,41 +170,34 @@ imagesRoutes.openapi(
     summary: 'GetOriginalById',
     description: 'Get original image by post id, falling back to S3 if missing locally.',
     request: { params: z.object({ post_id: postIdParam }) },
-    responses: {
-      200: {
-        description: 'Request fulfilled, document follows',
-        headers: { 'cache-control': { schema: { type: 'string' }, required: false, deprecated: false } },
-        content: { 'application/json': { schema: {} } },
-      },
-      ...RESP_400,
-    } as any,
+    responses: FILE_RESPONSES,
   }),
   async (c) => {
     const { post_id: postId } = c.req.valid('param')
     const post = getPostPath(getDb().sqlite, postId)
     if (!post)
-      return notFound(`Post with id ${postId} not found`) as never
+      return notFound(`Post with id ${postId} not found`)
 
     const absPath = path.resolve(targetDir(), post.fullPath)
     if (fs.existsSync(absPath))
-      return fileResponse(absPath) as never
+      return fileResponse(absPath)
 
     // 读路径上**永远不删** post：拿不到预签名链接、或 S3 返回非 200，多半是暂时的
     // （没配 S3、限流、网络抖动、时钟偏移导致的 403）。把它当作"图片没了"的证据
     // 曾在一次故障里批量删掉了 post。真正过期的行由 metadata sync 对账，不是由 GET。
     const link = presignGetObject(post.fullPath)
     if (!link)
-      return notFound(`Original image for post ${postId} not found`) as never
+      return notFound(`Original image for post ${postId} not found`)
     const upstream = await fetch(link)
     if (!upstream.ok) {
       console.warn(`[images] post ${postId} 的 S3 兜底返回 ${upstream.status}`)
-      return notFound(`Failed to download original image for post ${postId}`) as never
+      return notFound(`Failed to download original image for post ${postId}`)
     }
     const headers = new Headers({ 'cache-control': IMAGE_CACHE })
     const type = guessType(absPath)
     if (type)
       headers.set('content-type', type)
-    return new Response(await upstream.arrayBuffer(), { status: 200, headers }) as never
+    return new Response(await upstream.arrayBuffer(), { status: 200, headers })
   },
 )
 
@@ -236,21 +209,21 @@ imagesRoutes.openapi(
     summary: 'GetThumbnailById',
     description: 'Get thumbnail image by post id (creates one if missing).',
     request: { params: z.object({ post_id: postIdParam }) },
-    responses: FILE_RESPONSE,
+    responses: FILE_RESPONSES,
   }),
   async (c) => {
     const { post_id: postId } = c.req.valid('param')
     const post = getPostPath(getDb().sqlite, postId)
     if (!post)
-      return notFound(`Post with id ${postId} not found`) as never
+      return notFound(`Post with id ${postId} not found`)
 
     const originalPath = path.resolve(targetDir(), post.fullPath)
     if (!fs.existsSync(originalPath))
-      return notFound(`Original image for post ${postId} not found`) as never
+      return notFound(`Original image for post ${postId} not found`)
 
     const thumbPath = thumbnailPathFor(post.fullPath)
     const failed = await ensureThumbnail(originalPath, thumbPath)
-    return (failed ?? fileResponse(thumbPath)) as never
+    return failed ?? fileResponse(thumbPath)
   },
 )
 
@@ -258,8 +231,8 @@ imagesRoutes.openapi(
  * 按路径的两条不能用 `createRoute` 注册。
  *
  * `@hono/zod-openapi` 把 `{post_path}` 转成 `:post_path`，而 Hono 的普通参数**不吃
- * 斜杠** —— `danbooru/wlop/x.jpg` 会匹配不上。所以文档和路由分开写：文档仍按
- * baseline 的 `{post_path}` 注册，路由用 Hono 的 `:post_path{.+}` 通配。
+ * 斜杠** —— `danbooru/wlop/x.jpg` 会匹配不上。所以文档和路由分开写：文档按
+ * `{post_path}` 注册，路由用 Hono 的 `:post_path{.+}` 通配。
  */
 function registerPathRoute(kind: 'original' | 'thumbnails', config: {
   operationId: string
@@ -272,7 +245,7 @@ function registerPathRoute(kind: 'original' | 'thumbnails', config: {
     tags: ['Images'],
     ...config,
     request: { params: z.object({ post_path: postPathParam }) },
-    responses: FILE_RESPONSE,
+    responses: FILE_RESPONSES,
   })
 }
 
@@ -284,8 +257,7 @@ registerPathRoute('original', {
 
 imagesRoutes.get('/v2/images/original/:post_path{.+}', (c) => {
   const absPath = resolveInside(targetDir(), c.req.param('post_path') ?? '')
-  // 逃逸和"文件不在"是两句不同的话 —— Litestar 的 _resolve_inside 抛的是
-  // "Image not found"，只有存在性检查才说 "Original image not found"。
+  // 逃逸和"文件不在"是两句不同的话：逃逸只说 "Image not found"，不透露库外有什么。
   if (!absPath)
     return notFound('Image not found')
   if (!fs.existsSync(absPath))

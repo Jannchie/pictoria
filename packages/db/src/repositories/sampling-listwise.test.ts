@@ -60,22 +60,22 @@ afterAll(() => cleanup())
 /** 判过一对，让两张图进「已判」集合但度数只有 1 —— 正是重访池最想征召的状态。 */
 function judgePair(a: number, b: number, db = sqlite): void {
   insertPairwise(db, {
-    post_a: a,
-    post_b: b,
+    postA: a,
+    postB: b,
     dimension: 'overall',
     winner: 'a',
-    rubric_version: 'overall-v1',
-    session_id: 's',
+    rubricVersion: 'overall-v1',
+    sessionId: 's',
   })
 }
 
 function rank(members: number[]): void {
   insertListwise(sqlite, {
-    post_ids: members,
+    postIds: members,
     ranking: members,
     dimension: 'overall',
-    rubric_version: 'overall-v1',
-    session_id: 's',
+    rubricVersion: 'overall-v1',
+    sessionId: 's',
   })
 }
 
@@ -126,11 +126,11 @@ it('出场两次之后成员退役，一次不够 —— 一次排序值 2 度�
 
 it('skip 的组算问过但不占度数 —— 成员仍留在重访池里', () => {
   insertListwise(sqlite, {
-    post_ids: [1, 2, 3, 4, 5, 6],
+    postIds: [1, 2, 3, 4, 5, 6],
     ranking: [], // skip
     dimension: 'overall',
-    rubric_version: 'overall-v1',
-    session_id: 's',
+    rubricVersion: 'overall-v1',
+    sessionId: 's',
   })
   const drafted = draftCounts()
   expect([1, 2, 3, 4, 5, 6].some(pid => (drafted.get(pid) ?? 0) > 0)).toBe(true)
@@ -341,11 +341,11 @@ it('全库都没有绝对分时交回空批，而不是抛', () => {
 /** 直接写一条带 created_at 的 listwise 行 —— 冷却期是这条链上唯一的假设，得能拨钟。 */
 function rankAt(members: number[], daysAgo: number, db = sqlite): void {
   insertListwise(db, {
-    post_ids: members,
+    postIds: members,
     ranking: members,
     dimension: 'overall',
-    rubric_version: 'overall-v1',
-    session_id: 's',
+    rubricVersion: 'overall-v1',
+    sessionId: 's',
   })
   db.prepare(`UPDATE listwise_annotations SET created_at = datetime('now', ?) WHERE id = last_insert_rowid()`)
     .run(`-${daysAgo} days`)

@@ -91,7 +91,7 @@ uv run python scripts/inspect_db.py
 - **src/db.ts**: the process-wide SQLite handle; **runs `runMigrations` on first open**
 - **src/routes/**: one file per resource (posts read/write/list/counts, tags, images, folders, annotations, annotation-queues, commands, statistics)
 - **src/scheduler.ts**: picks pending work per worker and submits cairnq tasks; **src/sync.ts**: disk↔`posts` reconciliation + file watching; **src/dedup.ts**: near-duplicate grouping
-- **src/openapi.ts**: the two Litestar-compatible error shapes — `domainError` (`{detail, error}`) and `httpError` (`{status_code, detail}`). There are exactly two; do not hand-roll a third
+- **src/openapi.ts**: the single error shape `ErrorBody` (`{error, detail, issues?}`) and its helpers — `errors(400, 404)` declares an endpoint's error responses, `fail(c, 404, 'PostNotFoundError', detail)` returns one (type-checked against the declaration), `errorResponse()` is the bare-`Response` variant for file-streaming handlers. Handlers that use `errors()` must return `c.json(x, 200)` with an explicit status. Do not hand-roll another shape
 
 #### `packages/db` — data access (the only writer)
 
@@ -142,7 +142,7 @@ uv run python scripts/inspect_db.py
 
 1. If the schema changes: add a new numbered SQL file to `server/migrations/` (e.g. `NNNN_add_foo.sql`, using the next free number). It is applied on the next process boot; do not edit existing migration files.
 2. Update `packages/db/src/schema.ts`, the relevant file under `packages/db/src/repositories/` or `queries/`, and any filter fields / column allowlists in `packages/db/src/filters.ts`.
-3. Update or add the endpoint under `apps/api/src/routes/`. Errors go through `domainError` / `httpError` from `src/openapi.ts`; paths go through `src/paths.ts`.
+3. Update or add the endpoint under `apps/api/src/routes/`. Declare error statuses with `errors()` and return them with `fail()` from `src/openapi.ts`; JSON bodies are camelCase (URL params stay snake_case); paths go through `src/paths.ts`.
 4. Regenerate the frontend API client: `pnpm genapi` — or `pnpm contract:check`, which regenerates and then fails if the committed client had drifted. Both need the API running.
 5. Run checks: `pnpm -r test` and `pnpm --filter @pictoria/api typecheck`.
 

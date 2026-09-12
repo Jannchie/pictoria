@@ -14,7 +14,7 @@ import { postFilter, queryKeys } from '@/shared'
  */
 
 export type PostFilterValue = typeof postFilter.value
-type ArrayFilterField = 'rating' | 'score' | 'extension' | 'waifu_score_levels' | 'silva_score_levels' | 'silva_luna_score_levels'
+type ArrayFilterField = 'rating' | 'score' | 'extension' | 'waifuScoreLevels' | 'silvaScoreLevels' | 'silvaLunaScoreLevels'
 
 /**
  * Percentage share of `count` in `total`, formatted to one decimal ('0.0' when
@@ -43,7 +43,7 @@ export function useFacetFilter<T extends string | number, TRow extends { count: 
   countKind: CountKind
   fetchCounts: (filter: PostFilterValue) => Promise<TRow[] | undefined>
 }) {
-  // postFilter mixes array facets with scalar ones (folder, waifu_score_range),
+  // postFilter mixes array facets with scalar ones (folder, waifuScoreRange),
   // so narrow to "the array facets" before indexing by the chosen field. Read
   // through postFilter.value each time to track reactivity exactly as before.
   const selected = computed<T[]>({

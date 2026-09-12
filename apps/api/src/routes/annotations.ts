@@ -2,6 +2,7 @@
  * `/v2/annotations` —— 提交、撤回、更正、timeline、按 post 查历史、pairwise 计数，
  * 以及两个无队列的 `sample-*` 流式取样。
  */
+import type { Context } from 'hono'
 import { createRoute, OpenAPIHono, z } from '@hono/zod-openapi'
 import {
   countPairwise,
@@ -26,19 +27,24 @@ import {
 } from '@pictoria/db'
 import { expandListwiseAnnotations } from '@pictoria/db'
 import { getDb } from '../db.js'
-import { OK, pyRepr, RESP_400, validationError, zodErrorHook } from '../openapi.js'
+import { CREATED, OK, errors, fail, zodErrorHook } from '../openapi.js'
 import { toIsoDateTime } from '../schemas.js'
 import {
   QueueItemPostPublic,
   toQueuePost,
   VALID_DIMENSIONS,
   VALID_PAIRWISE_STRATEGIES,
+  scaleSchema,
   VALID_STRATEGIES,
 } from './annotation-shared.js'
 
-/** 与 Python 侧 `annotations.py` 的常量一致。 */
 const VALID_WINNERS = ['a', 'b', 'tie', 'skip'] as const
 const VALID_FLAGS = ['love', 'hate', 'none'] as const
+
+/** 手抛的 400：和 schema 校验失败同一个码，只是没有 `issues`。 */
+function invalid(c: Context<any, any, any>, detail: string) {
+  return fail(c, 400, 'ValidationError', detail)
+}
 
 const InsertedPublic = z.object({ inserted: z.int(), ids: z.array(z.int()) }).openapi('InsertedPublic')
 const DeletedPublic = z.object({ deleted: z.int() }).openapi('DeletedPublic')
@@ -50,64 +56,64 @@ const PairwiseCountPublic = z
 
 const AbsoluteEventIn = z
   .object({
-    post_id: z.int(),
-    dimension: z.string(),
-    scale: z.int(),
-    value: z.int(),
-    rubric_version: z.string(),
-    session_id: z.string(),
-    elapsed_ms: z.int().nullable().optional(),
+    postId: z.int(),
+    dimension: z.enum(VALID_DIMENSIONS),
+    scale: scaleSchema(),
+    value: z.int().min(1),
+    rubricVersion: z.string(),
+    sessionId: z.string(),
+    elapsedMs: z.int().nullable().optional(),
   })
   .openapi('AbsoluteEventIn')
 
 const AbsoluteBatchIn = z
   .object({
     events: z.array(AbsoluteEventIn),
-    queue_id: z.int().nullable().optional(),
-    queue_position: z.int().nullable().optional(),
+    queueId: z.int().nullable().optional(),
+    queuePosition: z.int().nullable().optional(),
   })
   .openapi('AbsoluteBatchIn')
 
 const PairwiseEventIn = z
   .object({
-    post_a: z.int(),
-    post_b: z.int(),
-    dimension: z.string(),
-    winner: z.string(),
-    rubric_version: z.string(),
-    session_id: z.string(),
-    elapsed_ms: z.int().nullable().optional(),
-    queue_id: z.int().nullable().optional(),
-    queue_position: z.int().nullable().optional(),
+    postA: z.int(),
+    postB: z.int(),
+    dimension: z.enum(VALID_DIMENSIONS),
+    winner: z.enum(VALID_WINNERS),
+    rubricVersion: z.string(),
+    sessionId: z.string(),
+    elapsedMs: z.int().nullable().optional(),
+    queueId: z.int().nullable().optional(),
+    queuePosition: z.int().nullable().optional(),
     /** 采样来源，决定这条比较能否用作留出评估。省略 = 未知。 */
-    strategy: z.string().nullable().optional(),
+    strategy: z.enum(VALID_PAIRWISE_STRATEGIES).nullable().optional(),
   })
   .openapi('PairwiseEventIn')
 
 const ListwiseEventIn = z
   .object({
-    post_ids: z.array(z.int()),
+    postIds: z.array(z.int()).min(2),
     ranking: z.array(z.int()),
-    dimension: z.string(),
-    rubric_version: z.string(),
-    session_id: z.string(),
-    elapsed_ms: z.int().nullable().optional(),
-    queue_id: z.int().nullable().optional(),
-    queue_position: z.int().nullable().optional(),
+    dimension: z.enum(VALID_DIMENSIONS),
+    rubricVersion: z.string(),
+    sessionId: z.string(),
+    elapsedMs: z.int().nullable().optional(),
+    queueId: z.int().nullable().optional(),
+    queuePosition: z.int().nullable().optional(),
   })
   .openapi('ListwiseEventIn')
 
 const ContentFlagIn = z
-  .object({ post_id: z.int(), flag: z.string(), session_id: z.string() })
+  .object({ postId: z.int(), flag: z.enum(VALID_FLAGS), sessionId: z.string() })
   .openapi('ContentFlagIn')
 
 const UndoIn = z
   .object({
-    kind: z.string(),
+    kind: z.enum(MUTABLE_KINDS),
     ids: z.array(z.int()),
-    session_id: z.string(),
-    queue_id: z.int().nullable().optional(),
-    queue_position: z.int().nullable().optional(),
+    sessionId: z.string(),
+    queueId: z.int().nullable().optional(),
+    queuePosition: z.int().nullable().optional(),
   })
   .openapi('UndoIn')
 
@@ -162,24 +168,20 @@ annotationsRoutes.openapi(
     description: 'Submit a batch of absolute annotation events (one image, several dimensions). Optionally marks a queue item done.',
     request: { body: { required: true, content: { 'application/json': { schema: AbsoluteBatchIn } } } },
     responses: {
-      201: { description: 'Document created, URL follows', content: { 'application/json': { schema: InsertedPublic } } },
-      ...RESP_400,
+      201: { description: CREATED, content: { 'application/json': { schema: InsertedPublic } } },
+      ...errors(400),
     },
   }),
   (c) => {
     const data = c.req.valid('json')
     for (const e of data.events) {
-      if (!VALID_DIMENSIONS.includes(e.dimension as never))
-        return validationError(`invalid dimension: '${e.dimension}'`) as never
-      if (![2, 3, 5].includes(e.scale))
-        return validationError(`invalid scale: ${e.scale}`) as never
-      if (e.value < 1 || e.value > e.scale)
-        return validationError(`value ${e.value} out of range for scale ${e.scale}`) as never
+      if (e.value > e.scale)
+        return invalid(c, `value ${e.value} out of range for scale ${e.scale}`)
     }
     const { sqlite } = getDb()
     const ids = data.events.map((e: any) => insertAbsolute(sqlite, e))
-    if (data.queue_id != null && data.queue_position != null)
-      markQueueItemDone(sqlite, data.queue_id, { kind: 'absolute', position: data.queue_position })
+    if (data.queueId != null && data.queuePosition != null)
+      markQueueItemDone(sqlite, data.queueId, { kind: 'absolute', position: data.queuePosition })
     return c.json({ inserted: ids.length, ids }, 201)
   },
 )
@@ -193,22 +195,16 @@ annotationsRoutes.openapi(
     description: 'Submit one pairwise judgement. Optionally marks a queue item done.',
     request: { body: { required: true, content: { 'application/json': { schema: PairwiseEventIn } } } },
     responses: {
-      201: { description: 'Document created, URL follows', content: { 'application/json': { schema: InsertedPublic } } },
-      ...RESP_400,
+      201: { description: CREATED, content: { 'application/json': { schema: InsertedPublic } } },
+      ...errors(400),
     },
   }),
   (c) => {
     const data = c.req.valid('json')
-    if (!VALID_DIMENSIONS.includes(data.dimension as never))
-      return validationError(`invalid dimension: '${data.dimension}'`) as never
-    if (!VALID_WINNERS.includes(data.winner as never))
-      return validationError(`invalid winner: '${data.winner}'`) as never
     const { sqlite } = getDb()
-    if (data.strategy != null && !VALID_PAIRWISE_STRATEGIES.includes(data.strategy as never))
-      return validationError(`invalid strategy: ${pyRepr(data.strategy)}`) as never
     const rowId = insertPairwise(sqlite, data)
-    if (data.queue_id != null && data.queue_position != null)
-      markQueueItemDone(sqlite, data.queue_id, { kind: 'pairwise', position: data.queue_position })
+    if (data.queueId != null && data.queuePosition != null)
+      markQueueItemDone(sqlite, data.queueId, { kind: 'pairwise', position: data.queuePosition })
     return c.json({ inserted: 1, ids: [rowId] }, 201)
   },
 )
@@ -222,27 +218,25 @@ annotationsRoutes.openapi(
     description: 'Submit one group ranking (best first; empty ranking = skip). Optionally marks a queue item done.',
     request: { body: { required: true, content: { 'application/json': { schema: ListwiseEventIn } } } },
     responses: {
-      201: { description: 'Document created, URL follows', content: { 'application/json': { schema: InsertedPublic } } },
-      ...RESP_400,
+      201: { description: CREATED, content: { 'application/json': { schema: InsertedPublic } } },
+      ...errors(400),
     },
   }),
   (c) => {
     const data = c.req.valid('json')
-    if (!VALID_DIMENSIONS.includes(data.dimension as never))
-      return validationError(`invalid dimension: '${data.dimension}'`) as never
-    if (data.post_ids.length < 2 || new Set(data.post_ids).size !== data.post_ids.length)
-      return validationError(`post_ids must be >=2 distinct ids, got ${pyRepr(data.post_ids)}`) as never
+    if (new Set(data.postIds).size !== data.postIds.length)
+      return invalid(c, `postIds must be distinct, got ${JSON.stringify(data.postIds)}`)
     // 排序必须是这组成员的一个排列 —— 少一张、多一张、排到别的组的图，都是客户端 bug，
     // 拦在这里比拦在训练导出里便宜四个数量级。空数组 = skip，合法。
-    const sameMembers = data.ranking.length === data.post_ids.length
+    const sameMembers = data.ranking.length === data.postIds.length
       && new Set(data.ranking).size === data.ranking.length
-      && data.ranking.every((pid: number) => data.post_ids.includes(pid))
+      && data.ranking.every((pid: number) => data.postIds.includes(pid))
     if (data.ranking.length && !sameMembers)
-      return validationError(`ranking must be a permutation of post_ids (or [] to skip)`) as never
+      return invalid(c, 'ranking must be a permutation of postIds (or [] to skip)')
     const { sqlite } = getDb()
     const rowId = insertListwise(sqlite, data)
-    if (data.queue_id != null && data.queue_position != null)
-      markQueueItemDone(sqlite, data.queue_id, { kind: 'listwise', position: data.queue_position })
+    if (data.queueId != null && data.queuePosition != null)
+      markQueueItemDone(sqlite, data.queueId, { kind: 'listwise', position: data.queuePosition })
     return c.json({ inserted: 1, ids: [rowId] }, 201)
   },
 )
@@ -256,14 +250,12 @@ annotationsRoutes.openapi(
     description: "Record a content taste flag for a post ('none' = retract).",
     request: { body: { required: true, content: { 'application/json': { schema: ContentFlagIn } } } },
     responses: {
-      201: { description: 'Document created, URL follows', content: { 'application/json': { schema: InsertedPublic } } },
-      ...RESP_400,
+      201: { description: CREATED, content: { 'application/json': { schema: InsertedPublic } } },
+      ...errors(400),
     },
   }),
   (c) => {
     const data = c.req.valid('json')
-    if (!VALID_FLAGS.includes(data.flag as never))
-      return validationError(`invalid flag: '${data.flag}'`) as never
     return c.json({ inserted: 1, ids: [insertContentFlag(getDb().sqlite, data)] }, 201)
   },
 )
@@ -278,19 +270,17 @@ annotationsRoutes.openapi(
     request: { body: { required: true, content: { 'application/json': { schema: UndoIn } } } },
     responses: {
       200: { description: OK, content: { 'application/json': { schema: DeletedPublic } } },
-      ...RESP_400,
+      ...errors(400),
     },
   }),
   (c) => {
     const data = c.req.valid('json')
-    if (!MUTABLE_KINDS.has(data.kind))
-      return validationError(`invalid kind: '${data.kind}'`) as never
     const { sqlite } = getDb()
-    const deleted = undoAnnotations(sqlite, { kind: data.kind, ids: data.ids, sessionId: data.session_id })
+    const deleted = undoAnnotations(sqlite, { kind: data.kind, ids: data.ids, sessionId: data.sessionId })
     // 空 ids 是合法的：被跳过的队列项不写事件就标记完成，它的 undo 就只是取消标记。
-    if (data.queue_id != null && data.queue_position != null)
-      markQueueItemDone(sqlite, data.queue_id, { kind: data.kind, position: data.queue_position, done: false })
-    return c.json({ deleted })
+    if (data.queueId != null && data.queuePosition != null)
+      markQueueItemDone(sqlite, data.queueId, { kind: data.kind, position: data.queuePosition, done: false })
+    return c.json({ deleted }, 200)
   },
 )
 
@@ -303,7 +293,7 @@ annotationsRoutes.openapi(
     description: "Correct one already-submitted verdict IN PLACE (kind = 'pairwise' | 'absolute'). Not an appended correction: pairwise exports one row per judgement with no latest-wins pass, so a second row would leave the wrong verdict in the training set. Stamps edited_at.",
     request: {
       params: z.object({
-        kind: z.string().openapi({ param: { name: 'kind', in: 'path', required: true } }),
+        kind: z.enum(MUTABLE_KINDS).openapi({ param: { name: 'kind', in: 'path', required: true } }),
         annotation_id: z.coerce.number().int()
           .openapi({ param: { name: 'annotation_id', in: 'path', required: true }, type: 'integer' }),
       }),
@@ -311,20 +301,18 @@ annotationsRoutes.openapi(
     },
     responses: {
       200: { description: OK, content: { 'application/json': { schema: UpdatedPublic } } },
-      ...RESP_400,
+      ...errors(400),
     },
   }),
   (c) => {
     const { kind, annotation_id: annotationId } = c.req.valid('param')
     const { verdict } = c.req.valid('json')
-    if (!MUTABLE_KINDS.has(kind))
-      return validationError(`invalid kind: '${kind}'`) as never
     if (kind === 'pairwise' && !VALID_WINNERS.includes(verdict as never))
-      return validationError(`invalid winner: ${JSON.stringify(verdict)}`) as never
+      return invalid(c, `invalid winner: ${JSON.stringify(verdict)}`)
     if (kind === 'absolute' && !(typeof verdict === 'number' && Number.isInteger(verdict) && verdict >= 1))
-      return validationError(`invalid value: ${JSON.stringify(verdict)}`) as never
+      return invalid(c, `invalid value: ${JSON.stringify(verdict)}`)
     const changed = editAnnotation(getDb().sqlite, { kind, annotationId, verdict })
-    return c.json({ updated: changed ? 1 : 0 })
+    return c.json({ updated: changed ? 1 : 0 }, 200)
   },
 )
 
@@ -337,20 +325,18 @@ annotationsRoutes.openapi(
     description: 'Cumulative pairwise judgement counts for a dimension (total = decisive + tie, skips excluded).',
     request: {
       query: z.object({
-        dimension: z.string().default('overall')
+        dimension: z.enum(VALID_DIMENSIONS).default('overall')
           .openapi({ param: { name: 'dimension', in: 'query', required: false } }),
       }),
     },
     responses: {
       200: { description: OK, content: { 'application/json': { schema: PairwiseCountPublic } } },
-      ...RESP_400,
+      ...errors(400),
     },
   }),
   (c) => {
     const { dimension } = c.req.valid('query')
-    if (!VALID_DIMENSIONS.includes(dimension as never))
-      return validationError(`invalid dimension: '${dimension}'`) as never
-    return c.json(countPairwise(getDb().sqlite, dimension))
+    return c.json(countPairwise(getDb().sqlite, dimension), 200)
   },
 )
 
@@ -369,7 +355,7 @@ annotationsRoutes.openapi(
     },
     responses: {
       200: { description: OK, content: { 'application/json': { schema: PostAnnotationsPublic } } },
-      ...RESP_400,
+      ...errors(400),
     },
   }),
   (c) => {
@@ -403,7 +389,7 @@ annotationsRoutes.openapi(
       })),
       // 'none' 是撤回，对外等同于"没有 flag"。
       contentFlag: !flag || flag.flag === 'none' ? null : (flag.flag as string),
-    })
+    }, 200)
   },
 )
 
@@ -471,14 +457,14 @@ annotationsRoutes.openapi(
     },
     responses: {
       200: { description: OK, content: { 'application/json': { schema: TimelinePagePublic } } },
-      ...RESP_400,
+      ...errors(400),
     },
   }),
   (c) => {
     const { limit, before } = c.req.valid('query')
     const cursor = parseCursor(before)
     if (cursor === 'malformed')
-      return validationError(`malformed cursor: '${before}'`) as never
+      return invalid(c, `malformed cursor: ${JSON.stringify(before)}`)
 
     const page = Math.min(Math.max(limit, 1), TIMELINE_MAX_LIMIT)
     const { sqlite } = getDb()
@@ -506,7 +492,7 @@ annotationsRoutes.openapi(
     return c.json({
       items,
       nextCursor: rows.length === page ? makeCursor(rows[rows.length - 1]) : null,
-    })
+    }, 200)
   },
 )
 
@@ -524,12 +510,11 @@ annotationsRoutes.openapi(
     request: {
       query: z.object({
         // ⚠️ 单个 `?dimensions=overall` 到 Hono 手里是**字符串**而不是长度 1 的数组，
-        // 直接写 z.array 会让它在 schema 层就被拒（"Expected array"），根本走不到
-        // handler 里那句 `invalid strategy: 'bogus'`。统一收成数组。
-        dimensions: z.union([z.string(), z.array(z.string())])
-          .transform((v: string | string[]) => (Array.isArray(v) ? v : [v]))
-          .openapi({ param: { name: 'dimensions', in: 'query', required: true }, type: 'array', items: { type: 'string' } }),
-        strategy: z.string().default('random')
+        // 直接写 z.array 会让它在 schema 层就被拒（"Expected array"）。统一收成数组。
+        dimensions: z.union([z.enum(VALID_DIMENSIONS), z.array(z.enum(VALID_DIMENSIONS)).min(1)])
+          .transform(v => (Array.isArray(v) ? v : [v]))
+          .openapi({ param: { name: 'dimensions', in: 'query', required: true }, type: 'array', items: { type: 'string', enum: [...VALID_DIMENSIONS] } }),
+        strategy: z.enum(VALID_STRATEGIES).default('random')
           .openapi({ param: { name: 'strategy', in: 'query', required: false } }),
         limit: z.coerce.number().int().default(10)
           .openapi({ param: { name: 'limit', in: 'query', required: false }, type: 'integer', default: 10 }),
@@ -537,24 +522,19 @@ annotationsRoutes.openapi(
     },
     responses: {
       200: { description: OK, content: { 'application/json': { schema: z.array(QueueItemPostPublic) } } },
-      ...RESP_400,
+      ...errors(400),
     },
   }),
   (c) => {
     const { dimensions, strategy, limit } = c.req.valid('query')
-    if (!dimensions.length || dimensions.some((d: string) => !VALID_DIMENSIONS.includes(d as never)))
-      return validationError(`invalid dimensions: ${pyRepr(dimensions)}`) as never
-    if (!VALID_STRATEGIES.includes(strategy as never))
-      return validationError(`invalid strategy: ${pyRepr(strategy)}`) as never
-
     const { sqlite } = getDb()
     const ids = samplePostIds(sqlite, { count: limit, strategy, dimensions })
     if (!ids.length)
-      return c.json([]) as never
+      return c.json([], 200)
     const byId = postsById(sqlite, ids)
     // 抽取顺序就是采样顺序，队列也按它服务 —— 所以从 `ids` 重建，而不是从
     // `IN (...)` 返回的行序。
-    return c.json(ids.filter(pid => byId.has(pid)).map(pid => toQueuePost(byId.get(pid)!))) as never
+    return c.json(ids.filter(pid => byId.has(pid)).map(pid => toQueuePost(byId.get(pid)!)), 200)
   },
 )
 
@@ -569,28 +549,23 @@ annotationsRoutes.openapi(
       query: z.object({
         limit: z.coerce.number().int().default(10)
           .openapi({ param: { name: 'limit', in: 'query', required: false }, type: 'integer', default: 10 }),
-        strategy: z.string().default('close')
+        strategy: z.enum(VALID_PAIRWISE_STRATEGIES).default('close')
           .openapi({ param: { name: 'strategy', in: 'query', required: false } }),
-        dimension: z.string().default('overall')
+        dimension: z.enum(VALID_DIMENSIONS).default('overall')
           .openapi({ param: { name: 'dimension', in: 'query', required: false } }),
       }),
     },
     responses: {
       200: { description: OK, content: { 'application/json': { schema: z.array(SampledPairPublic) } } },
-      ...RESP_400,
+      ...errors(400),
     },
   }),
   (c) => {
     const { limit, strategy, dimension } = c.req.valid('query')
-    if (!VALID_PAIRWISE_STRATEGIES.includes(strategy as never))
-      return validationError(`invalid strategy: ${pyRepr(strategy)}`) as never
-    if (!VALID_DIMENSIONS.includes(dimension as never))
-      return validationError(`invalid dimension: ${pyRepr(dimension)}`) as never
-
     const { sqlite } = getDb()
     const pairs = samplePairs(sqlite, { count: limit, strategy, dimension })
     if (!pairs.length)
-      return c.json([]) as never
+      return c.json([], 200)
     // 整批一次取图，然后在 JS 里拼对。对的**顺序**是吃重的
     // （interleaveWithBridges 保证每个前缀都连通），所以从 `pairs` 重建。
     const byId = postsById(sqlite, pairs.flat())
@@ -602,7 +577,7 @@ annotationsRoutes.openapi(
         continue // 采样和取图之间 post 被删了
       out.push({ postA: toQueuePost(rowA), postB: toQueuePost(rowB) })
     }
-    return c.json(out) as never
+    return c.json(out, 200)
   },
 )
 
@@ -631,9 +606,9 @@ annotationsRoutes.openapi(
       query: z.object({
         limit: z.coerce.number().int().default(5)
           .openapi({ param: { name: 'limit', in: 'query', required: false }, type: 'integer', default: 5 }),
-        size: z.coerce.number().int().default(4)
+        size: z.coerce.number().int().min(3).max(16).default(4)
           .openapi({ param: { name: 'size', in: 'query', required: false }, type: 'integer', default: 4 }),
-        dimension: z.string().default('overall')
+        dimension: z.enum(VALID_DIMENSIONS).default('overall')
           .openapi({ param: { name: 'dimension', in: 'query', required: false } }),
         // 一批里有多大比例是**重排的老组**（>= REPEAT_MIN_AGE_DAYS 天前排过、只排过一次、
         // 成员重新打乱）。省略时走 REPEAT_SHARE 这条常年的工时税；传 1 就是一次专门的
@@ -645,16 +620,11 @@ annotationsRoutes.openapi(
     },
     responses: {
       200: { description: OK, content: { 'application/json': { schema: z.array(SampledGroupPublic) } } },
-      ...RESP_400,
+      ...errors(400),
     },
   }),
   (c) => {
     const { limit, size, dimension, repeat } = c.req.valid('query')
-    if (!VALID_DIMENSIONS.includes(dimension as never))
-      return validationError(`invalid dimension: ${pyRepr(dimension)}`) as never
-    if (size < 3 || size > 16)
-      return validationError(`invalid size: ${size} (want 3..16)`) as never
-
     const { sqlite } = getDb()
     const groups = sampleGroups(sqlite, { count: limit, size, dimension, repeatShare: repeat })
     const flat = groups.flat()
@@ -667,7 +637,8 @@ annotationsRoutes.openapi(
           return { posts: ids.map(pid => toQueuePost(byId.get(pid)!)), silva: ids.map(pid => silvaById.get(pid) ?? null) }
         })
         .filter(g => g.posts.length >= 3),
-    ) as never
+      200,
+    )
   },
 )
 
@@ -685,43 +656,46 @@ annotationsRoutes.openapi(
  * 共享同一个人类判决，信息量仍然是一条；让它们分落训练与验证两侧，验证指标就变成了
  * 在考模型有没有背过这张图。
  */
-annotationsRoutes.openapi(
-  createRoute({
-    method: 'get',
-    path: '/v2/annotations/listwise/export',
-    operationId: 'v2ExportListwise',
-    summary: 'ExportListwise',
-    description:
-      'Listwise annotations expanded through variant groups, as JSONL. '
-      + 'Every line carries annotationId; split datasets by it, never by row.',
-    request: {
-      query: z.object({
-        max_candidates_per_slot: z.coerce.number().int().min(1).max(8).default(3)
-          .openapi({ param: { name: 'max_candidates_per_slot', in: 'query', required: false } }),
-        max_variants_per_annotation: z.coerce.number().int().min(1).max(64).default(8)
-          .openapi({ param: { name: 'max_variants_per_annotation', in: 'query', required: false } }),
-        max_lpips: z.coerce.number().nullable().optional()
-          .openapi({ param: { name: 'max_lpips', in: 'query', required: false }, type: ['number', 'null'] }),
-      }),
-    },
-    responses: {
-      200: { description: OK, content: { 'application/x-ndjson': { schema: z.string() } } },
-      ...RESP_400,
-    },
-  }),
-  (c) => {
-    const q = c.req.valid('query')
-    const rows = expandListwiseAnnotations(getDb().sqlite, {
-      maxCandidatesPerSlot: q.max_candidates_per_slot,
-      maxVariantsPerAnnotation: q.max_variants_per_annotation,
-      ...(q.max_lpips == null ? {} : { maxLpips: q.max_lpips }),
-    })
-    return new Response(`${rows.map(row => JSON.stringify(row)).join('\n')}\n`, {
-      status: 200,
-      headers: {
-        'content-type': 'application/x-ndjson; charset=utf-8',
-        'content-disposition': 'attachment; filename="listwise-expanded.jsonl"',
-      },
-    }) as never
+const ExportQuery = z.object({
+  max_candidates_per_slot: z.coerce.number().int().min(1).max(8).default(3)
+    .openapi({ param: { name: 'max_candidates_per_slot', in: 'query', required: false } }),
+  max_variants_per_annotation: z.coerce.number().int().min(1).max(64).default(8)
+    .openapi({ param: { name: 'max_variants_per_annotation', in: 'query', required: false } }),
+  max_lpips: z.coerce.number().nullable().optional()
+    .openapi({ param: { name: 'max_lpips', in: 'query', required: false }, type: ['number', 'null'] }),
+})
+
+// 文档和路由分开注册：zod-openapi 只给 JSON 和 text/plain 的 content 推得出返回
+// 类型，`application/x-ndjson` 会把 200 这一支推成 never，`.openapi()` 的 handler
+// 就没有任何合法返回值。查询参数的校验在 handler 里用同一个 schema 手动跑一遍。
+annotationsRoutes.openAPIRegistry.registerPath({
+  method: 'get',
+  path: '/v2/annotations/listwise/export',
+  tags: ['Annotations'],
+  operationId: 'v2ExportListwise',
+  summary: 'ExportListwise',
+  description:
+    'Listwise annotations expanded through variant groups, as JSONL. '
+    + 'Every line carries annotationId; split datasets by it, never by row.',
+  request: { query: ExportQuery },
+  responses: {
+    200: { description: OK, content: { 'application/x-ndjson': { schema: z.string() } } },
+    ...errors(400),
   },
-)
+})
+
+annotationsRoutes.get('/v2/annotations/listwise/export', (c) => {
+  const parsed = ExportQuery.safeParse(c.req.query())
+  if (!parsed.success)
+    return zodErrorHook(parsed, c)!
+  const q = parsed.data
+  const rows = expandListwiseAnnotations(getDb().sqlite, {
+    maxCandidatesPerSlot: q.max_candidates_per_slot,
+    maxVariantsPerAnnotation: q.max_variants_per_annotation,
+    ...(q.max_lpips == null ? {} : { maxLpips: q.max_lpips }),
+  })
+  return c.body(`${rows.map(row => JSON.stringify(row)).join('\n')}\n`, 200, {
+    'content-type': 'application/x-ndjson; charset=utf-8',
+    'content-disposition': 'attachment; filename="listwise-expanded.jsonl"',
+  })
+})

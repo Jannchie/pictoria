@@ -187,9 +187,9 @@ export function countByTag(
   // 组成员已经被排除了）。走 ix_tags_post_count，而不是每次打开下拉框都对
   // 940 万行的 post_has_tag 做一次 GROUP BY。
   //
-  // ⚠️ `only_canonical` 单独成立不会离开快路径 —— 只有真正收窄集合的过滤器
+  // ⚠️ `onlyCanonical` 单独成立不会离开快路径 —— 只有真正收窄集合的过滤器
   // （或显式要求包含成员）才会走实时路径。
-  if (f.only_canonical !== false && !hasActiveFilters(f)) {
+  if (f.onlyCanonical !== false && !hasActiveFilters(f)) {
     const fastParams: unknown[] = []
     let sql = 'SELECT name AS tag_name, post_count AS count FROM tags WHERE post_count > 0'
     const fast = nameMatch('name')

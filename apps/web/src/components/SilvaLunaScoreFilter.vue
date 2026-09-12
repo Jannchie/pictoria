@@ -14,7 +14,7 @@ async function fetchCounts(filter: PostFilterValue) {
 
 <template>
   <ScoreBucketFilter
-    field="silva_luna_score_levels"
+    field="silvaLunaScoreLevels"
     count-kind="silvaLuna"
     :fetch-counts="fetchCounts"
     :buckets="BUCKETS"

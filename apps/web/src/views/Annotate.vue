@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import type { QueueSummaryPublic } from '@/api'
 import type { StreamConfig } from '@/components/annotate/AbsoluteAnnotationSession.vue'
+import type { AbsoluteStrategy, AnnotationDimension, AnnotationScale, PairwiseStrategy } from '@/shared/annotationTypes'
 import { useQuery } from '@tanstack/vue-query'
 import { computed, ref } from 'vue'
 import { v2GenerateAbsolute, v2GenerateListwise, v2GeneratePairwise, v2ListQueues } from '@/api'
@@ -16,8 +17,8 @@ const { handle: handleAPIError } = useAPIError()
 type Session
   = | { mode: 'queue', queue: QueueSummaryPublic }
     | { mode: 'stream-absolute', config: StreamConfig }
-    | { mode: 'stream-pairwise', dimension: string, strategy: 'random' | 'similar' | 'close' }
-    | { mode: 'stream-listwise', dimension: string, size: number, repeat?: number }
+    | { mode: 'stream-pairwise', dimension: AnnotationDimension, strategy: PairwiseStrategy }
+    | { mode: 'stream-listwise', dimension: AnnotationDimension, size: number, repeat?: number }
 
 const session = ref<Session | null>(null)
 
@@ -39,10 +40,10 @@ function exitSession() {
 // 双图对比只问总分。四个维度（颜色/完成度/构图）在 2026-06 试过：overall 累计 2900+ 条，
 // 三个分维度加起来 88 条就停了——分维度判断慢、自己跟自己也不一致，而 SILVA 主线用的
 // 一直是 overall。所以对比模式不再提供维度选择；维度只留给单图评分的实验路径。
-const PAIRWISE_DIMENSION = 'overall'
+const PAIRWISE_DIMENSION: AnnotationDimension = 'overall'
 
 interface DimensionMeta {
-  key: string
+  key: AnnotationDimension
   label: string
   hint: string
   icon: string
@@ -61,10 +62,10 @@ const DIMENSIONS: DimensionMeta[] = [
 // 4 张 2.77 s、6 张 3.64 s、8 张 4.91 s，双图对比 2.12 s 但每次都要重新认识两张新图。
 const form = ref({
   kind: 'listwise' as 'absolute' | 'pairwise' | 'listwise',
-  dimensions: ['overall'] as string[], // 仅单图评分使用
-  scale: 2,
-  strategy: 'stratified' as 'random' | 'stratified', // 单图评分采样
-  pairwiseStrategy: 'close' as 'random' | 'similar' | 'close',
+  dimensions: ['overall'] as AnnotationDimension[], // 仅单图评分使用
+  scale: 2 as AnnotationScale,
+  strategy: 'stratified' as AbsoluteStrategy, // 单图评分采样
+  pairwiseStrategy: 'close' as PairwiseStrategy,
   listwiseSize: 4,
   // 重测会话：整批都抽老组，用来量你自己判两次有多一致。平时是 undefined（服务端按
   // REPEAT_SHARE 收 5% 的税），只有专门测天花板时才打开。
@@ -80,15 +81,15 @@ const LISTWISE_SIZES = [
 ]
 const canStart = computed(() => form.value.kind !== 'absolute' || form.value.dimensions.length > 0)
 
-function toggleDimension(d: string) {
+function toggleDimension(d: AnnotationDimension) {
   const dims = form.value.dimensions
   form.value.dimensions = dims.includes(d) ? dims.filter(x => x !== d) : [...dims, d]
 }
 
 const SCALES = [
-  { value: 2, label: '二元', hint: '好 / 不好' },
-  { value: 3, label: '三元', hint: '差 / 中 / 好' },
-  { value: 5, label: '五级', hint: '1 – 5' },
+  { value: 2 as const, label: '二元', hint: '好 / 不好' },
+  { value: 3 as const, label: '三元', hint: '差 / 中 / 好' },
+  { value: 5 as const, label: '五级', hint: '1 – 5' },
 ]
 const STRATEGIES = [
   { value: 'stratified' as const, label: '按旧分分层', hint: '1–5 分各层均匀' },

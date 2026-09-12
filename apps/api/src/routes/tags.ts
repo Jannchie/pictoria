@@ -1,21 +1,14 @@
 /**
- * `/v2/tags` —— 只搬了读端点（list / groups）。
- *
- * 四个写端点（create / update / delete / batch delete）仍然透传：它们要做存在性
- * 校验并抛领域错误，语义比读多一层，等读路径全部稳定再搬。
+ * `/v2/tags` 的读端点（list / tree / groups）；写端点在 `tag-writes.ts`。
  */
 import { createRoute, OpenAPIHono, z } from '@hono/zod-openapi'
 import { listTagGroups, listTagsWithCounts } from '@pictoria/db'
 import { getDb } from '../db.js'
-import { OK, RESP_400, zodErrorHook } from '../openapi.js'
+import { OK, errors, zodErrorHook } from '../openapi.js'
+import { TagGroupPublic } from '../schemas.js'
 import { translateTag } from '../tag-i18n.js'
 import { tagTree } from '../tag-tree.js'
 
-const TagGroupPublic = z
-  .object({ id: z.int(), name: z.string(), color: z.string() })
-  .openapi('TagGroupPublic')
-
-// 注意字段顺序：name → group → translatedName → count，与 baseline 一致。
 const TagWithCountPublic = z
   .object({
     name: z.string(),
@@ -39,15 +32,11 @@ tagsRoutes.openapi(
         prev: z.string().max(200).nullable().optional()
           .openapi({ param: { name: 'prev', in: 'query', required: false } }),
         // type 覆盖必须带上 null —— coerce 会让 schema 变成 number，但直接写
-        // { type: 'integer' } 会把 nullable 一起覆盖掉，contract-diff 会报。
+        // { type: 'integer' } 会把 nullable 一起覆盖掉。
         //
-        // `refine` 而不是 `.positive()`：Litestar 那边是 `Parameter(gt=0)`，但 baseline
-        // 的 schema 里没有 exclusiveMinimum，`.positive()` 会加上去从而破坏契约。
-        // refine 不可内省，zod-openapi 不产出任何约束，校验却照跑（失败走 defaultHook
-        // → 400，和 Python 同款）。少了它 `?limit=0` 会让 `if (limit)` 判否、整条 LIMIT
-        // 子句消失，于是整张 tags 表连同每行一次 translateTag 一起序列化出去。
-        limit: z.coerce.number().int().nullable().optional()
-          .refine((v: number | null | undefined) => v == null || v > 0, { message: 'limit must be greater than 0' })
+        // `.positive()` 不能省：`?limit=0` 会让 `if (limit)` 判否、整条 LIMIT 子句
+        // 消失，于是整张 tags 表连同每行一次 translateTag 一起序列化出去。
+        limit: z.coerce.number().int().positive().nullable().optional()
           .openapi({ param: { name: 'limit', in: 'query', required: false }, type: ['integer', 'null'] }),
         lang: z.string().default('zh-Hans')
           .openapi({ param: { name: 'lang', in: 'query', required: false } }),
@@ -55,7 +44,7 @@ tagsRoutes.openapi(
     },
     responses: {
       200: { description: OK, content: { 'application/json': { schema: z.array(TagWithCountPublic) } } },
-      ...RESP_400,
+      ...errors(400),
     },
   }),
   (c) => {
@@ -68,6 +57,7 @@ tagsRoutes.openapi(
         translatedName: translateTag(r.name, lang),
         count: r.count,
       })),
+      200,
     )
   },
 )
@@ -100,12 +90,12 @@ tagsRoutes.openapi(
     },
     responses: {
       200: { description: OK, content: { 'application/json': { schema: z.array(TagCategoryPublic) } } },
-      ...RESP_400,
+      ...errors(400),
     },
   }),
   (c) => {
     const { lang } = c.req.valid('query')
-    return c.json(tagTree(lang))
+    return c.json(tagTree(lang), 200)
   },
 )
 

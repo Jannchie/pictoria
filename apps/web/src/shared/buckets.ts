@@ -6,7 +6,7 @@
  * 过滤 DSL 一直用 `best`/`good`/… 这套别名，两套词汇之间没有任何翻译层，于是
  * **两个方向都是断的**：
  *
- * - 输入 `silva:good` → 写进 `silva_score_levels: ['good']` → 后端查
+ * - 输入 `silva:good` → 写进 `silvaScoreLevels: ['good']` → 后端查
  *   `buckets['good']` 得到 undefined 就 `continue`，子句为空，**筛选被静默丢掉**，
  *   而界面上看起来是生效了的；
  * - 在 popover 里选了 A、B 之后，`stringifyFilterQuery` 输出 `silva:A`，而解析器

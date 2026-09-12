@@ -18,14 +18,26 @@ export type WaifuScoreResult = {
 export type DirectorySummary = {
     name: string;
     path: string;
-    file_count: number;
-    post_count?: number;
-    silva_avg?: number | null;
-    silva_luna_avg?: number | null;
-    score_avg?: number | null;
-    rating_avg?: number | null;
-    scored_ratio?: number | null;
-    children?: Array<DirectorySummary>;
+    fileCount: number;
+    postCount: number;
+    silvaAvg: number | null;
+    silvaLunaAvg: number | null;
+    scoreAvg: number | null;
+    ratingAvg: number | null;
+    scoredRatio: number | null;
+    children: Array<DirectorySummary>;
+};
+
+/**
+ * ErrorBody
+ */
+export type ErrorBody = {
+    error: string;
+    detail: string;
+    issues?: Array<{
+        path: string;
+        message: string;
+    }>;
 };
 
 /**
@@ -70,7 +82,7 @@ export type TagCategoryPublic = {
  */
 export type TagCreate = {
     name: string;
-    group_id?: number | null;
+    groupId?: number | null;
 };
 
 /**
@@ -86,14 +98,14 @@ export type TagPublic = {
  * TagUpdate
  */
 export type TagUpdate = {
-    group_id?: number | null;
+    groupId?: number | null;
 };
 
 /**
  * TagBatchDelete
  */
 export type TagBatchDelete = {
-    name_list: Array<string>;
+    names: Array<string>;
 };
 
 /**
@@ -184,60 +196,60 @@ export type InsertedPublic = {
  */
 export type AbsoluteBatchIn = {
     events: Array<AbsoluteEventIn>;
-    queue_id?: number | null;
-    queue_position?: number | null;
+    queueId?: number | null;
+    queuePosition?: number | null;
 };
 
 /**
  * AbsoluteEventIn
  */
 export type AbsoluteEventIn = {
-    post_id: number;
-    dimension: string;
-    scale: number;
+    postId: number;
+    dimension: 'color' | 'finish' | 'composition' | 'overall';
+    scale: 2 | 3 | 5;
     value: number;
-    rubric_version: string;
-    session_id: string;
-    elapsed_ms?: number | null;
+    rubricVersion: string;
+    sessionId: string;
+    elapsedMs?: number | null;
 };
 
 /**
  * PairwiseEventIn
  */
 export type PairwiseEventIn = {
-    post_a: number;
-    post_b: number;
-    dimension: string;
-    winner: string;
-    rubric_version: string;
-    session_id: string;
-    elapsed_ms?: number | null;
-    queue_id?: number | null;
-    queue_position?: number | null;
-    strategy?: string | null;
+    postA: number;
+    postB: number;
+    dimension: 'color' | 'finish' | 'composition' | 'overall';
+    winner: 'a' | 'b' | 'tie' | 'skip';
+    rubricVersion: string;
+    sessionId: string;
+    elapsedMs?: number | null;
+    queueId?: number | null;
+    queuePosition?: number | null;
+    strategy?: 'random' | 'similar' | 'close' | null;
 };
 
 /**
  * ListwiseEventIn
  */
 export type ListwiseEventIn = {
-    post_ids: Array<number>;
+    postIds: Array<number>;
     ranking: Array<number>;
-    dimension: string;
-    rubric_version: string;
-    session_id: string;
-    elapsed_ms?: number | null;
-    queue_id?: number | null;
-    queue_position?: number | null;
+    dimension: 'color' | 'finish' | 'composition' | 'overall';
+    rubricVersion: string;
+    sessionId: string;
+    elapsedMs?: number | null;
+    queueId?: number | null;
+    queuePosition?: number | null;
 };
 
 /**
  * ContentFlagIn
  */
 export type ContentFlagIn = {
-    post_id: number;
-    flag: string;
-    session_id: string;
+    postId: number;
+    flag: 'love' | 'hate' | 'none';
+    sessionId: string;
 };
 
 /**
@@ -251,11 +263,11 @@ export type DeletedPublic = {
  * UndoIn
  */
 export type UndoIn = {
-    kind: string;
+    kind: 'absolute' | 'pairwise' | 'listwise';
     ids: Array<number>;
-    session_id: string;
-    queue_id?: number | null;
-    queue_position?: number | null;
+    sessionId: string;
+    queueId?: number | null;
+    queuePosition?: number | null;
 };
 
 /**
@@ -390,9 +402,9 @@ export type QueueCreatedPublic = {
  */
 export type AbsoluteQueueCreate = {
     name: string;
-    dimensions: Array<string>;
-    scale: number;
-    post_ids: Array<number>;
+    dimensions: Array<'color' | 'finish' | 'composition' | 'overall'>;
+    scale: 2 | 3 | 5;
+    postIds: Array<number>;
 };
 
 /**
@@ -400,7 +412,7 @@ export type AbsoluteQueueCreate = {
  */
 export type PairwiseQueueCreate = {
     name: string;
-    dimensions: Array<string>;
+    dimensions: Array<'color' | 'finish' | 'composition' | 'overall'>;
     pairs: Array<[
         number,
         number
@@ -412,7 +424,7 @@ export type PairwiseQueueCreate = {
  */
 export type ListwiseQueueCreate = {
     name: string;
-    dimensions: Array<string>;
+    dimensions: Array<'color' | 'finish' | 'composition' | 'overall'>;
     groups: Array<Array<number>>;
 };
 
@@ -422,12 +434,12 @@ export type ListwiseQueueCreate = {
 export type QueueSummaryPublic = {
     id: number;
     name: string;
-    kind: string;
-    dimensions: Array<string>;
-    scale?: number | null;
+    kind: 'absolute' | 'pairwise' | 'listwise';
+    dimensions: Array<'color' | 'finish' | 'composition' | 'overall'>;
+    scale?: 2 | 3 | 5 | null;
     total: number;
     done: number;
-    strategy?: string | null;
+    strategy?: 'random' | 'similar' | 'close' | null;
 };
 
 /**
@@ -459,10 +471,10 @@ export type ListwiseQueueItemPublic = {
  * GenerateAbsoluteIn
  */
 export type GenerateAbsoluteIn = {
-    dimensions: Array<string>;
-    scale: number;
+    dimensions: Array<'color' | 'finish' | 'composition' | 'overall'>;
+    scale: 2 | 3 | 5;
     count: number;
-    strategy?: string;
+    strategy?: 'random' | 'stratified';
     name?: string | null;
 };
 
@@ -470,9 +482,9 @@ export type GenerateAbsoluteIn = {
  * GeneratePairwiseIn
  */
 export type GeneratePairwiseIn = {
-    dimension: string;
+    dimension: 'color' | 'finish' | 'composition' | 'overall';
     count: number;
-    strategy?: string;
+    strategy?: 'random' | 'similar' | 'close';
     name?: string | null;
 };
 
@@ -480,7 +492,7 @@ export type GeneratePairwiseIn = {
  * GenerateListwiseIn
  */
 export type GenerateListwiseIn = {
-    dimension: string;
+    dimension: 'color' | 'finish' | 'composition' | 'overall';
     count: number;
     size?: number;
     name?: string | null;
@@ -499,12 +511,12 @@ export type SnapshotResult = {
  */
 export type DanbooruDownloadStats = {
     total: number;
-    with_url: number;
+    withUrl: number;
     filtered: number;
     downloaded: number;
     skipped: number;
     failed: number;
-    early_stopped: boolean;
+    earlyStopped: boolean;
 };
 
 /**
@@ -570,26 +582,26 @@ export type PostFilter = {
     /**
      * Waifu score range filter.
      */
-    waifu_score_range?: [
+    waifuScoreRange?: [
         number,
         number
     ] | null;
     /**
      * Waifu-score bucket filter. Each value is one of 'A' (8-10), 'B' (6-8), 'C' (4-6), 'D' (2-4), 'E' (0-2), or 'UNSCORED' (no waifu score yet). Multiple values OR together.
      */
-    waifu_score_levels?: Array<string> | null;
+    waifuScoreLevels?: Array<string> | null;
     /**
      * SILVA aesthetic bucket filter. Each value is one of 'A' (0.8-1.0), 'B' (0.6-0.8), 'C' (0.4-0.6), 'D' (0.2-0.4), 'E' (0-0.2), or 'UNSCORED' (no SILVA score yet). OR together.
      */
-    silva_score_levels?: Array<string> | null;
+    silvaScoreLevels?: Array<string> | null;
     /**
-     * SILVA-Luna aesthetic bucket filter. Same A-E edges over the [0, 1] domain as ``silva_score_levels`` (a second distilled judge, not a second tier), or 'UNSCORED'. OR together.
+     * SILVA-Luna aesthetic bucket filter. Same A-E edges over the [0, 1] domain as ``silvaScoreLevels`` (a second distilled judge, not a second tier), or 'UNSCORED'. OR together.
      */
-    silva_luna_score_levels?: Array<string> | null;
+    silvaLunaScoreLevels?: Array<string> | null;
     /**
      * When true (default), hide near-duplicate group *members* and return only canonical (representative) posts — those with canonical_post_id NULL. Set false to include members.
      */
-    only_canonical?: boolean;
+    onlyCanonical?: boolean;
 };
 
 /**
@@ -656,9 +668,9 @@ export type PostStatsResponse = {
  * TagCountItem
  */
 export type TagCountItem = {
-    tag_name: string;
+    tagName: string;
     count: number;
-    translated_name?: string | null;
+    translatedName?: string | null;
 };
 
 /**
@@ -693,26 +705,26 @@ export type TagCountRequest = {
     /**
      * Waifu score range filter.
      */
-    waifu_score_range?: [
+    waifuScoreRange?: [
         number,
         number
     ] | null;
     /**
      * Waifu-score bucket filter. Each value is one of 'A' (8-10), 'B' (6-8), 'C' (4-6), 'D' (2-4), 'E' (0-2), or 'UNSCORED' (no waifu score yet). Multiple values OR together.
      */
-    waifu_score_levels?: Array<string> | null;
+    waifuScoreLevels?: Array<string> | null;
     /**
      * SILVA aesthetic bucket filter. Each value is one of 'A' (0.8-1.0), 'B' (0.6-0.8), 'C' (0.4-0.6), 'D' (0.2-0.4), 'E' (0-0.2), or 'UNSCORED' (no SILVA score yet). OR together.
      */
-    silva_score_levels?: Array<string> | null;
+    silvaScoreLevels?: Array<string> | null;
     /**
-     * SILVA-Luna aesthetic bucket filter. Same A-E edges over the [0, 1] domain as ``silva_score_levels`` (a second distilled judge, not a second tier), or 'UNSCORED'. OR together.
+     * SILVA-Luna aesthetic bucket filter. Same A-E edges over the [0, 1] domain as ``silvaScoreLevels`` (a second distilled judge, not a second tier), or 'UNSCORED'. OR together.
      */
-    silva_luna_score_levels?: Array<string> | null;
+    silvaLunaScoreLevels?: Array<string> | null;
     /**
      * When true (default), hide near-duplicate group *members* and return only canonical (representative) posts — those with canonical_post_id NULL. Set false to include members.
      */
-    only_canonical?: boolean;
+    onlyCanonical?: boolean;
     /**
      * Substring filter on tag names.
      */
@@ -752,22 +764,20 @@ export type GroupTogetherIn = {
 };
 
 /**
- * PostController.UploadFormData
+ * UploadFormData
  */
-export type PostControllerUploadFormData = {
+export type UploadFormData = {
     url?: string | null;
     path?: string | null;
     source?: string | null;
-    file: Blob | File;
+    file?: Blob | File;
 };
 
 /**
  * CursorResponse
  */
 export type CursorResponse = {
-    items: Array<{
-        [key: string]: unknown;
-    }>;
+    items: Array<PostDetailPublic>;
     nextCursor?: number | null;
 };
 
@@ -827,30 +837,30 @@ export type PostFilterWithOrder = {
     /**
      * Waifu score range filter.
      */
-    waifu_score_range?: [
+    waifuScoreRange?: [
         number,
         number
     ] | null;
     /**
      * Waifu-score bucket filter. Each value is one of 'A' (8-10), 'B' (6-8), 'C' (4-6), 'D' (2-4), 'E' (0-2), or 'UNSCORED' (no waifu score yet). Multiple values OR together.
      */
-    waifu_score_levels?: Array<string> | null;
+    waifuScoreLevels?: Array<string> | null;
     /**
      * SILVA aesthetic bucket filter. Each value is one of 'A' (0.8-1.0), 'B' (0.6-0.8), 'C' (0.4-0.6), 'D' (0.2-0.4), 'E' (0-0.2), or 'UNSCORED' (no SILVA score yet). OR together.
      */
-    silva_score_levels?: Array<string> | null;
+    silvaScoreLevels?: Array<string> | null;
     /**
-     * SILVA-Luna aesthetic bucket filter. Same A-E edges over the [0, 1] domain as ``silva_score_levels`` (a second distilled judge, not a second tier), or 'UNSCORED'. OR together.
+     * SILVA-Luna aesthetic bucket filter. Same A-E edges over the [0, 1] domain as ``silvaScoreLevels`` (a second distilled judge, not a second tier), or 'UNSCORED'. OR together.
      */
-    silva_luna_score_levels?: Array<string> | null;
+    silvaLunaScoreLevels?: Array<string> | null;
     /**
      * When true (default), hide near-duplicate group *members* and return only canonical (representative) posts — those with canonical_post_id NULL. Set false to include members.
      */
-    only_canonical?: boolean;
+    onlyCanonical?: boolean;
     /**
      * Order column.
      */
-    order_by?: 'id' | 'score' | 'rating' | 'created_at' | 'published_at' | 'file_name' | 'last_accessed_at' | 'updated_at' | 'waifu_score' | 'silva_score' | 'silva_luna_score' | 'discrepancy' | null;
+    orderBy?: 'id' | 'score' | 'rating' | 'created_at' | 'published_at' | 'file_name' | 'last_accessed_at' | 'updated_at' | 'waifu_score' | 'silva_score' | 'silva_luna_score' | 'discrepancy' | null;
     /**
      * Order direction.
      */
@@ -858,11 +868,11 @@ export type PostFilterWithOrder = {
     /**
      * Seed for ``order='random'``. The same seed yields a stable shuffle, so offset pagination stays consistent across pages; a fresh seed reshuffles. Ignored unless ``order='random'``.
      */
-    order_seed?: number | null;
+    orderSeed?: number | null;
     /**
-     * Sort direction for ``order_by`` when ``order='random'``. Ignored unless both ``order='random'`` and ``order_by`` are set.
+     * Sort direction for ``orderBy`` when ``order='random'``. Ignored unless both ``order='random'`` and ``orderBy`` are set.
      */
-    sort_direction?: 'asc' | 'desc' | null;
+    sortDirection?: 'asc' | 'desc' | null;
 };
 
 /**
@@ -897,26 +907,26 @@ export type TextSearchRequest = {
     /**
      * Waifu score range filter.
      */
-    waifu_score_range?: [
+    waifuScoreRange?: [
         number,
         number
     ] | null;
     /**
      * Waifu-score bucket filter. Each value is one of 'A' (8-10), 'B' (6-8), 'C' (4-6), 'D' (2-4), 'E' (0-2), or 'UNSCORED' (no waifu score yet). Multiple values OR together.
      */
-    waifu_score_levels?: Array<string> | null;
+    waifuScoreLevels?: Array<string> | null;
     /**
      * SILVA aesthetic bucket filter. Each value is one of 'A' (0.8-1.0), 'B' (0.6-0.8), 'C' (0.4-0.6), 'D' (0.2-0.4), 'E' (0-0.2), or 'UNSCORED' (no SILVA score yet). OR together.
      */
-    silva_score_levels?: Array<string> | null;
+    silvaScoreLevels?: Array<string> | null;
     /**
-     * SILVA-Luna aesthetic bucket filter. Same A-E edges over the [0, 1] domain as ``silva_score_levels`` (a second distilled judge, not a second tier), or 'UNSCORED'. OR together.
+     * SILVA-Luna aesthetic bucket filter. Same A-E edges over the [0, 1] domain as ``silvaScoreLevels`` (a second distilled judge, not a second tier), or 'UNSCORED'. OR together.
      */
-    silva_luna_score_levels?: Array<string> | null;
+    silvaLunaScoreLevels?: Array<string> | null;
     /**
      * When true (default), hide near-duplicate group *members* and return only canonical (representative) posts — those with canonical_post_id NULL. Set false to include members.
      */
-    only_canonical?: boolean;
+    onlyCanonical?: boolean;
     /**
      * Natural-language search prompt.
      */
@@ -942,7 +952,7 @@ export type V2GetWaifuScorerStatisticsData = {
 
 export type V2GetWaifuScorerStatisticsResponses = {
     /**
-     * Request fulfilled, document follows
+     * OK
      */
     200: Array<WaifuScoreResult>;
 };
@@ -956,9 +966,22 @@ export type V2GetFoldersData = {
     url: '/v2/folders';
 };
 
+export type V2GetFoldersErrors = {
+    /**
+     * Bad Request
+     */
+    400: ErrorBody;
+    /**
+     * Not Found
+     */
+    404: ErrorBody;
+};
+
+export type V2GetFoldersError = V2GetFoldersErrors[keyof V2GetFoldersErrors];
+
 export type V2GetFoldersResponses = {
     /**
-     * Request fulfilled, document follows
+     * OK
      */
     200: DirectorySummary;
 };
@@ -976,22 +999,20 @@ export type V2DeleteFolderData = {
 
 export type V2DeleteFolderErrors = {
     /**
-     * Validation Exception
+     * Bad Request
      */
-    400: {
-        status_code: number;
-        detail: string;
-        extra?: null | {
-            [key: string]: unknown;
-        } | Array<unknown>;
-    };
+    400: ErrorBody;
+    /**
+     * Not Found
+     */
+    404: ErrorBody;
 };
 
 export type V2DeleteFolderError = V2DeleteFolderErrors[keyof V2DeleteFolderErrors];
 
 export type V2DeleteFolderResponses = {
     /**
-     * Request fulfilled, document follows
+     * OK
      */
     200: Result;
 };
@@ -1007,22 +1028,16 @@ export type V2DeleteTagsData = {
 
 export type V2DeleteTagsErrors = {
     /**
-     * Validation Exception
+     * Bad Request
      */
-    400: {
-        status_code: number;
-        detail: string;
-        extra?: null | {
-            [key: string]: unknown;
-        } | Array<unknown>;
-    };
+    400: ErrorBody;
 };
 
 export type V2DeleteTagsError = V2DeleteTagsErrors[keyof V2DeleteTagsErrors];
 
 export type V2DeleteTagsResponses = {
     /**
-     * Request fulfilled, nothing follows
+     * No Content
      */
     204: void;
 };
@@ -1042,22 +1057,16 @@ export type V2ListTagsData = {
 
 export type V2ListTagsErrors = {
     /**
-     * Validation Exception
+     * Bad Request
      */
-    400: {
-        status_code: number;
-        detail: string;
-        extra?: null | {
-            [key: string]: unknown;
-        } | Array<unknown>;
-    };
+    400: ErrorBody;
 };
 
 export type V2ListTagsError = V2ListTagsErrors[keyof V2ListTagsErrors];
 
 export type V2ListTagsResponses = {
     /**
-     * Request fulfilled, document follows
+     * OK
      */
     200: Array<TagWithCountPublic>;
 };
@@ -1073,22 +1082,24 @@ export type V2CreateTagData = {
 
 export type V2CreateTagErrors = {
     /**
-     * Validation Exception
+     * Bad Request
      */
-    400: {
-        status_code: number;
-        detail: string;
-        extra?: null | {
-            [key: string]: unknown;
-        } | Array<unknown>;
-    };
+    400: ErrorBody;
+    /**
+     * Conflict
+     */
+    409: ErrorBody;
+    /**
+     * Unprocessable Content
+     */
+    422: ErrorBody;
 };
 
 export type V2CreateTagError = V2CreateTagErrors[keyof V2CreateTagErrors];
 
 export type V2CreateTagResponses = {
     /**
-     * Document created, URL follows
+     * Created
      */
     201: Result;
 };
@@ -1106,22 +1117,16 @@ export type V2ListTagTreeData = {
 
 export type V2ListTagTreeErrors = {
     /**
-     * Validation Exception
+     * Bad Request
      */
-    400: {
-        status_code: number;
-        detail: string;
-        extra?: null | {
-            [key: string]: unknown;
-        } | Array<unknown>;
-    };
+    400: ErrorBody;
 };
 
 export type V2ListTagTreeError = V2ListTagTreeErrors[keyof V2ListTagTreeErrors];
 
 export type V2ListTagTreeResponses = {
     /**
-     * Request fulfilled, document follows
+     * OK
      */
     200: Array<TagCategoryPublic>;
 };
@@ -1137,7 +1142,7 @@ export type V2ListTagGroupData = {
 
 export type V2ListTagGroupResponses = {
     /**
-     * Request fulfilled, document follows
+     * OK
      */
     200: Array<TagGroupPublic>;
 };
@@ -1155,22 +1160,16 @@ export type V2DeleteTagData = {
 
 export type V2DeleteTagErrors = {
     /**
-     * Validation Exception
+     * Bad Request
      */
-    400: {
-        status_code: number;
-        detail: string;
-        extra?: null | {
-            [key: string]: unknown;
-        } | Array<unknown>;
-    };
+    400: ErrorBody;
 };
 
 export type V2DeleteTagError = V2DeleteTagErrors[keyof V2DeleteTagErrors];
 
 export type V2DeleteTagResponses = {
     /**
-     * Request fulfilled, nothing follows
+     * No Content
      */
     204: void;
 };
@@ -1190,22 +1189,24 @@ export type V2UpdateTagData = {
 
 export type V2UpdateTagErrors = {
     /**
-     * Validation Exception
+     * Bad Request
      */
-    400: {
-        status_code: number;
-        detail: string;
-        extra?: null | {
-            [key: string]: unknown;
-        } | Array<unknown>;
-    };
+    400: ErrorBody;
+    /**
+     * Not Found
+     */
+    404: ErrorBody;
+    /**
+     * Unprocessable Content
+     */
+    422: ErrorBody;
 };
 
 export type V2UpdateTagError = V2UpdateTagErrors[keyof V2UpdateTagErrors];
 
 export type V2UpdateTagResponses = {
     /**
-     * Request fulfilled, document follows
+     * OK
      */
     200: TagPublic;
 };
@@ -1224,22 +1225,24 @@ export type V2RemoveTagFromPostData = {
 
 export type V2RemoveTagFromPostErrors = {
     /**
-     * Validation Exception
+     * Bad Request
      */
-    400: {
-        status_code: number;
-        detail: string;
-        extra?: null | {
-            [key: string]: unknown;
-        } | Array<unknown>;
-    };
+    400: ErrorBody;
+    /**
+     * Not Found
+     */
+    404: ErrorBody;
+    /**
+     * Conflict
+     */
+    409: ErrorBody;
 };
 
 export type V2RemoveTagFromPostError = V2RemoveTagFromPostErrors[keyof V2RemoveTagFromPostErrors];
 
 export type V2RemoveTagFromPostResponses = {
     /**
-     * Request fulfilled, document follows
+     * OK
      */
     200: PostDetailPublic;
 };
@@ -1258,22 +1261,24 @@ export type V2AddTagToPostData = {
 
 export type V2AddTagToPostErrors = {
     /**
-     * Validation Exception
+     * Bad Request
      */
-    400: {
-        status_code: number;
-        detail: string;
-        extra?: null | {
-            [key: string]: unknown;
-        } | Array<unknown>;
-    };
+    400: ErrorBody;
+    /**
+     * Not Found
+     */
+    404: ErrorBody;
+    /**
+     * Conflict
+     */
+    409: ErrorBody;
 };
 
 export type V2AddTagToPostError = V2AddTagToPostErrors[keyof V2AddTagToPostErrors];
 
 export type V2AddTagToPostResponses = {
     /**
-     * Request fulfilled, document follows
+     * OK
      */
     200: PostDetailPublic;
 };
@@ -1289,22 +1294,16 @@ export type V2SubmitAbsoluteData = {
 
 export type V2SubmitAbsoluteErrors = {
     /**
-     * Validation Exception
+     * Bad Request
      */
-    400: {
-        status_code: number;
-        detail: string;
-        extra?: null | {
-            [key: string]: unknown;
-        } | Array<unknown>;
-    };
+    400: ErrorBody;
 };
 
 export type V2SubmitAbsoluteError = V2SubmitAbsoluteErrors[keyof V2SubmitAbsoluteErrors];
 
 export type V2SubmitAbsoluteResponses = {
     /**
-     * Document created, URL follows
+     * Created
      */
     201: InsertedPublic;
 };
@@ -1320,22 +1319,16 @@ export type V2SubmitPairwiseData = {
 
 export type V2SubmitPairwiseErrors = {
     /**
-     * Validation Exception
+     * Bad Request
      */
-    400: {
-        status_code: number;
-        detail: string;
-        extra?: null | {
-            [key: string]: unknown;
-        } | Array<unknown>;
-    };
+    400: ErrorBody;
 };
 
 export type V2SubmitPairwiseError = V2SubmitPairwiseErrors[keyof V2SubmitPairwiseErrors];
 
 export type V2SubmitPairwiseResponses = {
     /**
-     * Document created, URL follows
+     * Created
      */
     201: InsertedPublic;
 };
@@ -1351,22 +1344,16 @@ export type V2SubmitListwiseData = {
 
 export type V2SubmitListwiseErrors = {
     /**
-     * Validation Exception
+     * Bad Request
      */
-    400: {
-        status_code: number;
-        detail: string;
-        extra?: null | {
-            [key: string]: unknown;
-        } | Array<unknown>;
-    };
+    400: ErrorBody;
 };
 
 export type V2SubmitListwiseError = V2SubmitListwiseErrors[keyof V2SubmitListwiseErrors];
 
 export type V2SubmitListwiseResponses = {
     /**
-     * Document created, URL follows
+     * Created
      */
     201: InsertedPublic;
 };
@@ -1382,22 +1369,16 @@ export type V2SubmitContentFlagData = {
 
 export type V2SubmitContentFlagErrors = {
     /**
-     * Validation Exception
+     * Bad Request
      */
-    400: {
-        status_code: number;
-        detail: string;
-        extra?: null | {
-            [key: string]: unknown;
-        } | Array<unknown>;
-    };
+    400: ErrorBody;
 };
 
 export type V2SubmitContentFlagError = V2SubmitContentFlagErrors[keyof V2SubmitContentFlagErrors];
 
 export type V2SubmitContentFlagResponses = {
     /**
-     * Document created, URL follows
+     * Created
      */
     201: InsertedPublic;
 };
@@ -1413,22 +1394,16 @@ export type V2UndoAnnotationsData = {
 
 export type V2UndoAnnotationsErrors = {
     /**
-     * Validation Exception
+     * Bad Request
      */
-    400: {
-        status_code: number;
-        detail: string;
-        extra?: null | {
-            [key: string]: unknown;
-        } | Array<unknown>;
-    };
+    400: ErrorBody;
 };
 
 export type V2UndoAnnotationsError = V2UndoAnnotationsErrors[keyof V2UndoAnnotationsErrors];
 
 export type V2UndoAnnotationsResponses = {
     /**
-     * Request fulfilled, document follows
+     * OK
      */
     200: DeletedPublic;
 };
@@ -1438,7 +1413,7 @@ export type V2UndoAnnotationsResponse = V2UndoAnnotationsResponses[keyof V2UndoA
 export type V2EditAnnotationData = {
     body: EditIn;
     path: {
-        kind: string;
+        kind: 'absolute' | 'pairwise' | 'listwise';
         annotation_id: number;
     };
     query?: never;
@@ -1447,22 +1422,16 @@ export type V2EditAnnotationData = {
 
 export type V2EditAnnotationErrors = {
     /**
-     * Validation Exception
+     * Bad Request
      */
-    400: {
-        status_code: number;
-        detail: string;
-        extra?: null | {
-            [key: string]: unknown;
-        } | Array<unknown>;
-    };
+    400: ErrorBody;
 };
 
 export type V2EditAnnotationError = V2EditAnnotationErrors[keyof V2EditAnnotationErrors];
 
 export type V2EditAnnotationResponses = {
     /**
-     * Request fulfilled, document follows
+     * OK
      */
     200: UpdatedPublic;
 };
@@ -1473,29 +1442,23 @@ export type V2CountPairwiseData = {
     body?: never;
     path?: never;
     query?: {
-        dimension?: string;
+        dimension?: 'color' | 'finish' | 'composition' | 'overall';
     };
     url: '/v2/annotations/pairwise/count';
 };
 
 export type V2CountPairwiseErrors = {
     /**
-     * Validation Exception
+     * Bad Request
      */
-    400: {
-        status_code: number;
-        detail: string;
-        extra?: null | {
-            [key: string]: unknown;
-        } | Array<unknown>;
-    };
+    400: ErrorBody;
 };
 
 export type V2CountPairwiseError = V2CountPairwiseErrors[keyof V2CountPairwiseErrors];
 
 export type V2CountPairwiseResponses = {
     /**
-     * Request fulfilled, document follows
+     * OK
      */
     200: PairwiseCountPublic;
 };
@@ -1513,22 +1476,16 @@ export type V2PostHistoryData = {
 
 export type V2PostHistoryErrors = {
     /**
-     * Validation Exception
+     * Bad Request
      */
-    400: {
-        status_code: number;
-        detail: string;
-        extra?: null | {
-            [key: string]: unknown;
-        } | Array<unknown>;
-    };
+    400: ErrorBody;
 };
 
 export type V2PostHistoryError = V2PostHistoryErrors[keyof V2PostHistoryErrors];
 
 export type V2PostHistoryResponses = {
     /**
-     * Request fulfilled, document follows
+     * OK
      */
     200: PostAnnotationsPublic;
 };
@@ -1547,22 +1504,16 @@ export type V2AnnotationTimelineData = {
 
 export type V2AnnotationTimelineErrors = {
     /**
-     * Validation Exception
+     * Bad Request
      */
-    400: {
-        status_code: number;
-        detail: string;
-        extra?: null | {
-            [key: string]: unknown;
-        } | Array<unknown>;
-    };
+    400: ErrorBody;
 };
 
 export type V2AnnotationTimelineError = V2AnnotationTimelineErrors[keyof V2AnnotationTimelineErrors];
 
 export type V2AnnotationTimelineResponses = {
     /**
-     * Request fulfilled, document follows
+     * OK
      */
     200: TimelinePagePublic;
 };
@@ -1573,8 +1524,8 @@ export type V2SampleAbsoluteData = {
     body?: never;
     path?: never;
     query: {
-        dimensions: Array<string>;
-        strategy?: string;
+        dimensions: Array<'color' | 'finish' | 'composition' | 'overall'>;
+        strategy?: 'random' | 'stratified';
         limit?: number;
     };
     url: '/v2/annotations/sample-absolute';
@@ -1582,22 +1533,16 @@ export type V2SampleAbsoluteData = {
 
 export type V2SampleAbsoluteErrors = {
     /**
-     * Validation Exception
+     * Bad Request
      */
-    400: {
-        status_code: number;
-        detail: string;
-        extra?: null | {
-            [key: string]: unknown;
-        } | Array<unknown>;
-    };
+    400: ErrorBody;
 };
 
 export type V2SampleAbsoluteError = V2SampleAbsoluteErrors[keyof V2SampleAbsoluteErrors];
 
 export type V2SampleAbsoluteResponses = {
     /**
-     * Request fulfilled, document follows
+     * OK
      */
     200: Array<QueueItemPostPublic>;
 };
@@ -1609,30 +1554,24 @@ export type V2SamplePairwiseData = {
     path?: never;
     query?: {
         limit?: number;
-        strategy?: string;
-        dimension?: string;
+        strategy?: 'random' | 'similar' | 'close';
+        dimension?: 'color' | 'finish' | 'composition' | 'overall';
     };
     url: '/v2/annotations/sample-pairwise';
 };
 
 export type V2SamplePairwiseErrors = {
     /**
-     * Validation Exception
+     * Bad Request
      */
-    400: {
-        status_code: number;
-        detail: string;
-        extra?: null | {
-            [key: string]: unknown;
-        } | Array<unknown>;
-    };
+    400: ErrorBody;
 };
 
 export type V2SamplePairwiseError = V2SamplePairwiseErrors[keyof V2SamplePairwiseErrors];
 
 export type V2SamplePairwiseResponses = {
     /**
-     * Request fulfilled, document follows
+     * OK
      */
     200: Array<SampledPairPublic>;
 };
@@ -1645,7 +1584,7 @@ export type V2SampleListwiseData = {
     query?: {
         limit?: number;
         size?: number;
-        dimension?: string;
+        dimension?: 'color' | 'finish' | 'composition' | 'overall';
         repeat?: number;
     };
     url: '/v2/annotations/sample-listwise';
@@ -1653,22 +1592,16 @@ export type V2SampleListwiseData = {
 
 export type V2SampleListwiseErrors = {
     /**
-     * Validation Exception
+     * Bad Request
      */
-    400: {
-        status_code: number;
-        detail: string;
-        extra?: null | {
-            [key: string]: unknown;
-        } | Array<unknown>;
-    };
+    400: ErrorBody;
 };
 
 export type V2SampleListwiseError = V2SampleListwiseErrors[keyof V2SampleListwiseErrors];
 
 export type V2SampleListwiseResponses = {
     /**
-     * Request fulfilled, document follows
+     * OK
      */
     200: Array<SampledGroupPublic>;
 };
@@ -1688,22 +1621,16 @@ export type V2ExportListwiseData = {
 
 export type V2ExportListwiseErrors = {
     /**
-     * Validation Exception
+     * Bad Request
      */
-    400: {
-        status_code: number;
-        detail: string;
-        extra?: null | {
-            [key: string]: unknown;
-        } | Array<unknown>;
-    };
+    400: ErrorBody;
 };
 
 export type V2ExportListwiseError = V2ExportListwiseErrors[keyof V2ExportListwiseErrors];
 
 export type V2ExportListwiseResponses = {
     /**
-     * Request fulfilled, document follows
+     * OK
      */
     200: string;
 };
@@ -1719,22 +1646,16 @@ export type V2CreateAbsoluteData = {
 
 export type V2CreateAbsoluteErrors = {
     /**
-     * Validation Exception
+     * Bad Request
      */
-    400: {
-        status_code: number;
-        detail: string;
-        extra?: null | {
-            [key: string]: unknown;
-        } | Array<unknown>;
-    };
+    400: ErrorBody;
 };
 
 export type V2CreateAbsoluteError = V2CreateAbsoluteErrors[keyof V2CreateAbsoluteErrors];
 
 export type V2CreateAbsoluteResponses = {
     /**
-     * Document created, URL follows
+     * Created
      */
     201: QueueCreatedPublic;
 };
@@ -1750,22 +1671,16 @@ export type V2CreatePairwiseData = {
 
 export type V2CreatePairwiseErrors = {
     /**
-     * Validation Exception
+     * Bad Request
      */
-    400: {
-        status_code: number;
-        detail: string;
-        extra?: null | {
-            [key: string]: unknown;
-        } | Array<unknown>;
-    };
+    400: ErrorBody;
 };
 
 export type V2CreatePairwiseError = V2CreatePairwiseErrors[keyof V2CreatePairwiseErrors];
 
 export type V2CreatePairwiseResponses = {
     /**
-     * Document created, URL follows
+     * Created
      */
     201: QueueCreatedPublic;
 };
@@ -1781,22 +1696,16 @@ export type V2CreateListwiseData = {
 
 export type V2CreateListwiseErrors = {
     /**
-     * Validation Exception
+     * Bad Request
      */
-    400: {
-        status_code: number;
-        detail: string;
-        extra?: null | {
-            [key: string]: unknown;
-        } | Array<unknown>;
-    };
+    400: ErrorBody;
 };
 
 export type V2CreateListwiseError = V2CreateListwiseErrors[keyof V2CreateListwiseErrors];
 
 export type V2CreateListwiseResponses = {
     /**
-     * Document created, URL follows
+     * Created
      */
     201: QueueCreatedPublic;
 };
@@ -1812,7 +1721,7 @@ export type V2ListQueuesData = {
 
 export type V2ListQueuesResponses = {
     /**
-     * Request fulfilled, document follows
+     * OK
      */
     200: Array<QueueSummaryPublic>;
 };
@@ -1832,22 +1741,16 @@ export type V2NextAbsoluteData = {
 
 export type V2NextAbsoluteErrors = {
     /**
-     * Validation Exception
+     * Bad Request
      */
-    400: {
-        status_code: number;
-        detail: string;
-        extra?: null | {
-            [key: string]: unknown;
-        } | Array<unknown>;
-    };
+    400: ErrorBody;
 };
 
 export type V2NextAbsoluteError = V2NextAbsoluteErrors[keyof V2NextAbsoluteErrors];
 
 export type V2NextAbsoluteResponses = {
     /**
-     * Request fulfilled, document follows
+     * OK
      */
     200: Array<AbsoluteQueueItemPublic>;
 };
@@ -1867,22 +1770,16 @@ export type V2NextPairwiseData = {
 
 export type V2NextPairwiseErrors = {
     /**
-     * Validation Exception
+     * Bad Request
      */
-    400: {
-        status_code: number;
-        detail: string;
-        extra?: null | {
-            [key: string]: unknown;
-        } | Array<unknown>;
-    };
+    400: ErrorBody;
 };
 
 export type V2NextPairwiseError = V2NextPairwiseErrors[keyof V2NextPairwiseErrors];
 
 export type V2NextPairwiseResponses = {
     /**
-     * Request fulfilled, document follows
+     * OK
      */
     200: Array<PairwiseQueueItemPublic>;
 };
@@ -1902,22 +1799,16 @@ export type V2NextListwiseData = {
 
 export type V2NextListwiseErrors = {
     /**
-     * Validation Exception
+     * Bad Request
      */
-    400: {
-        status_code: number;
-        detail: string;
-        extra?: null | {
-            [key: string]: unknown;
-        } | Array<unknown>;
-    };
+    400: ErrorBody;
 };
 
 export type V2NextListwiseError = V2NextListwiseErrors[keyof V2NextListwiseErrors];
 
 export type V2NextListwiseResponses = {
     /**
-     * Request fulfilled, document follows
+     * OK
      */
     200: Array<ListwiseQueueItemPublic>;
 };
@@ -1933,22 +1824,20 @@ export type V2GenerateAbsoluteData = {
 
 export type V2GenerateAbsoluteErrors = {
     /**
-     * Validation Exception
+     * Bad Request
      */
-    400: {
-        status_code: number;
-        detail: string;
-        extra?: null | {
-            [key: string]: unknown;
-        } | Array<unknown>;
-    };
+    400: ErrorBody;
+    /**
+     * Conflict
+     */
+    409: ErrorBody;
 };
 
 export type V2GenerateAbsoluteError = V2GenerateAbsoluteErrors[keyof V2GenerateAbsoluteErrors];
 
 export type V2GenerateAbsoluteResponses = {
     /**
-     * Document created, URL follows
+     * Created
      */
     201: QueueSummaryPublic;
 };
@@ -1964,22 +1853,20 @@ export type V2GeneratePairwiseData = {
 
 export type V2GeneratePairwiseErrors = {
     /**
-     * Validation Exception
+     * Bad Request
      */
-    400: {
-        status_code: number;
-        detail: string;
-        extra?: null | {
-            [key: string]: unknown;
-        } | Array<unknown>;
-    };
+    400: ErrorBody;
+    /**
+     * Conflict
+     */
+    409: ErrorBody;
 };
 
 export type V2GeneratePairwiseError = V2GeneratePairwiseErrors[keyof V2GeneratePairwiseErrors];
 
 export type V2GeneratePairwiseResponses = {
     /**
-     * Document created, URL follows
+     * Created
      */
     201: QueueSummaryPublic;
 };
@@ -1995,22 +1882,20 @@ export type V2GenerateListwiseData = {
 
 export type V2GenerateListwiseErrors = {
     /**
-     * Validation Exception
+     * Bad Request
      */
-    400: {
-        status_code: number;
-        detail: string;
-        extra?: null | {
-            [key: string]: unknown;
-        } | Array<unknown>;
-    };
+    400: ErrorBody;
+    /**
+     * Conflict
+     */
+    409: ErrorBody;
 };
 
 export type V2GenerateListwiseError = V2GenerateListwiseErrors[keyof V2GenerateListwiseErrors];
 
 export type V2GenerateListwiseResponses = {
     /**
-     * Document created, URL follows
+     * Created
      */
     201: QueueSummaryPublic;
 };
@@ -2026,7 +1911,7 @@ export type V2GroupDuplicatesData = {
         lpips_threshold?: number | null;
         max_group_size?: number | null;
         max_arbitrations?: number | null;
-        dry_run?: 'true' | 'false';
+        dry_run?: boolean;
         arbitration_sampling?: 'nearest' | 'spread';
     };
     url: '/v2/cmd/group-duplicates';
@@ -2034,22 +1919,16 @@ export type V2GroupDuplicatesData = {
 
 export type V2GroupDuplicatesErrors = {
     /**
-     * Validation Exception
+     * Bad Request
      */
-    400: {
-        status_code: number;
-        detail: string;
-        extra?: null | {
-            [key: string]: unknown;
-        } | Array<unknown>;
-    };
+    400: ErrorBody;
 };
 
 export type V2GroupDuplicatesError = V2GroupDuplicatesErrors[keyof V2GroupDuplicatesErrors];
 
 export type V2GroupDuplicatesResponses = {
     /**
-     * Document created, URL follows
+     * Created
      */
     201: Result;
 };
@@ -2067,22 +1946,20 @@ export type V2GetWaifuScorerOneData = {
 
 export type V2GetWaifuScorerOneErrors = {
     /**
-     * Validation Exception
+     * Bad Request
      */
-    400: {
-        status_code: number;
-        detail: string;
-        extra?: null | {
-            [key: string]: unknown;
-        } | Array<unknown>;
-    };
+    400: ErrorBody;
+    /**
+     * Not Found
+     */
+    404: ErrorBody;
 };
 
 export type V2GetWaifuScorerOneError = V2GetWaifuScorerOneErrors[keyof V2GetWaifuScorerOneErrors];
 
 export type V2GetWaifuScorerOneResponses = {
     /**
-     * Request fulfilled, document follows
+     * OK
      */
     200: number;
 };
@@ -2100,22 +1977,20 @@ export type V2GetSilvaScorerOneData = {
 
 export type V2GetSilvaScorerOneErrors = {
     /**
-     * Validation Exception
+     * Bad Request
      */
-    400: {
-        status_code: number;
-        detail: string;
-        extra?: null | {
-            [key: string]: unknown;
-        } | Array<unknown>;
-    };
+    400: ErrorBody;
+    /**
+     * Not Found
+     */
+    404: ErrorBody;
 };
 
 export type V2GetSilvaScorerOneError = V2GetSilvaScorerOneErrors[keyof V2GetSilvaScorerOneErrors];
 
 export type V2GetSilvaScorerOneResponses = {
     /**
-     * Request fulfilled, document follows
+     * OK
      */
     200: number;
 };
@@ -2133,22 +2008,20 @@ export type V2GetSilvaLunaScorerOneData = {
 
 export type V2GetSilvaLunaScorerOneErrors = {
     /**
-     * Validation Exception
+     * Bad Request
      */
-    400: {
-        status_code: number;
-        detail: string;
-        extra?: null | {
-            [key: string]: unknown;
-        } | Array<unknown>;
-    };
+    400: ErrorBody;
+    /**
+     * Not Found
+     */
+    404: ErrorBody;
 };
 
 export type V2GetSilvaLunaScorerOneError = V2GetSilvaLunaScorerOneErrors[keyof V2GetSilvaLunaScorerOneErrors];
 
 export type V2GetSilvaLunaScorerOneResponses = {
     /**
-     * Request fulfilled, document follows
+     * OK
      */
     200: number;
 };
@@ -2166,22 +2039,20 @@ export type V2AutoTagsData = {
 
 export type V2AutoTagsErrors = {
     /**
-     * Validation Exception
+     * Bad Request
      */
-    400: {
-        status_code: number;
-        detail: string;
-        extra?: null | {
-            [key: string]: unknown;
-        } | Array<unknown>;
-    };
+    400: ErrorBody;
+    /**
+     * Not Found
+     */
+    404: ErrorBody;
 };
 
 export type V2AutoTagsError = V2AutoTagsErrors[keyof V2AutoTagsErrors];
 
 export type V2AutoTagsResponses = {
     /**
-     * Request fulfilled, document follows
+     * OK
      */
     200: PostDetailPublic;
 };
@@ -2199,22 +2070,20 @@ export type V2AutoCaptionData = {
 
 export type V2AutoCaptionErrors = {
     /**
-     * Validation Exception
+     * Bad Request
      */
-    400: {
-        status_code: number;
-        detail: string;
-        extra?: null | {
-            [key: string]: unknown;
-        } | Array<unknown>;
-    };
+    400: ErrorBody;
+    /**
+     * Not Found
+     */
+    404: ErrorBody;
 };
 
 export type V2AutoCaptionError = V2AutoCaptionErrors[keyof V2AutoCaptionErrors];
 
 export type V2AutoCaptionResponses = {
     /**
-     * Request fulfilled, document follows
+     * OK
      */
     200: PostDetailPublic;
 };
@@ -2230,7 +2099,7 @@ export type V2DbSnapshotData = {
 
 export type V2DbSnapshotResponses = {
     /**
-     * Document created, URL follows
+     * Created
      */
     201: SnapshotResult;
 };
@@ -2240,13 +2109,24 @@ export type V2DbSnapshotResponse = V2DbSnapshotResponses[keyof V2DbSnapshotRespo
 export type V2SyncMetadataEndpointData = {
     body?: never;
     path?: never;
-    query?: never;
+    query?: {
+        allow_mass_delete?: boolean;
+    };
     url: '/v2/cmd/sync-metadata';
 };
 
+export type V2SyncMetadataEndpointErrors = {
+    /**
+     * Bad Request
+     */
+    400: ErrorBody;
+};
+
+export type V2SyncMetadataEndpointError = V2SyncMetadataEndpointErrors[keyof V2SyncMetadataEndpointErrors];
+
 export type V2SyncMetadataEndpointResponses = {
     /**
-     * Document created, URL follows
+     * Created
      */
     201: Result;
 };
@@ -2265,22 +2145,16 @@ export type V2DownloadFromDanbooruData = {
 
 export type V2DownloadFromDanbooruErrors = {
     /**
-     * Validation Exception
+     * Bad Request
      */
-    400: {
-        status_code: number;
-        detail: string;
-        extra?: null | {
-            [key: string]: unknown;
-        } | Array<unknown>;
-    };
+    400: ErrorBody;
 };
 
 export type V2DownloadFromDanbooruError = V2DownloadFromDanbooruErrors[keyof V2DownloadFromDanbooruErrors];
 
 export type V2DownloadFromDanbooruResponses = {
     /**
-     * Document created, URL follows
+     * Created
      */
     201: DanbooruDownloadStats;
 };
@@ -2298,22 +2172,16 @@ export type V2ImportFromUrlEndpointData = {
 
 export type V2ImportFromUrlEndpointErrors = {
     /**
-     * Validation Exception
+     * Bad Request
      */
-    400: {
-        status_code: number;
-        detail: string;
-        extra?: null | {
-            [key: string]: unknown;
-        } | Array<unknown>;
-    };
+    400: ErrorBody;
 };
 
 export type V2ImportFromUrlEndpointError = V2ImportFromUrlEndpointErrors[keyof V2ImportFromUrlEndpointErrors];
 
 export type V2ImportFromUrlEndpointResponses = {
     /**
-     * Document created, URL follows
+     * Created
      */
     201: Result;
 };
@@ -2329,7 +2197,7 @@ export type V2ImportFromUrlStatusData = {
 
 export type V2ImportFromUrlStatusResponses = {
     /**
-     * Request fulfilled, document follows
+     * OK
      */
     200: UrlImportStatus;
 };
@@ -2347,25 +2215,25 @@ export type V2GetOriginalByIdData = {
 
 export type V2GetOriginalByIdErrors = {
     /**
-     * Validation Exception
+     * Bad Request
      */
-    400: {
-        status_code: number;
-        detail: string;
-        extra?: null | {
-            [key: string]: unknown;
-        } | Array<unknown>;
-    };
+    400: ErrorBody;
+    /**
+     * Not Found
+     */
+    404: ErrorBody;
 };
 
 export type V2GetOriginalByIdError = V2GetOriginalByIdErrors[keyof V2GetOriginalByIdErrors];
 
 export type V2GetOriginalByIdResponses = {
     /**
-     * Request fulfilled, document follows
+     * File Download
      */
-    200: unknown;
+    200: Blob | File;
 };
+
+export type V2GetOriginalByIdResponse = V2GetOriginalByIdResponses[keyof V2GetOriginalByIdResponses];
 
 export type V2GetThumbnailByIdData = {
     body?: never;
@@ -2378,15 +2246,13 @@ export type V2GetThumbnailByIdData = {
 
 export type V2GetThumbnailByIdErrors = {
     /**
-     * Validation Exception
+     * Bad Request
      */
-    400: {
-        status_code: number;
-        detail: string;
-        extra?: null | {
-            [key: string]: unknown;
-        } | Array<unknown>;
-    };
+    400: ErrorBody;
+    /**
+     * Not Found
+     */
+    404: ErrorBody;
 };
 
 export type V2GetThumbnailByIdError = V2GetThumbnailByIdErrors[keyof V2GetThumbnailByIdErrors];
@@ -2411,15 +2277,13 @@ export type V2GetOriginalData = {
 
 export type V2GetOriginalErrors = {
     /**
-     * Validation Exception
+     * Bad Request
      */
-    400: {
-        status_code: number;
-        detail: string;
-        extra?: null | {
-            [key: string]: unknown;
-        } | Array<unknown>;
-    };
+    400: ErrorBody;
+    /**
+     * Not Found
+     */
+    404: ErrorBody;
 };
 
 export type V2GetOriginalError = V2GetOriginalErrors[keyof V2GetOriginalErrors];
@@ -2444,15 +2308,13 @@ export type V2GetThumbnailData = {
 
 export type V2GetThumbnailErrors = {
     /**
-     * Validation Exception
+     * Bad Request
      */
-    400: {
-        status_code: number;
-        detail: string;
-        extra?: null | {
-            [key: string]: unknown;
-        } | Array<unknown>;
-    };
+    400: ErrorBody;
+    /**
+     * Not Found
+     */
+    404: ErrorBody;
 };
 
 export type V2GetThumbnailError = V2GetThumbnailErrors[keyof V2GetThumbnailErrors];
@@ -2475,22 +2337,16 @@ export type V2GetPostsCountData = {
 
 export type V2GetPostsCountErrors = {
     /**
-     * Validation Exception
+     * Bad Request
      */
-    400: {
-        status_code: number;
-        detail: string;
-        extra?: null | {
-            [key: string]: unknown;
-        } | Array<unknown>;
-    };
+    400: ErrorBody;
 };
 
 export type V2GetPostsCountError = V2GetPostsCountErrors[keyof V2GetPostsCountErrors];
 
 export type V2GetPostsCountResponses = {
     /**
-     * Request fulfilled, document follows
+     * OK
      */
     200: CountPostsResponse;
 };
@@ -2506,22 +2362,16 @@ export type V2GetRatingCountData = {
 
 export type V2GetRatingCountErrors = {
     /**
-     * Validation Exception
+     * Bad Request
      */
-    400: {
-        status_code: number;
-        detail: string;
-        extra?: null | {
-            [key: string]: unknown;
-        } | Array<unknown>;
-    };
+    400: ErrorBody;
 };
 
 export type V2GetRatingCountError = V2GetRatingCountErrors[keyof V2GetRatingCountErrors];
 
 export type V2GetRatingCountResponses = {
     /**
-     * Request fulfilled, document follows
+     * OK
      */
     200: Array<RatingCountItem>;
 };
@@ -2537,22 +2387,16 @@ export type V2GetScoreCountData = {
 
 export type V2GetScoreCountErrors = {
     /**
-     * Validation Exception
+     * Bad Request
      */
-    400: {
-        status_code: number;
-        detail: string;
-        extra?: null | {
-            [key: string]: unknown;
-        } | Array<unknown>;
-    };
+    400: ErrorBody;
 };
 
 export type V2GetScoreCountError = V2GetScoreCountErrors[keyof V2GetScoreCountErrors];
 
 export type V2GetScoreCountResponses = {
     /**
-     * Request fulfilled, document follows
+     * OK
      */
     200: Array<ScoreCountItem>;
 };
@@ -2568,22 +2412,16 @@ export type V2GetExtensionCountData = {
 
 export type V2GetExtensionCountErrors = {
     /**
-     * Validation Exception
+     * Bad Request
      */
-    400: {
-        status_code: number;
-        detail: string;
-        extra?: null | {
-            [key: string]: unknown;
-        } | Array<unknown>;
-    };
+    400: ErrorBody;
 };
 
 export type V2GetExtensionCountError = V2GetExtensionCountErrors[keyof V2GetExtensionCountErrors];
 
 export type V2GetExtensionCountResponses = {
     /**
-     * Request fulfilled, document follows
+     * OK
      */
     200: Array<ExtensionCountItem>;
 };
@@ -2599,22 +2437,16 @@ export type V2GetWaifuBucketCountData = {
 
 export type V2GetWaifuBucketCountErrors = {
     /**
-     * Validation Exception
+     * Bad Request
      */
-    400: {
-        status_code: number;
-        detail: string;
-        extra?: null | {
-            [key: string]: unknown;
-        } | Array<unknown>;
-    };
+    400: ErrorBody;
 };
 
 export type V2GetWaifuBucketCountError = V2GetWaifuBucketCountErrors[keyof V2GetWaifuBucketCountErrors];
 
 export type V2GetWaifuBucketCountResponses = {
     /**
-     * Request fulfilled, document follows
+     * OK
      */
     200: Array<WaifuBucketCountItem>;
 };
@@ -2630,22 +2462,16 @@ export type V2GetSilvaBucketCountData = {
 
 export type V2GetSilvaBucketCountErrors = {
     /**
-     * Validation Exception
+     * Bad Request
      */
-    400: {
-        status_code: number;
-        detail: string;
-        extra?: null | {
-            [key: string]: unknown;
-        } | Array<unknown>;
-    };
+    400: ErrorBody;
 };
 
 export type V2GetSilvaBucketCountError = V2GetSilvaBucketCountErrors[keyof V2GetSilvaBucketCountErrors];
 
 export type V2GetSilvaBucketCountResponses = {
     /**
-     * Request fulfilled, document follows
+     * OK
      */
     200: Array<SilvaBucketCountItem>;
 };
@@ -2661,22 +2487,16 @@ export type V2GetSilvaLunaBucketCountData = {
 
 export type V2GetSilvaLunaBucketCountErrors = {
     /**
-     * Validation Exception
+     * Bad Request
      */
-    400: {
-        status_code: number;
-        detail: string;
-        extra?: null | {
-            [key: string]: unknown;
-        } | Array<unknown>;
-    };
+    400: ErrorBody;
 };
 
 export type V2GetSilvaLunaBucketCountError = V2GetSilvaLunaBucketCountErrors[keyof V2GetSilvaLunaBucketCountErrors];
 
 export type V2GetSilvaLunaBucketCountResponses = {
     /**
-     * Request fulfilled, document follows
+     * OK
      */
     200: Array<SilvaLunaBucketCountItem>;
 };
@@ -2692,22 +2512,16 @@ export type V2GetPostsStatsData = {
 
 export type V2GetPostsStatsErrors = {
     /**
-     * Validation Exception
+     * Bad Request
      */
-    400: {
-        status_code: number;
-        detail: string;
-        extra?: null | {
-            [key: string]: unknown;
-        } | Array<unknown>;
-    };
+    400: ErrorBody;
 };
 
 export type V2GetPostsStatsError = V2GetPostsStatsErrors[keyof V2GetPostsStatsErrors];
 
 export type V2GetPostsStatsResponses = {
     /**
-     * Request fulfilled, document follows
+     * OK
      */
     200: PostStatsResponse;
 };
@@ -2723,22 +2537,16 @@ export type V2GetTagCountData = {
 
 export type V2GetTagCountErrors = {
     /**
-     * Validation Exception
+     * Bad Request
      */
-    400: {
-        status_code: number;
-        detail: string;
-        extra?: null | {
-            [key: string]: unknown;
-        } | Array<unknown>;
-    };
+    400: ErrorBody;
 };
 
 export type V2GetTagCountError = V2GetTagCountErrors[keyof V2GetTagCountErrors];
 
 export type V2GetTagCountResponses = {
     /**
-     * Request fulfilled, document follows
+     * OK
      */
     200: Array<TagCountItem>;
 };
@@ -2757,25 +2565,21 @@ export type V2BulkUpdatePostScoreData = {
 
 export type V2BulkUpdatePostScoreErrors = {
     /**
-     * Validation Exception
+     * Bad Request
      */
-    400: {
-        status_code: number;
-        detail: string;
-        extra?: null | {
-            [key: string]: unknown;
-        } | Array<unknown>;
-    };
+    400: ErrorBody;
 };
 
 export type V2BulkUpdatePostScoreError = V2BulkUpdatePostScoreErrors[keyof V2BulkUpdatePostScoreErrors];
 
 export type V2BulkUpdatePostScoreResponses = {
     /**
-     * Request fulfilled, document follows
+     * No Content
      */
-    200: unknown;
+    204: void;
 };
+
+export type V2BulkUpdatePostScoreResponse = V2BulkUpdatePostScoreResponses[keyof V2BulkUpdatePostScoreResponses];
 
 export type V2BulkUpdatePostRatingData = {
     body?: never;
@@ -2789,25 +2593,21 @@ export type V2BulkUpdatePostRatingData = {
 
 export type V2BulkUpdatePostRatingErrors = {
     /**
-     * Validation Exception
+     * Bad Request
      */
-    400: {
-        status_code: number;
-        detail: string;
-        extra?: null | {
-            [key: string]: unknown;
-        } | Array<unknown>;
-    };
+    400: ErrorBody;
 };
 
 export type V2BulkUpdatePostRatingError = V2BulkUpdatePostRatingErrors[keyof V2BulkUpdatePostRatingErrors];
 
 export type V2BulkUpdatePostRatingResponses = {
     /**
-     * Request fulfilled, document follows
+     * No Content
      */
-    200: unknown;
+    204: void;
 };
+
+export type V2BulkUpdatePostRatingResponse = V2BulkUpdatePostRatingResponses[keyof V2BulkUpdatePostRatingResponses];
 
 export type V2UpdatePostScoreData = {
     body: ScoreUpdate;
@@ -2820,22 +2620,20 @@ export type V2UpdatePostScoreData = {
 
 export type V2UpdatePostScoreErrors = {
     /**
-     * Validation Exception
+     * Bad Request
      */
-    400: {
-        status_code: number;
-        detail: string;
-        extra?: null | {
-            [key: string]: unknown;
-        } | Array<unknown>;
-    };
+    400: ErrorBody;
+    /**
+     * Not Found
+     */
+    404: ErrorBody;
 };
 
 export type V2UpdatePostScoreError = V2UpdatePostScoreErrors[keyof V2UpdatePostScoreErrors];
 
 export type V2UpdatePostScoreResponses = {
     /**
-     * Request fulfilled, document follows
+     * OK
      */
     200: PostDetailPublic;
 };
@@ -2855,22 +2653,20 @@ export type V2UpdatePostRatingData = {
 
 export type V2UpdatePostRatingErrors = {
     /**
-     * Validation Exception
+     * Bad Request
      */
-    400: {
-        status_code: number;
-        detail: string;
-        extra?: null | {
-            [key: string]: unknown;
-        } | Array<unknown>;
-    };
+    400: ErrorBody;
+    /**
+     * Not Found
+     */
+    404: ErrorBody;
 };
 
 export type V2UpdatePostRatingError = V2UpdatePostRatingErrors[keyof V2UpdatePostRatingErrors];
 
 export type V2UpdatePostRatingResponses = {
     /**
-     * Request fulfilled, document follows
+     * OK
      */
     200: PostDetailPublic;
 };
@@ -2890,22 +2686,20 @@ export type V2UpdatePostCaptionData = {
 
 export type V2UpdatePostCaptionErrors = {
     /**
-     * Validation Exception
+     * Bad Request
      */
-    400: {
-        status_code: number;
-        detail: string;
-        extra?: null | {
-            [key: string]: unknown;
-        } | Array<unknown>;
-    };
+    400: ErrorBody;
+    /**
+     * Not Found
+     */
+    404: ErrorBody;
 };
 
 export type V2UpdatePostCaptionError = V2UpdatePostCaptionErrors[keyof V2UpdatePostCaptionErrors];
 
 export type V2UpdatePostCaptionResponses = {
     /**
-     * Request fulfilled, document follows
+     * OK
      */
     200: PostDetailPublic;
 };
@@ -2925,22 +2719,20 @@ export type V2UpdatePostSourceData = {
 
 export type V2UpdatePostSourceErrors = {
     /**
-     * Validation Exception
+     * Bad Request
      */
-    400: {
-        status_code: number;
-        detail: string;
-        extra?: null | {
-            [key: string]: unknown;
-        } | Array<unknown>;
-    };
+    400: ErrorBody;
+    /**
+     * Not Found
+     */
+    404: ErrorBody;
 };
 
 export type V2UpdatePostSourceError = V2UpdatePostSourceErrors[keyof V2UpdatePostSourceErrors];
 
 export type V2UpdatePostSourceResponses = {
     /**
-     * Request fulfilled, document follows
+     * OK
      */
     200: PostDetailPublic;
 };
@@ -2958,22 +2750,20 @@ export type V2TouchPostData = {
 
 export type V2TouchPostErrors = {
     /**
-     * Validation Exception
+     * Bad Request
      */
-    400: {
-        status_code: number;
-        detail: string;
-        extra?: null | {
-            [key: string]: unknown;
-        } | Array<unknown>;
-    };
+    400: ErrorBody;
+    /**
+     * Not Found
+     */
+    404: ErrorBody;
 };
 
 export type V2TouchPostError = V2TouchPostErrors[keyof V2TouchPostErrors];
 
 export type V2TouchPostResponses = {
     /**
-     * Request fulfilled, nothing follows
+     * No Content
      */
     204: void;
 };
@@ -2991,22 +2781,20 @@ export type V2UngroupPostData = {
 
 export type V2UngroupPostErrors = {
     /**
-     * Validation Exception
+     * Bad Request
      */
-    400: {
-        status_code: number;
-        detail: string;
-        extra?: null | {
-            [key: string]: unknown;
-        } | Array<unknown>;
-    };
+    400: ErrorBody;
+    /**
+     * Not Found
+     */
+    404: ErrorBody;
 };
 
 export type V2UngroupPostError = V2UngroupPostErrors[keyof V2UngroupPostErrors];
 
 export type V2UngroupPostResponses = {
     /**
-     * Request fulfilled, document follows
+     * OK
      */
     200: PostDetailPublic;
 };
@@ -3024,22 +2812,20 @@ export type V2MakePostCanonicalData = {
 
 export type V2MakePostCanonicalErrors = {
     /**
-     * Validation Exception
+     * Bad Request
      */
-    400: {
-        status_code: number;
-        detail: string;
-        extra?: null | {
-            [key: string]: unknown;
-        } | Array<unknown>;
-    };
+    400: ErrorBody;
+    /**
+     * Not Found
+     */
+    404: ErrorBody;
 };
 
 export type V2MakePostCanonicalError = V2MakePostCanonicalErrors[keyof V2MakePostCanonicalErrors];
 
 export type V2MakePostCanonicalResponses = {
     /**
-     * Request fulfilled, document follows
+     * OK
      */
     200: PostDetailPublic;
 };
@@ -3055,22 +2841,20 @@ export type V2GroupPostsTogetherData = {
 
 export type V2GroupPostsTogetherErrors = {
     /**
-     * Validation Exception
+     * Bad Request
      */
-    400: {
-        status_code: number;
-        detail: string;
-        extra?: null | {
-            [key: string]: unknown;
-        } | Array<unknown>;
-    };
+    400: ErrorBody;
+    /**
+     * Not Found
+     */
+    404: ErrorBody;
 };
 
 export type V2GroupPostsTogetherError = V2GroupPostsTogetherErrors[keyof V2GroupPostsTogetherErrors];
 
 export type V2GroupPostsTogetherResponses = {
     /**
-     * Request fulfilled, document follows
+     * OK
      */
     200: PostDetailPublic;
 };
@@ -3089,22 +2873,20 @@ export type V2MarkPostsDifferentData = {
 
 export type V2MarkPostsDifferentErrors = {
     /**
-     * Validation Exception
+     * Bad Request
      */
-    400: {
-        status_code: number;
-        detail: string;
-        extra?: null | {
-            [key: string]: unknown;
-        } | Array<unknown>;
-    };
+    400: ErrorBody;
+    /**
+     * Not Found
+     */
+    404: ErrorBody;
 };
 
 export type V2MarkPostsDifferentError = V2MarkPostsDifferentErrors[keyof V2MarkPostsDifferentErrors];
 
 export type V2MarkPostsDifferentResponses = {
     /**
-     * Request fulfilled, document follows
+     * OK
      */
     200: PostDetailPublic;
 };
@@ -3122,22 +2904,16 @@ export type V2DeletePostsData = {
 
 export type V2DeletePostsErrors = {
     /**
-     * Validation Exception
+     * Bad Request
      */
-    400: {
-        status_code: number;
-        detail: string;
-        extra?: null | {
-            [key: string]: unknown;
-        } | Array<unknown>;
-    };
+    400: ErrorBody;
 };
 
 export type V2DeletePostsError = V2DeletePostsErrors[keyof V2DeletePostsErrors];
 
 export type V2DeletePostsResponses = {
     /**
-     * Request fulfilled, nothing follows
+     * No Content
      */
     204: void;
 };
@@ -3157,22 +2933,20 @@ export type V2RotatePostImageData = {
 
 export type V2RotatePostImageErrors = {
     /**
-     * Validation Exception
+     * Bad Request
      */
-    400: {
-        status_code: number;
-        detail: string;
-        extra?: null | {
-            [key: string]: unknown;
-        } | Array<unknown>;
-    };
+    400: ErrorBody;
+    /**
+     * Not Found
+     */
+    404: ErrorBody;
 };
 
 export type V2RotatePostImageError = V2RotatePostImageErrors[keyof V2RotatePostImageErrors];
 
 export type V2RotatePostImageResponses = {
     /**
-     * Request fulfilled, document follows
+     * OK
      */
     200: PostDetailPublic;
 };
@@ -3180,7 +2954,7 @@ export type V2RotatePostImageResponses = {
 export type V2RotatePostImageResponse = V2RotatePostImageResponses[keyof V2RotatePostImageResponses];
 
 export type V2UploadFileData = {
-    body: PostControllerUploadFormData;
+    body: UploadFormData;
     path?: never;
     query?: never;
     url: '/v2/posts/upload';
@@ -3188,22 +2962,20 @@ export type V2UploadFileData = {
 
 export type V2UploadFileErrors = {
     /**
-     * Validation Exception
+     * Bad Request
      */
-    400: {
-        status_code: number;
-        detail: string;
-        extra?: null | {
-            [key: string]: unknown;
-        } | Array<unknown>;
-    };
+    400: ErrorBody;
+    /**
+     * Conflict
+     */
+    409: ErrorBody;
 };
 
 export type V2UploadFileError = V2UploadFileErrors[keyof V2UploadFileErrors];
 
 export type V2UploadFileResponses = {
     /**
-     * Document created, URL follows
+     * Created
      */
     201: unknown;
 };
@@ -3221,22 +2993,16 @@ export type V2ListPostsData = {
 
 export type V2ListPostsErrors = {
     /**
-     * Validation Exception
+     * Bad Request
      */
-    400: {
-        status_code: number;
-        detail: string;
-        extra?: null | {
-            [key: string]: unknown;
-        } | Array<unknown>;
-    };
+    400: ErrorBody;
 };
 
 export type V2ListPostsError = V2ListPostsErrors[keyof V2ListPostsErrors];
 
 export type V2ListPostsResponses = {
     /**
-     * Request fulfilled, document follows
+     * OK
      */
     200: CursorResponse;
 };
@@ -3255,22 +3021,16 @@ export type V2SearchPostsData = {
 
 export type V2SearchPostsErrors = {
     /**
-     * Validation Exception
+     * Bad Request
      */
-    400: {
-        status_code: number;
-        detail: string;
-        extra?: null | {
-            [key: string]: unknown;
-        } | Array<unknown>;
-    };
+    400: ErrorBody;
 };
 
 export type V2SearchPostsError = V2SearchPostsErrors[keyof V2SearchPostsErrors];
 
 export type V2SearchPostsResponses = {
     /**
-     * Request fulfilled, document follows
+     * OK
      */
     200: Array<PostSimplePublic>;
 };
@@ -3288,22 +3048,16 @@ export type V2SearchPostsByTextData = {
 
 export type V2SearchPostsByTextErrors = {
     /**
-     * Validation Exception
+     * Bad Request
      */
-    400: {
-        status_code: number;
-        detail: string;
-        extra?: null | {
-            [key: string]: unknown;
-        } | Array<unknown>;
-    };
+    400: ErrorBody;
 };
 
 export type V2SearchPostsByTextError = V2SearchPostsByTextErrors[keyof V2SearchPostsByTextErrors];
 
 export type V2SearchPostsByTextResponses = {
     /**
-     * Request fulfilled, document follows
+     * OK
      */
     200: Array<PostSimplePublic>;
 };
@@ -3323,22 +3077,20 @@ export type V2GetPostData = {
 
 export type V2GetPostErrors = {
     /**
-     * Validation Exception
+     * Bad Request
      */
-    400: {
-        status_code: number;
-        detail: string;
-        extra?: null | {
-            [key: string]: unknown;
-        } | Array<unknown>;
-    };
+    400: ErrorBody;
+    /**
+     * Not Found
+     */
+    404: ErrorBody;
 };
 
 export type V2GetPostError = V2GetPostErrors[keyof V2GetPostErrors];
 
 export type V2GetPostResponses = {
     /**
-     * Request fulfilled, document follows
+     * OK
      */
     200: PostDetailPublic;
 };
@@ -3356,22 +3108,16 @@ export type V2GetPostGroupData = {
 
 export type V2GetPostGroupErrors = {
     /**
-     * Validation Exception
+     * Bad Request
      */
-    400: {
-        status_code: number;
-        detail: string;
-        extra?: null | {
-            [key: string]: unknown;
-        } | Array<unknown>;
-    };
+    400: ErrorBody;
 };
 
 export type V2GetPostGroupError = V2GetPostGroupErrors[keyof V2GetPostGroupErrors];
 
 export type V2GetPostGroupResponses = {
     /**
-     * Request fulfilled, document follows
+     * OK
      */
     200: Array<PostSimplePublic>;
 };
@@ -3389,22 +3135,16 @@ export type V2GetPostGroupEvidenceData = {
 
 export type V2GetPostGroupEvidenceErrors = {
     /**
-     * Validation Exception
+     * Bad Request
      */
-    400: {
-        status_code: number;
-        detail: string;
-        extra?: null | {
-            [key: string]: unknown;
-        } | Array<unknown>;
-    };
+    400: ErrorBody;
 };
 
 export type V2GetPostGroupEvidenceError = V2GetPostGroupEvidenceErrors[keyof V2GetPostGroupEvidenceErrors];
 
 export type V2GetPostGroupEvidenceResponses = {
     /**
-     * Request fulfilled, document follows
+     * OK
      */
     200: Array<GroupEvidenceItem>;
 };
@@ -3424,22 +3164,16 @@ export type V2GetSimilarPostsData = {
 
 export type V2GetSimilarPostsErrors = {
     /**
-     * Validation Exception
+     * Bad Request
      */
-    400: {
-        status_code: number;
-        detail: string;
-        extra?: null | {
-            [key: string]: unknown;
-        } | Array<unknown>;
-    };
+    400: ErrorBody;
 };
 
 export type V2GetSimilarPostsError = V2GetSimilarPostsErrors[keyof V2GetSimilarPostsErrors];
 
 export type V2GetSimilarPostsResponses = {
     /**
-     * Request fulfilled, document follows
+     * OK
      */
     200: Array<PostSimplePublic>;
 };

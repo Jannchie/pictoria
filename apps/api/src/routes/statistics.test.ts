@@ -1,8 +1,7 @@
 /**
- * 已迁移端点的输出必须和 Litestar 逐字符一致。
+ * `/v2/statistics` 的桶标签与桶数。
  *
- * 这里不打 HTTP，直接调 Hono app 的 fetch —— 不需要起服务，也就能在 CI 里跑。
- * 期望值是从运行中的 Python 侧 dump 下来的，不是手写的。
+ * 这里不打 HTTP，直接调 Hono app 的 fetch —— 不需要起服务。钉在开发库上，库不在就跳过。
  */
 import fs from 'node:fs'
 import path from 'node:path'

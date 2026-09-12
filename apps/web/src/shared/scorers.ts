@@ -19,7 +19,7 @@ export interface ScorerUi {
   /** 后端的打分器名，也是字段名的词根。 */
   readonly name: 'waifu' | 'silva' | 'silva_luna'
   /** `postFilter` 上的分档字段。 */
-  readonly levelsField: 'waifu_score_levels' | 'silva_score_levels' | 'silva_luna_score_levels'
+  readonly levelsField: 'waifuScoreLevels' | 'silvaScoreLevels' | 'silvaLunaScoreLevels'
   /** 计数 query 的 kind。 */
   readonly countKind: CountKind
   /** 过滤 DSL 里的键 —— 是短名，`silva_luna` 在 DSL 里写作 `luna`。 */
@@ -31,9 +31,9 @@ export interface ScorerUi {
 
 /** UI 顺序，与后端 `FILTERABLE_SCORERS` 一致。 */
 export const SCORERS: readonly ScorerUi[] = [
-  { name: 'waifu', levelsField: 'waifu_score_levels', countKind: 'waifu', dslKey: 'waifu', chipPrefix: 'Waifu', icon: 'i-tabler-heart' },
-  { name: 'silva', levelsField: 'silva_score_levels', countKind: 'silva', dslKey: 'silva', chipPrefix: 'SILVA', icon: 'i-tabler-rosette' },
-  { name: 'silva_luna', levelsField: 'silva_luna_score_levels', countKind: 'silvaLuna', dslKey: 'luna', chipPrefix: 'Luna', icon: 'i-tabler-moon' },
+  { name: 'waifu', levelsField: 'waifuScoreLevels', countKind: 'waifu', dslKey: 'waifu', chipPrefix: 'Waifu', icon: 'i-tabler-heart' },
+  { name: 'silva', levelsField: 'silvaScoreLevels', countKind: 'silva', dslKey: 'silva', chipPrefix: 'SILVA', icon: 'i-tabler-rosette' },
+  { name: 'silva_luna', levelsField: 'silvaLunaScoreLevels', countKind: 'silvaLuna', dslKey: 'luna', chipPrefix: 'Luna', icon: 'i-tabler-moon' },
 ]
 
 /** 排序列名，例如 `silva_luna_score`。 */

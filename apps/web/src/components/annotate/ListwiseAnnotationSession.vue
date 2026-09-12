@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import type { QueueItemPostPublic, QueueSummaryPublic } from '@/api'
+import type { AnnotationDimension } from '@/shared/annotationTypes'
 import { useQueryClient } from '@tanstack/vue-query'
 import { onKeyStroke } from '@vueuse/core'
 import { computed, ref, watch } from 'vue'
@@ -17,7 +18,7 @@ interface BufferItem {
 
 // queue 与 dimension 二选一：有 queue 走固定批次，否则流式采样。
 // 每组是同一 silva 分窗口里视觉铺开的 ~size 张图；排一组 = C(size,2) 个边界对。
-const props = defineProps<{ queue?: QueueSummaryPublic, dimension?: string, size?: number, repeat?: number }>()
+const props = defineProps<{ queue?: QueueSummaryPublic, dimension?: AnnotationDimension, size?: number, repeat?: number }>()
 const emit = defineEmits<{ exit: [] }>()
 
 const { handle: handleAPIError } = useAPIError()
@@ -34,7 +35,7 @@ const submitting = ref(false)
 const current = computed(() => buffer.value[0] ?? null)
 
 // 一字排开、拖拽定序：order 是当前行序（post_id，左 = 最好），初始 = 呈现顺序。
-// 呈现顺序由服务端随机化并存进 post_ids，留作顺序效应审计。
+// 呈现顺序由服务端随机化并存进 postIds，留作顺序效应审计。
 const order = ref<number[]>([])
 const touched = ref(false) // 至少拖动过一次才认为这是判断而不是初始随机序
 const confirmArmed = ref(false) // 未调整时 Enter 需要按两次，防止把随机序当标注提交
@@ -302,14 +303,14 @@ function cardStyle(pid: number, idx: number): Record<string, string> {
 async function postRanking(item: BufferItem, ranking: number[], elapsedMs: number): Promise<number[]> {
   const resp = await v2SubmitListwise({
     body: {
-      post_ids: item.posts.map(p => p.id),
+      postIds: item.posts.map(p => p.id),
       ranking,
       dimension: dimension.value,
-      rubric_version: `${dimension.value}-v1`,
-      session_id: sessionId,
-      elapsed_ms: elapsedMs,
-      queue_id: props.queue?.id ?? null,
-      queue_position: item.position ?? null,
+      rubricVersion: `${dimension.value}-v1`,
+      sessionId,
+      elapsedMs,
+      queueId: props.queue?.id ?? null,
+      queuePosition: item.position ?? null,
     },
   })
   return resp.data?.ids ?? []
@@ -348,9 +349,9 @@ function recordRanking(item: BufferItem, ranking: number[], elapsedMs: number, i
         body: {
           kind: 'listwise',
           ids: eventIds,
-          session_id: sessionId,
-          queue_id: props.queue?.id ?? null,
-          queue_position: item.position ?? null,
+          sessionId,
+          queueId: props.queue?.id ?? null,
+          queuePosition: item.position ?? null,
         },
       })
       removeEntries(queryClient, 'listwise', eventIds)

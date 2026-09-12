@@ -31,13 +31,16 @@ export const FLAG_COLUMNS = 'id, created_at, post_id, flag, session_id'
  * 不在此列：除了 `latestContentFlag` 没人读它，而且 `'none'` 本身就是它的撤回 ——
  * 多一个事件，而不是删掉一个。
  */
-const MUTABLE: Record<string, { table: string, column: string }> = {
+const MUTABLE = {
   absolute: { table: 'absolute_annotations', column: 'value' },
   pairwise: { table: 'pairwise_annotations', column: 'winner' },
   listwise: { table: 'listwise_annotations', column: 'ranking' },
-}
+} as const satisfies Record<string, { table: string, column: string }>
 
-export const MUTABLE_KINDS = new Set(Object.keys(MUTABLE))
+export type MutableKind = keyof typeof MUTABLE
+
+/** 字面量元组，给路由层的 `z.enum()` 用；和 `MUTABLE` 的键一一对应，漂了编译不过。 */
+export const MUTABLE_KINDS = ['absolute', 'pairwise', 'listwise'] as const satisfies readonly MutableKind[]
 
 /**
  * 三条事件流合成一条，最新在前。列形状统一好让 UNION 通过类型检查；某一类缺的列
@@ -68,13 +71,13 @@ SELECT id, created_at, 'flag', post_id, NULL, NULL,
 `
 
 export interface AbsoluteEventIn {
-  post_id: number
+  postId: number
   dimension: string
   scale: number
   value: number
-  rubric_version: string
-  session_id: string
-  elapsed_ms?: number | null
+  rubricVersion: string
+  sessionId: string
+  elapsedMs?: number | null
 }
 
 export function insertAbsolute(sqlite: BetterSqlite3.Database, e: AbsoluteEventIn): number {
@@ -82,18 +85,18 @@ export function insertAbsolute(sqlite: BetterSqlite3.Database, e: AbsoluteEventI
     .prepare(
       'INSERT INTO absolute_annotations (post_id, dimension, scale, value, rubric_version, session_id, elapsed_ms) VALUES (?, ?, ?, ?, ?, ?, ?)',
     )
-    .run(e.post_id, e.dimension, e.scale, e.value, e.rubric_version, e.session_id, e.elapsed_ms ?? null)
+    .run(e.postId, e.dimension, e.scale, e.value, e.rubricVersion, e.sessionId, e.elapsedMs ?? null)
   return Number(lastInsertRowid)
 }
 
 export interface PairwiseEventIn {
-  post_a: number
-  post_b: number
+  postA: number
+  postB: number
   dimension: string
   winner: string
-  rubric_version: string
-  session_id: string
-  elapsed_ms?: number | null
+  rubricVersion: string
+  sessionId: string
+  elapsedMs?: number | null
   /** 客户端**请求**的采样方式。省略 = 未知（只应出现在 0017 之前的存量行上）。 */
   strategy?: string | null
 }
@@ -101,25 +104,25 @@ export interface PairwiseEventIn {
 export function insertPairwise(sqlite: BetterSqlite3.Database, e: PairwiseEventIn): number {
   // 来源由服务端定谳：客户端只知道自己请求了哪种采样，重复测量是它无法核实的（见
   // isRepeatMeasurement）。放在仓库层而不是路由层，是为了让它绕不过去。
-  const strategy = isRepeatMeasurement(sqlite, { a: e.post_a, b: e.post_b, dimension: e.dimension })
+  const strategy = isRepeatMeasurement(sqlite, { a: e.postA, b: e.postB, dimension: e.dimension })
     ? 'repeat'
     : e.strategy ?? null
   const { lastInsertRowid } = sqlite
     .prepare(
       'INSERT INTO pairwise_annotations (post_a, post_b, dimension, winner, rubric_version, session_id, elapsed_ms, strategy) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
     )
-    .run(e.post_a, e.post_b, e.dimension, e.winner, e.rubric_version, e.session_id, e.elapsed_ms ?? null, strategy)
+    .run(e.postA, e.postB, e.dimension, e.winner, e.rubricVersion, e.sessionId, e.elapsedMs ?? null, strategy)
   return Number(lastInsertRowid)
 }
 
 export interface ListwiseEventIn {
-  post_ids: number[]
-  /** post_id 最好在前；空数组 = skip。非空时必须是 post_ids 的一个排列（应用层校验）。 */
+  postIds: number[]
+  /** 最好在前；空数组 = skip。非空时必须是 postIds 的一个排列（应用层校验）。 */
   ranking: number[]
   dimension: string
-  rubric_version: string
-  session_id: string
-  elapsed_ms?: number | null
+  rubricVersion: string
+  sessionId: string
+  elapsedMs?: number | null
 }
 
 export function insertListwise(sqlite: BetterSqlite3.Database, e: ListwiseEventIn): number {
@@ -127,17 +130,17 @@ export function insertListwise(sqlite: BetterSqlite3.Database, e: ListwiseEventI
     .prepare(
       'INSERT INTO listwise_annotations (post_ids, ranking, dimension, rubric_version, session_id, elapsed_ms) VALUES (?, ?, ?, ?, ?, ?)',
     )
-    .run(JSON.stringify(e.post_ids), JSON.stringify(e.ranking), e.dimension, e.rubric_version, e.session_id, e.elapsed_ms ?? null)
+    .run(JSON.stringify(e.postIds), JSON.stringify(e.ranking), e.dimension, e.rubricVersion, e.sessionId, e.elapsedMs ?? null)
   return Number(lastInsertRowid)
 }
 
 export function insertContentFlag(
   sqlite: BetterSqlite3.Database,
-  { post_id, flag, session_id }: { post_id: number, flag: string, session_id: string },
+  { postId, flag, sessionId }: { postId: number, flag: string, sessionId: string },
 ): number {
   const { lastInsertRowid } = sqlite
     .prepare('INSERT INTO content_flag_events (post_id, flag, session_id) VALUES (?, ?, ?)')
-    .run(post_id, flag, session_id)
+    .run(postId, flag, sessionId)
   return Number(lastInsertRowid)
 }
 
@@ -150,11 +153,9 @@ export function insertContentFlag(
  */
 export function undoAnnotations(
   sqlite: BetterSqlite3.Database,
-  { kind, ids, sessionId }: { kind: string, ids: number[], sessionId: string },
+  { kind, ids, sessionId }: { kind: MutableKind, ids: number[], sessionId: string },
 ): number {
   const spec = MUTABLE[kind]
-  if (!spec)
-    throw new Error(`not a retractable kind: ${kind}`)
   if (!ids.length)
     return 0
   return sqlite
@@ -196,11 +197,9 @@ export function annotationTimeline(
  */
 export function editAnnotation(
   sqlite: BetterSqlite3.Database,
-  { kind, annotationId, verdict }: { kind: string, annotationId: number, verdict: number | string },
+  { kind, annotationId, verdict }: { kind: MutableKind, annotationId: number, verdict: number | string },
 ): boolean {
   const spec = MUTABLE[kind]
-  if (!spec)
-    throw new Error(`not an editable kind: ${kind}`)
   return (
     sqlite
       .prepare(`UPDATE ${spec.table} SET ${spec.column} = ?, edited_at = datetime('now') WHERE id = ?`)

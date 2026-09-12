@@ -46,11 +46,11 @@ it('queue round trip: groups in, parsed groups out, done flag flips', () => {
 
 it('event round trip: ranking survives, timeline shows the winner as the post', () => {
   const id = insertListwise(sqlite, {
-    post_ids: [1, 2, 3],
+    postIds: [1, 2, 3],
     ranking: [2, 3, 1],
     dimension: 'overall',
-    rubric_version: 'overall-v1',
-    session_id: 's1',
+    rubricVersion: 'overall-v1',
+    sessionId: 's1',
   })
   const rows = annotationTimeline(sqlite, { limit: 10 })
   const mine = rows.find(r => r.kind === 'listwise' && r.id === id)!
@@ -58,19 +58,19 @@ it('event round trip: ranking survives, timeline shows the winner as the post', 
   expect(JSON.parse(mine.ranking as string)).toEqual([2, 3, 1])
 
   // 成员查询精确核对身份：post 12 命中含 12 的组，不误中含 112 的
-  insertListwise(sqlite, { post_ids: [12, 112], ranking: [], dimension: 'overall', rubric_version: 'overall-v1', session_id: 's1' })
+  insertListwise(sqlite, { postIds: [12, 112], ranking: [], dimension: 'overall', rubricVersion: 'overall-v1', sessionId: 's1' })
   expect(listListwiseForPost(sqlite, 12)).toHaveLength(1)
   expect(listListwiseForPost(sqlite, 2)).toHaveLength(1)
 })
 
 it('skip uses the first member as the representative post', () => {
-  const id = insertListwise(sqlite, { post_ids: [3, 1], ranking: [], dimension: 'overall', rubric_version: 'overall-v1', session_id: 's2' })
+  const id = insertListwise(sqlite, { postIds: [3, 1], ranking: [], dimension: 'overall', rubricVersion: 'overall-v1', sessionId: 's2' })
   const mine = annotationTimeline(sqlite, { limit: 10 }).find(r => r.kind === 'listwise' && r.id === id)!
   expect(mine.post).toBe(3)
 })
 
 it('undo deletes the row for the owning session only', () => {
-  const id = insertListwise(sqlite, { post_ids: [1, 2], ranking: [1, 2], dimension: 'overall', rubric_version: 'overall-v1', session_id: 'mine' })
+  const id = insertListwise(sqlite, { postIds: [1, 2], ranking: [1, 2], dimension: 'overall', rubricVersion: 'overall-v1', sessionId: 'mine' })
   expect(undoAnnotations(sqlite, { kind: 'listwise', ids: [id], sessionId: 'not-mine' })).toBe(0)
   expect(undoAnnotations(sqlite, { kind: 'listwise', ids: [id], sessionId: 'mine' })).toBe(1)
 })

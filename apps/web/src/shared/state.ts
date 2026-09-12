@@ -14,7 +14,7 @@ interface PostFilter extends Record<ScorerUi['levelsField'], string[]> {
   tags: string[]
   extension: string[]
   folder?: string
-  waifu_score_range?: [number, number]
+  waifuScoreRange?: [number, number]
 }
 export const postFilter = ref<PostFilter>({
   rating: [],
@@ -83,9 +83,9 @@ export function useSyncFilterWithUrl() {
       }
     }
 
-    const rangeRaw = queryParamString(newQuery.waifu_score_range)
+    const rangeRaw = queryParamString(newQuery.waifuScoreRange)
     if (rangeRaw !== undefined) {
-      postFilter.value.waifu_score_range = rangeRaw.split(',').map(Number) as [number, number]
+      postFilter.value.waifuScoreRange = rangeRaw.split(',').map(Number) as [number, number]
     }
 
     const sort = queryParamString(newQuery.sort)
@@ -127,7 +127,7 @@ export function useSyncFilterWithUrl() {
           const arr = postFilter.value[key] as unknown[]
           return encode ? arr.map(v => encodeURIComponent(String(v))).join(',') : arr.join(',')
         }),
-        postFilter.value.waifu_score_range?.join(',') ?? '',
+        postFilter.value.waifuScoreRange?.join(',') ?? '',
         postSort.value,
         postSortOrder.value,
         postSortColor.value ?? '',
@@ -150,11 +150,11 @@ export function useSyncFilterWithUrl() {
         }
       }
 
-      if (f.waifu_score_range) {
-        query.waifu_score_range = f.waifu_score_range.join(',')
+      if (f.waifuScoreRange) {
+        query.waifuScoreRange = f.waifuScoreRange.join(',')
       }
       else {
-        delete query.waifu_score_range
+        delete query.waifuScoreRange
       }
 
       // Sort state: omit defaults (sort=id, order=desc) so URLs stay clean.

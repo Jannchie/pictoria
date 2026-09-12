@@ -27,9 +27,9 @@ export interface ParsedFilter {
   score: number[]
   tags: string[]
   extension: string[]
-  waifu_score_levels: string[]
-  silva_score_levels: string[]
-  silva_luna_score_levels: string[]
+  waifuScoreLevels: string[]
+  silvaScoreLevels: string[]
+  silvaLunaScoreLevels: string[]
   /** Leftover free text — the semantic-search prompt. */
   text: string
   /** Terms that looked like `key:value` but weren't understood. */
@@ -58,7 +58,7 @@ export const RATING_ALIASES: Record<string, number> = {
  */
 const BUCKET_FACETS = Object.fromEntries(
   SCORERS.map(s => [s.dslKey, s.levelsField]),
-) as Record<string, 'waifu_score_levels' | 'silva_score_levels' | 'silva_luna_score_levels'>
+) as Record<string, 'waifuScoreLevels' | 'silvaScoreLevels' | 'silvaLunaScoreLevels'>
 
 const MAX_SCORE = 5
 /** rating 是 0..4（0 = 未评级）。 */
@@ -138,9 +138,9 @@ export function parseFilterQuery(input: string): ParsedFilter {
     score: [],
     tags: [],
     extension: [],
-    waifu_score_levels: [],
-    silva_score_levels: [],
-    silva_luna_score_levels: [],
+    waifuScoreLevels: [],
+    silvaScoreLevels: [],
+    silvaLunaScoreLevels: [],
     text: '',
     unknown: [],
   }
@@ -226,9 +226,9 @@ export function stringifyFilterQuery(filter: {
   score: number[]
   tags: string[]
   extension: string[]
-  waifu_score_levels: string[]
-  silva_score_levels: string[]
-  silva_luna_score_levels: string[]
+  waifuScoreLevels: string[]
+  silvaScoreLevels: string[]
+  silvaLunaScoreLevels: string[]
 }, text = ''): string {
   const parts: string[] = []
   const ratingName = ['unrated', 'general', 'sensitive', 'questionable', 'explicit']

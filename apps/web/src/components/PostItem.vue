@@ -143,7 +143,7 @@ function onContextmenu(e: MouseEvent) {
 // Top-right value badge: when the gallery is sorted by a value-bearing
 // column, the backend echoes each row's sort-column value as `sortValue`;
 // show it the same way text search shows its similarity percentage. The
-// /recently page forces order_by=last_accessed_at regardless of postSort
+// /recently page forces orderBy=last_accessed_at regardless of postSort
 // (mirrors useInfinityPostsQuery), so derive the effective column the same way.
 const route = useRoute()
 const effectiveSort = computed(() => route.path === '/recently' ? 'last_accessed_at' : postSort.value)

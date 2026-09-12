@@ -1,10 +1,10 @@
 /**
  * `/v2/cmd/*` —— 命令式端点：它们不是资源的 CRUD，而是"去做一件事"。
  *
- * 这一组是迁移里最后动的，因为每一个背后都拴着一段 Python 计算。走到这里的前提是
- * cairnq 已经把计算和落库分开（§D1）：端点只负责挑活、提交、把结果写回，具体算什么
- * 在 Python worker 那边。
+ * 每一个背后都拴着一段 Python 计算。端点只负责挑活、提交 cairnq 任务、把结果写回，
+ * 具体算什么在 Python worker 那边。
  */
+import type { Context } from 'hono'
 import type { CairnQ } from 'cairnq'
 import { createRoute, OpenAPIHono, z } from '@hono/zod-openapi'
 import {
@@ -44,7 +44,7 @@ import os from 'node:os'
 import path from 'node:path'
 import { DEDUP_THRESHOLD, isRebuilding, rebuildGroups } from '../dedup.js'
 import { getDb } from '../db.js'
-import { OK, RESP_400, domainError, postNotFound, queryFlag, zodErrorHook } from '../openapi.js'
+import { boolQuery, CREATED, OK, errors, fail, postNotFound, zodErrorHook } from '../openapi.js'
 import { PostDetailPublic, Result, toPostDetail } from '../schemas.js'
 import { wakeAllBackfills } from '../scheduler.js'
 import { targetDir } from '../paths.js'
@@ -57,12 +57,12 @@ const SnapshotResult = z.object({ path: z.string(), dir: z.string() }).openapi('
 const DanbooruDownloadStats = z
   .object({
     total: z.int(),
-    with_url: z.int(),
+    withUrl: z.int(),
     filtered: z.int(),
     downloaded: z.int(),
     skipped: z.int(),
     failed: z.int(),
-    early_stopped: z.boolean(),
+    earlyStopped: z.boolean(),
   })
   .openapi('DanbooruDownloadStats')
 
@@ -73,18 +73,20 @@ const postIdParam = z.coerce.number().int()
 
 /**
  * 即时命令共用的两道守卫：post 不存在 → 404，不是图片 → 400。
- *
- * 顺序照抄 Python：先查存在再判类型，所以一个不存在的 id 永远是 404 而不是 400。
+ * 先查存在再判类型，所以一个不存在的 id 永远是 404 而不是 400。
  */
-function requireImage(postId: number):
-  | { ok: true, path: string }
-  | { ok: false, response: Response } {
+function requireImage(c: Context<any, any, any>, postId: number) {
   const post = getPostPath(getDb().sqlite, postId)
   if (!post)
-    return { ok: false, response: postNotFound(postId) }
+    return { ok: false as const, response: postNotFound(c, postId) }
   if (!isImagePath(post.fullPath))
-    return { ok: false, response: domainError(`Post ${postId} is not an image.`, 'NotAnImageError', 400) }
-  return { ok: true, path: `${targetDir()}/${post.fullPath}` }
+    return { ok: false as const, response: notAnImage(c, postId) }
+  return { ok: true as const, path: `${targetDir()}/${post.fullPath}` }
+}
+
+/** "扩展名像图片"和"解码器能读"是两件事：算完仍然没有分，也归到这一句。 */
+function notAnImage(c: Context<any, any, any>, postId: number) {
+  return fail(c, 400, 'NotAnImageError', `Post ${postId} is not an image.`)
 }
 
 /**
@@ -103,11 +105,11 @@ function oneShot(key: string) {
 }
 
 /** 回读详情。命令端点算完之后一律返回最新的 PostDetailPublic。 */
-function detailResponse(postId: number) {
+function detailResponse(c: Context<any, any, any>, postId: number) {
   const detail = getDetail(getDb().sqlite, postId, n => translateTag(n))
   if (!detail)
-    return postNotFound(postId)
-  return Response.json(toPostDetail(detail))
+    return postNotFound(c, postId)
+  return c.json(toPostDetail(detail), 200)
 }
 
 commandsRoutes.openapi(
@@ -129,18 +131,15 @@ commandsRoutes.openapi(
           .openapi({ param: { name: 'max_group_size', in: 'query', required: false }, type: ['number', 'null'] }),
         max_arbitrations: z.coerce.number().nullable().optional()
           .openapi({ param: { name: 'max_arbitrations', in: 'query', required: false }, type: ['number', 'null'] }),
-        // 字符串枚举而不是 z.coerce.boolean()：后者把 'false' 也强制成 true
-        // （非空字符串都是真），于是一个想关掉 dry run 的请求反而打开了它。
-        dry_run: z.enum(['true', 'false']).optional()
-          .openapi({ param: { name: 'dry_run', in: 'query', required: false } }),
+        dry_run: boolQuery('dry_run', false),
         // spread = 在整条灰带上均匀取样，用来标定阈值；nearest = 先算最像的，用来收敛。
         arbitration_sampling: z.enum(['nearest', 'spread']).optional()
           .openapi({ param: { name: 'arbitration_sampling', in: 'query', required: false } }),
       }),
     },
     responses: {
-      201: { description: 'Document created, URL follows', content: { 'application/json': { schema: Result } } },
-      ...RESP_400,
+      201: { description: CREATED, content: { 'application/json': { schema: Result } } },
+      ...errors(400),
     },
   }),
   async (c) => {
@@ -151,21 +150,21 @@ commandsRoutes.openapi(
       max_group_size: maxGroupSize,
       max_arbitrations: maxArbitrations,
       arbitration_sampling: arbitrationSampling,
-      dry_run: dryRunFlag,
+      dry_run: dryRun,
     } = c.req.valid('query')
     // ⚠️ 必须在忙检查**之前** await。检查和启动之间夹一个 await，两个几乎同时到达
     // 的请求就会双双通过检查，然后排成两次全量重算 —— 一次分钟级的 GPU 白烧。
     // 先把这个 await 做掉，检查和启动就都落在同一个同步片段里。
     const tasks = await getTasks()
 
-    // 忙就报忙，不排队（和 Python 侧 `rebuild_lock.locked()` 同款判断）。
+    // 忙就报忙，不排队。
     if (isRebuilding())
       return c.json({ msg: 'Near-duplicate grouping already running' }, 201)
 
     // dry run 走完整流程（含 GPU 召回和 LPIPS 仲裁，仲裁结果照常写进证据表 ——
     // 那是缓存，算了就该留下），只是不动 canonical_post_id。用来在真正改变界面
     // 之前，先从日志里看一眼"这一轮会多合并多少、组大小分布长什么样"。
-    const dryRun = dryRunFlag === 'true'
+    //
     // 直接传，不逐个 `...(x == null ? {} : { x })`：`RebuildOptions` 的每一项都收
     // null，默认值在 `doRebuild` 里用 `??` 兜。加一个旋钮只要加一行。
     const opts = {
@@ -193,8 +192,7 @@ commandsRoutes.openapi(
  * waifu 质量分：算一张、存一张、返回它。
  *
  * 已经有分就直接返回存的，不重算 —— 用户点这个按钮是想看分数，不是想烧 GPU。
- * 算完仍然没有分意味着 worker 没能把它当成图片读进来，照 Python 侧一样报 400
- * （"扩展名像图片"和"解码器能读"是两件事）。
+ * 算完仍然没有分意味着 worker 没能把它当成图片读进来，报 400。
  */
 commandsRoutes.openapi(
   createRoute({
@@ -202,23 +200,23 @@ commandsRoutes.openapi(
     path: '/v2/cmd/waifu-scorer/{post_id}',
     operationId: 'v2GetWaifuScorerOne',
     summary: 'GetWaifuScorerOne',
-    description: 'Compute (and persist) the waifu score for a single post.\n\nDelegates the compute + persist to the backfill worker\'s batch function\n(single-element id list), the same path ``process_post`` uses, instead\nof re-inlining the lazy model load / upsert. The guards keep the HTTP\ncontract: missing post -> 404, non-image -> 400, already-scored ->\nreturn the stored score without recomputing.',
+    description: 'Compute (and persist) the waifu score for a single post. Missing post -> 404, non-image -> 400, already scored -> the stored score without recomputing.',
     request: { params: z.object({ post_id: postIdParam }) },
     responses: {
       200: { description: OK, content: { 'application/json': { schema: z.number() } } },
-      ...RESP_400,
+      ...errors(400, 404),
     },
   }),
   async (c) => {
     const { post_id: postId } = c.req.valid('param')
-    const guard = requireImage(postId)
+    const guard = requireImage(c, postId)
     if (!guard.ok)
-      return guard.response as never
+      return guard.response
 
     const { sqlite } = getDb()
     const existing = getWaifuScore(sqlite, postId)
     if (existing !== null)
-      return c.json(existing)
+      return c.json(existing, 200)
 
     const tasks: CairnQ = await getTasks()
     const result = await tasks.call(waifuTask, {
@@ -228,8 +226,8 @@ commandsRoutes.openapi(
 
     const score = getWaifuScore(sqlite, postId)
     if (score === null)
-      return domainError(`Post ${postId} is not an image.`, 'NotAnImageError', 400) as never
-    return c.json(score)
+      return notAnImage(c, postId)
+    return c.json(score, 200)
   },
 )
 
@@ -240,16 +238,16 @@ commandsRoutes.openapi(
  * 拿到结果，而不是"请稍后再试"。
  */
 function silvaOneShot(scorer: 'silva' | 'silva_luna') {
-  return async (c: any) => {
+  return async (c: Context<any, any, any>) => {
     const { post_id: postId } = c.req.valid('param') as { post_id: number }
-    const guard = requireImage(postId)
+    const guard = requireImage(c, postId)
     if (!guard.ok)
       return guard.response
 
     const { sqlite } = getDb()
     const existing = getAestheticScore(sqlite, postId, scorer)
     if (existing !== null)
-      return c.json(existing)
+      return c.json(existing, 200)
 
     const tasks: CairnQ = await getTasks()
     let blobs = fetchEmbeddingBlobs(sqlite, [postId])
@@ -265,7 +263,7 @@ function silvaOneShot(scorer: 'silva' | 'silva_luna') {
     }
     // 向量算不出来 = 这张图读不进来。和 waifu 一样报 400。
     if (!blobs.has(postId))
-      return domainError(`Post ${postId} is not an image.`, 'NotAnImageError', 400)
+      return notAnImage(c, postId)
 
     const result = await tasks.call(silvaTask, {
       scorer,
@@ -275,8 +273,8 @@ function silvaOneShot(scorer: 'silva' | 'silva_luna') {
 
     const score = getAestheticScore(sqlite, postId, scorer)
     if (score === null)
-      return domainError(`Post ${postId} is not an image.`, 'NotAnImageError', 400)
-    return c.json(score)
+      return notAnImage(c, postId)
+    return c.json(score, 200)
   }
 }
 
@@ -290,7 +288,7 @@ commandsRoutes.openapi(
     request: { params: z.object({ post_id: postIdParam }) },
     responses: {
       200: { description: OK, content: { 'application/json': { schema: z.number() } } },
-      ...RESP_400,
+      ...errors(400, 404),
     },
   }),
   silvaOneShot('silva'),
@@ -306,7 +304,7 @@ commandsRoutes.openapi(
     request: { params: z.object({ post_id: postIdParam }) },
     responses: {
       200: { description: OK, content: { 'application/json': { schema: z.number() } } },
-      ...RESP_400,
+      ...errors(400, 404),
     },
   }),
   silvaOneShot('silva_luna'),
@@ -315,9 +313,8 @@ commandsRoutes.openapi(
 /**
  * 自动标签：跑 WDTagger，标签和 rating 落库，返回最新详情。
  *
- * ⚠️ 这里**没有** `is_image` 守卫 —— Python 侧也没有，只查 post 存不存在。不是遗漏：
- * 少一道守卫会让一个非图片走到 worker 那里失败，而多一道会让今天能标注的某种
- * 扩展名突然 400。契约照抄，不"顺手修好"。
+ * 这里只查 post 存不存在，**没有** `is_image` 守卫：那道守卫按扩展名判，多加上会让
+ * 今天能标注的某种扩展名突然 400；非图片走到 worker 那里失败是 500，也说得清。
  */
 commandsRoutes.openapi(
   createRoute({
@@ -329,7 +326,7 @@ commandsRoutes.openapi(
     request: { params: z.object({ post_id: postIdParam }) },
     responses: {
       200: { description: OK, content: { 'application/json': { schema: PostDetailPublic } } },
-      ...RESP_400,
+      ...errors(400, 404),
     },
   }),
   async (c) => {
@@ -337,7 +334,7 @@ commandsRoutes.openapi(
     const { sqlite } = getDb()
     const post = getPostPath(sqlite, postId)
     if (!post)
-      return postNotFound(postId) as never
+      return postNotFound(c, postId)
 
     const tasks: CairnQ = await getTasks()
     const result = await tasks.call(taggerTask, {
@@ -346,8 +343,7 @@ commandsRoutes.openapi(
 
     const row = result.results[0]
     // worker 把"读不出来"和"标签全空"都算失败。这里不能当成"标注完了但没标签"
-    // 静默返回 200 —— 那会让前端以为标注成功而实际上一个字都没写。让它 500，
-    // 和 Python 侧 tagger.tag 抛异常的结果一致。
+    // 静默返回 200 —— 那会让前端以为标注成功而实际上一个字都没写。让它 500。
     if (!row) {
       const why = result.failures[0]?.error ?? 'tagger returned no result'
       throw new Error(`auto-tags failed for post ${postId}: ${why}`)
@@ -358,15 +354,15 @@ commandsRoutes.openapi(
       characterTags: row.characterTags,
       rating: ratingToInt(row.rating),
     }, ensureCanonicalTagGroups(sqlite))
-    return detailResponse(postId) as never
+    return detailResponse(c, postId)
   },
 )
 
 /**
  * 自动配文：跑 OpenAI，把结果写进 `posts.caption`，回读详情。
  *
- * 没配 key 时 Python 抛 `MissingConfigError`（400）。worker 把"没配"作为**数据**
- * 回传而不是抛异常 —— 那不是一次值得重试的失败，是一句该由 HTTP 层措辞的话。
+ * worker 把"没配 key"作为**数据**回传而不是抛异常 —— 那不是一次值得重试的失败，
+ * 是一句该由 HTTP 层措辞的话。
  */
 commandsRoutes.openapi(
   createRoute({
@@ -377,7 +373,7 @@ commandsRoutes.openapi(
     request: { params: z.object({ post_id: postIdParam }) },
     responses: {
       200: { description: OK, content: { 'application/json': { schema: PostDetailPublic } } },
-      ...RESP_400,
+      ...errors(400, 404),
     },
   }),
   async (c) => {
@@ -385,7 +381,7 @@ commandsRoutes.openapi(
     const { sqlite } = getDb()
     const post = getPostPath(sqlite, postId)
     if (!post)
-      return postNotFound(postId) as never
+      return postNotFound(c, postId)
 
     const tasks: CairnQ = await getTasks()
     const result = await tasks.call(captionTask, {
@@ -393,10 +389,10 @@ commandsRoutes.openapi(
     }, { queue: IO_QUEUE, waitTimeoutMs: 120_000, pollMs: 20, maxPollMs: 50, maxAttempts: 1 })
 
     if (!result.configured)
-      return domainError('OpenAI API key is not set.', 'MissingConfigError', 400) as never
+      return fail(c, 400, 'MissingConfigError', 'OpenAI API key is not set.')
 
     updateField(sqlite, postId, 'caption', result.caption)
-    return detailResponse(postId) as never
+    return detailResponse(c, postId)
   },
 )
 
@@ -414,14 +410,13 @@ commandsRoutes.openapi(
     summary: 'DbSnapshot',
     description: 'Create a point-in-time SQLite snapshot for offline tooling',
     responses: {
-      201: { description: 'Document created, URL follows', content: { 'application/json': { schema: SnapshotResult } } },
+      201: { description: CREATED, content: { 'application/json': { schema: SnapshotResult } } },
     },
   }),
   (c) => {
     const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'pictoria-snapshot-'))
     const snapPath = path.join(tmpDir, 'snapshot.sqlite')
-    // 路径由服务端生成（mkdtemp），不含单引号，所以直接内插是安全的 —— 和
-    // Python 侧同样的理由。
+    // 路径由服务端生成（mkdtemp），不含单引号，所以直接内插是安全的。
     getDb().sqlite.exec(`VACUUM INTO '${snapPath.split(path.sep).join('/')}'`)
     console.warn(`[pictoria-api] 已生成快照 ${snapPath}`)
     return c.json({ path: snapPath, dir: tmpDir }, 201)
@@ -434,10 +429,8 @@ commandsRoutes.openapi(
  * fire-and-forget：立刻返回，不让 HTTP 客户端干等一次几分钟的扫描。忙检查让
  * 连点这个按钮（或在上一次还没跑完时再点）成为空操作，而不是启动重复的活。
  *
- * `?allow_mass_delete=1` 按次放行超比例删除（`sync.ts` 的第二道闸门）—— 这是
- * 那道闸门的警告日志里指的确认动作。裸 `c.req.query` 读而不进 createRoute 的
- * schema：契约冻结在 baseline，声明进去 `contract:diff` 就会报；不声明的查询参数
- * Hono 不校验、schema 不变。
+ * `?allow_mass_delete=true` 按次放行超比例删除（`sync.ts` 的第二道闸门）—— 这是
+ * 那道闸门的警告日志里指的确认动作。
  */
 commandsRoutes.openapi(
   createRoute({
@@ -446,16 +439,19 @@ commandsRoutes.openapi(
     operationId: 'v2SyncMetadataEndpoint',
     summary: 'SyncMetadataEndpoint',
     description: 'Rescan target_dir and run every backfill worker',
+    request: {
+      query: z.object({ allow_mass_delete: boolQuery('allow_mass_delete', false) }),
+    },
     responses: {
-      201: { description: 'Document created, URL follows', content: { 'application/json': { schema: Result } } },
+      201: { description: CREATED, content: { 'application/json': { schema: Result } } },
+      ...errors(400),
     },
   }),
   (c) => {
-    const allowMassDelete = queryFlag(c.req.query('allow_mass_delete'))
+    const { allow_mass_delete: allowMassDelete } = c.req.valid('query')
     const started = startSync(getDb().sqlite, (r) => {
       console.warn(`[sync] 完成：新增 ${r.added}，删除 ${r.removed}`)
-      // 新行的空列由 backfill 循环去填。Python 侧在这里同步跑完
-      // run_all_backfill，这边只是把空转的循环叫醒 —— 同一批 worker，同样的活。
+      // 新行的空列由 backfill 循环去填：把空转的循环叫醒。
       wakeAllBackfills()
     }, { allowMassDelete })
     return c.json({ msg: started ? 'Sync started' : 'Sync already running' }, 201)
@@ -493,18 +489,16 @@ commandsRoutes.openapi(
     request: {
       query: z.object({
         tags: z.string().openapi({ param: { name: 'tags', in: 'query', required: true } }),
-        full_scan: z.coerce.boolean().default(false)
-          .openapi({ param: { name: 'full_scan', in: 'query', required: false }, type: 'boolean', default: false }),
+        full_scan: boolQuery('full_scan', false),
       }),
     },
     responses: {
-      201: { description: 'Document created, URL follows', content: { 'application/json': { schema: DanbooruDownloadStats } } },
-      ...RESP_400,
+      201: { description: CREATED, content: { 'application/json': { schema: DanbooruDownloadStats } } },
+      ...errors(400),
     },
   }),
   async (c) => {
-    const { tags } = c.req.valid('query')
-    const fullScan = queryFlag(c.req.query('full_scan'))
+    const { tags, full_scan: fullScan } = c.req.valid('query')
 
     const { sqlite } = getDb()
     const filePathStr = `danbooru/${safeDirName(tags)}`
@@ -530,7 +524,8 @@ commandsRoutes.openapi(
     persistPostsWithTags(sqlite, result.rows)
     // 新行只有路径三元组，其余列等 backfill 去填 —— 别让它们干等一轮空转。
     wakeAllBackfills()
-    return c.json(result.stats, 201)
+    const { with_url: withUrl, early_stopped: earlyStopped, ...stats } = result.stats
+    return c.json({ ...stats, withUrl, earlyStopped }, 201)
   },
 )
 
@@ -560,8 +555,7 @@ const UrlImportStatus = z
 /**
  * 当前 / 上一次 URL 导入的状态。
  *
- * 进程内的一个对象，和 Python 侧的 `app.state.url_import_status` 一一对应 ——
- * 不落库，重启即回到 idle。前端靠轮询它拿进度。
+ * 进程内的一个对象，不落库，重启即回到 idle。前端靠轮询它拿进度。
  */
 let urlImportStatus: {
   state: 'idle' | 'running' | 'done' | 'failed'
@@ -581,9 +575,8 @@ let urlImportStatus: {
   syncTriggered: false,
 }
 
-/** ISO，秒精度 —— 和 Python 的 `isoformat(timespec="seconds")` 同形。 */
 function nowIso(): string {
-  return new Date().toISOString().replace(/\.\d{3}Z$/, '+00:00')
+  return new Date().toISOString()
 }
 
 /**
@@ -634,8 +627,8 @@ async function importOnce(url: string, status: typeof urlImportStatus): Promise<
   if (!scan.items.length)
     return
 
-  // 一个目录下已经有的 file_name。判据是"行存在"而不是"有手工标签" —— 和
-  // Danbooru 那边不同，这里照抄 gallery_dl_import 的原样。
+  // 一个目录下已经有的 file_name。判据是"行存在"而不是"有手工标签"（Danbooru
+  // 那边是后者）。
   const existing = new Set(
     sqlite
       .prepare<[string], { file_name: string }>('SELECT file_name FROM posts WHERE file_path = ?')
@@ -676,8 +669,8 @@ commandsRoutes.openapi(
       }),
     },
     responses: {
-      201: { description: 'Document created, URL follows', content: { 'application/json': { schema: Result } } },
-      ...RESP_400,
+      201: { description: CREATED, content: { 'application/json': { schema: Result } } },
+      ...errors(400),
     },
   }),
   (c) => {
@@ -711,5 +704,5 @@ commandsRoutes.openapi(
       200: { description: OK, content: { 'application/json': { schema: UrlImportStatus } } },
     },
   }),
-  c => c.json(urlImportStatus),
+  c => c.json(urlImportStatus, 200),
 )

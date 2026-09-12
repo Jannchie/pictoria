@@ -8,7 +8,7 @@ import { queryKeys } from '@/shared/queryKeys'
 /**
  * danbooru-tags-tree 的语义分类树，接上库里实际有的 tag。
  *
- * 树只覆盖 general 类的 tag，而且只覆盖其中约七成（按 post_count 加权是 99.5%，
+ * 树只覆盖 general 类的 tag，而且只覆盖其中约七成（按 postCount 加权是 99.5%，
  * 漏掉的是长尾）。剩下的——角色名、画师名、版权名，以及没进树的 general——都归到
  * 一个合成的「未分类」顶层里，按 tag 自身的 danbooru type 分子类。不这么做的话
  * 这个页面会静默地少掉三分之二的 tag，而它是**标签管理**页，看不到的 tag 等于
@@ -49,7 +49,7 @@ export interface TagTreeNode {
   parent: string | null
   depth: number
   name: string
-  /** 直属于这个分类、且库里确实有的 tag，按 post_count 降序。 */
+  /** 直属于这个分类、且库里确实有的 tag，按 postCount 降序。 */
   own: TagWithCountPublic[]
   /** 整棵子树（含自身）里的 tag 数，用于分类行右侧的计数。 */
   total: number

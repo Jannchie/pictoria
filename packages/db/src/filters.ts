@@ -1,9 +1,9 @@
 /**
- * `PostFilter` → SQL 片段 —— 形状承自已退役的 Python 侧 `db/filters.py`。
+ * `PostFilter` → SQL 片段。
  *
  * 这是"一次读取碰哪些 post"的唯一真理，列举、搜索、计数、聚合都消费它。字段名
- * 保持 snake_case：它直接就是 API 的请求体形状（见 §4.2，这一族模型对外就是
- * snake_case），改成 camelCase 会让 HTTP 层多一次无谓的换名。
+ * 就是 API 请求体的形状（`apps/api/src/filter-schema.ts` 的 zod schema 与之一一
+ * 对应），HTTP 层不换名。
  */
 import { placeholders } from './sql.js'
 import {
@@ -13,7 +13,7 @@ import {
   SCORE_BUCKET_UNSCORED,
   WAIFU,
   type Buckets,
-  type FilterableScorerName,
+  type FilterableScorerKey,
 } from './scorers.js'
 
 /**
@@ -21,7 +21,7 @@ import {
  * 在这里多写一行 —— 而漏写一行的后果是它的过滤在类型上就不存在。
  */
 type ScorerLevelFacets = {
-  [K in FilterableScorerName as `${K}_score_levels`]?: string[] | null
+  [K in FilterableScorerKey as `${K}ScoreLevels`]?: string[] | null
 }
 
 export interface PostFilter extends ScorerLevelFacets {
@@ -33,16 +33,16 @@ export interface PostFilter extends ScorerLevelFacets {
   /** [L, a, b] */
   lab?: [number, number, number] | null
   /** [min, max]，闭区间 */
-  waifu_score_range?: [number, number] | null
+  waifuScoreRange?: [number, number] | null
   /**
    * 默认 true：隐藏近重复分组的**成员**，只返回 canonical 代表
    * （canonical_post_id IS NULL）。设 false 才包含成员。
    */
-  only_canonical?: boolean
+  onlyCanonical?: boolean
 }
 
 /**
- * 插入序就是 API 那个 `order_by` 枚举的取值序，别重排 —— 它出现在 OpenAPI 契约里。
+ * 插入序就是 API 那个 `orderBy` 枚举的取值序，别重排 —— 它出现在 OpenAPI 契约里。
  * 打分器那几列由注册表派生，`discrepancy` 是真正的特例（它是两个分数的差，不属于
  * 任何一个打分器）。
  */
@@ -106,10 +106,10 @@ function bucketLevelFilter(
 }
 
 /**
- * 是否设了任何**内容**过滤 —— 刻意不看 `only_canonical`。
+ * 是否设了任何**内容**过滤 —— 刻意不看 `onlyCanonical`。
  *
- * tag facet 的快路径在没有内容过滤时读denormalised 的 `tags.post_count`
- * （它本身已经是"只数 canonical"的计数），所以单独一个 only_canonical 不该
+ * tag facet 的快路径在没有内容过滤时读 denormalised 的 `tags.post_count`
+ * （它本身已经是"只数 canonical"的计数），所以单独一个 onlyCanonical 不该
  * 让它失去快路径资格。
  */
 export function hasActiveFilters(f: PostFilter): boolean {
@@ -120,7 +120,7 @@ export function hasActiveFilters(f: PostFilter): boolean {
     || f.extension?.length
     || (f.folder && f.folder !== '.')
     || f.lab
-    || f.waifu_score_range
+    || f.waifuScoreRange
     || FILTERABLE_SCORERS.some(spec => f[levelsField(spec)]?.length),
   )
 }
@@ -136,8 +136,7 @@ export function buildWhere(f: PostFilter): WhereParts {
   const params: unknown[] = []
   const joins: string[] = []
 
-  // 默认 true —— 与 Python 侧 msgspec 的字段默认值一致。
-  if (f.only_canonical ?? true)
+  if (f.onlyCanonical ?? true)
     where.push('p.canonical_post_id IS NULL')
 
   if (f.rating?.length) {
@@ -172,12 +171,12 @@ export function buildWhere(f: PostFilter): WhereParts {
   }
 
   // waifu 的 join 先于分档循环，因为分数区间（只有 waifu 有）也要用它。
-  if (f.waifu_score_range || f[levelsField(WAIFU)]?.length)
+  if (f.waifuScoreRange || f[levelsField(WAIFU)]?.length)
     joins.push(WAIFU.joinSql())
 
-  if (f.waifu_score_range) {
+  if (f.waifuScoreRange) {
     where.push(`${WAIFU.scoreCol()} >= ? AND ${WAIFU.scoreCol()} <= ?`)
-    params.push(f.waifu_score_range[0], f.waifu_score_range[1])
+    params.push(f.waifuScoreRange[0], f.waifuScoreRange[1])
   }
 
   // 每个打分器贡献自己的 LEFT JOIN + 分档子句。waifu 也走这条路 —— 它的表、别名

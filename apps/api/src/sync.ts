@@ -1,15 +1,11 @@
 /**
  * 磁盘与 `posts` 表的对账 —— `POST /v2/cmd/sync-metadata` 背后的那件事。
  *
- * 形状承自已删除的 `processors/pipeline.py::sync_metadata` 加
- * `services/file_management.py`（两者随 Litestar 一起退役）。两步：
+ * 两步：
  *
  * 1. 走一遍磁盘，和库里的 `(file_path, file_name, extension)` 三元组求差；
- * 2. 少的删、多的建，然后叫醒各个 backfill 循环去填新行的空列。
- *
- * 第 2 步是和 Python 唯一的形状差别：那边紧接着**同步**跑完 `run_all_backfill`，
- * 这边只是把正在空转的调度循环叫醒 —— 活是同一批 worker 干的，只是不占着这个
- * 请求（这个端点本来就是 fire-and-forget）。
+ * 2. 少的删、多的建，然后叫醒各个 backfill 循环去填新行的空列 —— 活是 worker
+ *    干的，不占着这个请求（这个端点本来就是 fire-and-forget）。
  */
 import type { getDb } from './db.js'
 import fs from 'node:fs'

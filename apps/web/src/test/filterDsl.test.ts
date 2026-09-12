@@ -84,22 +84,22 @@ describe('parsefilterquery — tags, extensions, buckets', () => {
   // 字符串直接查分档表的，别名查不到就 continue，筛选会被静默丢掉。
   it('normalises known quality buckets onto the backend letters', () => {
     const parsed = parseFilterQuery('waifu:best silva:worst luna:good')
-    expect(parsed.waifu_score_levels).toEqual(['A'])
-    expect(parsed.silva_score_levels).toEqual(['E'])
-    expect(parsed.silva_luna_score_levels).toEqual(['B'])
+    expect(parsed.waifuScoreLevels).toEqual(['A'])
+    expect(parsed.silvaScoreLevels).toEqual(['E'])
+    expect(parsed.silvaLunaScoreLevels).toEqual(['B'])
   })
 
   // chip 上显示的是字母，所以照着 chip 敲进命令面板也得能用。
   it('accepts the letter form too', () => {
     const parsed = parseFilterQuery('silva:A luna:c waifu:UNSCORED')
-    expect(parsed.silva_score_levels).toEqual(['A'])
-    expect(parsed.silva_luna_score_levels).toEqual(['C'])
-    expect(parsed.waifu_score_levels).toEqual(['UNSCORED'])
+    expect(parsed.silvaScoreLevels).toEqual(['A'])
+    expect(parsed.silvaLunaScoreLevels).toEqual(['C'])
+    expect(parsed.waifuScoreLevels).toEqual(['UNSCORED'])
   })
 
   it('rejects an unknown bucket', () => {
     const parsed = parseFilterQuery('silva:amazing')
-    expect(parsed.silva_score_levels).toEqual([])
+    expect(parsed.silvaScoreLevels).toEqual([])
     expect(parsed.unknown).toEqual(['silva:amazing'])
   })
 
@@ -143,9 +143,9 @@ describe('stringifyfilterquery', () => {
     score: [],
     tags: [],
     extension: [],
-    waifu_score_levels: [],
-    silva_score_levels: [],
-    silva_luna_score_levels: [],
+    waifuScoreLevels: [],
+    silvaScoreLevels: [],
+    silvaLunaScoreLevels: [],
   }
 
   it('renders an empty filter as an empty string', () => {
@@ -171,18 +171,18 @@ describe('stringifyfilterquery', () => {
       score: [5],
       tags: ['long_hair'],
       extension: ['png'],
-      waifu_score_levels: ['A'],
-      silva_score_levels: ['B'],
-      silva_luna_score_levels: ['UNSCORED'],
+      waifuScoreLevels: ['A'],
+      silvaScoreLevels: ['B'],
+      silvaLunaScoreLevels: ['UNSCORED'],
     }
     const parsed = parseFilterQuery(stringifyFilterQuery(source, 'sunset'))
     expect(parsed.rating).toEqual(source.rating)
     expect(parsed.score).toEqual(source.score)
     expect(parsed.tags).toEqual(source.tags)
     expect(parsed.extension).toEqual(source.extension)
-    expect(parsed.waifu_score_levels).toEqual(source.waifu_score_levels)
-    expect(parsed.silva_score_levels).toEqual(source.silva_score_levels)
-    expect(parsed.silva_luna_score_levels).toEqual(source.silva_luna_score_levels)
+    expect(parsed.waifuScoreLevels).toEqual(source.waifuScoreLevels)
+    expect(parsed.silvaScoreLevels).toEqual(source.silvaScoreLevels)
+    expect(parsed.silvaLunaScoreLevels).toEqual(source.silvaLunaScoreLevels)
     expect(parsed.text).toBe('sunset')
   })
 })

@@ -1,9 +1,4 @@
-/**
- * `/v2/statistics` —— Phase 4 搬过来的第一组（1 个端点）。
- *
- * 选它打头是因为它没有参数、没有请求体、只读一张表：整条链路（Hono 路由 →
- * packages/db → 契约对齐）能在最小的面上验证一遍。
- */
+/** `/v2/statistics` —— waifu 分数直方图。 */
 import { createRoute, OpenAPIHono, z } from '@hono/zod-openapi'
 import { waifuScoreDistribution } from '@pictoria/db'
 import { getDb } from '../db.js'
@@ -28,7 +23,7 @@ statisticsRoutes.openapi(
   }),
   (c) => {
     const { sqlite } = getDb()
-    // 标签形如 "0~1" … "9~10"，与 Python 侧 f"{b}~{b+1}" 一致。
+    // 标签形如 "0~1" … "9~10"。
     const body = waifuScoreDistribution(sqlite).map(({ bucket, count }) => ({
       bucket: `${bucket}~${bucket + 1}`,
       count,

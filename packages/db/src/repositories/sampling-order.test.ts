@@ -53,21 +53,21 @@ it('random 策略下成员与数量不受翻转影响', () => {
 
 it('strategy 落到事件行上，且 NULL 表示来源未知', () => {
   const withStrategy = insertPairwise(sqlite, {
-    post_a: 1,
-    post_b: 2,
+    postA: 1,
+    postB: 2,
     dimension: 'overall',
     winner: 'a',
-    rubric_version: 'overall-v1',
-    session_id: 's',
+    rubricVersion: 'overall-v1',
+    sessionId: 's',
     strategy: 'close',
   })
   const legacy = insertPairwise(sqlite, {
-    post_a: 2,
-    post_b: 1,
+    postA: 2,
+    postB: 1,
     dimension: 'overall',
     winner: 'b',
-    rubric_version: 'overall-v1',
-    session_id: 's',
+    rubricVersion: 'overall-v1',
+    sessionId: 's',
   })
   const read = (id: number) => sqlite
     .prepare<[number], { strategy: string | null }>('SELECT strategy FROM pairwise_annotations WHERE id = ?')

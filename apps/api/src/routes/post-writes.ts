@@ -9,7 +9,8 @@ import { IO_QUEUE, rotateTask } from '@pictoria/contracts'
 import { Buffer } from 'node:buffer'
 import { bulkUpdateField, clearCanonical, createPost, getDetail, getPostPath, groupTogether, makeCanonical, markDifferent, postExists, touchAccessed, updateField, updateForRotate } from '@pictoria/db'
 import { getDb } from '../db.js'
-import { OK, RESP_400, domainError, postNotFound, pyRepr, queryFlag, validationError, zodErrorHook } from '../openapi.js'
+import type { Context } from 'hono'
+import { boolQuery, CREATED, OK, errors, fail, postNotFound, zodErrorHook } from '../openapi.js'
 import { wakeAllBackfills } from '../scheduler.js'
 import { PostDetailPublic, toPostDetail } from '../schemas.js'
 import { isInside, targetDir, thumbnailPathFor } from '../paths.js'
@@ -20,9 +21,6 @@ import { getTasks } from '../tasks.js'
 const MAX_POST_SCORE = 5
 const MAX_POST_RATING = 4
 
-// score 的范围交给 zod：Litestar 侧 msgspec 同样在**校验层**拒绝，返回 400，
-// 不是 handler 里的 InvalidArgumentError(409)。rating 则相反 —— 它在 query 上
-// 没有 schema 约束，由 handler 判断，所以是 409。这个不对称是既有行为。
 /**
  * 二进制文件字段的文档元数据。单独提出来是因为 `contentMediaType` 只在 OAS 3.1
  * 里有，而 zod-to-openapi 的元数据类型是 3.0 ∩ 3.1 的公共键 —— 内联字面量会被
@@ -30,17 +28,15 @@ const MAX_POST_RATING = 4
  */
 const BINARY_FILE_SCHEMA = { type: 'string', format: 'binary', contentMediaType: 'application/octet-stream' } as const
 
-/** 上传表单，键序照抄 baseline：url → path → source → file。 */
+/** 上传表单。文件和 url 二选一，实际校验在 handler 里；这个 schema 只是文档。 */
 const UploadFormData = z
   .object({
     url: z.string().nullable().optional(),
     path: z.string().nullable().optional(),
     source: z.string().nullable().optional(),
-    // `.any()` 会让 zod-openapi 把它当可选，于是 required:['file'] 消失。
-    // 这个 schema 只是文档 —— 实际校验在 handler 里 —— 所以 required 手工补上。
-    file: z.any().openapi(BINARY_FILE_SCHEMA),
+    file: z.any().openapi(BINARY_FILE_SCHEMA).optional(),
   })
-  .openapi('PostController.UploadFormData', { required: ['file'] })
+  .openapi('UploadFormData')
 
 const ScoreUpdate = z
   .object({ score: z.int().min(0).max(MAX_POST_SCORE).describe('Score from 0 to 5.') })
@@ -48,15 +44,20 @@ const ScoreUpdate = z
 
 export const postWritesRoutes = new OpenAPIHono({ defaultHook: zodErrorHook })
 
-/** 更新一个标量列后回读详情 —— 与 Python 侧 `_update_and_return_detail` 同语义。 */
-function updateAndReturnDetail(postId: number, field: string, value: unknown) {
+/** 更新一个标量列后回读详情。 */
+function updateAndReturnDetail(c: Context<any, any, any>, postId: number, field: string, value: unknown) {
   const { sqlite } = getDb()
   if (!updateField(sqlite, postId, field, value))
-    return postNotFound(postId)
-  const detail = getDetail(sqlite, postId, n => translateTag(n))
+    return postNotFound(c, postId)
+  return detailOf(c, postId)
+}
+
+/** 写完回读详情的公共尾巴：行在写和读之间被删掉就是 404。 */
+function detailOf(c: Context<any, any, any>, postId: number) {
+  const detail = getDetail(getDb().sqlite, postId, n => translateTag(n))
   if (!detail)
-    return postNotFound(postId)
-  return Response.json(toPostDetail(detail))
+    return postNotFound(c, postId)
+  return c.json(toPostDetail(detail), 200)
 }
 
 const postIdParam = z.coerce.number().int()
@@ -64,7 +65,7 @@ const postIdParam = z.coerce.number().int()
 
 const detailResponse = {
   200: { description: OK, content: { 'application/json': { schema: PostDetailPublic } } },
-  ...RESP_400,
+  ...errors(400, 404),
 }
 
 /**
@@ -75,8 +76,8 @@ const detailResponse = {
  * 成 NaN 然后报 400。
  */
 const bulkUpdates = [
-  { path: '/v2/posts/bulk/score', id: 'v2BulkUpdatePostScore', field: 'score', max: MAX_POST_SCORE, label: 'Score' },
-  { path: '/v2/posts/bulk/rating', id: 'v2BulkUpdatePostRating', field: 'rating', max: MAX_POST_RATING, label: 'Rating' },
+  { path: '/v2/posts/bulk/score', id: 'v2BulkUpdatePostScore', field: 'score', max: MAX_POST_SCORE },
+  { path: '/v2/posts/bulk/rating', id: 'v2BulkUpdatePostRating', field: 'rating', max: MAX_POST_RATING },
 ] as const
 
 for (const b of bulkUpdates) {
@@ -90,25 +91,20 @@ for (const b of bulkUpdates) {
         query: z.object({
           ids: z.union([z.coerce.number().int(), z.array(z.coerce.number().int())])
             .openapi({ param: { name: 'ids', in: 'query', required: true }, type: 'array', items: { type: 'integer' } }),
-          [b.field]: z.coerce.number().int()
+          [b.field]: z.coerce.number().int().min(0).max(b.max)
             .openapi({ param: { name: b.field, in: 'query', required: true }, type: 'integer' }),
         }) as never,
       },
       responses: {
-        // 200 + `null` 体 —— handler 返回 None，Litestar 序列化成 JSON null。
-        // 不是 204：契约里这两个端点声明的就是 200。
-        200: { description: OK },
-        ...RESP_400,
+        204: { description: 'No Content' },
+        ...errors(400),
       },
     }),
     (c) => {
       const q = c.req.valid('query') as Record<string, unknown>
-      const value = q[b.field] as number
-      if (value < 0 || value > b.max)
-        return domainError(`${b.label} must be between 0 and ${b.max}, got ${value}.`, 'InvalidArgumentError', 409) as never
       const ids = (Array.isArray(q.ids) ? q.ids : [q.ids]) as number[]
-      bulkUpdateField(getDb().sqlite, ids, b.field, value)
-      return c.json(null) as never
+      bulkUpdateField(getDb().sqlite, ids, b.field, q[b.field] as number)
+      return c.body(null, 204)
     },
   )
 }
@@ -125,7 +121,7 @@ postWritesRoutes.openapi(
     },
     responses: detailResponse,
   }),
-  c => updateAndReturnDetail(c.req.valid('param').post_id, 'score', c.req.valid('json').score) as never,
+  c => updateAndReturnDetail(c, c.req.valid('param').post_id, 'score', c.req.valid('json').score),
 )
 
 /** rating / caption / source 三个都把值放在 query 上，形状一致。 */
@@ -134,24 +130,20 @@ const queryUpdates = [
     path: '/v2/posts/{post_id}/rating',
     id: 'v2UpdatePostRating',
     field: 'rating',
-    schema: z.coerce.number().int().openapi({ param: { name: 'rating', in: 'query', required: true }, type: 'integer' }),
-    check: (v: number) => (v >= 0 && v <= MAX_POST_RATING
-      ? null
-      : `Rating must be between 0 and ${MAX_POST_RATING}, got ${v}.`),
+    schema: z.coerce.number().int().min(0).max(MAX_POST_RATING)
+      .openapi({ param: { name: 'rating', in: 'query', required: true }, type: 'integer' }),
   },
   {
     path: '/v2/posts/{post_id}/caption',
     id: 'v2UpdatePostCaption',
     field: 'caption',
     schema: z.string().openapi({ param: { name: 'caption', in: 'query', required: true } }),
-    check: () => null,
   },
   {
     path: '/v2/posts/{post_id}/source',
     id: 'v2UpdatePostSource',
     field: 'source',
     schema: z.string().openapi({ param: { name: 'source', in: 'query', required: true } }),
-    check: () => null,
   },
 ] as const
 
@@ -170,10 +162,7 @@ for (const u of queryUpdates) {
     }),
     (c) => {
       const value = (c.req.valid('query') as Record<string, unknown>)[u.field]
-      const bad = (u.check as (v: unknown) => string | null)(value)
-      if (bad)
-        return domainError(bad, 'InvalidArgumentError', 409) as never
-      return updateAndReturnDetail(c.req.valid('param').post_id, u.field, value) as never
+      return updateAndReturnDetail(c, c.req.valid('param').post_id, u.field, value)
     },
   )
 }
@@ -187,15 +176,15 @@ postWritesRoutes.openapi(
     description: 'Record a view by bumping last_accessed_at.',
     request: { params: z.object({ post_id: postIdParam }) },
     responses: {
-      204: { description: 'Request fulfilled, nothing follows' },
-      ...RESP_400,
+      204: { description: 'No Content' },
+      ...errors(400, 404),
     },
   }),
   (c) => {
     const { post_id: postId } = c.req.valid('param')
     if (!touchAccessed(getDb().sqlite, postId))
-      return postNotFound(postId) as never
-    return c.body(null, 204) as never
+      return postNotFound(c, postId)
+    return c.body(null, 204)
   },
 )
 
@@ -230,12 +219,9 @@ for (const op of groupOps) {
       const { post_id: postId } = c.req.valid('param')
       const { sqlite } = getDb()
       if (!postExists(sqlite, postId))
-        return postNotFound(postId) as never
+        return postNotFound(c, postId)
       op.run(sqlite, postId)
-      const detail = getDetail(sqlite, postId, n => translateTag(n))
-      if (!detail)
-        return postNotFound(postId) as never
-      return Response.json(toPostDetail(detail)) as never
+      return detailOf(c, postId)
     },
   )
 }
@@ -243,8 +229,8 @@ for (const op of groupOps) {
 /**
  * 手动合并：把选中的这些 post 并成一个差分组。
  *
- * 体里传 ids 而不是像 `bulk/*` 那样堆在 query 上 —— 那两条是既有形状要照抄，这条是
- * 新的，而一次多选合并动辄几十个 id，重复的 `?ids=` 会把 URL 顶到网关的长度上限。
+ * 体里传 ids 而不是像 `bulk/*` 那样堆在 query 上：一次多选合并动辄几十个 id，
+ * 重复的 `?ids=` 会把 URL 顶到网关的长度上限。
  *
  * 回读的是**canonical 的详情**，不是请求里的第一个 id：合并之后前端要跳到的是那个
  * 代表，而代表可能是这批 id 之外的（并进一个已有组时沿用原组封面）。
@@ -278,20 +264,19 @@ postWritesRoutes.openapi(
     const head = canonicalId ?? undefined
     for (const id of head == null ? ids : [...ids, head]) {
       if (!postExists(sqlite, id))
-        return postNotFound(id) as never
+        return postNotFound(c, id)
     }
     if (!groupTogether(sqlite, ids, head))
-      return domainError(`Need at least 2 distinct posts to group, got ${new Set(ids).size}.`, 'InvalidArgumentError', 409) as never
+      return fail(c, 400, 'InvalidArgumentError', `Need at least 2 distinct posts to group, got ${new Set(ids).size}.`)
 
     // 合并后任一成员的指针都指向代表（成员）或为 NULL（它自己就是代表）。
     const first = getDetail(sqlite, ids[0]!, n => translateTag(n))
     if (!first)
-      return postNotFound(ids[0]!) as never
+      return postNotFound(c, ids[0]!)
     const canonical = (first.canonical_post_id as number | null) ?? ids[0]!
-    const detail = canonical === ids[0] ? first : getDetail(sqlite, canonical, n => translateTag(n))
-    if (!detail)
-      return postNotFound(canonical) as never
-    return Response.json(toPostDetail(detail)) as never
+    if (canonical === ids[0])
+      return c.json(toPostDetail(first), 200)
+    return detailOf(c, canonical)
   },
 )
 
@@ -321,23 +306,17 @@ postWritesRoutes.openapi(
     const { post_id: postId, other_id: otherId } = c.req.valid('param')
     const { sqlite } = getDb()
     if (!postExists(sqlite, postId))
-      return postNotFound(postId) as never
+      return postNotFound(c, postId)
     if (!postExists(sqlite, otherId))
-      return postNotFound(otherId) as never
+      return postNotFound(c, otherId)
     if (!markDifferent(sqlite, postId, otherId))
-      return domainError('A post cannot differ from itself.', 'InvalidArgumentError', 409) as never
-    const detail = getDetail(sqlite, postId, n => translateTag(n))
-    if (!detail)
-      return postNotFound(postId) as never
-    return Response.json(toPostDetail(detail)) as never
+      return fail(c, 400, 'InvalidArgumentError', 'A post cannot differ from itself.')
+    return detailOf(c, postId)
   },
 )
 
 /**
- * 删 post：DB 行 + 原图 + 缩略图。
- *
- * `ids` 在 query 上（重复的 `?ids=1&ids=2`），不是请求体 —— 照抄 Litestar。
- * 成功是 204 无响应体。
+ * 删 post：DB 行 + 原图 + 缩略图。`ids` 在 query 上（重复的 `?ids=1&ids=2`）。
  */
 postWritesRoutes.openapi(
   createRoute({
@@ -352,8 +331,8 @@ postWritesRoutes.openapi(
       }),
     },
     responses: {
-      204: { description: 'Request fulfilled, nothing follows', headers: {} },
-      ...RESP_400,
+      204: { description: 'No Content' },
+      ...errors(400),
     },
   }),
   (c) => {
@@ -379,21 +358,18 @@ postWritesRoutes.openapi(
     description: 'Rotate post image by id; updates sha256/width/height/arthash.',
     request: {
       params: z.object({ post_id: postIdParam }),
-      query: z.object({
-        clockwise: z.coerce.boolean().default(true)
-          .openapi({ param: { name: 'clockwise', in: 'query', required: false }, type: 'boolean', default: true }),
-      }),
+      query: z.object({ clockwise: boolQuery('clockwise', true) }),
     },
     responses: detailResponse,
   }),
   async (c) => {
     const { post_id: postId } = c.req.valid('param')
-    const clockwise = queryFlag(c.req.query('clockwise'), true)
+    const { clockwise } = c.req.valid('query')
 
     const { sqlite } = getDb()
     const post = getPostPath(sqlite, postId)
     if (!post)
-      return postNotFound(postId) as never
+      return postNotFound(c, postId)
 
     const base = targetDir()
     const tasks = await getTasks()
@@ -410,10 +386,7 @@ postWritesRoutes.openapi(
     // 免得每次旋转都逼一轮全库重扫。
     if (result.arthash === null)
       wakeAllBackfills()
-    const detail = getDetail(sqlite, postId, n => translateTag(n))
-    if (!detail)
-      return postNotFound(postId) as never
-    return c.json(toPostDetail(detail)) as never
+    return detailOf(c, postId)
   },
 )
 
@@ -424,11 +397,10 @@ const BROWSER_UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36
  * 把上传（multipart 文件**或**一个远程 URL）变成一个 post。
  *
  * 落库 + 落盘就结束 —— 剩下的（basics / 向量 / 标签 / 各种分）由 backfill 调度器
- * 在下一轮捡走。Python 侧原来是在请求里同步跑完整条 `process_post`，那让一次上传
- * 阻塞在 GPU 上好几秒；现在同样的活由同一批 worker 干，只是不占着请求。
+ * 在下一轮捡走，上传请求不占着 GPU。
  *
- * ⚠️ 先建行再写文件，顺序照抄 Python。反过来的话，两步之间跑一次 sync 会让 sync
- * 自己把行建出来，紧接着这里的 INSERT 就多出一行重复。
+ * ⚠️ 先建行再写文件。反过来的话，两步之间跑一次 sync 会让 sync 自己把行建出来，
+ * 紧接着这里的 INSERT 就多出一行重复。
  */
 postWritesRoutes.openapi(
   createRoute({
@@ -444,8 +416,8 @@ postWritesRoutes.openapi(
       },
     },
     responses: {
-      201: { description: 'Document created, URL follows', headers: {} },
-      ...RESP_400,
+      201: { description: CREATED },
+      ...errors(400, 409),
     },
   }),
   async (c) => {
@@ -457,9 +429,8 @@ postWritesRoutes.openapi(
 
     const hasFile = file instanceof File && file.size > 0
     if (!hasFile && !url)
-      return domainError('Either file or url must be provided.', 'InvalidUploadError', 400) as never
+      return fail(c, 400, 'InvalidUploadError', 'Either file or url must be provided.')
 
-    // 路径解析顺序照抄 `UploadIntake._resolve_path`
     const fileName = hasFile ? (file as File).name : ''
     let rel: string
     if (!rawPath && fileName)
@@ -473,9 +444,9 @@ postWritesRoutes.openapi(
     // 逃出库目录就是**校验失败**，不是"文件已存在"。原来这里复用了下一条的文案，
     // 于是探测目录穿越的人收到的是一句关于文件存在性的谎话。
     if (!isInside(absPath, base))
-      return validationError(`path escapes the library: ${pyRepr(rel)}`) as never
+      return fail(c, 400, 'ValidationError', `path escapes the library: ${JSON.stringify(rel)}`)
     if (fs.existsSync(absPath))
-      return domainError('File already exists.', 'FileAlreadyExistsError', 400) as never
+      return fail(c, 409, 'FileAlreadyExistsError', 'File already exists.')
 
     let bytes: Buffer
     if (hasFile) {
@@ -503,6 +474,6 @@ postWritesRoutes.openapi(
       source,
     })
     fs.writeFileSync(absPath, bytes)
-    return c.body(null, 201) as never
+    return c.body(null, 201)
   },
 )

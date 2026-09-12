@@ -4,11 +4,11 @@ import { useToast } from '@/shared/toast'
 /**
  * Centralised handler for API failures.
  *
- * The generated client (`@hey-api/openapi-ts`) throws on non-2xx and the
- * server now returns ``{detail, error}`` for domain errors (see
- * server/exceptions.py). Use this composable from `catch` blocks and
- * TanStack Query `onError` so the user gets a consistent toast instead of
- * a silent console.error.
+ * Every non-2xx response from the API carries the same `ErrorBody`
+ * (`apps/api/src/openapi.ts`): `error` is a machine-readable code, `detail`
+ * the sentence to show. Use this composable from `catch` blocks and TanStack
+ * Query `onError` so the user gets a consistent toast instead of a silent
+ * console.error.
  */
 
 interface APIErrorBody {

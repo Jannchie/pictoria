@@ -10,6 +10,7 @@ import {
   createListwiseQueue,
   createPairwiseQueue,
   listQueues,
+  MUTABLE_KINDS,
   nextAbsoluteItems,
   nextListwiseItems,
   nextPairwiseItems,
@@ -19,14 +20,21 @@ import {
   samplePostIds,
 } from '@pictoria/db'
 import { getDb } from '../db.js'
-import { OK, pyRepr, RESP_400, validationError, zodErrorHook } from '../openapi.js'
+import type { Context } from 'hono'
+import { CREATED, OK, errors, fail, zodErrorHook } from '../openapi.js'
 import {
   QueueItemPostPublic,
   toQueuePost,
   VALID_DIMENSIONS,
   VALID_PAIRWISE_STRATEGIES,
+  scaleSchema,
   VALID_STRATEGIES,
 } from './annotation-shared.js'
+
+/** 采样器一个候选都挑不出来：请求合法，只是库的状态满足不了它。 */
+function noCandidates(c: Context<any, any, any>, detail: string) {
+  return fail(c, 409, 'NoEligibleCandidatesError', detail)
+}
 
 const QueueCreatedPublic = z.object({ id: z.int() }).openapi('QueueCreatedPublic')
 
@@ -34,29 +42,31 @@ const QueueSummaryPublic = z
   .object({
     id: z.int(),
     name: z.string(),
-    kind: z.string(),
-    dimensions: z.array(z.string()),
-    scale: z.int().nullable().optional(),
+    kind: z.enum(MUTABLE_KINDS),
+    dimensions: z.array(z.enum(VALID_DIMENSIONS)),
+    scale: scaleSchema().nullable().optional(),
     total: z.int(),
     done: z.int(),
     /** pairwise 队列的采样策略；其余形态为 null。提交时前端带回到事件行。 */
-    strategy: z.string().nullable().optional(),
+    strategy: z.enum(VALID_PAIRWISE_STRATEGIES).nullable().optional(),
   })
   .openapi('QueueSummaryPublic')
+
+type QueueSummary = z.infer<typeof QueueSummaryPublic>
 
 const AbsoluteQueueCreate = z
   .object({
     name: z.string(),
-    dimensions: z.array(z.string()),
-    scale: z.int(),
-    post_ids: z.array(z.int()),
+    dimensions: z.array(z.enum(VALID_DIMENSIONS)).min(1),
+    scale: scaleSchema(),
+    postIds: z.array(z.int()),
   })
   .openapi('AbsoluteQueueCreate')
 
 const PairwiseQueueCreate = z
   .object({
     name: z.string(),
-    dimensions: z.array(z.string()),
+    dimensions: z.array(z.enum(VALID_DIMENSIONS)).min(1),
     pairs: z.array(z.tuple([z.int(), z.int()])),
   })
   .openapi('PairwiseQueueCreate')
@@ -64,7 +74,7 @@ const PairwiseQueueCreate = z
 const ListwiseQueueCreate = z
   .object({
     name: z.string(),
-    dimensions: z.array(z.string()),
+    dimensions: z.array(z.enum(VALID_DIMENSIONS)).min(1),
     groups: z.array(z.array(z.int())),
   })
   .openapi('ListwiseQueueCreate')
@@ -92,8 +102,8 @@ annotationQueuesRoutes.openapi(
     description: 'Create an absolute-annotation queue from an ordered post-id list.',
     request: { body: { required: true, content: { 'application/json': { schema: AbsoluteQueueCreate } } } },
     responses: {
-      201: { description: 'Document created, URL follows', content: { 'application/json': { schema: QueueCreatedPublic } } },
-      ...RESP_400,
+      201: { description: CREATED, content: { 'application/json': { schema: QueueCreatedPublic } } },
+      ...errors(400),
     },
   }),
   (c) => {
@@ -102,7 +112,7 @@ annotationQueuesRoutes.openapi(
       name: d.name,
       dimensions: d.dimensions,
       scale: d.scale,
-      postIds: d.post_ids,
+      postIds: d.postIds,
     })
     return c.json({ id }, 201)
   },
@@ -117,8 +127,8 @@ annotationQueuesRoutes.openapi(
     description: 'Create a pairwise queue from an ordered (post_a, post_b) list.',
     request: { body: { required: true, content: { 'application/json': { schema: PairwiseQueueCreate } } } },
     responses: {
-      201: { description: 'Document created, URL follows', content: { 'application/json': { schema: QueueCreatedPublic } } },
-      ...RESP_400,
+      201: { description: CREATED, content: { 'application/json': { schema: QueueCreatedPublic } } },
+      ...errors(400),
     },
   }),
   (c) => {
@@ -141,8 +151,8 @@ annotationQueuesRoutes.openapi(
     description: 'Create a listwise queue from an ordered list of post-id groups.',
     request: { body: { required: true, content: { 'application/json': { schema: ListwiseQueueCreate } } } },
     responses: {
-      201: { description: 'Document created, URL follows', content: { 'application/json': { schema: QueueCreatedPublic } } },
-      ...RESP_400,
+      201: { description: CREATED, content: { 'application/json': { schema: QueueCreatedPublic } } },
+      ...errors(400),
     },
   }),
   (c) => {
@@ -164,22 +174,22 @@ annotationQueuesRoutes.openapi(
     summary: 'ListQueues',
     description: 'List queues with progress, newest first.',
     responses: {
-      // 没有 400 —— 这个端点没有任何参数，Litestar 就不会挂校验错误响应。
       200: { description: OK, content: { 'application/json': { schema: z.array(QueueSummaryPublic) } } },
     },
   }),
   c => c.json(
-    listQueues(getDb().sqlite).map(({ queue, total, done }) => ({
+    // 各列在写入时都经过了 enum 校验，读回来只需断言；DB 里 dimensions 存的是 JSON 字符串。
+    listQueues(getDb().sqlite).map(({ queue, total, done }): QueueSummary => ({
       id: queue.id,
       name: queue.name,
-      kind: queue.kind,
-      // DB 里存的是 JSON 字符串，对外是数组。
-      dimensions: JSON.parse(queue.dimensions) as string[],
-      scale: queue.scale,
+      kind: queue.kind as QueueSummary['kind'],
+      dimensions: JSON.parse(queue.dimensions) as QueueSummary['dimensions'],
+      scale: queue.scale as QueueSummary['scale'],
       total,
       done,
-      strategy: queue.strategy,
+      strategy: queue.strategy as QueueSummary['strategy'],
     })),
+    200,
   ),
 )
 
@@ -201,7 +211,7 @@ annotationQueuesRoutes.openapi(
     },
     responses: {
       200: { description: OK, content: { 'application/json': { schema: z.array(AbsoluteQueueItemPublic) } } },
-      ...RESP_400,
+      ...errors(400),
     },
   }),
   (c) => {
@@ -212,6 +222,7 @@ annotationQueuesRoutes.openapi(
         position: r.position,
         post: toQueuePost(r),
       })),
+      200,
     )
   },
 )
@@ -229,7 +240,7 @@ annotationQueuesRoutes.openapi(
     },
     responses: {
       200: { description: OK, content: { 'application/json': { schema: z.array(PairwiseQueueItemPublic) } } },
-      ...RESP_400,
+      ...errors(400),
     },
   }),
   (c) => {
@@ -241,6 +252,7 @@ annotationQueuesRoutes.openapi(
         postA: toQueuePost(r, 'a_'),
         postB: toQueuePost(r, 'b_'),
       })),
+      200,
     )
   },
 )
@@ -258,7 +270,7 @@ annotationQueuesRoutes.openapi(
     },
     responses: {
       200: { description: OK, content: { 'application/json': { schema: z.array(ListwiseQueueItemPublic) } } },
-      ...RESP_400,
+      ...errors(400),
     },
   }),
   (c) => {
@@ -273,39 +285,38 @@ annotationQueuesRoutes.openapi(
         position: i.position,
         posts: i.post_ids.filter(pid => posts.has(pid)).map((pid) => {
           const p = posts.get(pid)!
-          return { id: p.post_id, filePath: p.file_path, fileName: p.file_name, extension: p.extension, sha256: p.sha256, width: p.width, height: p.height }
+          return toQueuePost(p)
         }),
       })),
+      200,
     )
   },
 )
 
-const VALID_SCALES = [2, 3, 5]
-
 const GenerateAbsoluteIn = z
   .object({
-    dimensions: z.array(z.string()),
-    scale: z.int(),
-    count: z.int(),
-    strategy: z.string().default('random'),
+    dimensions: z.array(z.enum(VALID_DIMENSIONS)).min(1),
+    scale: scaleSchema(),
+    count: z.int().min(1),
+    strategy: z.enum(VALID_STRATEGIES).default('random'),
     name: z.union([z.string(), z.null()]).optional(),
   })
   .openapi('GenerateAbsoluteIn')
 
 const GeneratePairwiseIn = z
   .object({
-    dimension: z.string(),
-    count: z.int(),
-    strategy: z.string().default('random'),
+    dimension: z.enum(VALID_DIMENSIONS),
+    count: z.int().min(1),
+    strategy: z.enum(VALID_PAIRWISE_STRATEGIES).default('random'),
     name: z.union([z.string(), z.null()]).optional(),
   })
   .openapi('GeneratePairwiseIn')
 
 const GenerateListwiseIn = z
   .object({
-    dimension: z.string(),
-    count: z.int(),
-    size: z.int().default(4),
+    dimension: z.enum(VALID_DIMENSIONS),
+    count: z.int().min(1),
+    size: z.int().min(3).max(16).default(4),
     name: z.union([z.string(), z.null()]).optional(),
   })
   .openapi('GenerateListwiseIn')
@@ -319,29 +330,22 @@ annotationQueuesRoutes.openapi(
     description: 'Auto-generate an absolute queue by sampling the library (random / stratified by old score).',
     request: { body: { required: true, content: { 'application/json': { schema: GenerateAbsoluteIn } } } },
     responses: {
-      201: { description: 'Document created, URL follows', content: { 'application/json': { schema: QueueSummaryPublic } } },
-      ...RESP_400,
+      201: { description: CREATED, content: { 'application/json': { schema: QueueSummaryPublic } } },
+      ...errors(400, 409),
     },
   }),
   (c) => {
     const d = c.req.valid('json')
-    if (!d.dimensions.length || d.dimensions.some((x: string) => !VALID_DIMENSIONS.includes(x as never)))
-      return validationError(`invalid dimensions: ${pyRepr(d.dimensions)}`) as never
-    if (!VALID_SCALES.includes(d.scale))
-      return validationError(`invalid scale: ${d.scale}`) as never
-    if (!VALID_STRATEGIES.includes(d.strategy as never))
-      return validationError(`invalid strategy: ${pyRepr(d.strategy)}`) as never
-
     const { sqlite } = getDb()
     const postIds = samplePostIds(sqlite, { count: d.count, strategy: d.strategy, dimensions: d.dimensions })
     if (!postIds.length)
-      return validationError('no eligible candidates (need posts with embeddings, not yet annotated or queued)') as never
+      return noCandidates(c, 'no eligible candidates (need posts with embeddings, not yet annotated or queued)')
     const name = d.name || `${d.strategy}-${d.dimensions.join('+')}-${postIds.length}`
     const id = createAbsoluteQueue(sqlite, { name, dimensions: d.dimensions, scale: d.scale, postIds })
     return c.json({
       id,
       name,
-      kind: 'absolute',
+      kind: 'absolute' as const,
       dimensions: d.dimensions,
       scale: d.scale,
       total: postIds.length,
@@ -359,27 +363,22 @@ annotationQueuesRoutes.openapi(
     description: 'Auto-generate a pairwise queue (random disjoint pairs, or content-similar + old-score-band pairs).',
     request: { body: { required: true, content: { 'application/json': { schema: GeneratePairwiseIn } } } },
     responses: {
-      201: { description: 'Document created, URL follows', content: { 'application/json': { schema: QueueSummaryPublic } } },
-      ...RESP_400,
+      201: { description: CREATED, content: { 'application/json': { schema: QueueSummaryPublic } } },
+      ...errors(400, 409),
     },
   }),
   (c) => {
     const d = c.req.valid('json')
-    if (!VALID_DIMENSIONS.includes(d.dimension as never))
-      return validationError(`invalid dimension: ${pyRepr(d.dimension)}`) as never
-    if (!VALID_PAIRWISE_STRATEGIES.includes(d.strategy as never))
-      return validationError(`invalid strategy: ${pyRepr(d.strategy)}`) as never
-
     const { sqlite } = getDb()
     const pairs = samplePairs(sqlite, { count: d.count, strategy: d.strategy, dimension: d.dimension })
     if (!pairs.length)
-      return validationError('no eligible candidates (need posts with embeddings, not already queued)') as never
+      return noCandidates(c, 'no eligible candidates (need posts with embeddings, not already queued)')
     const name = d.name || `pairs-${d.dimension}-${pairs.length}`
     const id = createPairwiseQueue(sqlite, { name, dimensions: [d.dimension], pairs, strategy: d.strategy })
     return c.json({
       id,
       name,
-      kind: 'pairwise',
+      kind: 'pairwise' as const,
       dimensions: [d.dimension],
       scale: null,
       total: pairs.length,
@@ -398,27 +397,22 @@ annotationQueuesRoutes.openapi(
     description: 'Auto-generate a listwise queue: groups of ~size posts whose silva scores sit in one close window, visually spread. Ranking one group yields C(size,2) boundary comparisons — worth Sum_{k=2..size}(1-1/k) in Plackett-Luce information, not C(size,2) independent observations.',
     request: { body: { required: true, content: { 'application/json': { schema: GenerateListwiseIn } } } },
     responses: {
-      201: { description: 'Document created, URL follows', content: { 'application/json': { schema: QueueSummaryPublic } } },
-      ...RESP_400,
+      201: { description: CREATED, content: { 'application/json': { schema: QueueSummaryPublic } } },
+      ...errors(400, 409),
     },
   }),
   (c) => {
     const d = c.req.valid('json')
-    if (!VALID_DIMENSIONS.includes(d.dimension as never))
-      return validationError(`invalid dimension: ${pyRepr(d.dimension)}`) as never
-    if (d.size < 3 || d.size > 16)
-      return validationError(`invalid size: ${d.size} (want 3..16)`) as never
-
     const { sqlite } = getDb()
     const groups = sampleGroups(sqlite, { count: d.count, size: d.size, dimension: d.dimension })
     if (!groups.length)
-      return validationError('no eligible candidates (need silva-scored posts with an absolute score and embeddings)') as never
+      return noCandidates(c, 'no eligible candidates (need silva-scored posts with an absolute score and embeddings)')
     const name = d.name || `listwise-${d.dimension}-${groups.length}x${d.size}`
     const id = createListwiseQueue(sqlite, { name, dimensions: [d.dimension], groups })
     return c.json({
       id,
       name,
-      kind: 'listwise',
+      kind: 'listwise' as const,
       dimensions: [d.dimension],
       scale: null,
       total: groups.length,

@@ -77,7 +77,7 @@ const postTotalQuery = useQuery({
 const countMap = computed(() => {
   const map: Record<string, number> = {}
   for (const d of countQuery.data.value ?? []) {
-    map[d.tag_name] = d.count
+    map[d.tagName] = d.count
   }
   return map
 })
@@ -86,8 +86,8 @@ const countMap = computed(() => {
 const translationMap = computed(() => {
   const map: Record<string, string> = {}
   for (const d of countQuery.data.value ?? []) {
-    if (d.translated_name) {
-      map[d.tag_name] = d.translated_name
+    if (d.translatedName) {
+      map[d.tagName] = d.translatedName
     }
   }
   return map
@@ -100,7 +100,7 @@ function pct(count: number): string {
 // Pin selected tags at the top so they stay un-checkable even when they fall
 // outside the current top-N / search results.
 const tagRows = computed(() => {
-  const fromApi = (countQuery.data.value ?? []).map(d => d.tag_name)
+  const fromApi = (countQuery.data.value ?? []).map(d => d.tagName)
   return [...new Set([...selected.value, ...fromApi])]
 })
 

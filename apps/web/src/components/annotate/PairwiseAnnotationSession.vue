@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import type { QueueItemPostPublic, QueueSummaryPublic } from '@/api'
+import type { AnnotationDimension, PairwiseStrategy } from '@/shared/annotationTypes'
 import { useQueryClient } from '@tanstack/vue-query'
 import { onKeyStroke } from '@vueuse/core'
 import { computed, ref, watch } from 'vue'
@@ -19,7 +20,7 @@ interface BufferItem {
 // queue 与 dimension 二选一：有 queue 走固定批次，否则按 dimension 流式采样。
 // strategy 仅流式有效：close = 视觉相近且模型分不开的边界对，并自动接上已标过的比较图（默认）；
 // similar = 内容相似 + 旧分相近（不参考模型，留作评估）；random = 全库随机。
-const props = defineProps<{ queue?: QueueSummaryPublic, dimension?: string, strategy?: 'random' | 'similar' | 'close' }>()
+const props = defineProps<{ queue?: QueueSummaryPublic, dimension?: AnnotationDimension, strategy?: PairwiseStrategy }>()
 const emit = defineEmits<{ exit: [] }>()
 
 const { handle: handleAPIError } = useAPIError()
@@ -162,15 +163,15 @@ type Winner = 'a' | 'b' | 'tie' | 'skip'
 async function postJudgement(item: BufferItem, winner: Winner, elapsedMs: number): Promise<number[]> {
   const resp = await v2SubmitPairwise({
     body: {
-      post_a: item.postA.id,
-      post_b: item.postB.id,
+      postA: item.postA.id,
+      postB: item.postB.id,
       dimension: dimension.value,
       winner,
-      rubric_version: `${dimension.value}-v1`,
-      session_id: sessionId,
-      elapsed_ms: elapsedMs,
-      queue_id: props.queue?.id ?? null,
-      queue_position: item.position ?? null,
+      rubricVersion: `${dimension.value}-v1`,
+      sessionId,
+      elapsedMs,
+      queueId: props.queue?.id ?? null,
+      queuePosition: item.position ?? null,
       strategy: strategy.value,
     },
   })
@@ -227,9 +228,9 @@ function recordJudgement(item: BufferItem, winner: Winner, elapsedMs: number, id
         body: {
           kind: 'pairwise',
           ids: eventIds,
-          session_id: sessionId,
-          queue_id: props.queue?.id ?? null,
-          queue_position: item.position ?? null,
+          sessionId,
+          queueId: props.queue?.id ?? null,
+          queuePosition: item.position ?? null,
         },
       })
       removeEntries(queryClient, 'pairwise', eventIds) // 事件已删，历史列表也不该再有它

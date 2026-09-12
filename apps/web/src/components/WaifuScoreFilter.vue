@@ -14,7 +14,7 @@ async function fetchCounts(filter: PostFilterValue) {
 
 <template>
   <ScoreBucketFilter
-    field="waifu_score_levels"
+    field="waifuScoreLevels"
     count-kind="waifu"
     :fetch-counts="fetchCounts"
     :buckets="BUCKETS"

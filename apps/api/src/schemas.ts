@@ -1,11 +1,7 @@
 /**
- * 与 Litestar 契约对齐的 zod schema。
+ * 跨多个路由文件共用的 zod schema。对外一律 **camelCase**。
  *
- * 这一族继承 Python 的 `DTOBaseModel`（`alias_generator=to_camel`），所以对外是
- * **camelCase**；而 `PostFilter` 那一族是 msgspec Struct，对外是 snake_case。
- * 同一个请求里两种风格并存是正常的（见 §4.2），别顺手统一。
- *
- * 字段声明顺序照抄 baseline —— hey-api 按声明顺序生成 TS，顺序不同 diff 会红。
+ * 字段声明顺序就是 JSON 里的键序，也是 hey-api 生成 TS 类型的顺序。
  */
 import { z } from '@hono/zod-openapi'
 
@@ -31,7 +27,7 @@ export const PostHasColorPublic = z
   .object({ order: z.int(), color: z.int() })
   .openapi('PostHasColorPublic')
 
-/** Litestar 里所有"只回一句话"的命令端点共用的响应体。 */
+/** 所有"只回一句话"的命令端点共用的响应体。 */
 export const Result = z.object({ msg: z.string() }).openapi('Result')
 
 export const WaifuScorePublic = z.object({ score: z.number() }).openapi('WaifuScorePublic')
@@ -96,9 +92,8 @@ export const PostSimplePublic = z
   .openapi('PostSimplePublic')
 
 /**
- * SQLite 存的是 `YYYY-MM-DD HH:MM:SS[.ffffff][±TZ]`，Pydantic 把 datetime 序列化成
- * ISO 8601（日期和时间之间是 `T`）。只换第一个空格 —— 时区偏移里没有空格，其余
- * 部分（含微秒）Pydantic 也是原样输出。
+ * SQLite 存的是 `YYYY-MM-DD HH:MM:SS[.ffffff][±TZ]`，对外是 ISO 8601（日期和时间
+ * 之间是 `T`）。只换第一个空格 —— 时区偏移里没有空格，其余部分（含微秒）原样。
  */
 export function toIsoDateTime<T>(v: T): T {
   if (typeof v !== 'string')
@@ -107,10 +102,8 @@ export function toIsoDateTime<T>(v: T): T {
 }
 
 /**
- * DB 行 → `PostSimplePublic`，键序照抄 DTO 声明顺序。
- *
- * `matchProb` / `sortValue` 只有搜索路径会填，但**必须出现在输出里**（Pydantic 会
- * 把未设置的可选字段序列化成 null），否则和 Litestar 的响应对不上。
+ * DB 行 → `PostSimplePublic`。`matchProb` / `sortValue` 只有搜索路径会填，其余
+ * 路径是 null。
  */
 export type PostSimple = z.infer<typeof PostSimplePublic>
 

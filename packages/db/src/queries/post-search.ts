@@ -27,10 +27,10 @@ const SIMPLE_BASE_SELECT = SIMPLE_BASE_COLUMNS.map(c => `p.${c}`).join(', ')
 const VIRTUAL_SORT_COLUMNS = new Set<string>([...FILTERABLE_SCORERS.map(orderColumn), 'discrepancy'])
 
 export interface PostFilterWithOrder extends PostFilter {
-  order_by?: string | null
+  orderBy?: string | null
   order?: 'asc' | 'desc' | 'random' | null
-  order_seed?: number | null
-  sort_direction?: 'asc' | 'desc' | null
+  orderSeed?: number | null
+  sortDirection?: 'asc' | 'desc' | null
 }
 
 /** sqlite-vec 的 serialize_float32：小端 float32 blob。 */
@@ -101,25 +101,25 @@ export function buildSearchQuery(
   let orderSql = ''
   const orderParams: unknown[] = []
   let resortSql = ''
-  const sortable = Boolean(f.order_by) && ORDERABLE_COLUMNS.has(f.order_by!)
+  const sortable = Boolean(f.orderBy) && ORDERABLE_COLUMNS.has(f.orderBy!)
 
   if (f.order === 'random') {
-    const seed = ((f.order_seed || 1) % 2147483647) || 1
+    const seed = ((f.orderSeed || 1) % 2147483647) || 1
     orderSql = 'ORDER BY ((p.id * ?) % 2147483647)'
     orderParams.push(seed)
     if (sortable) {
       // 种子哈希决定主序；请求的列变成对 `_sort_col` 的外层重排。
       let selectExpr: string
-      if (VIRTUAL_SORT_COLUMNS.has(f.order_by!)) {
-        const v = resolveVirtualSort(f.order_by!, joins)
+      if (VIRTUAL_SORT_COLUMNS.has(f.orderBy!)) {
+        const v = resolveVirtualSort(f.orderBy!, joins)
         extraJoins.push(...v.extra)
         selectExpr = v.selectExpr
       }
       else {
-        selectExpr = `p.${f.order_by}`
+        selectExpr = `p.${f.orderBy}`
       }
       selectCols += `, ${selectExpr} AS _sort_col`
-      const resortDir = f.sort_direction === 'asc' ? 'ASC' : 'DESC'
+      const resortDir = f.sortDirection === 'asc' ? 'ASC' : 'DESC'
       resortSql = `ORDER BY _sort_col ${resortDir} NULLS LAST`
     }
   }
@@ -127,17 +127,17 @@ export function buildSearchQuery(
     const direction = f.order === 'asc' ? 'ASC' : 'DESC'
     // 唯一的次序键，让 offset 分页稳定：排序列上打平的行（score/rating 大量重复、
     // NULL 成片）否则顺序是任意的，翻页之间会变。
-    const tiebreak = f.order_by === 'id' ? '' : `, p.id ${direction}`
-    if (VIRTUAL_SORT_COLUMNS.has(f.order_by!)) {
-      const v = resolveVirtualSort(f.order_by!, joins)
+    const tiebreak = f.orderBy === 'id' ? '' : `, p.id ${direction}`
+    if (VIRTUAL_SORT_COLUMNS.has(f.orderBy!)) {
+      const v = resolveVirtualSort(f.orderBy!, joins)
       extraJoins.push(...v.extra)
       selectCols += `, ${v.selectExpr} AS _sort_col`
       orderSql = `ORDER BY ${v.orderExpr} ${direction} NULLS LAST${tiebreak}`
     }
     else {
-      if (f.order_by !== 'id')
-        selectCols += `, p.${f.order_by} AS _sort_col`
-      orderSql = `ORDER BY p.${f.order_by} ${direction}${tiebreak}`
+      if (f.orderBy !== 'id')
+        selectCols += `, p.${f.orderBy} AS _sort_col`
+      orderSql = `ORDER BY p.${f.orderBy} ${direction}${tiebreak}`
     }
   }
 
@@ -292,7 +292,7 @@ export function searchByTextVector(
   // 超采，让后置过滤器有足够候选凑满 limit。
   //
   // 这里原本写成 `where.length ? Math.max(want, 1000) : want`，但那个三元恒真 ——
-  // `buildWhere` 在 `only_canonical ?? true` 时无条件 push 一条 `canonical_post_id IS NULL`，
+  // `buildWhere` 在 `onlyCanonical ?? true` 时无条件 push 一条 `canonical_post_id IS NULL`，
   // 所以 `where` 永远非空。留着那个分支等于在说一件不成立的事。
   //
   // 直接超采也没有代价：vec0 的 KNN 开销由 O(N) 的距离扫描主导（22 万条向量，1–2 秒），

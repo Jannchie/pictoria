@@ -1,54 +1,85 @@
 /**
- * 与 Litestar 契约对齐所需的共享件。
+ * 路由层共享件：唯一的错误体、响应声明的糖，以及 zod 校验失败的翻译。
  *
- * `docs/openapi.baseline.json` 是真理，`scripts/openapi-contract-diff.mjs` 是裁判。
- * 这里放的是 baseline 里反复出现、必须逐字复刻的东西。
+ * 契约的守卫是 `pnpm contract:check`：它从活的 API 重新生成 `apps/web/src/api`，
+ * 生成物有 diff 就失败。所以这里没有"必须逐字复刻"的东西 —— 改了形状，把生成物
+ * 一起提交即可。
  */
+import type { Context } from 'hono'
 import { z } from '@hono/zod-openapi'
 
 /**
- * Litestar 给 70 个端点里的 63 个自动挂了同一个 400。Hono 没有等价机制，只能
- * 做成常量逐个端点显式挂上 —— 漏一个 contract-diff 就会报。
+ * 所有非 2xx 响应共用的体。`error` 是机器可读的码（`PostNotFoundError`、
+ * `ValidationError`…），`detail` 是给人看的一句话，前端的 toast 直接显示它；
+ * `issues` 只在 schema 校验失败时出现，逐条指出是哪个字段、错在哪。
  */
-export const ValidationError = z
+export const ErrorBody = z
   .object({
-    status_code: z.int(),
+    error: z.string(),
     detail: z.string(),
-    extra: z.any().openapi({ type: ['null', 'object', 'array'], additionalProperties: {} }).optional(),
+    issues: z.array(z.object({ path: z.string(), message: z.string() })).optional(),
   })
-  // schema 自身的 description（不是响应的），hey-api 把它转成类型上的 JSDoc。
-  .describe('Validation Exception')
+  .openapi('ErrorBody')
 
-export const RESP_400 = {
-  400: {
-    description: 'Bad request syntax or unsupported method',
-    content: { 'application/json': { schema: ValidationError } },
-  },
-} as const
+export type ErrorStatus = 400 | 404 | 405 | 409 | 422 | 500
 
-/** Litestar 200 响应固定用这句 description。 */
-export const OK = 'Request fulfilled, document follows'
-
-/**
- * 把 zod 的校验失败转成 Litestar 的 400 形状。
- *
- * `@hono/zod-openapi` 默认返回 `{success:false, error:{name:'ZodError',...}}`，
- * 而 Litestar 返回 `{status_code, detail, extra:[{message,key,source}]}`。前端
- * 的错误处理认后者，所以这里逐字段翻译。
- */
-/** 把一条 zod issue 翻成 msgspec 的措辞。 */
-function msgspecMessage(i: any): string {
-  const t = i.origin ?? i.expected
-  if (i.code === 'too_big')
-    return `Expected \`${t === 'number' ? 'int' : t}\` <= ${i.maximum}`
-  if (i.code === 'too_small')
-    return `Expected \`${t === 'number' ? 'int' : t}\` >= ${i.minimum}`
-  if (i.code === 'invalid_type')
-    return `Expected \`${i.expected === 'number' ? 'int' : i.expected}\``
-  return i.message
+const ERROR_DESCRIPTIONS: Record<ErrorStatus, string> = {
+  400: 'Bad Request',
+  404: 'Not Found',
+  405: 'Method Not Allowed',
+  409: 'Conflict',
+  422: 'Unprocessable Content',
+  500: 'Internal Server Error',
 }
 
-export function zodErrorHook(result: any, c: any) {
+type ErrorResponses<S extends readonly ErrorStatus[]> = {
+  [K in S[number]]: { description: string, content: { 'application/json': { schema: typeof ErrorBody } } }
+}
+
+/**
+ * 声明一个端点会回的错误状态：`responses: { 200: …, ...errors(400, 404) }`。
+ *
+ * 声明是有牙齿的：handler 里 `fail(c, 404, …)` 只有在这里列了 404 才通过类型检查，
+ * 反过来列了却没有任何路径会回它也只是文档多一条，所以宁可按实际抛的写。
+ */
+export function errors<const S extends readonly ErrorStatus[]>(...statuses: S): ErrorResponses<S> {
+  return Object.fromEntries(
+    statuses.map(s => [s, { description: ERROR_DESCRIPTIONS[s], content: { 'application/json': { schema: ErrorBody } } }]),
+  ) as ErrorResponses<S>
+}
+
+export const OK = 'OK'
+export const CREATED = 'Created'
+
+/**
+ * 一条错误响应。返回 `c.json(...)` 而不是裸 `Response`，类型才会对上 `errors()`
+ * 的声明 —— 声明了 `errors(404)` 的 handler 里 `fail(c, 409, …)` 编译不过。
+ *
+ * ⚠️ 用了 `errors()` 的 handler，成功路径要写显式状态：`c.json(x, 200)`。
+ * 不写的话 TS 会把状态推成所有已声明状态的并集，然后拿 200 的 schema 去对 400 的。
+ */
+export function fail<S extends ErrorStatus>(c: Context<any, any, any>, status: S, error: string, detail: string) {
+  return c.json({ error, detail }, status)
+}
+
+/** `fail` 的裸 `Response` 版，给本来就返回裸 `Response`（文件流）的 handler 用。 */
+export function errorResponse(status: ErrorStatus, error: string, detail: string): Response {
+  return Response.json({ error, detail }, { status })
+}
+
+/** 最常见的那一条。文案前端直接显示。 */
+export function postNotFound(c: Context<any, any, any>, postId: number) {
+  return fail(c, 404, 'PostNotFoundError', `Post with id ${postId} not found.`)
+}
+
+/**
+ * 把 zod 的校验失败转成 `ErrorBody`。
+ *
+ * `@hono/zod-openapi` 默认回 `{success:false, error:{name:'ZodError',...}}`，
+ * 和别的错误长得不一样，前端就得多认一种。这里挂成 `defaultHook`，让 schema
+ * 校验失败和手抛的 400 是同一个形状，只多一个 `issues`。
+ */
+export function zodErrorHook(result: { success: boolean, error?: z.ZodError }, c: Context<any, any, any>) {
   if (result.success)
     return undefined
   const issues = result.error?.issues ?? []
@@ -56,86 +87,21 @@ export function zodErrorHook(result: any, c: any) {
   const path = new URL(c.req.url).pathname
   return c.json(
     {
-      status_code: 400,
+      error: 'ValidationError',
       detail: `Validation failed for ${method} ${path}`,
-      extra: issues.map((i: any) => ({
-        // 措辞对齐 msgspec：`Expected \`int\` <= 5`，不是 zod 的
-        // `Too big: expected number to be <=5`。前端可能把这句直接显示给用户。
-        message: msgspecMessage(i),
-        key: Array.isArray(i.path) ? i.path[i.path.length - 1] : undefined,
-        // zod 不区分 body/query/path，Litestar 区分；这里给 body 作为最常见来源。
-        source: 'body',
-      })),
+      issues: issues.map(i => ({ path: i.path.map(String).join('.'), message: i.message })),
     },
     400,
   )
 }
 
 /**
- * Litestar 的领域错误形状：`{detail, error}`，**没有** `status_code` 字段
- * （那是 schema 校验失败 400 的形状）。
- *
- * 契约里大多没声明这些状态码，所以返回裸 `Response` 绕开 zod-openapi 的响应类型
- * 收窄 —— 调用点通常还要再补一个 `as never`。
- */
-export function domainError(detail: string, error: string, status: 400 | 404 | 409 | 422): Response {
-  return new Response(JSON.stringify({ detail, error }), {
-    status,
-    headers: { 'content-type': 'application/json' },
-  })
-}
-
-/**
- * Litestar 内建异常的形状：`{status_code, detail}`。
- *
- * 和 `domainError` 的 `{detail, error}` 是**两族**，不能混：前者来自 `HTTPException`
- * 的子类（`NotFoundException`、方法不允许…），后者是业务自己抛的 `DomainError`。
- * 两族各自只该有一个构造器，否则以后动响应体（比如统一 charset）要在三处找齐。
- */
-export function httpError(status: number, detail: string, headers?: Record<string, string>): Response {
-  return new Response(JSON.stringify({ status_code: status, detail }), {
-    status,
-    headers: { 'content-type': 'application/json', ...headers },
-  })
-}
-
-/** 最常见的那一条 —— 文案是契约的一部分，前端直接显示。 */
-export function postNotFound(postId: number): Response {
-  return domainError(`Post with id ${postId} not found.`, 'PostNotFoundError', 404)
-}
-
-/**
- * Litestar 手抛的 `ValidationException` → 400。
- *
- * ⚠️ 形状和 **schema 校验失败**不同：手抛的把消息直接放进 `detail` 且**没有 `extra`**，
- * 而 msgspec 的 schema 校验失败是 `{detail: "Validation failed for …", extra: [...]}`。
- * 同一个状态码，两种形状，前端分得出来。
- */
-export function validationError(message: string): Response {
-  return httpError(400, message)
-}
-
-/**
- * 布尔查询参数的真值解析。
+ * 布尔查询参数。
  *
  * 不能用 `z.coerce.boolean()`：它把任何非空串都当 true，`?flag=false` 会静默变成
- * true —— 语义反了还不报错。所以自己认 `false` / `0`（大小写不敏感），其余非空值
- * 为 true，缺省时取 `dflt`。
+ * true —— 语义反了还不报错。`z.stringbool()` 认 true/false/1/0/yes/no。
  */
-export function queryFlag(raw: string | undefined, dflt = false): boolean {
-  return raw === undefined ? dflt : !/^(?:false|0)$/i.test(raw)
-}
-
-/**
- * Python `repr()` 的等价物，只覆盖错误消息里真正出现的那几种值。
- *
- * 消息文本是契约的一部分（前端会直接显示），而 Python 侧写的是 `f"...: {value!r}"` ——
- * 字符串带单引号、列表是 `['a', 'b']`。JS 的模板插值会把列表变成 `a,b`，不一样。
- */
-export function pyRepr(value: unknown): string {
-  if (typeof value === 'string')
-    return `'${value}'`
-  if (Array.isArray(value))
-    return `[${value.map(v => pyRepr(v)).join(', ')}]`
-  return String(value)
+export function boolQuery(name: string, dflt: boolean) {
+  return z.stringbool().default(dflt)
+    .openapi({ param: { name, in: 'query', required: false }, type: 'boolean', default: dflt })
 }

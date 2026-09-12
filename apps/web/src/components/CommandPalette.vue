@@ -147,9 +147,9 @@ function applyQuery() {
       score: p.score,
       tags: p.tags,
       extension: p.extension,
-      waifu_score_levels: p.waifu_score_levels,
-      silva_score_levels: p.silva_score_levels,
-      silva_luna_score_levels: p.silva_luna_score_levels,
+      waifuScoreLevels: p.waifuScoreLevels,
+      silvaScoreLevels: p.silvaScoreLevels,
+      silvaLunaScoreLevels: p.silvaLunaScoreLevels,
     }
   }
   textSearchQuery.value = p.text

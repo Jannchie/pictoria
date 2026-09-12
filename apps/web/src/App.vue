@@ -62,15 +62,15 @@ function sortNodes(nodes: DirectorySummary[]): DirectorySummary[] {
     switch (key) {
       case 'name': { return d.name ?? ''
       }
-      case 'count': { return d.file_count ?? 0
+      case 'count': { return d.fileCount ?? 0
       }
-      case 'silva': { return d.silva_avg ?? -1
+      case 'silva': { return d.silvaAvg ?? -1
       }
-      case 'luna': { return d.silva_luna_avg ?? -1
+      case 'luna': { return d.silvaLunaAvg ?? -1
       }
-      case 'score': { return d.score_avg ?? -1
+      case 'score': { return d.scoreAvg ?? -1
       }
-      case 'rating': { return d.rating_avg ?? -1
+      case 'rating': { return d.ratingAvg ?? -1
       }
       default: { return ''
       }
@@ -90,12 +90,12 @@ function sortNodes(nodes: DirectorySummary[]): DirectorySummary[] {
 // second line (recursive per-directory SILVA / Score / Rating / coverage).
 function statsOf(d: DirectorySummary) {
   return {
-    silvaAvg: d.silva_avg,
-    silvaLunaAvg: d.silva_luna_avg,
-    scoreAvg: d.score_avg,
-    ratingAvg: d.rating_avg,
-    scoredRatio: d.scored_ratio,
-    postCount: d.post_count ?? 0,
+    silvaAvg: d.silvaAvg,
+    silvaLunaAvg: d.silvaLunaAvg,
+    scoreAvg: d.scoreAvg,
+    ratingAvg: d.ratingAvg,
+    scoredRatio: d.scoredRatio,
+    postCount: d.postCount ?? 0,
   }
 }
 
@@ -114,7 +114,7 @@ function convertPathToTree(path: DirectorySummary): TreeListItemData[] {
     const base = {
       title: child.name,
       value: child.path,
-      count: child.file_count,
+      count: child.fileCount,
       meta: statsOf(child),
     }
     if ((child.children?.length ?? 0) > 0) {
@@ -133,7 +133,7 @@ const folderTree = computed<TreeListItemData[]>(() => {
     {
       title: t('sidebar.root'),
       value: '@',
-      count: root.file_count,
+      count: root.fileCount,
       meta: statsOf(root),
     },
     ...convertPathToTree(root),

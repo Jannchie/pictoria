@@ -21,9 +21,8 @@ export function aestheticWorkerKey(scorer: string): string {
 /**
  * 排除某个 worker 桶下被拉黑的 post。带一个 `?`，调用方追加 worker 键。
  *
- * 迁移期间这张表还在：Python 侧的 backfill 仍在写它，两边的待办查询必须看到
- * 同一批候选，否则一个跳过的东西另一个会一直重算。cairnq 的重试语义最终会
- * 取代它（§D2），但那要等 Phase 6 把最后一个 worker 搬完。
+ * `post_process_failures` 是一次性失败黑名单：worker 明确说"这张读不了"的，下一轮
+ * 待办不再捡起来，否则一个损坏文件会让每一轮都白跑一次解码。
  */
 export function notFailedClause(alias = 'p'): string {
   return `NOT EXISTS (SELECT 1 FROM post_process_failures f WHERE f.post_id = ${alias}.id AND f.worker = ?)`

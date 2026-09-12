@@ -71,12 +71,12 @@ it('「这是重复测量」由服务端推导，客户端报什么都不算数'
 
   // 客户端老老实实报 'close'，服务端照样改写成 'repeat'
   const id = insertPairwise(sqlite, {
-    post_a: 2,
-    post_b: 1,
+    postA: 2,
+    postB: 1,
     dimension: 'overall',
     winner: 'b',
-    rubric_version: 'overall-v1',
-    session_id: 's',
+    rubricVersion: 'overall-v1',
+    sessionId: 's',
     strategy: 'close',
   })
   const strategy = sqlite
