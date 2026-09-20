@@ -91,7 +91,6 @@ function sortNodes(nodes: DirectorySummary[]): DirectorySummary[] {
 function statsOf(d: DirectorySummary) {
   return {
     silvaAvg: d.silvaAvg,
-    silvaLunaAvg: d.silvaLunaAvg,
     scoreAvg: d.scoreAvg,
     ratingAvg: d.ratingAvg,
     scoredRatio: d.scoredRatio,
@@ -99,13 +98,19 @@ function statsOf(d: DirectorySummary) {
   }
 }
 
+// The second row carries the file count and the score averages; an empty
+// folder has neither, so it collapses to a single line.
+function hasStatsLine(item: TreeListLeafData): boolean {
+  return (item.count ?? 0) > 0 || (item.meta?.postCount ?? 0) > 0
+}
+
 // Virtual-list row heights — MUST match what the row slots render, or rows
-// overlap / jump. Folders with a stats line (postCount > 0) are taller.
+// overlap / jump. Folders with a stats line are taller.
 function treeItemHeight(item: TreeListItemData): number {
   if (!('value' in item) && !('children' in item)) {
     return 28 // header
   }
-  return (item as TreeListLeafData).meta?.postCount ? 48 : 32
+  return hasStatsLine(item as TreeListLeafData) ? 48 : 32
 }
 
 function convertPathToTree(path: DirectorySummary): TreeListItemData[] {
@@ -518,19 +523,12 @@ function splitHighlight(text: string, filter: string): HighlightPart[] {
                       </span>
                     </div>
                     <FolderStatsLine
-                      v-if="data.meta && data.meta.postCount > 0"
+                      v-if="hasStatsLine(data)"
                       v-bind="data.meta"
+                      :count="data.count"
                       class="pl-5"
                     />
                   </div>
-                  <span
-                    class="text-[10px] font-mono ml-1.5 shrink-0 transition-colors tabular-nums"
-                    :class="[
-                      isSelected ? 'text-primary' : 'text-fg-subtle group-hover/row:text-fg-muted',
-                    ]"
-                  >
-                    {{ formatNumber(data.count ?? 0) }}
-                  </span>
                 </RouterLink>
                 <button
                   type="button"
@@ -592,20 +590,12 @@ function splitHighlight(text: string, filter: string): HighlightPart[] {
                     </span>
                   </div>
                   <FolderStatsLine
-                    v-if="data.meta && data.meta.postCount > 0"
+                    v-if="hasStatsLine(data)"
                     v-bind="data.meta"
+                    :count="data.count"
                     class="pl-5"
                   />
                 </div>
-                <span
-                  v-if="data.count != null"
-                  class="text-[10px] font-mono ml-1.5 shrink-0 transition-colors tabular-nums"
-                  :class="[
-                    isSelected ? 'text-primary' : 'text-fg-subtle group-hover/row:text-fg-muted',
-                  ]"
-                >
-                  {{ formatNumber(data.count) }}
-                </span>
               </RouterLink>
             </template>
           </PTreeList>

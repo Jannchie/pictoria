@@ -1,14 +1,15 @@
 <script setup lang="ts">
 import { computed } from 'vue'
 import { useI18n } from 'vue-i18n'
+import { formatNumber } from '@/locale'
 import { waifuLevelRgb } from '@/shared'
 
-// Per-directory aggregate stats, shown as the second line of a folder tree row.
-// The SILVA heads store raw 0~1; ×10 here to match how the scores are shown
-// elsewhere.
+// Per-directory aggregate stats, shown as the second line of a folder tree row:
+// the recursive file count first, then the score averages. SILVA stores raw
+// 0~1; ×10 here to match how the scores are shown elsewhere.
 const props = defineProps<{
+  count?: number | null
   silvaAvg?: number | null
-  silvaLunaAvg?: number | null
   scoreAvg?: number | null
   ratingAvg?: number | null
   scoredRatio?: number | null
@@ -25,16 +26,17 @@ function gradeColor(ratio: number): string {
   return waifuLevelRgb(ratio * 10)
 }
 
-const metrics = computed<{ key: string, label: string, value: string, color: string | null }[]>(() =>
+const metrics = computed<{ key: string, label: string, icon?: string, value: string, color: string | null }[]>(() =>
   [
+    { key: 'count', label: '', icon: 'i-tabler-files', raw: null as number | null, max: 1, value: formatNumber(props.count ?? 0) },
     { key: 'silva', label: 'SILVA', raw: props.silvaAvg, max: 1, value: props.silvaAvg == null ? '—' : (props.silvaAvg * 10).toFixed(1) },
-    { key: 'luna', label: 'LUNA', raw: props.silvaLunaAvg, max: 1, value: props.silvaLunaAvg == null ? '—' : (props.silvaLunaAvg * 10).toFixed(1) },
     { key: 'score', label: t('filter.score'), raw: props.scoreAvg, max: 5, value: props.scoreAvg == null ? '—' : props.scoreAvg.toFixed(1) },
     { key: 'rating', label: 'R', raw: props.ratingAvg, max: 4, value: props.ratingAvg == null ? '—' : props.ratingAvg.toFixed(1) },
-    { key: 'scored', label: '', raw: null as number | null, max: 1, value: props.scoredRatio == null ? '—' : `${Math.round(props.scoredRatio * 100)}%` },
+    { key: 'scored', label: '', raw: null, max: 1, value: props.scoredRatio == null ? '—' : `${Math.round(props.scoredRatio * 100)}%` },
   ].map(m => ({
     key: m.key,
     label: m.label,
+    icon: m.icon,
     value: m.value,
     color: m.raw == null ? null : `rgb(${gradeColor(m.raw / m.max)})`,
   })),
@@ -48,7 +50,8 @@ const metrics = computed<{ key: string, label: string, value: string, color: str
       :key="m.key"
       class="flex gap-0.5 items-center"
     >
-      <span v-if="m.label" class="text-fg-subtle">{{ m.label }}</span>
+      <i v-if="m.icon" class="text-fg-subtle h-3 w-3" :class="m.icon" aria-hidden="true" />
+      <span v-else-if="m.label" class="text-fg-subtle">{{ m.label }}</span>
       <span
         class="font-mono tabular-nums"
         :class="m.color ? '' : 'text-fg-muted'"
