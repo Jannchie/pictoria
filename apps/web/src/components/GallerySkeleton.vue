@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed } from 'vue'
-import { GRID_GAP, GRID_PAD, GRID_Y_GAP } from '@/shared/gridLayout'
+import { GRID_GAP, GRID_PAD } from '@/shared/gridLayout'
 
 // Placeholder grid shown while the first page of posts is in flight. It mirrors
 // the Waterfall's column geometry (same itemWidth / cols / gap) so the real
@@ -41,7 +41,7 @@ const columns = computed(() => {
       v-for="(column, ci) in columns"
       :key="ci"
       class="flex flex-col"
-      :style="{ gap: `${GRID_Y_GAP}px`, width: itemWidth > 0 ? `${itemWidth}px` : undefined, flex: itemWidth > 0 ? undefined : '1 1 0' }"
+      :style="{ gap: `${GRID_GAP}px`, width: itemWidth > 0 ? `${itemWidth}px` : undefined, flex: itemWidth > 0 ? undefined : '1 1 0' }"
     >
       <div
         v-for="(ratio, ri) in column"

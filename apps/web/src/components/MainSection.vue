@@ -11,7 +11,7 @@ import { Waterfall } from 'vue-wf'
 import { v2SearchPostsByText } from '@/api'
 import { notUsingInput, useKeyScope, useScoreHotkeys } from '@/composables/useKeyScope'
 import { clear as clearSelection, commitRotate, commitScore, currentPostList, deletePosts, galleryScrollPositions, postFilter, queryKeys, selectAll, selectedCount, selectedIdList, selectOnly, textSearchQuery, useInfinityPostsQuery, waterfallRowCount } from '@/shared'
-import { GRID_GAP, GRID_PAD, GRID_Y_GAP } from '@/shared/gridLayout'
+import { GRID_GAP, GRID_PAD } from '@/shared/gridLayout'
 import { POverlay } from '@/ui'
 import PDialog from '@/ui/PDialog.vue'
 import { isImageExtension } from '@/utils'
@@ -536,7 +536,6 @@ onMounted(() => {
         :gap="GRID_GAP"
         :padding-x="GRID_PAD"
         :padding-y="GRID_PAD"
-        :y-gap="GRID_Y_GAP"
         @pointerdown="emptyPointerDown"
       >
         <PostItem
