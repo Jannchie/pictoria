@@ -49,6 +49,10 @@ onUnmounted(() => {
 })
 const imgRef = ref<HTMLImageElement>()
 const imageLoaded = ref(false)
+// Fallback ratio measured from the decoded image, for posts whose stored
+// width/height are 0 (e.g. imported without dimensions). Without it the
+// container has no aspect-ratio and the 80vh cap below has nothing to bite on.
+const naturalRatio = ref<number | null>(null)
 
 function getPostColor(post: { colors: { color: number, order: number }[] }) {
   if (post.colors && post.colors.length > 0) {
@@ -70,8 +74,11 @@ const imageAspectRatio = computed(() => {
   if (p.width && p.height) {
     return p.width / p.height
   }
-  return null
+  return naturalRatio.value
 })
+
+// Longest the image may be on screen, whichever way the ratio is known.
+const MAX_IMAGE_HEIGHT = '80vh'
 
 const containerStyle = computed(() => {
   const p = post.value
@@ -82,17 +89,18 @@ const containerStyle = computed(() => {
   const ratio = imageAspectRatio.value
   if (ratio) {
     style.aspectRatio = String(ratio)
-    const widthCaps = ['100%', `calc(80vh * ${ratio})`]
+    const widthCaps = ['100%', `calc(${MAX_IMAGE_HEIGHT} * ${ratio})`]
     if (p.width) {
       widthCaps.unshift(`${p.width}px`)
     }
     style.width = `min(${widthCaps.join(', ')})`
   }
   else {
-    style.width = '100%'
-    if (p.width) {
-      style.maxWidth = `${p.width}px`
-    }
+    // Ratio unknown until the image decodes: let the <img> size itself
+    // (see imageSizeClass) and only bound it.
+    style.width = 'fit-content'
+    style.maxWidth = '100%'
+    style.maxHeight = MAX_IMAGE_HEIGHT
   }
   const color = getPostColor(p)
   if (color !== 'primary') {
@@ -101,12 +109,23 @@ const containerStyle = computed(() => {
   return style
 })
 
+// With a known ratio the container is sized and the image fills it; without
+// one the image sizes itself and is capped by the same height limit.
+const imageSizeClass = computed(() =>
+  imageAspectRatio.value ? 'h-full w-full' : 'h-auto w-auto max-h-[80vh] max-w-full',
+)
+
 function onImageLoad() {
   imageLoaded.value = true
+  const img = imgRef.value
+  if (img && img.naturalWidth && img.naturalHeight) {
+    naturalRatio.value = img.naturalWidth / img.naturalHeight
+  }
 }
 
 watch(postId, (id) => {
   imageLoaded.value = false
+  naturalRatio.value = null
   if (Number.isFinite(id)) {
     // 清空选区而不是把主图塞进去：useFocusedPost 在选区为空时会回退到 URL 主图，
     // 侧边栏照样跟随主图（进入页面、键盘 ←→ 切换）。这样用户框选/Ctrl/Shift 点选
@@ -297,8 +316,8 @@ async function confirmDelete() {
               :height="post.height ?? undefined"
               fetchpriority="high"
               decoding="async"
-              class="h-full w-full block transition-opacity duration-300 object-contain"
-              :class="{ 'opacity-0': (!enableArthash || !post.arthash) && !imageLoaded }"
+              class="block transition-opacity duration-300 object-contain"
+              :class="[imageSizeClass, { 'opacity-0': (!enableArthash || !post.arthash) && !imageLoaded }]"
               @load="onImageLoad"
             >
             <ArthashPlaceholder
