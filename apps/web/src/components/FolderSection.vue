@@ -1,10 +1,19 @@
 <script setup lang="ts">
+import { useRoute } from 'vue-router'
 import { useCurrentFolder, useFoldersQuery } from '@/shared'
 
+const route = useRoute()
 const currentFolder = useCurrentFolder()
 const foldersQuery = useFoldersQuery()
 
+// /random and /recently resolve to the root folder too, but they are views
+// over the whole library, not a place in the tree — no sub-folder shortcuts.
+const isFolderView = computed(() => route.path !== '/random' && route.path !== '/recently')
+
 const subFolders = computed(() => {
+  if (!isFolderView.value) {
+    return []
+  }
   // 寻找 currentFolder 下的直属子文件夹
   if (currentFolder.value === '@') {
     return (foldersQuery.data.value?.children ?? []).map((f) => {
