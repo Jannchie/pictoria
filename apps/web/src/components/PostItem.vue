@@ -187,8 +187,8 @@ function formatSortValue(v: number | string): SortBadge | undefined {
     case 'last_accessed_at': {
       return { text: formatDate(v) }
     }
-    // file_name is already the caption under the thumbnail; id is the
-    // "no particular sort" default — no badge for either.
+    // file_name is not worth a badge (the grid is pictures, not a listing);
+    // id is the "no particular sort" default — no badge for either.
     default: {
       return undefined
     }
@@ -230,16 +230,16 @@ function onKeyDown(e: KeyboardEvent) {
 </script>
 
 <template>
-  <!-- One caption line under the image (filename, muted); the dimensions are a
-       hover-only badge on the image itself. Everything permanent besides the
-       thumbnail is small and low-contrast so a full grid reads as pictures,
-       not as a table of labels. The caption height is part of GRID_Y_GAP. -->
+  <!-- Nothing but the thumbnail is permanent: the filename lives in the
+       aria-label / detail panel, and the dimensions are a hover-only badge on
+       the image itself, so a full grid reads as pictures, not as a table of
+       labels. -->
   <div
     role="button"
     tabindex="0"
     :aria-pressed="selected"
     :aria-label="`${post.fileName}.${post.extension}`"
-    class="post-item group/post flex flex-col gap-1.5 focus:outline-none"
+    class="post-item group/post focus:outline-none"
     :class="{ selected }"
     draggable="true"
     @dragstart.stop
@@ -333,9 +333,6 @@ function onKeyDown(e: KeyboardEvent) {
         </div>
       </div>
     </PAspectRatio>
-    <div class="post-caption text-xs text-fg-muted leading-tight px-0.5 w-full truncate transition-colors">
-      {{ `${post.fileName}.${post.extension}` }}
-    </div>
   </div>
 </template>
 
@@ -346,12 +343,9 @@ function onKeyDown(e: KeyboardEvent) {
   outline-offset: 2px;
 }
 /* Hover: a faint outline is enough to say "this one" without competing with
-   the selection ring; the caption lifts to full foreground at the same time. */
+   the selection ring. */
 .post-item:hover .post-content {
   outline-color: rgb(var(--p-fg-rgb) / 0.2);
-}
-.post-item:hover .post-caption {
-  color: var(--p-fg);
 }
 .post-item:focus-visible .post-content {
   outline-color: rgb(var(--p-primary-rgb) / 0.7);
@@ -362,11 +356,7 @@ function onKeyDown(e: KeyboardEvent) {
 .selected:hover .post-content {
   outline-color: var(--p-primary);
 }
-.selected .post-caption {
-  color: var(--p-primary);
-}
 @media (prefers-reduced-motion: reduce) {
-  .post-content,
-  .post-caption { transition: none; }
+  .post-content { transition: none; }
 }
 </style>

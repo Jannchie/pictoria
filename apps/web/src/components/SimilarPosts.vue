@@ -57,7 +57,7 @@ function emptyPointerDown(e: PointerEvent) {
     :gap="24"
     :padding-x="8"
     :padding-y="8"
-    :y-gap="36"
+    :y-gap="24"
     @pointerdown="emptyPointerDown"
   >
     <PostItem

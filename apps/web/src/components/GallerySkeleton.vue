@@ -46,15 +46,9 @@ const columns = computed(() => {
       <div
         v-for="(ratio, ri) in column"
         :key="ri"
-        class="flex flex-col gap-1.5"
-      >
-        <div
-          class="rounded-md bg-surface-1 w-full animate-pulse"
-          :style="{ aspectRatio: String(ratio) }"
-        />
-        <!-- One caption line, left-aligned, like PostItem's filename. -->
-        <div class="rounded-xs bg-surface-1 h-3 w-2/3 animate-pulse" />
-      </div>
+        class="rounded-md bg-surface-1 w-full animate-pulse"
+        :style="{ aspectRatio: String(ratio) }"
+      />
     </div>
   </div>
 </template>
