@@ -5,8 +5,9 @@ shard, the images scoring ``>= 0.80`` (``images/XXXX/<post_id>.webp``) and a
 parquet of scores (``scores/data-XXXX.parquet``). Tags, rating, source and
 upload date come from the Danbooru metadata archive (``danbooru_metadata.db``),
 looked up by post id. This script walks every shard the mirror has, copies the
-images into ``<library>/danbooru2026/<shard>/``, writes the posts with their
-tags, and writes the SILVA score straight into ``post_aesthetic_scores`` —
+images into ``<library>/danbooru/<artist>/`` — the tag importer's own tree, so
+the two sources merge — writes the posts with their tags, and writes the SILVA
+score straight into ``post_aesthetic_scores`` —
 same model as the library's ``silva`` scorer, so re-scoring on the GPU would
 only reproduce the parquet.
 
@@ -20,8 +21,10 @@ collision only replays the small part. Copy precedes persist on purpose — a
 row must never exist before its file, or the API's sync reconciler deletes it
 mid-copy. Temp files are ``*.part``, which the reconciler already skips.
 
-Re-runnable: a post already imported with a manual tag is skipped, so after
-``sync.py`` pulls more shards, running this again picks up only the new ones.
+Re-runnable and deduplicated by post id: anything already under ``danbooru/``
+with a manual tag — from the tag importer or an earlier run — is skipped, so
+after ``sync.py`` pulls more shards, running this again picks up only the new
+ones.
 
 Run from the server/ dir:
     uv run python scripts/import_silva_dataset.py --dataset-dir F:/mirror --metadata-db E:/meta.db
@@ -48,10 +51,7 @@ SERVER_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(SERVER_ROOT / "src"))
 
 from paths import db_path, target_dir
-from services.silva_dataset_import import ShardJob, import_shard
-
-#: Top-level library directory for this dataset; the shard is the subdirectory.
-LIBRARY_DIR_NAME = "danbooru2026"
+from services.silva_dataset_import import LIBRARY_DIR, ShardJob, import_shard
 
 #: ``scorer`` value in ``post_aesthetic_scores`` — the ``ScorerSpec`` name.
 SILVA_SCORER = "silva"
@@ -116,31 +116,31 @@ def ensure_canonical_tag_groups(conn: sqlite3.Connection) -> dict[str, int]:
     return out
 
 
-def imported_ids(conn: sqlite3.Connection, file_path: str) -> set[str]:
-    """Post ids under ``file_path`` that already carry a manual tag.
+def library_danbooru_posts(conn: sqlite3.Connection) -> tuple[set[str], dict[str, tuple[str, str]]]:
+    """What the library already holds under ``danbooru/``, keyed by post id.
 
-    Same rule as TS ``listImportedDanbooruIds``: "has a manual tag", not "row
-    exists" — the sync reconciler inserts bare rows for files it finds on disk,
-    and those must still get their tags on the next run.
-    """
-    rows = conn.execute(
-        "SELECT p.file_name FROM posts p JOIN post_has_tag pht ON pht.post_id = p.id AND pht.is_auto = 0 WHERE p.file_path = ?",
-        (file_path,),
-    )
-    return {r[0] for r in rows}
-
-
-def library_danbooru_ids(conn: sqlite3.Connection) -> set[str]:
-    """Danbooru post ids the library already holds, from any directory but ours.
-
-    The tag importer files every post as ``danbooru/<tag>/<post_id>.<ext>``, so
-    ``file_name`` under ``danbooru/`` *is* the post id — the same equivalence
-    ``listImportedDanbooruIds`` leans on. Measured before this was written: of
-    the first 50k mirror ids, 7.5% were already in the library this way, and
+    The tag importer files every post as ``danbooru/<tag>/<post_id>.<ext>``,
+    so ``file_name`` there *is* the post id — the same equivalence TS
+    ``listImportedDanbooruIds`` leans on. Split the way that function splits:
+    ids with a manual tag are done; the rest are bare rows the sync reconciler
+    made from files on disk, returned with where they sit so the importer can
+    tell "ours, waiting for tags" from "someone else's". Measured before this
+    was written: 7.5% of the first 50k mirror ids were already here, and
     matching on ``source`` URL on top found nothing more.
     """
-    rows = conn.execute("SELECT file_name FROM posts WHERE file_path LIKE 'danbooru/%'")
-    return {r[0] for r in rows}
+    tagged: set[str] = set()
+    bare: dict[str, tuple[str, str]] = {}
+    rows = conn.execute(
+        "SELECT p.file_name, p.file_path, p.extension, "
+        "EXISTS (SELECT 1 FROM post_has_tag t WHERE t.post_id = p.id AND t.is_auto = 0) "
+        f"FROM posts p WHERE p.file_path LIKE '{LIBRARY_DIR}/%'",
+    )
+    for file_name, file_path, ext, has_tag in rows:
+        if has_tag:
+            tagged.add(file_name)
+        else:
+            bare[file_name] = (file_path, ext)
+    return tagged, bare
 
 
 def persist_rows(conn: sqlite3.Connection, rows: list[dict]) -> int:
@@ -200,7 +200,7 @@ def main() -> int:
     ap.add_argument(
         "--no-dedup",
         action="store_true",
-        help="import posts even when the library already has them under danbooru/<tag>/",
+        help="import posts even when the library already has them under danbooru/",
     )
     args = ap.parse_args()
 
@@ -218,17 +218,18 @@ def main() -> int:
 
     print(f"mirror   : {dataset_dir}  ({len(shards)} shards)")
     print(f"metadata : {metadata_db}")
-    print(f"library  : {library / LIBRARY_DIR_NAME}")
+    print(f"library  : {library / LIBRARY_DIR}/<artist>/")
     print(f"database : {database}{'  (dry run)' if args.dry_run else ''}")
 
     conn = connect(database)
     type_to_group_id = ensure_canonical_tag_groups(conn)
-    duplicate_ids = set() if args.no_dedup else library_danbooru_ids(conn)
-    print(f"dedup    : {len(duplicate_ids)} danbooru ids already in the library{'  (off)' if args.no_dedup else ''}")
+    library_ids, bare_rows = (set(), {}) if args.no_dedup else library_danbooru_posts(conn)
+    print(
+        f"dedup    : {len(library_ids)} danbooru ids already in the library, {len(bare_rows)} bare rows{'  (off)' if args.no_dedup else ''}",
+    )
 
     totals = {
         "onDisk": 0,
-        "skipped": 0,
         "duplicates": 0,
         "missingMeta": 0,
         "missingScore": 0,
@@ -238,29 +239,31 @@ def main() -> int:
     }
     t0 = time.time()
     for i, shard in enumerate(shards, 1):
-        file_path = f"{LIBRARY_DIR_NAME}/{shard}"
         job = ShardJob(
             parquet_path=dataset_dir / "scores" / f"data-{shard}.parquet",
             images_dir=dataset_dir / "images" / shard,
             metadata_db=metadata_db,
-            save_dir=library / LIBRARY_DIR_NAME / shard,
-            file_path_str=file_path,
-            existing_ids=imported_ids(conn, file_path),
+            library_root=library,
             type_to_group_id=type_to_group_id,
-            duplicate_ids=duplicate_ids,
+            library_ids=library_ids,
+            bare_rows=bare_rows,
             dry_run=args.dry_run,
         )
         result = import_shard(job)
         scores = 0 if args.dry_run else persist_rows(conn, result.rows)
+        # Ids land in the library as they are written, so a post that turns up
+        # in two shards (it cannot, but the mirror is not ours to trust) and a
+        # re-run against a half-written mirror both dedup correctly.
+        library_ids.update(r["fileName"] for r in result.rows)
         st = result.stats
-        for k in ("onDisk", "skipped", "duplicates", "missingMeta", "missingScore", "copied", "rows"):
+        for k in ("onDisk", "duplicates", "missingMeta", "missingScore", "copied", "rows"):
             totals[k] += st[k]
         totals["scores"] += scores
         elapsed = time.time() - t0
         eta = elapsed / i * (len(shards) - i)
         print(
             f"[{i}/{len(shards)}] {shard}: disk {st['onDisk']:>4}  new {st['rows']:>4}  copied {st['copied']:>4}"
-            f"  dup {st['duplicates']:>4}  skip {st['skipped']:>4}  no-meta {st['missingMeta']:>3}  no-score {st['missingScore']:>3}"
+            f"  dup {st['duplicates']:>4}  no-meta {st['missingMeta']:>3}  no-score {st['missingScore']:>3}"
             f"  ({elapsed:.0f}s, eta {eta:.0f}s)",
             flush=True,
         )
@@ -269,7 +272,7 @@ def main() -> int:
     print(
         f"\ndone in {time.time() - t0:.0f}s: on disk {totals['onDisk']}, imported {totals['rows']} "
         f"(copied {totals['copied']}, scores {totals['scores']}), duplicates {totals['duplicates']}, "
-        f"skipped {totals['skipped']}, no metadata {totals['missingMeta']}, no score {totals['missingScore']}",
+        f"no metadata {totals['missingMeta']}, no score {totals['missingScore']}",
     )
     if not args.dry_run and totals["rows"]:
         print("the API's backfill will pick up embeddings / silva_luna / tags for the new posts on its next scan.")

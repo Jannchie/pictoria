@@ -17,11 +17,13 @@ import pytest
 
 from services.silva_dataset_import import (
     ShardJob,
+    artist_dir,
     build_tag_to_group,
     copy_into_library,
     import_shard,
     lookup_metadata,
     read_shard_scores,
+    safe_dir_name,
 )
 
 if TYPE_CHECKING:
@@ -58,6 +60,22 @@ def _write_metadata(path: Path, rows: list[dict[str, object]]) -> None:
     con.close()
 
 
+def _meta_row(post_id: int, **over: object) -> dict[str, object]:
+    row: dict[str, object] = {
+        "id": post_id,
+        "rating": "g",
+        "created_at": None,
+        "source": "",
+        "artist": "",
+        "character": "",
+        "copyright": "",
+        "general": "",
+        "meta": "",
+    }
+    row.update(over)
+    return row
+
+
 @pytest.fixture
 def mirror(tmp_path: Path) -> dict[str, Path]:
     dataset = tmp_path / "dataset"
@@ -75,28 +93,17 @@ def mirror(tmp_path: Path) -> dict[str, Path]:
     _write_metadata(
         meta,
         [
-            {
-                "id": 1000,
-                "rating": "s",
-                "created_at": "2014-01-15T17:47:56.087-05:00",
-                "source": "https://example.test/a",
-                "artist": "alice",
-                "character": "bob alice",
-                "copyright": "",
-                "general": "solo  smile",
-                "meta": "highres",
-            },
-            {
-                "id": 9999,
-                "rating": "g",
-                "created_at": None,
-                "source": "",
-                "artist": "",
-                "character": "",
-                "copyright": "",
-                "general": "",
-                "meta": "",
-            },
+            _meta_row(
+                1000,
+                rating="s",
+                created_at="2014-01-15T17:47:56.087-05:00",
+                source="https://example.test/a",
+                artist="alice",
+                character="bob alice",
+                general="solo  smile",
+                meta="highres",
+            ),
+            _meta_row(9999),
         ],
     )
     return {"dataset": dataset, "meta": meta, "library": tmp_path / "library"}
@@ -126,6 +133,22 @@ def test_build_tag_to_group_keeps_highest_priority_group() -> None:
     assert build_tag_to_group(strings, TYPE_TO_GROUP) == {"alice": 1, "bob": 2, "solo": 4}
 
 
+def test_safe_dir_name_matches_the_ts_sanitiser() -> None:
+    assert safe_dir_name("re:rin") == "re_rin"
+    assert safe_dir_name('a/b\\c<d>e|f?g*h"i') == "a_b_c_d_e_f_g_h_i"
+    assert safe_dir_name("trailing. ") == "trailing"
+    assert safe_dir_name("ctl\x01char") == "ctl_char"
+    assert safe_dir_name("...") == "_"
+    assert safe_dir_name("4q_(lokcy516)") == "4q_(lokcy516)"
+
+
+def test_artist_dir_takes_the_first_artist_or_the_fallback() -> None:
+    assert artist_dir({"artist": "haku89 moe_maboroshi_jigen"}) == "haku89"
+    assert artist_dir({"artist": "re:rin"}) == "re_rin"
+    assert artist_dir({"artist": ""}) == "_no_artist"
+    assert artist_dir({}) == "_no_artist"
+
+
 def test_copy_into_library_skips_same_size_and_leaves_no_part_file(tmp_path: Path) -> None:
     src = tmp_path / "src.webp"
     src.write_bytes(b"abc")
@@ -139,31 +162,30 @@ def test_copy_into_library_skips_same_size_and_leaves_no_part_file(tmp_path: Pat
 
 def _job(
     mirror: dict[str, Path],
-    existing: set[str] | None = None,
     *,
-    duplicates: set[str] | None = None,
+    library_ids: set[str] | None = None,
+    bare_rows: dict[str, tuple[str, str]] | None = None,
     dry_run: bool = False,
 ) -> ShardJob:
     return ShardJob(
         parquet_path=mirror["dataset"] / "scores" / "data-0007.parquet",
         images_dir=mirror["dataset"] / "images" / "0007",
         metadata_db=mirror["meta"],
-        save_dir=mirror["library"] / "danbooru2026" / "0007",
-        file_path_str="danbooru2026/0007",
-        existing_ids=existing or set(),
+        library_root=mirror["library"],
         type_to_group_id=TYPE_TO_GROUP,
-        duplicate_ids=duplicates or set(),
+        library_ids=library_ids or set(),
+        bare_rows=bare_rows or {},
         dry_run=dry_run,
     )
 
 
-def test_import_shard_returns_rows_for_images_with_metadata(mirror: dict[str, Path]) -> None:
+def test_import_shard_files_posts_under_their_artist(mirror: dict[str, Path]) -> None:
     result = import_shard(_job(mirror))
 
     # 1000: on disk + metadata + score. 2000: on disk, no metadata → skipped.
     assert [r["fileName"] for r in result.rows] == ["1000"]
     row = result.rows[0]
-    assert row["filePath"] == "danbooru2026/0007"
+    assert row["filePath"] == "danbooru/alice"
     assert row["extension"] == "webp"
     assert row["rating"] == 2
     assert row["source"] == "https://example.test/a"
@@ -171,16 +193,16 @@ def test_import_shard_returns_rows_for_images_with_metadata(mirror: dict[str, Pa
     assert row["tags"] == {"alice": 1, "bob": 2, "solo": 4, "smile": 4, "highres": 5}
     assert row["silvaScore"] == pytest.approx(0.91, abs=1e-6)
 
-    # Only the importable one is copied; the stranger never touches the library.
-    copied = sorted(p.name for p in (mirror["library"] / "danbooru2026" / "0007").iterdir())
-    assert copied == ["1000.webp"]
-    assert (mirror["library"] / "danbooru2026" / "0007" / "1000.webp").read_bytes() == b"RIFF-one"
+    # Only the importable one is copied, into the artist directory; the
+    # stranger never touches the library.
+    copied = sorted(p.relative_to(mirror["library"]).as_posix() for p in mirror["library"].rglob("*.webp"))
+    assert copied == ["danbooru/alice/1000.webp"]
+    assert (mirror["library"] / "danbooru" / "alice" / "1000.webp").read_bytes() == b"RIFF-one"
 
     assert result.stats == {
         "scored": 2,
         "top": 1,
         "onDisk": 2,
-        "skipped": 0,
         "duplicates": 0,
         "missingMeta": 1,
         "missingScore": 0,
@@ -189,12 +211,31 @@ def test_import_shard_returns_rows_for_images_with_metadata(mirror: dict[str, Pa
     }
 
 
-def test_import_shard_skips_already_imported_ids(mirror: dict[str, Path]) -> None:
-    result = import_shard(_job(mirror, existing={"1000"}))
+def test_import_shard_skips_posts_the_library_already_holds(mirror: dict[str, Path]) -> None:
+    # 1000 is already in the library (tag importer or an earlier run): not
+    # copied, not a row, counted as a duplicate.
+    result = import_shard(_job(mirror, library_ids={"1000", "424242"}))
     assert result.rows == []
-    assert result.stats["skipped"] == 1
+    assert result.stats["duplicates"] == 1
     assert result.stats["copied"] == 0
-    assert not (mirror["library"] / "danbooru2026" / "0007" / "1000.webp").exists()
+    assert not (mirror["library"] / "danbooru").exists()
+
+
+def test_a_bare_row_at_our_own_path_is_repaired_not_duplicated(mirror: dict[str, Path]) -> None:
+    # The reconciler registered danbooru/alice/1000.webp with no tags (a crash
+    # between copy and persist): the row comes back so the upsert can fill it.
+    result = import_shard(_job(mirror, bare_rows={"1000": ("danbooru/alice", "webp")}))
+    assert [r["fileName"] for r in result.rows] == ["1000"]
+    assert result.stats["duplicates"] == 0
+
+
+def test_a_bare_row_elsewhere_is_a_duplicate(mirror: dict[str, Path]) -> None:
+    # The tag importer's own bare row (original jpg under the searched tag):
+    # not ours to repair, and importing would make a second file.
+    result = import_shard(_job(mirror, bare_rows={"1000": ("danbooru/some_tag", "jpg")}))
+    assert result.rows == []
+    assert result.stats["duplicates"] == 1
+    assert not (mirror["library"] / "danbooru").exists()
 
 
 def test_import_shard_is_idempotent(mirror: dict[str, Path]) -> None:
@@ -205,7 +246,8 @@ def test_import_shard_is_idempotent(mirror: dict[str, Path]) -> None:
 
 
 def test_import_shard_without_score_still_imports(mirror: dict[str, Path]) -> None:
-    # 2000 is ok=false in the parquet; give it metadata and it imports unscored.
+    # 2000 is ok=false in the parquet; give it metadata (no artist) and it
+    # imports unscored, into the no-artist directory.
     con = sqlite3.connect(mirror["meta"])
     con.execute("INSERT INTO posts VALUES (2000, 'e', NULL, NULL, '', '', '', 'solo', '')")
     con.commit()
@@ -215,29 +257,14 @@ def test_import_shard_without_score_still_imports(mirror: dict[str, Path]) -> No
     by_name = {r["fileName"]: r for r in result.rows}
     assert by_name["2000"]["silvaScore"] is None
     assert by_name["2000"]["rating"] == 4
+    assert by_name["2000"]["filePath"] == "danbooru/_no_artist"
     assert by_name["2000"]["source"] == "https://danbooru.donmai.us/posts/2000"
     assert result.stats["missingScore"] == 1
+    assert (mirror["library"] / "danbooru" / "_no_artist" / "2000.webp").exists()
 
 
 def test_dry_run_builds_rows_without_touching_disk(mirror: dict[str, Path]) -> None:
     result = import_shard(_job(mirror, dry_run=True))
     assert [r["fileName"] for r in result.rows] == ["1000"]
     assert result.stats["copied"] == 0
-    assert not (mirror["library"] / "danbooru2026").exists()
-
-
-def test_import_shard_skips_posts_the_library_already_holds_elsewhere(mirror: dict[str, Path]) -> None:
-    # 1000 is already in the library as danbooru/<tag>/1000.jpg: not copied, not
-    # a row, and counted as a duplicate rather than as "already imported here".
-    result = import_shard(_job(mirror, duplicates={"1000", "424242"}))
-    assert result.rows == []
-    assert result.stats["duplicates"] == 1
-    assert result.stats["skipped"] == 0
-    assert result.stats["copied"] == 0
-    assert not (mirror["library"] / "danbooru2026" / "0007" / "1000.webp").exists()
-
-
-def test_existing_here_wins_over_duplicate_elsewhere(mirror: dict[str, Path]) -> None:
-    result = import_shard(_job(mirror, existing={"1000"}, duplicates={"1000"}))
-    assert result.stats["skipped"] == 1
-    assert result.stats["duplicates"] == 0
+    assert not (mirror["library"] / "danbooru").exists()

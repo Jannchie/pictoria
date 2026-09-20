@@ -7,6 +7,10 @@ scores (``post_id, score, raw_score, ok``) and a tar of the images scoring
 *not* in the dataset — they come from the Danbooru metadata archive
 (``danbooru_metadata.db``, the ``posts`` table), looked up by post id.
 
+Files land where the tag importer would have put them — ``danbooru/<artist>/
+<post_id>.webp`` — so the two sources merge into one tree and dedup is a
+lookup on the post id.
+
 This module is the fetch/parse half, same split as ``danbooru_import.py``: it
 reads the parquet, the metadata SQLite (read-only — it is **not**
 ``pictoria.sqlite``) and copies bytes into the library, then hands back rows
@@ -44,7 +48,7 @@ IMAGE_EXT = "webp"
 _RATING: dict[str, int] = {"g": 1, "s": 2, "q": 3, "e": 4}
 
 #: The ``tag_string_*`` columns, in the order the importer reads them. The
-#: worker's ``typeToGroupId`` decides priority; this just names what exists.
+#: caller's ``type_to_group_id`` decides priority; this just names what exists.
 TAG_TYPES: tuple[str, ...] = ("artist", "character", "copyright", "general", "meta")
 
 _METADATA_COLUMNS = ("id", "rating", "created_at", "source", *(f"tag_string_{t}" for t in TAG_TYPES))
@@ -52,6 +56,20 @@ _METADATA_COLUMNS = ("id", "rating", "created_at", "source", *(f"tag_string_{t}"
 #: SQLite's default ``SQLITE_MAX_VARIABLE_NUMBER`` is 32766 on modern builds,
 #: 999 on old ones; a shard's top slice is ~160 ids, so one chunk is the norm.
 _LOOKUP_CHUNK = 500
+
+#: The library directory the tag importer writes to; artist directories go
+#: under it. Same literal as ``routes/commands.ts``'s ``danbooru/${tag}``.
+LIBRARY_DIR = "danbooru"
+
+#: Artist directory for a post with no artist tag. Danbooru has plenty
+#: (3.6% of the top slice, measured) and they still deserve one home rather
+#: than a dump into the library root.
+NO_ARTIST_DIR = "_no_artist"
+
+#: Windows forbids these in a path component; ``re:rin`` would otherwise
+#: fail mkdir. Same set as ``danbooru_import._FS_ILLEGAL_CHARS`` and the TS
+#: ``safeDirName``.
+_FS_ILLEGAL_CHARS: frozenset[str] = frozenset('<>:"/\\|?*')
 
 
 @dataclass(frozen=True)
@@ -144,6 +162,30 @@ def lookup_metadata(db_path: Path, post_ids: Iterable[int]) -> dict[int, Metadat
     return out
 
 
+def safe_dir_name(name: str) -> str:
+    """A tag as a directory name — a transcript of TS ``safeDirName``.
+
+    Illegal and control characters become ``_``; trailing dots and spaces go
+    (Windows drops them silently, which would make the directory unfindable
+    by its recorded name); an empty result becomes ``_``.
+    """
+    out = "".join("_" if ch in _FS_ILLEGAL_CHARS or ch < " " else ch for ch in name)
+    return out.rstrip(". \t\r\n") or "_"
+
+
+def artist_dir(tag_strings: dict[str, str]) -> str:
+    """Which ``danbooru/<dir>`` a post belongs in: its first artist tag.
+
+    First rather than joined: Danbooru sorts ``tag_string_artist``
+    alphabetically, so the choice is deterministic, and the tag importer's
+    tree already files a collaboration under whichever artist was searched —
+    one directory per post is the convention either way. 0.2% of the top
+    slice has more than one artist.
+    """
+    artists = tag_strings.get("artist", "").split()
+    return safe_dir_name(artists[0]) if artists else NO_ARTIST_DIR
+
+
 def build_tag_to_group(tag_strings: dict[str, str], type_to_group_id: dict[str, int]) -> dict[str, int]:
     """``{tag_name: group_id}`` from the per-type tag strings.
 
@@ -161,7 +203,6 @@ def build_tag_to_group(tag_strings: dict[str, str], type_to_group_id: dict[str, 
 def build_row(
     meta: MetadataRow,
     score: float | None,
-    file_path_str: str,
     type_to_group_id: dict[str, int],
 ) -> dict[str, Any]:
     """One post in the ``posts`` table's own terms, plus its SILVA score.
@@ -172,7 +213,7 @@ def build_row(
     from utils import resolve_source  # noqa: PLC0415
 
     return {
-        "filePath": file_path_str,
+        "filePath": f"{LIBRARY_DIR}/{artist_dir(meta.tag_strings)}",
         "fileName": str(meta.post_id),
         "extension": IMAGE_EXT,
         "source": resolve_source(meta.source, f"https://danbooru.donmai.us/posts/{meta.post_id}"),
@@ -207,17 +248,20 @@ class ShardJob:
     parquet_path: Path
     images_dir: Path
     metadata_db: Path
-    save_dir: Path
-    file_path_str: str
-    #: Post ids already imported *with tags* under ``file_path_str``.
-    existing_ids: set[str]
+    #: The image library root; files go to ``<root>/danbooru/<artist>/``.
+    library_root: Path
     type_to_group_id: dict[str, int]
-    #: Danbooru post ids the library already holds from *any other* source
-    #: (``danbooru/<tag>/<id>.<ext>`` from the tag importer). Same post, same
-    #: pixels modulo re-encoding — a second copy would only be a near-duplicate
-    #: for the grouper to find later. Skipped like ``existing_ids`` but counted
-    #: apart, because the answer to "why did only 150 of 160 import" differs.
-    duplicate_ids: set[str] = field(default_factory=set)
+    #: Danbooru post ids the library already holds **with a manual tag** under
+    #: ``danbooru/`` — from the tag importer or an earlier run of this one.
+    #: Same post, same pixels modulo re-encoding: a second copy would only be
+    #: a near-duplicate for the grouper to find later. Skipped entirely.
+    library_ids: set[str] = field(default_factory=set)
+    #: Post id → ``(file_path, extension)`` of rows under ``danbooru/`` that
+    #: have **no** manual tag: the sync reconciler registers files it finds on
+    #: disk as bare rows. One sitting exactly where this run would write is
+    #: repaired by the upsert (tags, rating, score); one anywhere else is the
+    #: tag importer's to fix, and importing it here would make a second file.
+    bare_rows: dict[str, tuple[str, str]] = field(default_factory=dict)
     #: Build the rows but touch nothing on disk — for previewing a run.
     dry_run: bool = False
 
@@ -232,37 +276,43 @@ def import_shard(job: ShardJob) -> ShardImport:
     """The whole shard, start to finish, minus the database write.
 
     What gets imported is what is **on disk** in the mirror: the parquet only
-    supplies scores. A post already imported with tags (``existing_ids``, same
-    definition as the Danbooru importer) is skipped entirely — no copy, no row.
-    A post with no metadata row is skipped too: without tags, rating and date
-    it would be a bare file that the sync reconciler could register just as
-    well, and it is counted so a stale archive is visible. A missing score is
-    only counted: the image still imports and the backfill scores it.
+    supplies scores. A post the library already holds (``library_ids``, or a
+    bare row somewhere other than where this run would write) is skipped
+    entirely — no copy, no row. A post with no metadata row is skipped too:
+    without tags, rating and date it would be a bare file that the sync
+    reconciler could register just as well, and it is counted so a stale
+    archive is visible. A missing score is only counted: the image still
+    imports and the backfill scores it.
     """
     scores = {s.post_id: s.score for s in read_shard_scores(job.parquet_path)}
     images = list_shard_images(job.images_dir)
-    duplicates = sum(1 for pid in images if str(pid) in job.duplicate_ids and str(pid) not in job.existing_ids)
-    wanted = [pid for pid in sorted(images) if str(pid) not in job.existing_ids and str(pid) not in job.duplicate_ids]
+    candidates = [pid for pid in sorted(images) if str(pid) not in job.library_ids]
+    duplicates = len(images) - len(candidates)
 
-    metadata = lookup_metadata(job.metadata_db, wanted)
+    metadata = lookup_metadata(job.metadata_db, candidates)
 
-    if not job.dry_run:
-        job.save_dir.mkdir(parents=True, exist_ok=True)
     rows: list[dict[str, Any]] = []
     copied = 0
     missing_meta = 0
     missing_score = 0
-    for pid in wanted:
+    for pid in candidates:
         meta = metadata.get(pid)
         if meta is None:
             missing_meta += 1
             continue
-        score = scores.get(pid)
-        if score is None:
+        row = build_row(meta, scores.get(pid), job.type_to_group_id)
+        bare = job.bare_rows.get(str(pid))
+        if bare is not None and bare != (row["filePath"], IMAGE_EXT):
+            duplicates += 1
+            continue
+        if row["silvaScore"] is None:
             missing_score += 1
-        if not job.dry_run and copy_into_library(images[pid], job.save_dir / f"{pid}.{IMAGE_EXT}"):
-            copied += 1
-        rows.append(build_row(meta, score, job.file_path_str, job.type_to_group_id))
+        if not job.dry_run:
+            dest_dir = job.library_root / row["filePath"]
+            dest_dir.mkdir(parents=True, exist_ok=True)
+            if copy_into_library(images[pid], dest_dir / f"{pid}.{IMAGE_EXT}"):
+                copied += 1
+        rows.append(row)
 
     top = sum(1 for s in scores.values() if s >= TOP_THRESHOLD)
     return ShardImport(
@@ -271,7 +321,6 @@ def import_shard(job: ShardJob) -> ShardImport:
             "scored": len(scores),
             "top": top,
             "onDisk": len(images),
-            "skipped": len(images) - len(wanted) - duplicates,
             "duplicates": duplicates,
             "missingMeta": missing_meta,
             "missingScore": missing_score,
