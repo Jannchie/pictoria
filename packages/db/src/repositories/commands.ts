@@ -7,6 +7,8 @@
  * 悄悄什么也不做。
  */
 import type BetterSqlite3 from 'better-sqlite3'
+import type { TaggerRow } from './backfill.js'
+import { persistTaggerResults } from './backfill.js'
 
 /**
  * "看起来是一张图"认的扩展名。
@@ -66,38 +68,15 @@ export function getAestheticScore(
 }
 
 /**
- * 单张图的自动标签落库。
+ * 单张图的自动标签落库：`persistTaggerResults` 的单行版，rating **无条件**覆盖。
  *
- * ⚠️ 与 `persistTaggerResults` 有**一处刻意的不同**：rating 在这里**无条件**覆盖，
- * 而 backfill 那条只在原值为 0 时写。这不是疏忽 —— backfill 是后台自动跑的，不该
- * 推翻人工评级；而这个端点是用户主动点的"重新自动标注"，覆盖正是他要的。
+ * 这是与 backfill 那条**唯一**的不同，理由见 `persistTaggerResults` 的 `overwriteRating`。
  */
 export function persistAutoTagsForPost(
   sqlite: BetterSqlite3.Database,
-  row: { postId: number, generalTags: string[], characterTags: string[], rating: number },
+  row: TaggerRow,
   groups: Record<string, number>,
+  model: string,
 ): void {
-  const general = new Set(row.generalTags)
-  const character = new Set(row.characterTags)
-  const all = new Set([...general, ...character])
-
-  const setRating = sqlite.prepare(
-    'UPDATE posts SET rating = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?',
-  )
-  // 已有 group_id 的标签不被改组：手工归过组的不该被模型的猜测覆盖
-  const upsertTag = sqlite.prepare(
-    'INSERT INTO tags(name, group_id) VALUES (?, ?) ON CONFLICT (name) DO UPDATE '
-    + 'SET group_id = CASE WHEN tags.group_id IS NULL THEN excluded.group_id ELSE tags.group_id END',
-  )
-  const link = sqlite.prepare(
-    'INSERT INTO post_has_tag(post_id, tag_name, is_auto) VALUES (?, ?, 1) '
-    + 'ON CONFLICT (post_id, tag_name) DO NOTHING',
-  )
-
-  sqlite.transaction(() => {
-    setRating.run(row.rating, row.postId)
-    for (const name of general) upsertTag.run(name, groups.general)
-    for (const name of character) upsertTag.run(name, groups.character)
-    for (const name of all) link.run(row.postId, name)
-  })()
+  persistTaggerResults(sqlite, [row], groups, model, { overwriteRating: true })
 }

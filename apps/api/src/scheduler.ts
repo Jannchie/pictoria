@@ -16,6 +16,7 @@
 import type { CairnQ } from 'cairnq'
 import type { getDb } from './db.js'
 import {
+  assertTaggerModel,
   BASICS_TASK_BATCH,
   BASICS_WORKER_KEY,
   basicsTask,
@@ -27,6 +28,7 @@ import {
   IO_QUEUE,
   SILVA_TASK_BATCH,
   silvaTask,
+  TAGGER_MODEL,
   TAGGER_TASK_BATCH,
   TAGGER_WORKER_KEY,
   taggerTask,
@@ -83,6 +85,12 @@ const CALL_TIMEOUT_MS = 300_000
  * 不是拿陈旧数据。残余的例外只有"成员没变、图的内容变了"（转图后又清掉产物），
  * 窗口被 `tasks.ts` 对 succeeded 的 retention 1 小时封顶，且交互式重算路径
  * （`routes/commands.ts` 的 `oneShot`）用默认 `reuse`、不复用成功任务。
+ *
+ * ⚠️ 同一个"成员没变、结果不该复用"的例外还有第二种形态：**算法变了**。换 tagger 模型
+ * 时这条真的发生过 —— 队列把 785 条 WD 时代的 succeeded 结果原样还了回来，而它们连
+ * 字段名都对不上。所以 tagger 的 prefix 里带上模型（`tagger:pixai-tagger-v1.0`）：
+ * key 的含义因此是"这批输入 + 拿什么算的"，换模型自动换 key，旧缓存再也撞不上。
+ * 别的 worker 暂时不需要，它们的模型标识没有进过 key，换模型时照这条办。
  */
 function batchKey(prefix: string, ids: number[]): string {
   return `${prefix}:${ids.join(',')}`
@@ -301,6 +309,10 @@ export function startWaifuBackfill(
  *
  * worker 只回传标签名和 rating 字符串。哪个标签属于哪个组、rating 能不能覆盖已有值，
  * 都是 schema 的知识，留在拥有 schema 的这一侧。
+ *
+ * ⚠️ 待办的判据是"标签不是 `TAGGER_MODEL` 打的"，所以**换模型就等于让整库重新排队**
+ * （见 `listTaggerPending`）。换的时候要有这个预期：30 万张在一张 3090 上约 18 小时，
+ * 期间每一张都是在自己那一个事务里把旧标签换成新的，库不会出现标签空窗。
  */
 export function startTaggerBackfill(
   sqlite: SqliteHandle,
@@ -309,13 +321,13 @@ export function startTaggerBackfill(
 ): BackfillHandle {
   const root = targetDir()
   return loop('tagger', async ({ force }) => {
-    const items = listTaggerPending(sqlite, root, TAGGER_TASK_BATCH, { force })
+    const items = listTaggerPending(sqlite, root, TAGGER_MODEL, TAGGER_TASK_BATCH, { force })
     if (!items.length)
       return false
 
     const result = await tasks.call(taggerTask, { items }, {
       queue: GPU_QUEUE,
-      key: batchKey('tagger', items.map(i => i.postId)),
+      key: batchKey(`tagger:${TAGGER_MODEL}`, items.map(i => i.postId)),
       conflict: 'reuse-succeeded',
       waitTimeoutMs: CALL_TIMEOUT_MS,
     })
@@ -323,7 +335,7 @@ export function startTaggerBackfill(
     const groups = ensureCanonicalTagGroups(sqlite)
     // 落库后仍然没有 is_auto 行的那些 —— tagger 产出的标签全部被同名手工标签遮住了。
     // 重跑只会得到同样的结果，所以和读不出来的图一样拉黑。
-    const shadowed = persistTaggerResults(sqlite, result.results, groups)
+    const shadowed = persistTaggerResults(sqlite, result.results, groups, assertTaggerModel(result.model))
     recordFailures(sqlite, TAGGER_WORKER_KEY, [
       ...result.failures,
       ...shadowed.map(postId => ({ postId, error: 'all auto tags shadowed by manual tags' })),

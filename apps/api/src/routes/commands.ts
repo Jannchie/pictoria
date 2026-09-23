@@ -8,6 +8,7 @@ import type { Context } from 'hono'
 import type { CairnQ } from 'cairnq'
 import { createRoute, OpenAPIHono, z } from '@hono/zod-openapi'
 import {
+  assertTaggerModel,
   captionTask,
   DANBOORU_LISTING_LIMIT,
   danbooruImportTask,
@@ -31,7 +32,6 @@ import {
   listImportedDanbooruIds,
   persistPostsWithTags,
   persistAutoTagsForPost,
-  ratingToInt,
   upsertAestheticScores,
   updateField,
   upsertVectors,
@@ -298,7 +298,7 @@ commandsRoutes.openapi(
 )
 
 /**
- * 自动标签：跑 WDTagger，标签和 rating 落库，返回最新详情。
+ * 自动标签：跑 PixAI Tagger，标签和 rating 落库，返回最新详情。
  *
  * 这里只查 post 存不存在，**没有** `is_image` 守卫：那道守卫按扩展名判，多加上会让
  * 今天能标注的某种扩展名突然 400；非图片走到 worker 那里失败是 500，也说得清。
@@ -335,12 +335,7 @@ commandsRoutes.openapi(
       const why = result.failures[0]?.error ?? 'tagger returned no result'
       throw new Error(`auto-tags failed for post ${postId}: ${why}`)
     }
-    persistAutoTagsForPost(sqlite, {
-      postId,
-      generalTags: row.generalTags,
-      characterTags: row.characterTags,
-      rating: ratingToInt(row.rating),
-    }, ensureCanonicalTagGroups(sqlite))
+    persistAutoTagsForPost(sqlite, row, ensureCanonicalTagGroups(sqlite), assertTaggerModel(result.model))
     return postDetailResponse(c, postId)
   },
 )

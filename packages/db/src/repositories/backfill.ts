@@ -7,6 +7,7 @@
  */
 import { placeholders } from '../sql.js'
 import { BASICS_WORKER_KEY, EMBEDDING_WORKER_KEY, TAGGER_WORKER_KEY, WAIFU_WORKER_KEY } from '@pictoria/contracts'
+import type { TaggerResult } from '@pictoria/contracts'
 import type BetterSqlite3 from 'better-sqlite3'
 import { Buffer } from 'node:buffer'
 import { AESTHETIC_SCORES_TABLE } from '../scorers.js'
@@ -142,6 +143,14 @@ function scanByFloor<R extends { id: number }>(
     join?: string
     /** 这条循环自己的"算待办"条件，与下界和公共过滤 AND 在一起。 */
     where: string
+    /**
+     * `where` 里 `?` 的实参，按出现顺序。
+     *
+     * 位置是定死的：`p.id >= ?` 在前，`where` 在中间，黑名单的 `f.worker = ?` 在后 ——
+     * 所以参数数组也必须是这个顺序。加占位符就得在这里给值，漏了的表现是
+     * better-sqlite3 抛 "too few parameter values"（不是静默错结果）。
+     */
+    whereParams?: unknown[]
     limit?: number
     force: boolean
   },
@@ -154,7 +163,12 @@ function scanByFloor<R extends { id: number }>(
     = `SELECT ${opts.columns} FROM posts p ${opts.join ?? ''}`
       + `WHERE p.id >= ? AND ${opts.where} AND ${IMAGE_EXT_WHERE} AND ${notFailedClause('p')} `
       + `ORDER BY p.id${opts.limit === undefined ? '' : ' LIMIT ?'}`
-  const params: unknown[] = [floor, opts.workerKey, ...(opts.limit === undefined ? [] : [opts.limit])]
+  const params: unknown[] = [
+    floor,
+    ...(opts.whereParams ?? []),
+    opts.workerKey,
+    ...(opts.limit === undefined ? [] : [opts.limit]),
+  ]
   const rows = sqlite.prepare<unknown[], R>(sql).all(...params)
 
   writeFloor(sqlite, opts.key, rows[0]?.id ?? maxId + 1)
@@ -347,11 +361,11 @@ export function recordFailures(
 // ─── tagger ───────────────────────────────────────────────────────────
 
 /**
- * WDTagger 产出的四个组的颜色。与 Python 侧 `services/wd_tagging.py` 的
- * `TAG_GROUP_COLORS` 逐字相同 —— 颜色会显示在前端的 tag 徽章上。
+ * tagger 产出的四个组的颜色 —— 颜色会显示在前端的 tag 徽章上。
  *
  * ⚠️ 这是**颜色表**，不是规范组的清单。规范组多一个 `meta`（见
- * `CANONICAL_TAG_GROUPS`）：tagger 不产出它，但两个导入器都往里写。
+ * `CANONICAL_TAG_GROUPS`），它没有专属颜色，取黑色兜底 —— PixAI Tagger 会产出 meta
+ * 标签（WDTagger 不会），所以这一行差别现在也影响 tagger 而不只是导入器。
  */
 export const TAG_GROUP_COLORS: Record<string, string> = {
   general: '#006192',
@@ -382,7 +396,19 @@ export const CANONICAL_TAG_GROUPS: readonly string[] = ['artist', 'character', '
 const CANONICAL_GROUP_COLOR = '#000000'
 
 /**
- * 还没有任何自动标签、且没被拉黑的图片，按 id 升序。
+ * 标签还不是 `model` 打的、且没被拉黑的图片，按 id 升序。
+ *
+ * 两条待办，OR 在一起：
+ *
+ * * `p.tagger IS NOT ?` —— **换模型**。存量行这一列全是 NULL（migration 0020 加的），
+ *   所以换 tagger 之后整库都是待办，然后一张一张地把自己的标签换掉。这比"先删光旧的
+ *   auto 标签再等 GPU 补回来"好的地方是库在中间的每一刻都是标满的。
+ * * `NOT EXISTS (auto 标签)` —— **没有标签**。新 post 走这条；手工摘掉最后一个
+ *   `is_auto = 1` 标签的老 post 也走这条，而那时 `tagger` 已经等于当前模型，光靠第一
+ *   条选不出它来。
+ *
+ * ⚠️ 用 `IS NOT` 而不是 `<> `：SQLite 里 `NULL <> 'x'` 是 NULL 不是真，存量那 30 万行
+ * 会一张都选不出来，而表现是"重标一声不响地什么也没做"。
  *
  * 带水位线（见 `scanFloor`），而且这里最值钱：那条 `NOT EXISTS` 打在
  * `post_has_tag` 的 1237 万行上，没有下界时一批要 1,811 ms —— 六条循环那 3.7 秒
@@ -394,6 +420,7 @@ const CANONICAL_GROUP_COLOR = '#000000'
 export function listTaggerPending(
   sqlite: BetterSqlite3.Database,
   targetDir: string,
+  model: string,
   limit?: number,
   { force = false }: PendingScanOpts = {},
 ): PendingImage[] {
@@ -401,7 +428,9 @@ export function listTaggerPending(
     key: 'tagger',
     workerKey: TAGGER_WORKER_KEY,
     columns: 'p.id, p.full_path',
-    where: 'NOT EXISTS (SELECT 1 FROM post_has_tag pht WHERE pht.post_id = p.id AND pht.is_auto = 1)',
+    where: '(p.tagger IS NOT ? '
+      + 'OR NOT EXISTS (SELECT 1 FROM post_has_tag pht WHERE pht.post_id = p.id AND pht.is_auto = 1))',
+    whereParams: [model],
     limit,
     force,
   })
@@ -424,12 +453,23 @@ export function ensureCanonicalTagGroups(sqlite: BetterSqlite3.Database): Record
   return out
 }
 
-/** WDTagger 对一张图的输出 —— 与 `@pictoria/contracts` 的 `TaggerResult` 同形。 */
-export interface TaggerRow {
-  postId: number
-  generalTags: string[]
-  characterTags: string[]
-  rating: string
+/** tagger 对一张图的输出。`tags` 的键是**模型的**类别名，见 `TAGGER_CATEGORY_GROUP`。 */
+export type TaggerRow = TaggerResult
+
+/**
+ * 模型的标签类别 → 库里的 tag 组名。
+ *
+ * 只有一条不是恒等映射：PixAI 管画师叫 `style`，Danbooru 和这个库叫 `artist`。剩下四
+ * 条写出来是为了让这张表同时充当**白名单** —— 不在表里的类别（未来模型多出来的一类）
+ * 被显式丢掉并算作一次异常，而不是悄悄落进一个不存在的组、或者 `groups[undefined]`
+ * 解出 `undefined` 之后把标签写成无组。
+ */
+const TAGGER_CATEGORY_GROUP: Record<string, string> = {
+  general: 'general',
+  character: 'character',
+  copyright: 'copyright',
+  style: 'artist',
+  meta: 'meta',
 }
 
 /** `general`/`sensitive`/`questionable`/`explicit` → 1..4，其余 0。与 Python 侧同表。 */
@@ -438,10 +478,51 @@ export function ratingToInt(rating: string): number {
 }
 
 /**
+ * 一批 tagger 结果**按类别摊平**成 `(组名 → 标签名集合)` 和 `(post, 标签名)` 关联。
+ *
+ * 整批去重的理由是规模：一个 `1girl` 在一批 16 张里出现 16 次，upsert 一次就够。
+ *
+ * 不在 `TAGGER_CATEGORY_GROUP` 里的类别会抛 —— 见那张表的注释。
+ */
+function flattenTaggerTags(rows: TaggerRow[]): {
+  byGroup: Map<string, Set<string>>
+  links: Array<[number, string]>
+} {
+  const byGroup = new Map<string, Set<string>>()
+  const links: Array<[number, string]> = []
+  for (const r of rows) {
+    const own = new Set<string>()
+    // Object.entries 而不是按 `TaggerCategories` 的字段逐个取：类型只约束这一侧，
+    // worker 回传的 JSON 不经过类型系统，多出来的类别要在运行时被抓住而不是被忽略。
+    for (const [category, names] of Object.entries(r.tags) as Array<[string, string[]]>) {
+      const group = TAGGER_CATEGORY_GROUP[category]
+      if (group === undefined)
+        throw new Error(`tagger returned unknown tag category ${category}`)
+      let bucket = byGroup.get(group)
+      if (bucket === undefined) {
+        bucket = new Set<string>()
+        byGroup.set(group, bucket)
+      }
+      for (const name of names) {
+        bucket.add(name)
+        own.add(name)
+      }
+    }
+    for (const name of own) links.push([r.postId, name])
+  }
+  return { byGroup, links }
+}
+
+/**
  * 把一批 tagger 结果落库，返回**仍然没有**自动标签的那些 id。
  *
- * 三件事在一个事务里：tag 名 upsert（分 general / character 两组）、
- * `post_has_tag` 关联、rating 补写。
+ * 四件事在一个事务里：删掉这些图旧的 `is_auto = 1` 关联、tag 名 upsert（按五个组）、
+ * `post_has_tag` 重建关联、rating 补写 + `posts.tagger` 盖章。
+ *
+ * ⚠️ 先删再插，不是并集。换模型时这一条就是全部意义所在：不删的话 WD 打的旧标签会和
+ * PixAI 的新标签永远并存，而"重打"想要的恰恰是让旧的那批消失。删只打在 `is_auto = 1`
+ * 上，手工标签（`is_auto = 0`）和导入器写的标签一根都不碰。`tags.post_count` 由
+ * `post_has_tag` 上的触发器维护（migration 0008），删和插都会走到，不需要在这里补。
  *
  * 返回值是落库后的复查结果，不是可有可无的信息：`post_has_tag` 的插入是
  * `ON CONFLICT DO NOTHING`，所以当 tagger 产出的每一个标签**都已经**作为手工标签
@@ -449,27 +530,27 @@ export function ratingToInt(rating: string): number {
  * 建出来，而待办查询下一轮又会选中它。调用方要把这些 id 拉黑，因为重跑 tagger
  * 只会得到同样被遮住的结果。
  *
- * rating 只在原值为 0（未评级）时写。人工评过的不会被模型覆盖。
+ * rating 默认只在原值为 0（未评级）时写：backfill 是后台自动跑的，不该推翻人工评级。
+ * `overwriteRating` 给单张图的"重新自动标注"命令用 —— 用户主动点的，覆盖（包括认不出
+ * 来时写回 0）正是他要的。这是两条调用路径**唯一**的不同。
+ *
+ * `posts.tagger` 则是**无条件**盖章，而且对被遮住的那些图也盖：那些图确实已经被这个
+ * 模型跑过了，标签只是没地方落。不盖的话它们会永远留在待办里，而调用方的黑名单正好
+ * 是为了兜住这一点 —— 两道防线都要在，因为黑名单是可以被用户清空的。
  */
 export function persistTaggerResults(
   sqlite: BetterSqlite3.Database,
   rows: TaggerRow[],
   groups: Record<string, number>,
+  model: string,
+  { overwriteRating = false }: { overwriteRating?: boolean } = {},
 ): number[] {
   if (!rows.length)
     return []
 
-  // 整批去重，于是一个被很多图共享的标签只 upsert 一次
-  const general = new Set<string>()
-  const character = new Set<string>()
-  const links: Array<[number, string]> = []
-  for (const r of rows) {
-    const own = new Set([...r.generalTags, ...r.characterTags])
-    for (const t of r.generalTags) general.add(t)
-    for (const t of r.characterTags) character.add(t)
-    for (const t of own) links.push([r.postId, t])
-  }
+  const { byGroup, links } = flattenTaggerTags(rows)
 
+  const clearAuto = sqlite.prepare('DELETE FROM post_has_tag WHERE post_id = ? AND is_auto = 1')
   // 已有 group_id 的标签不被改组：手工归过组的不该被模型的猜测覆盖
   const upsertTag = sqlite.prepare(
     'INSERT INTO tags(name, group_id) VALUES (?, ?) ON CONFLICT (name) DO UPDATE '
@@ -480,17 +561,22 @@ export function persistTaggerResults(
     + 'ON CONFLICT (post_id, tag_name) DO NOTHING',
   )
   const setRating = sqlite.prepare(
-    'UPDATE posts SET rating = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ? AND rating = 0',
+    'UPDATE posts SET rating = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?'
+    + (overwriteRating ? '' : ' AND rating = 0'),
   )
+  const stamp = sqlite.prepare('UPDATE posts SET tagger = ? WHERE id = ?')
 
   sqlite.transaction(() => {
-    for (const name of general) upsertTag.run(name, groups.general)
-    for (const name of character) upsertTag.run(name, groups.character)
+    for (const r of rows) clearAuto.run(r.postId)
+    for (const [group, names] of byGroup) {
+      for (const name of names) upsertTag.run(name, groups[group])
+    }
     for (const [postId, name] of links) link.run(postId, name)
     for (const r of rows) {
       const rating = ratingToInt(r.rating)
-      if (rating !== 0)
+      if (rating !== 0 || overwriteRating)
         setRating.run(rating, r.postId)
+      stamp.run(model, r.postId)
     }
   })()
 

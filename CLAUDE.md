@@ -9,7 +9,7 @@ Pictoria is a full-stack image gallery application for managing and displaying i
 ## Tech Stack
 
 - **API**: TypeScript on Hono (`apps/api`), embedded SQLite (WAL) + `sqlite-vec` (vec0 virtual tables for vector search), hand-written repositories in `packages/db` (raw SQL, no ORM)
-- **Worker**: Python 3.11+ (dev pins 3.12) running under [cairnq](https://pypi.org/project/cairnq/) (`server/src/worker`). It **computes only** — torch / wdtagger / gallery-dl are the reason it exists. It never opens `pictoria.sqlite`
+- **Worker**: Python 3.11+ (dev pins 3.12) running under [cairnq](https://pypi.org/project/cairnq/) (`server/src/worker`). It **computes only** — torch / transformers / gallery-dl are the reason it exists. It never opens `pictoria.sqlite`
 - **Frontend**: Vue 3 with Composition API, Vite, UnoCSS, TypeScript
 - **Package Managers**: `uv` for Python, `pnpm` for JavaScript
 
@@ -101,7 +101,8 @@ uv run python scripts/inspect_db.py
 
 - **src/worker/**: cairnq entry point (`main.py`), task handlers, the vector codec, the OOM fallback ladder, and the importers
 - **src/ai/**: SigLIP 2 embedding, CLIP backbone, waifu / SILVA scorers, captioning
-- **src/services/**: `danbooru_import`, `gallery_dl_import`, `wd_tagging` — fetch/parse helpers only; the worker returns rows and TS writes them
+- **src/services/**: `danbooru_import`, `gallery_dl_import`, `pixai_tagging` — fetch/parse helpers only; the worker returns rows and TS writes them.
+  `pixai_tagging` is the auto-tagger (`pixai-labs/pixai-tagger-v1.0`, replaced WDTagger 2026-09-22): it returns tags under the *model's* five categories (`style` = artist) and TS maps them to groups. Its per-category sigmoid thresholds are the one thing that stays in Python — they ship inside the checkpoint's `config.json`. ⚠️ Load it with `from_pretrained(dtype=...)`, never `.to(dtype=...)`: the latter casts the complex RoPE buffers and silently returns wrong tags
 - **src/scorers.py**: the `ScorerSpec` registry. ⚠️ hand-synced twin of `packages/db/src/scorers.ts`
 - **src/tools/**, **src/utils.py**, **src/shared.py**: colour quantisation, hashing/thumbnails, logging
 - **migrations/**: hand-written ordered SQL (`0001_initial.sql`, ...). Applied by **`apps/api`** on boot

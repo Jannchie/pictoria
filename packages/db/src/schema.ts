@@ -64,6 +64,13 @@ export const posts = sqliteTable('posts', {
   createdAt: text('created_at').notNull().default(sql`CURRENT_TIMESTAMP`),
   updatedAt: text('updated_at').notNull().default(sql`CURRENT_TIMESTAMP`),
   lastAccessedAt: text('last_accessed_at'),
+  /**
+   * 产出这张图 `is_auto = 1` 标签的 tagger（`pixai-tagger-v1.0`）。
+   *
+   * NULL = 这一列（migration 0020）之前打的标，也就是 WDTagger —— 重标待办据此
+   * 选图，见 `listTaggerPending`。
+   */
+  tagger: text('tagger'),
   /** 自引用：近重复分组里指向 canonical 代表（ON DELETE SET NULL）。 */
   canonicalPostId: integer('canonical_post_id'),
 })

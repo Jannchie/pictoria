@@ -1,0 +1,22 @@
+-- posts.tagger: which auto-tagger produced this post's `is_auto = 1` rows.
+--
+-- Added for the WDTagger -> PixAI Tagger v1.0 swap, and it is what makes the
+-- re-tag *incremental*. The pending query used to be "has no auto tags at all",
+-- which cannot express "has WD's tags, wants PixAI's": the only way to re-tag
+-- the library through it is to delete 4.9M association rows up front and then
+-- watch the library sit half-untagged for the hours the GPU needs. With this
+-- column every existing row reads as NULL, so every post is pending, and each
+-- one swaps its own tags inside one transaction when its turn comes. The
+-- library is fully tagged at every instant in between.
+--
+-- NULL therefore means "tagged by something that predates this column" (WD
+-- v3, in practice) as well as "never tagged" -- the two are indistinguishable
+-- here and, for a re-tag, do not need to be. `listTaggerPending` tells them
+-- apart by the auto-tag rows themselves.
+--
+-- No index: the pending scan is ordered by id off a floor watermark (see
+-- `scanFloor`), so it reads posts in rowid order and an index on `tagger`
+-- cannot serve it.
+-- ----------------------------------------------------------------------
+
+ALTER TABLE posts ADD COLUMN tagger TEXT;

@@ -109,11 +109,26 @@ export const WAIFU_TASK_BATCH = 32
 /** `post_process_failures.worker` 里 waifu 用的桶名。与 Python 侧同值。 */
 export const WAIFU_WORKER_KEY = 'waifu'
 
-/** WDTagger 对一张图的输出。 */
+/**
+ * PixAI Tagger 的五个标签类别。
+ *
+ * 键名是**模型的**类别名，不是库里的组名 —— `style` 就是 Danbooru 意义上的 artist，
+ * 而这条重命名（以及别的四个的恒等映射）是 schema 知识，落在 TS 侧的
+ * `TAGGER_CATEGORY_GROUP`。worker 说模型的话，这一侧负责翻译。
+ */
+export interface TaggerCategories {
+  general: string[]
+  character: string[]
+  copyright: string[]
+  /** 画师。库里的 `artist` 组。 */
+  style: string[]
+  meta: string[]
+}
+
+/** PixAI Tagger 对一张图的输出。 */
 export interface TaggerResult {
   postId: number
-  generalTags: string[]
-  characterTags: string[]
+  tags: TaggerCategories
   /** `general` / `sensitive` / `questionable` / `explicit`，或空串。 */
   rating: string
 }
@@ -123,25 +138,72 @@ export interface TaggerPayload {
 }
 
 export interface TaggerBatchResult {
+/**
+   * 实际产出这批标签的模型标识 —— 由**加载了权重的那一侧**报上来。
+   *
+   * 它和 `TAGGER_MODEL` 是同一个事实的两份副本，而两份都必须存在：待办查询要在调
+   * worker **之前**就知道该找哪个模型（所以 TS 侧非有个常量不可），而"这些标签到底是
+   * 谁打的"只有 Python 侧知道。两份能各自漂移，所以它们在 `assertTaggerModel` 那里当
+   * 面对一次。不对就抛 —— 让它静默通过的后果是 `posts.tagger` 盖上 X 而待办查询在找
+   * Y，于是同一批图被无限重打，而每一轮看上去都成功。
+   */
+  model: string
   results: TaggerResult[]
   failures: WorkerFailure[]
 }
 
 /**
- * 自动标签（wd-vit-large-tagger-v3）。
+ * 自动标签（pixai-labs/pixai-tagger-v1.0）。
  *
  * worker 只把标签**算出来**，标签落进 `tags` / `post_has_tag`、rating 落进 `posts`
  * 都在 TS 侧 —— 这是三个 worker 里落库最复杂的一个，也正因如此它最能说明 §D1 的价值：
  * 一个 tag 该属于哪个组、rating 什么时候能覆盖，这些是 schema 的知识，属于拥有 schema
  * 的那一侧。
  *
+ * ⚠️ 例外是**阈值**：六个 per-category 的 sigmoid 阈值留在 Python 侧。那不是 schema
+ * 知识而是模型的一部分（作者随权重一起发布，就在 checkpoint 的 `config.json` 里），
+ * 而把它挪到这一侧的代价是每张图 30,877 个概率过队列（一批约 4 MB，对比现在的几 KB
+ * 标签名）。
+ *
  * 空标签响应被 worker 判为失败（而不是成功但没结果）：留着它 `post_has_tag` 一行不写，
  * 待办查询会永远重选这张图，而重跑只会得到同样的空响应。
  */
 export const taggerTask = defineTask<TaggerPayload, TaggerBatchResult>('tagger')
 
-/** wd-vit-large 跑在 GPU 上，32 能把一张 30xx 喂饱。与 Python 侧同值。 */
-export const TAGGER_TASK_BATCH = 32
+/**
+ * 一批 16 张。
+ *
+ * 比 waifu / silva 的 32 小一半，因为这个模型贵得多：1008x1008 输入、486M 参数。
+ * 3090 / bf16 上实测（48 张库里随机抽的真图，跳过预热）：batch 16 是 5.21 img/s、
+ * 峰值 3.40 GiB。吞吐在 batch 8 以上就基本平了（8 是 4.4 img/s，32 是 4.7），显存却
+ * 接着线性涨 —— 16 落在平台上，同时给同一张卡上的 SigLIP 2 / silva / waifu 留出余量。
+ *
+ * 按这个速度，30.3 万张的全库重标约 16 小时。
+ */
+export const TAGGER_TASK_BATCH = 16
+
+/**
+ * 当前 tagger 的标识，写进 `posts.tagger`，也是重标待办的判据。
+ *
+ * ⚠️ 改这个值 = 让整库重新排队重标（`listTaggerPending`）。它必须和 Python 侧
+ * `services/pixai_tagging.py` 的 `MODEL_TAG` 逐字相同，两边一起改。
+ */
+export const TAGGER_MODEL = 'pixai-tagger-v1.0'
+
+/**
+ * 核对 worker 报上来的模型标识，返回它。
+ *
+ * 一行断言，但它挡住的是一类不会有任何报错的故障，见 `TaggerBatchResult.model`。
+ * 抛比继续好：这一批图退回待办（下一轮重来），而错误的模型名一个都没有落库。
+ */
+export function assertTaggerModel(reported: string): string {
+  if (reported !== TAGGER_MODEL) {
+    throw new Error(
+      `tagger model mismatch: worker reported ${reported}, this build expects ${TAGGER_MODEL}`,
+    )
+  }
+  return reported
+}
 
 /** `post_process_failures.worker` 里 tagger 用的桶名。 */
 export const TAGGER_WORKER_KEY = 'tagger'

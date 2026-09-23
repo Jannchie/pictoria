@@ -199,40 +199,52 @@ def _no_tags(_pid: int, resp: Any) -> str | None:
     forever and re-running produces the same empty response. Passed to the
     ladder as ``reject_reason`` so the check runs identically at the full-batch,
     mini-batch and per-image levels.
+
+    "Empty" means no ``general`` and no ``character`` tag. The other three
+    categories deliberately do not count: ``meta`` alone (a bare ``highres``) is
+    exactly the degenerate result this guard exists to catch, and ``style`` /
+    ``copyright`` without a single subject tag means the forward pass went wrong,
+    not that the image has nothing in it.
     """
-    if not resp.general_tags and not resp.character_tags:
+    if not resp.tags.get("general") and not resp.tags.get("character"):
         return "no auto tags produced"
     return None
 
 
 async def handle_tagger(payload: dict[str, Any]) -> dict[str, Any]:
-    """Auto-tag images with WDTagger.
+    """Auto-tag images with PixAI Tagger v1.0.
 
-    Returns the tags and the predicted rating as **data**. Which tag group a
-    name belongs to, and whether a rating may overwrite the stored one, are
-    schema questions — they belong to the side that owns the schema (§D1), so
-    they are decided in TS, not here.
+    Returns the tags and the predicted rating as **data**, keyed by the *model's*
+    own five categories (so ``style``, not ``artist``). Which tag group a name
+    belongs to, and whether a rating may overwrite the stored one, are schema
+    questions — they belong to the side that owns the schema (§D1), so they are
+    decided in TS, not here.
+
+    ``model`` rides along so TS can stamp ``posts.tagger`` with what actually
+    produced these rows, instead of holding a second copy of the model name that
+    could drift from the weights this process loaded.
     """
     items_in = payload["items"]
     if not items_in:
         return {"results": [], "failures": []}
 
-    from services.wd_tagging import get_tagger  # noqa: PLC0415  # lazy: defer the ML stack
+    from services.pixai_tagging import (  # noqa: PLC0415  # lazy: defer the ML stack
+        MODEL_TAG,
+        tag_batch,
+        warm,
+    )
 
     items, failures = _resolve_items(items_in)
 
-    tagger = await asyncio.to_thread(get_tagger)
+    # The loader touches disk and VRAM, so it goes off-loop — see handle_silva.
+    await asyncio.to_thread(warm)
     successes, ladder_failures = await run_with_fallback(
-        tagger.tag, items, label="tagger", reject_reason=_no_tags,
+        tag_batch, items, label="tagger", reject_reason=_no_tags,
     )
     return {
+        "model": MODEL_TAG,
         "results": [
-            {
-                "postId": pid,
-                "generalTags": list(resp.general_tags),
-                "characterTags": list(resp.character_tags),
-                "rating": resp.rating or "",
-            }
+            {"postId": pid, "tags": resp.tags, "rating": resp.rating}
             for pid, resp in successes
         ],
         "failures": failures + [{"postId": pid, "error": err} for pid, err in ladder_failures],
