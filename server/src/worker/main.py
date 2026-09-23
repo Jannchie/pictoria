@@ -28,6 +28,7 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+import faulthandler
 import logging
 from pathlib import Path
 
@@ -58,6 +59,19 @@ load_dotenv()
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 log = logging.getLogger("worker")
+
+# A native crash in this process leaves *nothing* behind by default: the GPU stack
+# is C++ and CUDA, so an access violation kills the interpreter without an
+# exception, without a traceback and without a Windows event-log entry. The
+# symptom is a bare "Command failed with exit code 3221225477" from pnpm, and the
+# only way to find out which handler was in the middle of it is to go read what
+# cairnq left marked ``running``.
+#
+# faulthandler catches SIGSEGV / SIGABRT / SIGFPE / SIGILL and dumps every
+# thread's Python stack first. It costs nothing until something crashes, which is
+# exactly the trade this process wants: a rare crash 40 minutes into a 16-hour
+# backfill is expensive to reproduce and cheap to instrument for.
+faulthandler.enable()
 
 #: Queue for background backfill. Its poll interval is cairnq's default 500 ms
 #: on purpose — a backfill task that starts half a second late costs nothing,
