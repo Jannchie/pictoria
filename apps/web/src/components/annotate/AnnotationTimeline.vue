@@ -7,6 +7,7 @@ import { useI18n } from 'vue-i18n'
 import { v2AnnotationTimeline } from '@/api'
 import { formatDateTime, formatRelativeTime } from '@/locale'
 import { canReview, flagGlyph, reviewing, startReview, winnerLabel } from '@/shared'
+import { dimensionMeta } from '@/shared/annotationTypes'
 import { queryKeys } from '@/shared/queryKeys'
 import { PScrollArea } from '@/ui'
 import { getPostThumbnailURL } from '@/utils'
@@ -52,6 +53,11 @@ function stampNow() {
 useIntervalFn(stampNow, 30_000)
 watch(() => entries.value.length, stampNow)
 
+function dimensionLabel(d: string | null | undefined): string {
+  const meta = dimensionMeta(d)
+  return meta ? t(meta.labelKey) : (d ?? '')
+}
+
 function rowKey(e: TimelineEntryPublic) {
   return `${e.kind}-${e.id}`
 }
@@ -60,10 +66,10 @@ function rowKey(e: TimelineEntryPublic) {
 function listwiseLabel(ranking: string | null | undefined): string {
   try {
     const n = (JSON.parse(ranking ?? '[]') as number[]).length
-    return n ? `排序 ${n} 张` : '跳过一组'
+    return n ? t('annotate.history.ranked', { n }) : t('annotate.history.skippedGroup')
   }
   catch {
-    return '排序'
+    return t('annotate.history.ranking')
   }
 }
 
@@ -118,10 +124,12 @@ useIntersectionObserver(
       <span class="text-fg font-medium">{{ $t('annotate.history.title') }}</span>
       <button
         class="timeline-icon"
+        type="button"
         :title="$t('annotate.history.refresh')"
+        :aria-label="$t('annotate.history.refresh')"
         @click="query.refetch()"
       >
-        <i class="i-tabler-refresh" />
+        <i class="i-tabler-refresh" aria-hidden="true" />
       </button>
     </div>
 
@@ -133,6 +141,7 @@ useIntersectionObserver(
       <ul class="flex flex-col">
         <li v-for="e in entries" :key="rowKey(e)" class="p-divider">
           <button
+            type="button"
             class="timeline-row"
             :class="{ 'timeline-row--active': isActive(e), 'timeline-row--static': !canReview(e) }"
             :disabled="!canReview(e)"
@@ -168,7 +177,7 @@ useIntersectionObserver(
                 <template v-else>{{ flagGlyph(e.flag) }}</template>
               </span>
               <span class="text-fg-muted truncate">
-                {{ e.dimension }}
+                {{ dimensionLabel(e.dimension) }}
                 <span v-if="e.editedAt" class="timeline-edited">{{ $t('annotate.history.edited') }}</span>
               </span>
             </span>

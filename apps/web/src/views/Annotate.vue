@@ -3,16 +3,22 @@ import type { QueueSummaryPublic } from '@/api'
 import type { StreamConfig } from '@/components/annotate/AbsoluteAnnotationSession.vue'
 import type { AbsoluteStrategy, AnnotationDimension, AnnotationScale, PairwiseStrategy, QueueKind } from '@/shared/annotationTypes'
 import { useQuery } from '@tanstack/vue-query'
-import { computed, ref } from 'vue'
+import { computed, nextTick, ref, useId, useTemplateRef } from 'vue'
+import { useI18n } from 'vue-i18n'
 import { v2GenerateAbsolute, v2GenerateListwise, v2GeneratePairwise, v2ListQueues } from '@/api'
 import AbsoluteAnnotationSession from '@/components/annotate/AbsoluteAnnotationSession.vue'
 import ListwiseAnnotationSession from '@/components/annotate/ListwiseAnnotationSession.vue'
 import PairwiseAnnotationSession from '@/components/annotate/PairwiseAnnotationSession.vue'
 import { useAPIError } from '@/composables/useAPIError'
+import { useRovingFocus } from '@/composables/useRovingFocus'
+import { formatNumber } from '@/locale'
+import { DIMENSION_META, dimensionMeta } from '@/shared/annotationTypes'
 import { queryKeys } from '@/shared/queryKeys'
 import { PSwitch } from '@/ui'
+import { focusElement } from '@/utils/focus'
 
 const { handle: handleAPIError } = useAPIError()
+const { t } = useI18n()
 
 type Session
   = | { mode: 'queue', queue: QueueSummaryPublic }
@@ -30,9 +36,12 @@ const { data: queues, refetch } = useQuery({
   },
 })
 
+// Leaving a session unmounts it; put focus back on the launcher rather than <body>.
+const startButton = useTemplateRef<{ $el?: HTMLElement }>('startButton')
 function exitSession() {
   session.value = null
   refetch()
+  void nextTick(() => focusElement(startButton.value?.$el, { preventScroll: true }))
 }
 
 // ── 标注配置（流式为默认路径，队列仅用于固定批次实验）────────────
@@ -42,18 +51,8 @@ function exitSession() {
 // 一直是 overall。所以对比模式不再提供维度选择；维度只留给单图评分的实验路径。
 const PAIRWISE_DIMENSION: AnnotationDimension = 'overall'
 
-interface DimensionMeta {
-  key: AnnotationDimension
-  label: string
-  hint: string
-  icon: string
-}
-const DIMENSIONS: DimensionMeta[] = [
-  { key: 'overall', label: '总分', hint: '总体喜欢吗', icon: 'i-tabler-star' },
-  { key: 'color', label: '颜色', hint: '配色运用得好吗', icon: 'i-tabler-palette' },
-  { key: 'finish', label: '完成度', hint: '精修 / 装饰精致吗', icon: 'i-tabler-brush' },
-  { key: 'composition', label: '构图', hint: '姿势·角度·布景有想法吗', icon: 'i-tabler-layout-collage' },
-]
+const DIMENSIONS = (['overall', 'color', 'finish', 'composition'] as const satisfies readonly AnnotationDimension[])
+  .map(key => ({ key, ...DIMENSION_META[key] }))
 
 // 默认 = 组内排序 4 张。比较判断绕开绝对分的天花板/通胀/漂移、窗口把标注花在模型自己
 // 分不开的边界上 —— 这两条对双图对比同样成立；选组内排序是因为同样的信息它更便宜：
@@ -75,9 +74,9 @@ const form = ref({
 // 观测，全序由 n 个潜变量的一个排列生成，PL 信息 Σ_{k=2..n}(1−1/k) 折成势均力敌的
 // pairwise 只有 3.8 / 7.1 / 10.6 对。而耗时几乎正比于边数，所以小组每单位信息更便宜。
 const LISTWISE_SIZES = [
-  { value: 4, label: '4 张', hint: '约 11 秒 / 屏，2.8 秒买一对当量 —— 实测最划算（推荐）' },
-  { value: 6, label: '6 张', hint: '约 26 秒 / 屏，3.6 秒买一对当量' },
-  { value: 8, label: '8 张', hint: '约 52 秒 / 屏，4.9 秒买一对当量，接近工作记忆上限' },
+  { value: 4, hintKey: 'annotate.groupSize.hint4' },
+  { value: 6, hintKey: 'annotate.groupSize.hint6' },
+  { value: 8, hintKey: 'annotate.groupSize.hint8' },
 ]
 const canStart = computed(() => form.value.kind !== 'absolute' || form.value.dimensions.length > 0)
 
@@ -86,20 +85,46 @@ function toggleDimension(d: AnnotationDimension) {
   form.value.dimensions = dims.includes(d) ? dims.filter(x => x !== d) : [...dims, d]
 }
 
-const SCALES: { value: AnnotationScale, label: string, hint: string }[] = [
-  { value: 2, label: '二元', hint: '好 / 不好' },
-  { value: 3, label: '三元', hint: '差 / 中 / 好' },
-  { value: 5, label: '五级', hint: '1 – 5' },
+const SCALES: { value: AnnotationScale, labelKey: string, hintKey: string }[] = [
+  { value: 2, labelKey: 'annotate.scale.binary', hintKey: 'annotate.scale.binaryHint' },
+  { value: 3, labelKey: 'annotate.scale.ternary', hintKey: 'annotate.scale.ternaryHint' },
+  { value: 5, labelKey: 'annotate.scale.five', hintKey: 'annotate.scale.fiveHint' },
 ]
 const STRATEGIES = [
-  { value: 'stratified' as const, label: '按旧分分层', hint: '1–5 分各层均匀' },
-  { value: 'random' as const, label: '随机', hint: '全库均匀' },
+  { value: 'stratified' as const, labelKey: 'annotate.sampling.stratified', hintKey: 'annotate.sampling.stratifiedHint' },
+  { value: 'random' as const, labelKey: 'annotate.sampling.random', hintKey: 'annotate.sampling.randomHint' },
 ]
 const PAIRWISE_STRATEGIES = [
-  { value: 'close' as const, label: '难分对', hint: '视觉相近 + 模型分不开的边界对，并自动接上你已标过的比较图（推荐）' },
-  { value: 'similar' as const, label: '相似配对', hint: '只看内容相似 + 旧分相近，不参考模型——留作评估 / 重测' },
-  { value: 'random' as const, label: '随机', hint: '全库随机两两组合' },
+  { value: 'close' as const, labelKey: 'annotate.pairing.close', hintKey: 'annotate.pairing.closeHint' },
+  { value: 'similar' as const, labelKey: 'annotate.pairing.similar', hintKey: 'annotate.pairing.similarHint' },
+  { value: 'random' as const, labelKey: 'annotate.pairing.random', hintKey: 'annotate.pairing.randomHint' },
 ]
+const MODES: { value: QueueKind, labelKey: string, hintKey: string, icon: string }[] = [
+  { value: 'absolute', labelKey: 'annotate.mode.absolute', hintKey: 'annotate.mode.absoluteHint', icon: 'i-tabler-photo' },
+  { value: 'pairwise', labelKey: 'annotate.mode.pairwise', hintKey: 'annotate.mode.pairwiseHint', icon: 'i-tabler-layout-columns' },
+  { value: 'listwise', labelKey: 'annotate.mode.listwise', hintKey: 'annotate.mode.listwiseHint', icon: 'i-tabler-layout-grid' },
+]
+function dimensionLabel(d: string) {
+  const meta = dimensionMeta(d)
+  return meta ? t(meta.labelKey) : d
+}
+const KIND_LABEL_KEYS: Record<QueueKind, string> = {
+  absolute: 'annotate.mode.absolute',
+  pairwise: 'annotate.mode.pairwise',
+  listwise: 'annotate.mode.listwise',
+}
+
+// Each option set is an APG radio group: one Tab stop, arrows move AND select (these
+// are plain settings, nothing is committed until Start), Space/Enter select too.
+const ids = useId()
+const modeGroup = useTemplateRef<HTMLElement>('modeGroup')
+const pairingGroup = useTemplateRef<HTMLElement>('pairingGroup')
+const sizeGroup = useTemplateRef<HTMLElement>('sizeGroup')
+const scaleGroup = useTemplateRef<HTMLElement>('scaleGroup')
+const samplingGroup = useTemplateRef<HTMLElement>('samplingGroup')
+for (const container of [modeGroup, pairingGroup, sizeGroup, scaleGroup, samplingGroup]) {
+  useRovingFocus({ container, itemSelector: '[role=radio]', orientation: 'horizontal', onMove: el => el.click() })
+}
 
 function startStream() {
   if (!canStart.value) {
@@ -154,7 +179,7 @@ async function generateQueue() {
     await refetch()
   }
   catch (error) {
-    handleAPIError(error, '生成队列失败')
+    handleAPIError(error, t('annotate.error.generateQueue'))
   }
   finally {
     generating.value = false
@@ -202,61 +227,36 @@ async function generateQueue() {
       <!-- 页头 -->
       <header class="mb-8">
         <h1 class="text-2xl text-fg tracking-tight font-semibold">
-          标注
+          {{ $t('annotate.title') }}
         </h1>
         <p class="text-sm text-fg-muted leading-relaxed mt-1.5">
-          打开即标——默认双图对比选总分：比较判断比绝对打分更稳。每批新对子都会接上你已经标过的比较图，随时停、随时继续。
+          {{ $t('annotate.intro') }}
         </p>
       </header>
 
-      <!-- 模式：两张可选卡片 -->
+      <!-- 模式：可选卡片（单选组） -->
       <section class="mb-7">
-        <div class="annotate-section-title">
-          模式
+        <div :id="`${ids}-mode`" class="annotate-section-title">
+          {{ $t('annotate.mode.title') }}
         </div>
-        <div class="gap-2.5 grid grid-cols-3">
+        <div ref="modeGroup" role="radiogroup" :aria-labelledby="`${ids}-mode`" class="gap-2.5 grid grid-cols-3">
           <button
+            v-for="m in MODES"
+            :key="m.value"
+            type="button"
+            role="radio"
+            :aria-checked="form.kind === m.value"
             class="annotate-mode-card"
-            :class="{ 'annotate-mode-card--active': form.kind === 'absolute' }"
-            @click="form.kind = 'absolute'"
+            :class="{ 'annotate-mode-card--active': form.kind === m.value }"
+            @click="form.kind = m.value"
           >
-            <i class="i-tabler-photo text-lg" />
+            <i :class="m.icon" class="text-lg" aria-hidden="true" />
             <div class="min-w-0">
               <div class="text-sm font-medium">
-                单图评分
+                {{ $t(m.labelKey) }}
               </div>
               <div class="text-xs text-fg-muted mt-0.5">
-                一张图标完所有勾选维度
-              </div>
-            </div>
-          </button>
-          <button
-            class="annotate-mode-card"
-            :class="{ 'annotate-mode-card--active': form.kind === 'pairwise' }"
-            @click="form.kind = 'pairwise'"
-          >
-            <i class="i-tabler-layout-columns text-lg" />
-            <div class="min-w-0">
-              <div class="text-sm font-medium">
-                双图对比
-              </div>
-              <div class="text-xs text-fg-muted mt-0.5">
-                两张图选更好的一边 · 只问总分
-              </div>
-            </div>
-          </button>
-          <button
-            class="annotate-mode-card"
-            :class="{ 'annotate-mode-card--active': form.kind === 'listwise' }"
-            @click="form.kind = 'listwise'"
-          >
-            <i class="i-tabler-layout-grid text-lg" />
-            <div class="min-w-0">
-              <div class="text-sm font-medium">
-                组内排序
-              </div>
-              <div class="text-xs text-fg-muted mt-0.5">
-                相近图一行拖拽排全序 · 一屏顶十几对
+                {{ $t(m.hintKey) }}
               </div>
             </div>
           </button>
@@ -265,79 +265,97 @@ async function generateQueue() {
 
       <!-- 配对方式（对比模式）：segmented -->
       <section v-if="form.kind === 'pairwise'" class="mb-7">
-        <div class="annotate-section-title">
-          配对
-          <span class="annotate-section-note">只问总分</span>
+        <div :id="`${ids}-pairing`" class="annotate-section-title">
+          {{ $t('annotate.pairing.title') }}
+          <span class="annotate-section-note">{{ $t('annotate.pairing.note') }}</span>
         </div>
-        <div class="annotate-segment">
+        <div
+          ref="pairingGroup"
+          role="radiogroup"
+          :aria-labelledby="`${ids}-pairing`"
+          :aria-describedby="`${ids}-pairing-hint`"
+          class="annotate-segment"
+        >
           <button
             v-for="s in PAIRWISE_STRATEGIES"
             :key="s.value"
+            type="button"
+            role="radio"
+            :aria-checked="form.pairwiseStrategy === s.value"
             class="annotate-segment__item"
             :class="{ 'annotate-segment__item--active': form.pairwiseStrategy === s.value }"
-            :title="s.hint"
+            :title="$t(s.hintKey)"
             @click="form.pairwiseStrategy = s.value"
           >
-            {{ s.label }}
+            {{ $t(s.labelKey) }}
           </button>
         </div>
-        <p class="text-xs text-fg-subtle leading-relaxed mt-2">
-          {{ PAIRWISE_STRATEGIES.find(s => s.value === form.pairwiseStrategy)?.hint }}
+        <p :id="`${ids}-pairing-hint`" class="text-xs text-fg-subtle leading-relaxed mt-2">
+          {{ $t(PAIRWISE_STRATEGIES.find(s => s.value === form.pairwiseStrategy)?.hintKey ?? 'annotate.pairing.closeHint') }}
         </p>
       </section>
 
       <!-- 组大小（组内排序）：segmented -->
       <section v-if="form.kind === 'listwise'" class="mb-7">
-        <div class="annotate-section-title">
-          组大小
-          <span class="annotate-section-note">只问总分 · 左右拖拽排序，点击看大图</span>
+        <div :id="`${ids}-size`" class="annotate-section-title">
+          {{ $t('annotate.groupSize.title') }}
+          <span class="annotate-section-note">{{ $t('annotate.groupSize.note') }}</span>
         </div>
-        <div class="annotate-segment">
+        <div
+          ref="sizeGroup"
+          role="radiogroup"
+          :aria-labelledby="`${ids}-size`"
+          :aria-describedby="`${ids}-size-hint`"
+          class="annotate-segment"
+        >
           <button
             v-for="s in LISTWISE_SIZES"
             :key="s.value"
+            type="button"
+            role="radio"
+            :aria-checked="form.listwiseSize === s.value"
             class="annotate-segment__item"
             :class="{ 'annotate-segment__item--active': form.listwiseSize === s.value }"
-            :title="s.hint"
+            :title="$t(s.hintKey)"
             @click="form.listwiseSize = s.value"
           >
-            {{ s.label }}
+            {{ $t('annotate.groupSize.option', { n: s.value }) }}
           </button>
         </div>
-        <p class="text-xs text-fg-subtle leading-relaxed mt-2">
-          {{ LISTWISE_SIZES.find(s => s.value === form.listwiseSize)?.hint }}
+        <p :id="`${ids}-size-hint`" class="text-xs text-fg-subtle leading-relaxed mt-2">
+          {{ $t(LISTWISE_SIZES.find(s => s.value === form.listwiseSize)?.hintKey ?? 'annotate.groupSize.hint4') }}
         </p>
 
         <label class="mt-4 flex gap-3 cursor-pointer items-start">
-          <PSwitch v-model="form.listwiseRetest" size="sm" class="mt-0.5 shrink-0" />
+          <PSwitch v-model="form.listwiseRetest" size="sm" class="mt-0.5 shrink-0" :aria-labelledby="`${ids}-retest`" :aria-describedby="`${ids}-retest-hint`" />
           <span class="min-w-0">
-            <span class="text-sm text-fg">重测会话</span>
-            <span class="text-xs text-fg-subtle leading-relaxed mt-0.5 block">
-              整批都抽 7 天前排过的老组，成员重新打乱。量的是<b>你自己判两次有多一致</b> ——
-              没有这个数，就分不清模型在边界上分不开是它没学会、还是那些对本来就是掷硬币。
-              约 50 组（9 分钟）就够。平时关着，服务端仍按 5% 自然积累。
+            <span :id="`${ids}-retest`" class="text-sm text-fg">{{ $t('annotate.groupSize.retest') }}</span>
+            <span :id="`${ids}-retest-hint`" class="text-xs text-fg-subtle leading-relaxed mt-0.5 block">
+              {{ $t('annotate.groupSize.retestHint') }}
             </span>
           </span>
         </label>
       </section>
 
-      <!-- 维度 chips（仅单图评分） -->
+      <!-- 维度 chips（仅单图评分）：多选，toggle 按钮 -->
       <section v-if="form.kind === 'absolute'" class="mb-7">
-        <div class="annotate-section-title">
-          维度
-          <span class="annotate-section-note">建议单维轮标，判断更纯更快</span>
+        <div :id="`${ids}-dims`" class="annotate-section-title">
+          {{ $t('annotate.dimensions.title') }}
+          <span class="annotate-section-note">{{ $t('annotate.dimensions.note') }}</span>
         </div>
-        <div class="flex flex-wrap gap-2">
+        <div role="group" :aria-labelledby="`${ids}-dims`" class="flex flex-wrap gap-2">
           <button
             v-for="d in DIMENSIONS"
             :key="d.key"
+            type="button"
             class="annotate-dim-chip"
             :class="{ 'annotate-dim-chip--active': form.dimensions.includes(d.key) }"
+            :aria-pressed="form.dimensions.includes(d.key)"
             @click="toggleDimension(d.key)"
           >
-            <i :class="d.icon" class="text-base shrink-0" />
-            <span class="font-medium">{{ d.label }}</span>
-            <span class="annotate-dim-chip__hint">{{ d.hint }}</span>
+            <i :class="d.icon" class="text-base shrink-0" aria-hidden="true" />
+            <span class="font-medium">{{ $t(d.labelKey) }}</span>
+            <span class="annotate-dim-chip__hint">{{ $t(d.hintKey) }}</span>
           </button>
         </div>
       </section>
@@ -345,62 +363,76 @@ async function generateQueue() {
       <!-- 档位 / 采样：segmented -->
       <section v-if="form.kind === 'absolute'" class="mb-7 flex flex-wrap gap-x-10 gap-y-5">
         <div>
-          <div class="annotate-section-title">
-            档位
+          <div :id="`${ids}-scale`" class="annotate-section-title">
+            {{ $t('annotate.scale.title') }}
           </div>
-          <div class="annotate-segment">
+          <div ref="scaleGroup" role="radiogroup" :aria-labelledby="`${ids}-scale`" class="annotate-segment">
             <button
               v-for="s in SCALES"
               :key="s.value"
+              type="button"
+              role="radio"
+              :aria-checked="form.scale === s.value"
               class="annotate-segment__item"
               :class="{ 'annotate-segment__item--active': form.scale === s.value }"
-              :title="s.hint"
+              :title="$t(s.hintKey)"
               @click="form.scale = s.value"
             >
-              {{ s.label }}
+              {{ $t(s.labelKey) }}
             </button>
           </div>
         </div>
         <div>
-          <div class="annotate-section-title">
-            采样
+          <div :id="`${ids}-sampling`" class="annotate-section-title">
+            {{ $t('annotate.sampling.title') }}
           </div>
-          <div class="annotate-segment">
+          <div ref="samplingGroup" role="radiogroup" :aria-labelledby="`${ids}-sampling`" class="annotate-segment">
             <button
               v-for="s in STRATEGIES"
               :key="s.value"
+              type="button"
+              role="radio"
+              :aria-checked="form.strategy === s.value"
               class="annotate-segment__item"
               :class="{ 'annotate-segment__item--active': form.strategy === s.value }"
-              :title="s.hint"
+              :title="$t(s.hintKey)"
               @click="form.strategy = s.value"
             >
-              {{ s.label }}
+              {{ $t(s.labelKey) }}
             </button>
           </div>
         </div>
       </section>
 
       <!-- CTA -->
-      <PButton variant="primary" size="lg" block :disabled="!canStart" @click="startStream">
-        <i class="i-tabler-player-play" />
-        开始标注
+      <PButton ref="startButton" variant="primary" size="lg" block :disabled="!canStart" @click="startStream">
+        <i class="i-tabler-player-play" aria-hidden="true" />
+        {{ $t('annotate.start') }}
       </PButton>
-      <p class="text-xs text-fg-subtle mt-2.5 text-center">
-        全键盘操作 · <kbd class="annotate-kbd">Esc</kbd> 随时退出 · <kbd class="annotate-kbd">Space</kbd> 跳过
-      </p>
+      <i18n-t keypath="annotate.startHint" tag="p" scope="global" class="text-xs text-fg-subtle mt-2.5 text-center">
+        <template #esc>
+          <kbd class="annotate-kbd">Esc</kbd>
+        </template>
+        <template #space>
+          <kbd class="annotate-kbd">Space</kbd>
+        </template>
+      </i18n-t>
 
       <!-- 队列：固定批次工具 -->
       <section class="mt-10">
         <button
+          type="button"
           class="text-xs text-fg-muted py-1 flex gap-1 transition-colors items-center hover:text-fg"
+          :aria-expanded="showQueues"
+          :aria-controls="`${ids}-queues`"
           @click="showQueues = !showQueues"
         >
-          <i :class="showQueues ? 'i-tabler-chevron-down' : 'i-tabler-chevron-right'" />
-          固定批次队列
-          <span class="text-fg-subtle">— 形态对比实验 / 复测用</span>
+          <i :class="showQueues ? 'i-tabler-chevron-down' : 'i-tabler-chevron-right'" aria-hidden="true" />
+          {{ $t('annotate.queue.toggle') }}
+          <span class="text-fg-subtle">{{ $t('annotate.queue.toggleNote') }}</span>
         </button>
 
-        <div v-if="showQueues" class="mt-3 flex flex-col gap-3">
+        <div v-if="showQueues" :id="`${ids}-queues`" class="mt-3 flex flex-col gap-3">
           <div class="text-xs flex gap-2.5 items-center">
             <input
               v-model.number="queueCount"
@@ -408,18 +440,21 @@ async function generateQueue() {
               min="1"
               max="5000"
               class="annotate-input w-24"
+              :aria-label="$t('annotate.queue.count')"
+              :title="$t('annotate.queue.count')"
             >
             <PButton size="sm" variant="subtle" :loading="generating" :disabled="!canStart" @click="generateQueue">
-              按上面配置生成队列
+              {{ $t('annotate.queue.generate') }}
             </PButton>
           </div>
 
           <div v-if="!queues?.length" class="text-xs text-fg-subtle">
-            暂无队列。
+            {{ $t('annotate.queue.empty') }}
           </div>
           <button
             v-for="q in queues"
             :key="q.id"
+            type="button"
             class="annotate-queue-row"
             @click="session = { mode: 'queue', queue: q }"
           >
@@ -428,16 +463,16 @@ async function generateQueue() {
                 {{ q.name }}
               </div>
               <div class="text-xs text-fg-muted mt-0.5">
-                {{ q.kind === 'absolute' ? '单图评分' : q.kind === 'listwise' ? '组内排序' : '双图对比' }} · {{ q.dimensions.join(' / ') }}<template v-if="q.scale">
-                  · {{ q.scale }} 级
+                {{ $t(KIND_LABEL_KEYS[q.kind]) }} · {{ q.dimensions.map(dimensionLabel).join(' / ') }}<template v-if="q.scale">
+                  · {{ $t('annotate.scale.levels', { n: q.scale }) }}
                 </template>
               </div>
-              <div class="annotate-progress mt-2">
+              <div class="annotate-progress mt-2" aria-hidden="true">
                 <div class="annotate-progress__bar" :style="{ width: `${q.total ? (q.done / q.total) * 100 : 0}%` }" />
               </div>
             </div>
             <div class="text-xs text-fg-muted shrink-0 tabular-nums">
-              {{ q.done }} / {{ q.total }}
+              {{ formatNumber(q.done) }} / {{ formatNumber(q.total) }}
             </div>
           </button>
         </div>
@@ -578,7 +613,6 @@ async function generateQueue() {
   transition: border-color var(--p-transition-fast);
 }
 .annotate-input:focus {
-  outline: none;
   border-color: rgb(var(--p-primary-rgb) / 0.7);
 }
 .annotate-queue-row {

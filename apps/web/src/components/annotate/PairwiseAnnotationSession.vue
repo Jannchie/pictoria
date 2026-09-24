@@ -2,14 +2,21 @@
 import type { QueueItemPostPublic, QueueSummaryPublic } from '@/api'
 import type { AnnotationDimension, PairwiseStrategy, PairwiseWinner } from '@/shared/annotationTypes'
 import { useQueryClient } from '@tanstack/vue-query'
-import { onKeyStroke } from '@vueuse/core'
-import { computed, ref, watch } from 'vue'
+import { computed, onMounted, ref, useTemplateRef, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { v2CountPairwise, v2NextPairwise, v2SamplePairwise, v2SubmitPairwise, v2UndoAnnotations } from '@/api'
+import AnnotationKeyHints from '@/components/annotate/AnnotationKeyHints.vue'
+import AnnotationReviewBanner from '@/components/annotate/AnnotationReviewBanner.vue'
+import { isForeignComposite, noLayerOpen, useProgressAnnouncer } from '@/composables/useAnnotationKeymap'
 import { useAnnotationReview } from '@/composables/useAnnotationReview'
 import { useAPIError } from '@/composables/useAPIError'
-import { endReview, prependEntry, pushCommand, removeEntries, winnerLabel } from '@/shared'
+import { useHotkey } from '@/composables/useHotkey'
+import { formatNumber } from '@/locale'
+import { announce, endReview, prependEntry, pushCommand, removeEntries, winnerLabel } from '@/shared'
+import { dimensionMeta } from '@/shared/annotationTypes'
 import { getPostImageURL } from '@/utils'
+import { focusElement } from '@/utils/focus'
+import { shortcutKeys } from '@/utils/keyboard'
 
 interface BufferItem {
   postA: QueueItemPostPublic
@@ -44,11 +51,16 @@ const doneCount = ref(props.queue?.done ?? 0)
 const cumulativeCount = ref<number | null>(null)
 const totalLabel = computed(() => {
   if (props.queue) {
-    return `${doneCount.value} / ${props.queue.total}`
+    return t('annotate.progress.queue', { done: formatNumber(doneCount.value), total: formatNumber(props.queue.total) })
   }
-  const cum = cumulativeCount.value == null ? '' : ` · 累计 ${cumulativeCount.value}`
-  return `本次 ${doneCount.value}${cum}`
+  const session = t('annotate.progress.pairwise', { n: formatNumber(doneCount.value) })
+  return cumulativeCount.value == null
+    ? session
+    : `${session} · ${t('annotate.progress.cumulative', { n: formatNumber(cumulativeCount.value) })}`
 })
+const announceProgress = useProgressAnnouncer(() => (props.queue
+  ? t('annotate.progress.queueAnnounce', { done: formatNumber(doneCount.value), total: formatNumber(props.queue.total) })
+  : t('annotate.progress.pairwiseAnnounce', { n: formatNumber(doneCount.value) })))
 
 async function refreshCumulative() {
   try {
@@ -154,7 +166,7 @@ async function refillOnce(): Promise<void> {
     preloadAhead()
   }
   catch (error) {
-    handleAPIError(error, '加载图片失败')
+    handleAPIError(error, t('annotate.error.loadImages'))
   }
 }
 
@@ -195,6 +207,7 @@ function advancePast(winner: PairwiseWinner) {
   // 判到第 16 对时按下方向键，画面会停在已经判完的那一对上等采样返回。
   // buffer 还有 LOW_WATER 条垫着，补货在后台跑完即可。
   void refill()
+  announceProgress()
 }
 
 /**
@@ -266,30 +279,45 @@ async function judge(winner: PairwiseWinner) {
     recordJudgement(item, winner, elapsedMs, ids)
   }
   catch (error) {
-    handleAPIError(error, '提交失败')
+    handleAPIError(error, t('annotate.error.submit'))
   }
   finally {
     submitting.value = false
   }
 }
 
-onKeyStroke(['ArrowLeft', 'ArrowRight', 'ArrowDown', ' '], (e) => {
-  if (!shown.value) {
-    return
-  }
-  e.preventDefault()
-  const winner = e.key === 'ArrowLeft' ? 'a' : e.key === 'ArrowRight' ? 'b' : e.key === 'ArrowDown' ? 'tie' : 'skip'
-  decide(winner)
-})
-onKeyStroke('Escape', (e) => {
-  e.preventDefault()
-  // Esc backs out one level at a time: out of the review first, out of the session
-  // only when there is no review to leave.
+// ── Keyboard ────────────────────────────────────────────────────────────────
+// useHotkey: exact modifiers, nothing while typing or while a layer is open. The
+// arrows also fire from a plain button (a clicked history row, the refresh button)
+// because none of those use arrows — but not from someone else's composite widget.
+const root = useTemplateRef<HTMLElement>('root')
+const notForeign = (e: KeyboardEvent) => isForeignComposite(e.target, root.value)
+const canDecide = () => noLayerOpen() && !!shown.value
+
+useHotkey(['ArrowLeft', 'ArrowRight', 'ArrowDown'], (e) => {
+  decide(e.key === 'ArrowLeft' ? 'a' : e.key === 'ArrowRight' ? 'b' : 'tie')
+}, { when: canDecide, allowInWidgets: true, ignore: notForeign, repeat: false })
+// Space yields to a focused button (it activates it). The picture buttons never keep
+// focus from a mouse click, so click-then-Space still skips.
+useHotkey('Space', () => decide('skip'), { when: canDecide, ignore: notForeign, repeat: false })
+
+// Esc backs out one level at a time: out of the review first, out of the session
+// only when there is no review to leave. Layers swallow Escape before it gets here.
+function onEscape() {
   if (review.value) {
     endReview()
     return
   }
   emit('exit')
+}
+useHotkey('Escape', onEscape, { when: noLayerOpen, allowInWidgets: true, ignore: notForeign })
+
+// The launcher that started the session is gone; keep focus off <body>.
+onMounted(() => {
+  const active = document.activeElement
+  if (!active || active === document.body) {
+    focusElement(root.value, { preventScroll: true })
+  }
 })
 
 watch(() => [props.queue?.id, props.dimension] as const, () => {
@@ -304,77 +332,108 @@ watch(() => [props.queue?.id, props.dimension] as const, () => {
   refreshCumulative()
 }, { immediate: true })
 
-const title = computed(() => props.queue?.name ?? '流式对比')
+const title = computed(() => props.queue?.name ?? t('annotate.pairwise.streamTitle'))
+
+watch(() => exhausted.value && !current.value, (done) => {
+  if (done) {
+    announce(t('annotate.session.exhaustedAnnounce'))
+  }
+})
 
 const reviewVerdict = computed(() => winnerLabel(review.value?.winner))
 
-const DIMENSION_QUESTIONS: Record<string, string> = {
-  color: '哪边的配色运用更好？',
-  finish: '哪边的完成度更高？',
-  composition: '哪边的构图演出更有想法？',
-  overall: '总体更喜欢哪边？',
-}
-const question = computed(() => DIMENSION_QUESTIONS[dimension.value] ?? `哪边的 ${dimension.value} 更好？`)
+const question = computed(() => {
+  const meta = dimensionMeta(dimension.value)
+  return meta ? t(meta.questionKey) : t('annotate.dimension.questionFallback', { dimension: dimension.value })
+})
+
+const hints = computed(() => [
+  { keys: ['←'], label: t('annotate.keys.pickLeft') },
+  { keys: ['→'], label: t('annotate.keys.pickRight') },
+  { keys: ['↓'], label: t('annotate.keys.tie') },
+  { keys: ['Space'], label: t('annotate.keys.skip') },
+  { keys: shortcutKeys('Mod+Z'), label: t('annotate.keys.undo') },
+  { keys: ['Esc'], label: t('annotate.keys.exit') },
+])
 </script>
 
 <template>
-  <div class="flex flex-col h-full">
+  <div ref="root" class="pairwise-session flex flex-col h-full" tabindex="-1" role="region" :aria-label="title">
     <!-- 顶栏 -->
     <div class="text-sm px-4 py-2.5 p-divider flex shrink-0 items-center justify-between">
       <div class="flex gap-3 min-w-0 items-center">
-        <button class="pairwise-exit" title="退出（Esc）" @click="emit('exit')">
-          <i class="i-tabler-arrow-left" />
+        <button
+          type="button"
+          class="pairwise-exit"
+          :aria-label="$t('annotate.session.exit')"
+          :title="$t('annotate.session.exitHint', { key: 'Esc' })"
+          aria-keyshortcuts="Escape"
+          @click="emit('exit')"
+        >
+          <i class="i-tabler-arrow-left" aria-hidden="true" />
         </button>
-        <span class="text-fg font-medium truncate">{{ title }}</span>
+        <h2 class="text-fg font-medium truncate">
+          {{ title }}
+        </h2>
       </div>
       <div class="text-xs text-fg-muted flex shrink-0 gap-4 items-center">
         <span class="text-fg font-medium tabular-nums">{{ totalLabel }}</span>
-        <span class="pairwise-hotkeys"><kbd>↓</kbd> 平手 <kbd>Space</kbd> 跳过 <kbd>Ctrl</kbd>+<kbd>Z</kbd> 撤销 <kbd>Esc</kbd> 退出</span>
+        <AnnotationKeyHints :hints="hints" />
       </div>
     </div>
 
     <div class="flex flex-1 flex-col min-h-0 min-w-0">
       <!-- 维度问题横幅；复判时换成"在改哪一条" -->
       <AnnotationReviewBanner v-if="review" :verdict="reviewVerdict" @exit="endReview()" />
-      <div v-else class="text-sm text-fg font-medium px-4 py-2 text-center p-divider shrink-0">
+      <div v-else :id="`${sessionId}-q`" class="text-sm text-fg font-medium px-4 py-2 text-center p-divider shrink-0">
         {{ question }}
       </div>
-      <div v-if="shown" class="flex flex-1 gap-1 min-h-0">
+      <!-- @mousedown.prevent: a click judges and moves on; it must not leave focus on
+           the button, where the next Space would activate it instead of skipping. -->
+      <div v-if="shown" class="flex flex-1 gap-1 min-h-0" role="group" :aria-labelledby="review ? undefined : `${sessionId}-q`">
         <button
+          type="button"
           class="pairwise-side group"
           :class="{ 'pairwise-side--was': review?.winner === 'a' }"
-          title="选左边（←）"
+          :aria-label="$t('annotate.pairwise.pickLeft')"
+          :title="`${$t('annotate.pairwise.pickLeft')} (←)`"
+          aria-keyshortcuts="ArrowLeft"
+          @mousedown.prevent
           @click="decide('a')"
         >
           <img :key="shown.postA.id" :src="imgURL(shown.postA)" :alt="shown.postA.fileName" class="max-h-full max-w-full object-contain" decoding="async">
-          <span class="pairwise-side__pick"><kbd>←</kbd> 选这边</span>
+          <span class="pairwise-side__pick" aria-hidden="true"><kbd>←</kbd> {{ $t('annotate.pairwise.pickThis') }}</span>
         </button>
         <button
+          type="button"
           class="pairwise-side group"
           :class="{ 'pairwise-side--was': review?.winner === 'b' }"
-          title="选右边（→）"
+          :aria-label="$t('annotate.pairwise.pickRight')"
+          :title="`${$t('annotate.pairwise.pickRight')} (→)`"
+          aria-keyshortcuts="ArrowRight"
+          @mousedown.prevent
           @click="decide('b')"
         >
           <img :key="shown.postB.id" :src="imgURL(shown.postB)" :alt="shown.postB.fileName" class="max-h-full max-w-full object-contain" decoding="async">
-          <span class="pairwise-side__pick"><kbd>→</kbd> 选这边</span>
+          <span class="pairwise-side__pick" aria-hidden="true"><kbd>→</kbd> {{ $t('annotate.pairwise.pickThis') }}</span>
         </button>
       </div>
 
       <!-- 空态 / 完成态 -->
       <div v-else class="flex flex-1 items-center justify-center">
         <div v-if="exhausted" class="text-center">
-          <div class="text-3xl mb-3">
+          <div class="text-3xl mb-3" aria-hidden="true">
             🎉
           </div>
           <div class="text-sm text-fg font-medium">
-            没有更多待判图片了
+            {{ $t('annotate.pairwise.exhausted') }}
           </div>
           <div class="text-xs text-fg-muted mt-1">
-            本次共判断 {{ doneCount }} 对
+            {{ $t('annotate.pairwise.exhaustedDetail', { n: formatNumber(doneCount) }) }}
           </div>
         </div>
-        <div v-else class="text-sm text-fg-muted flex gap-2 items-center">
-          <span class="pairwise-spinner" />加载中…
+        <div v-else role="status" class="text-sm text-fg-muted flex gap-2 items-center">
+          <span class="pairwise-spinner" aria-hidden="true" />{{ $t('common.loading') }}
         </div>
       </div>
     </div>
@@ -400,7 +459,10 @@ const question = computed(() => DIMENSION_QUESTIONS[dimension.value] ?? `哪边�
   color: var(--p-fg);
 }
 
-.pairwise-hotkeys kbd,
+.pairwise-session:focus {
+  outline: none;
+}
+
 .pairwise-side__pick kbd {
   display: inline-block;
   padding: 1px 5px;

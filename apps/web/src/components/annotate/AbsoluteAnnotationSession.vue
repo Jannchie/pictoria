@@ -2,15 +2,22 @@
 import type { QueueItemPostPublic, QueueSummaryPublic } from '@/api'
 import type { AbsoluteStrategy, AnnotationDimension, AnnotationScale, ContentFlag } from '@/shared/annotationTypes'
 import { useQueryClient } from '@tanstack/vue-query'
-import { onKeyStroke } from '@vueuse/core'
-import { computed, ref, watch } from 'vue'
+import { computed, onMounted, ref, useId, useTemplateRef, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { v2NextAbsolute, v2SampleAbsolute, v2SubmitAbsolute, v2SubmitContentFlag, v2UndoAnnotations } from '@/api'
-import { activeKeys, KEY_ROWS, keyToChoice } from '@/composables/useAnnotationKeymap'
+import AnnotationChoiceGroup from '@/components/annotate/AnnotationChoiceGroup.vue'
+import AnnotationKeyHints from '@/components/annotate/AnnotationKeyHints.vue'
+import AnnotationReviewBanner from '@/components/annotate/AnnotationReviewBanner.vue'
+import { choiceBindings, isForeignComposite, KEY_ROWS, noLayerOpen, useProgressAnnouncer } from '@/composables/useAnnotationKeymap'
 import { useAnnotationReview } from '@/composables/useAnnotationReview'
 import { useAPIError } from '@/composables/useAPIError'
-import { endReview, prependEntry, pushCommand, removeEntries } from '@/shared'
+import { useHotkey } from '@/composables/useHotkey'
+import { formatNumber } from '@/locale'
+import { announce, endReview, flagGlyph, prependEntry, pushCommand, removeEntries } from '@/shared'
+import { dimensionMeta } from '@/shared/annotationTypes'
 import { getPostImageURL } from '@/utils'
+import { focusElement } from '@/utils/focus'
+import { matchesShortcut, shortcutKeys } from '@/utils/keyboard'
 
 export interface StreamConfig {
   dimensions: AnnotationDimension[]
@@ -38,7 +45,12 @@ const rubricVersions = computed(() => Object.fromEntries(dimensions.value.map(d 
 
 const buffer = ref<BufferItem[]>([])
 const doneCount = ref(props.queue?.done ?? 0)
-const totalLabel = computed(() => (props.queue ? `${doneCount.value} / ${props.queue.total}` : `本次已标 ${doneCount.value}`))
+const totalLabel = computed(() => (props.queue
+  ? t('annotate.progress.queue', { done: formatNumber(doneCount.value), total: formatNumber(props.queue.total) })
+  : t('annotate.progress.absolute', { n: formatNumber(doneCount.value) })))
+const announceProgress = useProgressAnnouncer(() => (props.queue
+  ? t('annotate.progress.queueAnnounce', { done: formatNumber(doneCount.value), total: formatNumber(props.queue.total) })
+  : t('annotate.progress.absoluteAnnounce', { n: formatNumber(doneCount.value) })))
 const exhausted = ref(false)
 const submitting = ref(false)
 const current = computed(() => buffer.value[0] ?? null)
@@ -110,7 +122,7 @@ async function refill() {
     preloadAhead()
   }
   catch (error) {
-    handleAPIError(error, '加载图片失败')
+    handleAPIError(error, t('annotate.error.loadImages'))
   }
   finally {
     refilling = false
@@ -130,6 +142,7 @@ function advance() {
   resetForNext()
   preloadAhead()
   void refill() // 后台补货，别让采样延迟卡住翻页
+  announceProgress()
 }
 
 /**
@@ -221,7 +234,7 @@ async function submitAndAdvance() {
     advance()
   }
   catch (error) {
-    handleAPIError(error, '提交失败')
+    handleAPIError(error, t('annotate.error.submit'))
   }
   finally {
     submitting.value = false
@@ -245,21 +258,27 @@ function selectChoice(dimension: string, value: number) {
   }
 }
 
-// 维度×档位按键：行 = 维度，列 = 档位
-onKeyStroke(activeKeys(dimensions.value, scale.value), (e) => {
-  e.preventDefault()
-  const choice = keyToChoice(e.key, dimensions.value, scale.value)
-  if (choice) {
-    selectChoice(choice.dimension, choice.value)
+// ── Keyboard ────────────────────────────────────────────────────────────────
+// Every session key goes through useHotkey: exact modifiers (Ctrl+Z is undo, never
+// the 'z' rating), nothing while typing, nothing while a layer (palette, help,
+// dialog) is open, and nothing while focus is in someone else's composite widget.
+const root = useTemplateRef<HTMLElement>('root')
+const notForeign = (e: KeyboardEvent) => isForeignComposite(e.target, root.value)
+
+// 维度×档位按键：行 = 维度，列 = 档位。复判时面板收窄成一行，键位跟着屏幕走。
+const bindings = computed(() => choiceBindings(shownDimensions.value, shownScale.value))
+useHotkey(() => bindings.value.map(b => b.key), (e) => {
+  const b = bindings.value.find(x => matchesShortcut(e, x.key))
+  if (b) {
+    selectChoice(b.dimension, b.value)
   }
-})
+}, { when: noLayerOpen, allowInWidgets: true, ignore: notForeign, repeat: false })
 
 // 0 = 题材 flag 循环（事件流：每次按键都记录，'none' 即撤销）
-onKeyStroke('0', async (e) => {
+async function cycleFlag() {
   if (!current.value) {
     return
   }
-  e.preventDefault()
   const next = flagState.value === 'none' ? 'love' : flagState.value === 'love' ? 'hate' : 'none'
   const post = current.value.post
   flagState.value = next
@@ -273,17 +292,22 @@ onKeyStroke('0', async (e) => {
     }
   }
   catch (error) {
-    handleAPIError(error, 'flag 失败')
+    handleAPIError(error, t('annotate.error.flag'))
   }
+}
+useHotkey('0', () => void cycleFlag(), {
+  when: () => noLayerOpen() && !!current.value,
+  allowInWidgets: true,
+  ignore: notForeign,
+  repeat: false,
 })
 
 // Space = 跳过整张图（queue：标 done 不发事件；stream：本会话内不再出现）
-onKeyStroke(' ', async (e) => {
-  if (!current.value || submitting.value) {
+async function skipCurrent() {
+  const item = current.value
+  if (!item || submitting.value) {
     return
   }
-  e.preventDefault()
-  const item = current.value
   if (props.queue) {
     submitting.value = true
     try {
@@ -297,7 +321,7 @@ onKeyStroke(' ', async (e) => {
       recordItem(item, [], t('history.skipPost'), skipItem)
     }
     catch (error) {
-      handleAPIError(error, '跳过失败')
+      handleAPIError(error, t('annotate.error.skip'))
     }
     finally {
       submitting.value = false
@@ -325,16 +349,33 @@ onKeyStroke(' ', async (e) => {
       },
     })
   }
+}
+// Space yields to a focused button (it activates it); the choice buttons never keep
+// focus from a mouse click, so the usual click-then-Space rhythm still skips.
+useHotkey('Space', () => void skipCurrent(), {
+  when: () => noLayerOpen() && !!current.value && !submitting.value && !review.value,
+  ignore: notForeign,
+  repeat: false,
 })
 
-onKeyStroke('Escape', (e) => {
-  e.preventDefault()
-  // Esc leaves the review first, the session only when there is no review to leave.
+// Esc leaves the review first, the session only when there is no review to leave.
+// Layers (palette, help) swallow Escape before it gets here.
+function onEscape() {
   if (review.value) {
     endReview()
     return
   }
   emit('exit')
+}
+useHotkey('Escape', onEscape, { when: noLayerOpen, allowInWidgets: true, ignore: notForeign })
+
+// The start button / queue row that launched the session is gone; take focus so it
+// does not fall to <body> and screen readers land on the session.
+onMounted(() => {
+  const active = document.activeElement
+  if (!active || active === document.body) {
+    focusElement(root.value, { preventScroll: true })
+  }
 })
 
 watch(() => [props.queue?.id, props.config] as const, () => {
@@ -347,39 +388,71 @@ watch(() => [props.queue?.id, props.config] as const, () => {
   refill()
 }, { immediate: true })
 
-const SCALE_LABELS: Record<number, string[]> = {
-  2: ['不好', '好'],
-  3: ['差', '中', '好'],
-  5: ['1', '2', '3', '4', '5'],
-}
-const labels = computed(() => SCALE_LABELS[shownScale.value] ?? SCALE_LABELS[2])
-const title = computed(() => props.queue?.name ?? `流式标注 · ${dimensions.value.join(' / ')}`)
+watch(() => exhausted.value && !current.value, (done) => {
+  if (done) {
+    announce(t('annotate.session.exhaustedAnnounce'))
+  }
+})
 
-// 维度显示成引导问题而非冷标签，把注意力锚到该维度的特征上（抗 halo）。
-const DIMENSION_META: Record<string, { label: string, prompt: string, icon: string }> = {
-  color: { label: '颜色', prompt: '配色运用得好吗？不是丰富度，忽略题材。', icon: 'i-tabler-palette' },
-  finish: { label: '完成度', prompt: '精修、装饰精致吗？草稿感还是想放大看？', icon: 'i-tabler-brush' },
-  composition: { label: '构图', prompt: '演出有想法吗？姿势动态、角度、布景。', icon: 'i-tabler-layout-collage' },
-  overall: { label: '总分', prompt: '总体喜欢吗？', icon: 'i-tabler-star' },
+const SCALE_LABEL_KEYS: Record<number, string[]> = {
+  2: ['annotate.scale.notGood', 'annotate.scale.good'],
+  3: ['annotate.scale.poor', 'annotate.scale.fair', 'annotate.scale.good'],
 }
+const labels = computed(() => {
+  const keys = SCALE_LABEL_KEYS[shownScale.value]
+  if (keys) {
+    return keys.map(k => t(k))
+  }
+  return Array.from({ length: shownScale.value }, (_, i) => String(i + 1))
+})
+function dimensionLabel(d: string) {
+  const meta = dimensionMeta(d)
+  return meta ? t(meta.labelKey) : d
+}
+const title = computed(() => props.queue?.name
+  ?? t('annotate.absolute.streamTitle', { dimensions: dimensions.value.map(dimensionLabel).join(' / ') }))
+
+function choiceOptions(row: number) {
+  return labels.value.map((label, i) => ({ label, key: KEY_ROWS[row]?.[i] ?? '' }))
+}
+const idBase = useId()
+
+const hints = computed(() => [
+  { keys: ['Space'], label: t('annotate.keys.skip') },
+  { keys: ['0'], label: t('annotate.keys.flag') },
+  { keys: shortcutKeys('Mod+Z'), label: t('annotate.keys.undo') },
+  { keys: ['Esc'], label: t('annotate.keys.exit') },
+])
 </script>
 
 <template>
-  <div class="flex flex-col h-full">
+  <div ref="root" class="annotate-session flex flex-col h-full" tabindex="-1" role="region" :aria-label="title">
     <!-- 顶栏 -->
     <div class="text-sm px-4 py-2.5 p-divider flex shrink-0 items-center justify-between">
       <div class="flex gap-3 min-w-0 items-center">
-        <button class="annotate-exit" title="退出（Esc）" @click="emit('exit')">
-          <i class="i-tabler-arrow-left" />
+        <button
+          type="button"
+          class="annotate-exit"
+          :aria-label="$t('annotate.session.exit')"
+          :title="$t('annotate.session.exitHint', { key: 'Esc' })"
+          aria-keyshortcuts="Escape"
+          @click="emit('exit')"
+        >
+          <i class="i-tabler-arrow-left" aria-hidden="true" />
         </button>
-        <span class="text-fg font-medium truncate">{{ title }}</span>
-        <span v-if="flagState !== 'none'" class="text-xs shrink-0">
-          {{ flagState === 'love' ? '❤️ 喜欢的题材' : '💢 讨厌的题材' }}
+        <h2 class="text-fg font-medium truncate">
+          {{ title }}
+        </h2>
+        <span role="status" class="text-xs shrink-0">
+          <template v-if="flagState !== 'none'">
+            <span aria-hidden="true">{{ flagGlyph(flagState) }}</span>
+            {{ flagState === 'love' ? $t('annotate.absolute.flagLove') : $t('annotate.absolute.flagHate') }}
+          </template>
         </span>
       </div>
       <div class="text-xs text-fg-muted flex shrink-0 gap-4 items-center">
         <span class="text-fg font-medium tabular-nums">{{ totalLabel }}</span>
-        <span class="annotate-hotkeys"><kbd>Space</kbd> 跳过 <kbd>0</kbd> 题材 <kbd>Ctrl</kbd>+<kbd>Z</kbd> 撤销 <kbd>Esc</kbd> 退出</span>
+        <AnnotationKeyHints :hints="hints" />
       </div>
     </div>
 
@@ -408,24 +481,18 @@ const DIMENSION_META: Record<string, { label: string, prompt: string, icon: stri
             :class="{ 'annotate-judge-card--done': !review && choices[dim] != null }"
           >
             <div class="flex gap-2 items-center">
-              <i :class="DIMENSION_META[dim]?.icon" class="annotate-judge-card__icon" />
-              <span class="text-sm text-fg font-medium">{{ DIMENSION_META[dim]?.label ?? dim }}</span>
+              <i :class="dimensionMeta(dim)?.icon" class="annotate-judge-card__icon" aria-hidden="true" />
+              <span :id="`${idBase}-dim-${row}`" class="text-sm text-fg font-medium">{{ dimensionLabel(dim) }}</span>
             </div>
-            <p class="text-xs text-fg-muted leading-relaxed mt-1">
-              {{ DIMENSION_META[dim]?.prompt }}
+            <p v-if="dimensionMeta(dim)" class="text-xs text-fg-muted leading-relaxed mt-1">
+              {{ $t(dimensionMeta(dim)!.promptKey) }}
             </p>
-            <div class="mt-3 flex gap-1.5">
-              <button
-                v-for="(label, i) in labels"
-                :key="i"
-                class="annotate-choice"
-                :class="{ 'annotate-choice--active': review ? review.value === i + 1 : choices[dim] === i + 1 }"
-                @click="selectChoice(dim, i + 1)"
-              >
-                <kbd>{{ KEY_ROWS[row][i] }}</kbd>
-                <span>{{ label }}</span>
-              </button>
-            </div>
+            <AnnotationChoiceGroup
+              :labelledby="`${idBase}-dim-${row}`"
+              :options="choiceOptions(row)"
+              :checked="review ? Number(review.value) : choices[dim]"
+              @select="selectChoice(dim, $event)"
+            />
           </div>
         </div>
       </div>
@@ -433,18 +500,23 @@ const DIMENSION_META: Record<string, { label: string, prompt: string, icon: stri
       <!-- 空态 / 完成态 -->
       <div v-else class="flex flex-1 items-center justify-center">
         <div v-if="exhausted" class="text-center">
-          <div class="text-3xl mb-3">
+          <div class="text-3xl mb-3" aria-hidden="true">
             🎉
           </div>
           <div class="text-sm text-fg font-medium">
-            没有更多待标图片了
+            {{ $t('annotate.absolute.exhausted') }}
           </div>
-          <div class="text-xs text-fg-muted mt-1">
-            本次共标注 {{ doneCount }} 张 · 按 <kbd class="annotate-kbd-inline">Esc</kbd> 返回
-          </div>
+          <i18n-t keypath="annotate.absolute.exhaustedDetail" tag="div" scope="global" class="text-xs text-fg-muted mt-1">
+            <template #n>
+              {{ formatNumber(doneCount) }}
+            </template>
+            <template #esc>
+              <kbd class="annotate-kbd-inline">Esc</kbd>
+            </template>
+          </i18n-t>
         </div>
-        <div v-else class="text-sm text-fg-muted flex gap-2 items-center">
-          <span class="annotate-spinner" />加载中…
+        <div v-else role="status" class="text-sm text-fg-muted flex gap-2 items-center">
+          <span class="annotate-spinner" aria-hidden="true" />{{ $t('common.loading') }}
         </div>
       </div>
     </div>
@@ -470,7 +542,10 @@ const DIMENSION_META: Record<string, { label: string, prompt: string, icon: stri
   color: var(--p-fg);
 }
 
-.annotate-hotkeys kbd,
+.annotate-session:focus {
+  outline: none;
+}
+
 .annotate-kbd-inline {
   display: inline-block;
   padding: 1px 5px;
@@ -499,42 +574,6 @@ const DIMENSION_META: Record<string, { label: string, prompt: string, icon: stri
 .annotate-judge-card__icon {
   color: var(--p-primary);
   font-size: 15px;
-}
-
-/* 档位按钮 */
-.annotate-choice {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  padding: 7px 11px;
-  font-size: var(--p-text-sm);
-  border: 1px solid var(--p-border);
-  border-radius: var(--p-radius-md);
-  background: transparent;
-  color: var(--p-fg-muted);
-  cursor: pointer;
-  transition:
-    border-color var(--p-transition-fast),
-    background-color var(--p-transition-fast),
-    color var(--p-transition-fast),
-    transform var(--p-transition-fast);
-}
-.annotate-choice:hover {
-  border-color: rgb(var(--p-primary-rgb) / 0.55);
-  color: var(--p-fg);
-}
-.annotate-choice:active {
-  transform: scale(0.96);
-}
-.annotate-choice--active {
-  background: var(--p-primary);
-  border-color: var(--p-primary);
-  color: white;
-}
-.annotate-choice kbd {
-  font-family: var(--p-font-mono);
-  font-size: 10px;
-  opacity: 0.65;
 }
 
 .annotate-spinner {

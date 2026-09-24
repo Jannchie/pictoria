@@ -8,11 +8,11 @@ defineEmits<{ exit: [] }>()
 </script>
 
 <template>
-  <div class="review-banner text-sm text-fg font-medium px-4 py-2 text-center p-divider shrink-0">
+  <div role="status" class="review-banner text-sm text-fg font-medium px-4 py-2 text-center p-divider shrink-0">
     {{ $t('annotate.history.reviewing') }}
     <span class="text-xs text-fg-muted ml-2">{{ $t('annotate.history.wasVerdict', { verdict }) }}</span>
-    <PButton size="xs" variant="subtle" class="ml-3" @click="$emit('exit')">
-      <kbd class="review-banner__kbd">Esc</kbd> {{ $t('annotate.history.exitReview') }}
+    <PButton size="xs" variant="subtle" class="ml-3" aria-keyshortcuts="Escape" @click="$emit('exit')">
+      <kbd class="review-banner__kbd" aria-hidden="true">Esc</kbd> {{ $t('annotate.history.exitReview') }}
     </PButton>
   </div>
 </template>

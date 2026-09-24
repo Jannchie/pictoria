@@ -2,12 +2,20 @@
 import type { QueueItemPostPublic, QueueSummaryPublic } from '@/api'
 import type { AnnotationDimension } from '@/shared/annotationTypes'
 import { useQueryClient } from '@tanstack/vue-query'
-import { onKeyStroke } from '@vueuse/core'
-import { computed, ref, watch } from 'vue'
+import { computed, nextTick, onMounted, ref, useId, useTemplateRef, watch } from 'vue'
+import { useI18n } from 'vue-i18n'
 import { v2NextListwise, v2SampleListwise, v2SubmitListwise, v2UndoAnnotations } from '@/api'
+import AnnotationKeyHints from '@/components/annotate/AnnotationKeyHints.vue'
+import { isForeignComposite, moveItem, noLayerOpen, sortableIntent, sortableTarget, useProgressAnnouncer } from '@/composables/useAnnotationKeymap'
 import { useAPIError } from '@/composables/useAPIError'
-import { prependEntry, pushCommand, removeEntries } from '@/shared'
+import { useFocusTrap } from '@/composables/useFocusTrap'
+import { useHotkey } from '@/composables/useHotkey'
+import { useRovingFocus } from '@/composables/useRovingFocus'
+import { formatNumber } from '@/locale'
+import { announce, prependEntry, pushCommand, removeEntries, useLayer } from '@/shared'
 import { getPostImageURL } from '@/utils'
+import { focusElement } from '@/utils/focus'
+import { formatShortcut, isMac } from '@/utils/keyboard'
 
 interface BufferItem {
   posts: QueueItemPostPublic[]
@@ -22,6 +30,7 @@ const props = defineProps<{ queue?: QueueSummaryPublic, dimension?: AnnotationDi
 const emit = defineEmits<{ exit: [] }>()
 
 const { handle: handleAPIError } = useAPIError()
+const { t } = useI18n()
 const queryClient = useQueryClient()
 
 const sessionId = crypto.randomUUID()
@@ -30,6 +39,12 @@ const groupSize = computed(() => props.size ?? 4)
 
 const buffer = ref<BufferItem[]>([])
 const doneCount = ref(props.queue?.done ?? 0)
+const totalLabel = computed(() => (props.queue
+  ? t('annotate.progress.queue', { done: formatNumber(doneCount.value), total: formatNumber(props.queue.total) })
+  : t('annotate.progress.listwise', { n: formatNumber(doneCount.value) })))
+const announceProgress = useProgressAnnouncer(() => (props.queue
+  ? t('annotate.progress.queueAnnounce', { done: formatNumber(doneCount.value), total: formatNumber(props.queue.total) })
+  : t('annotate.progress.listwiseAnnounce', { n: formatNumber(doneCount.value) })))
 const exhausted = ref(false)
 const submitting = ref(false)
 const current = computed(() => buffer.value[0] ?? null)
@@ -39,6 +54,10 @@ const current = computed(() => buffer.value[0] ?? null)
 const order = ref<number[]>([])
 const touched = ref(false) // 至少拖动过一次才认为这是判断而不是初始随机序
 const confirmArmed = ref(false) // 未调整时 Enter 需要按两次，防止把随机序当标注提交
+// Keyboard pick-up (see the Keyboard section): the card being moved, and the order to
+// restore on Escape.
+interface Grab { id: number, original: number[], touched: boolean }
+const grabbed = ref<Grab | null>(null)
 const postById = computed(() => new Map((current.value?.posts ?? []).map(p => [p.id, p])))
 
 // ── 与模型的一致率 ──────────────────────────────────────────────
@@ -164,7 +183,7 @@ async function refillOnce(): Promise<void> {
     preloadAhead()
   }
   catch (error) {
-    handleAPIError(error, '加载图片组失败')
+    handleAPIError(error, t('annotate.error.loadGroups'))
   }
 }
 
@@ -177,7 +196,7 @@ const loadedIds = ref(new Set<number>())
 const groupKey = computed(() => groupKeyOf(current.value?.posts ?? []))
 const imagesReady = computed(() => order.value.every(id => loadedIds.value.has(id)))
 const busy = computed(() => submitting.value || !imagesReady.value)
-const busyLabel = computed(() => (submitting.value ? '提交中…' : '加载中…'))
+const busyLabel = computed(() => (submitting.value ? t('annotate.session.submitting') : t('common.loading')))
 
 function markLoaded(pid: number) {
   loadedIds.value.add(pid)
@@ -192,6 +211,7 @@ function lightboxStep(delta: number) {
   const next = lightboxIndex.value + delta
   if (next >= 0 && next < order.value.length) {
     lightbox.value = order.value[next]!
+    announce(t('annotate.listwise.viewPosition', { pos: next + 1, total: order.value.length }))
   }
 }
 
@@ -219,6 +239,7 @@ function onPointerDown(e: PointerEvent, pid: number) {
   if (idx === -1) {
     return
   }
+  grabbed.value = null // the pointer takes over from a keyboard pick-up
   ;(e.currentTarget as HTMLElement).setPointerCapture(e.pointerId)
   drag.value = { id: pid, from: idx, to: idx, startX: e.clientX, startY: e.clientY, dx: 0, dy: 0, step: 0, moved: false }
 }
@@ -322,6 +343,7 @@ function advancePast() {
   shownAt = performance.now()
   preloadAhead()
   void refill()
+  announceProgress()
 }
 
 function noteInHistory(item: BufferItem, ranking: number[], ids: number[]) {
@@ -336,7 +358,7 @@ function recordRanking(item: BufferItem, ranking: number[], elapsedMs: number, i
   const judgedIn = dimension.value
   let eventIds = ids
   pushCommand({
-    label: ranking.length > 0 ? '排序一组' : '跳过一组',
+    label: t(ranking.length > 0 ? 'annotate.listwise.rankGroup' : 'annotate.listwise.skipGroup'),
     postIds: [],
     apply: async () => {
       eventIds = await postRanking(item, ranking, elapsedMs)
@@ -385,61 +407,172 @@ async function submit(ranking: number[]) {
     recordRanking(item, ranking, elapsedMs, ids)
   }
   catch (error) {
-    handleAPIError(error, '提交失败')
+    handleAPIError(error, t('annotate.error.submit'))
   }
   finally {
     submitting.value = false
   }
 }
 
-onKeyStroke('Enter', (e) => {
-  if (!current.value) {
+// ── Keyboard ────────────────────────────────────────────────────────────────
+// Session keys go through useHotkey (exact modifiers, nothing while typing or while a
+// layer — the palette, help, this session's own lightbox — is open).
+//
+// The cards are an APG-style sortable list: one Tab stop (roving, ←/→ move focus),
+// Space/Enter pick a card up, arrows move it, Space/Enter drop, Escape cancels,
+// Alt+↑/↓ move without picking up, V enlarges. Every move is announced. While a card
+// has focus, Enter/Space belong to it, so the order is submitted with Mod+Enter (or
+// the Submit button); from anywhere else plain Enter still submits.
+const root = useTemplateRef<HTMLElement>('root')
+const row = useTemplateRef<HTMLElement>('row')
+const notForeign = (e: KeyboardEvent) => isForeignComposite(e.target, root.value)
+const helpId = useId()
+
+useRovingFocus({ container: row, itemSelector: '[data-sort-card]', orientation: 'horizontal', pageSize: false })
+
+// A keyed v-for reorder may move the focused card's DOM node, which blurs it; the
+// focusout that causes must not read as "the user left the card".
+let refocusing = false
+
+function cardEl(pid: number): HTMLElement | null {
+  return row.value?.querySelector<HTMLElement>(`[data-pid="${pid}"]`) ?? null
+}
+
+function positionArgs(pid: number) {
+  return { name: postById.value.get(pid)?.fileName ?? '', pos: order.value.indexOf(pid) + 1, total: order.value.length }
+}
+
+function refocusCard(pid: number) {
+  refocusing = true
+  void nextTick(() => {
+    focusElement(cardEl(pid))
+    refocusing = false
+  })
+}
+
+function moveCard(pid: number, to: number) {
+  const from = order.value.indexOf(pid)
+  if (from === -1) {
+    return
+  }
+  if (to !== from) {
+    order.value = moveItem(order.value, from, to)
+    touched.value = true
+    confirmArmed.value = false
+    refocusCard(pid)
+  }
+  announce(t('annotate.listwise.moved', positionArgs(pid)))
+}
+
+function onCardKeydown(e: KeyboardEvent, pid: number) {
+  if (submitting.value) {
+    return
+  }
+  const intent = sortableIntent(e, grabbed.value?.id === pid)
+  if (!intent || (e.repeat && (intent === 'grab' || intent === 'drop' || intent === 'cancel' || intent === 'view'))) {
     return
   }
   e.preventDefault()
-  if (lightbox.value != null) {
-    lightbox.value = null
+  switch (intent) {
+    case 'grab': {
+      grabbed.value = { id: pid, original: [...order.value], touched: touched.value }
+      announce(t('annotate.listwise.grabbed', positionArgs(pid)))
+      break
+    }
+    case 'drop': {
+      grabbed.value = null
+      announce(t('annotate.listwise.dropped', positionArgs(pid)))
+      break
+    }
+    case 'cancel': {
+      const g = grabbed.value!
+      grabbed.value = null
+      order.value = g.original
+      touched.value = g.touched
+      refocusCard(pid)
+      announce(t('annotate.listwise.cancelled', positionArgs(pid)))
+      break
+    }
+    case 'view': {
+      lightbox.value = pid
+      break
+    }
+    default: {
+      moveCard(pid, sortableTarget(intent, order.value.indexOf(pid), order.value.length))
+    }
+  }
+}
+
+// Tabbing / clicking away from a picked-up card puts it down where it is.
+function onCardFocusout(pid: number) {
+  if (!refocusing && grabbed.value?.id === pid) {
+    grabbed.value = null
+  }
+}
+
+function trySubmit() {
+  if (!current.value) {
     return
   }
   // 一次没拖过就提交，多半是误触 —— 初始序是随机呈现序，直接进库会污染数据。
   if (!touched.value && !confirmArmed.value) {
     confirmArmed.value = true
+    announce(t('annotate.listwise.confirm', { enter: 'Enter' }))
     return
   }
+  grabbed.value = null
   submit(order.value)
-})
-onKeyStroke(' ', (e) => {
-  if (!current.value || lightbox.value != null) {
+}
+
+function skipGroup() {
+  if (!current.value) {
     return
   }
-  e.preventDefault()
+  grabbed.value = null
   submit([]) // skip：这组问过了，但没有排序信息
-})
-onKeyStroke('ArrowLeft', (e) => {
-  if (lightbox.value == null) {
-    return
+}
+
+const canAct = () => noLayerOpen() && !!current.value
+useHotkey('Enter', trySubmit, { when: canAct, ignore: notForeign, repeat: false })
+useHotkey('Mod+Enter', trySubmit, { when: canAct, allowInWidgets: true, ignore: notForeign, repeat: false })
+useHotkey('Space', skipGroup, { when: canAct, ignore: notForeign, repeat: false })
+useHotkey('Escape', () => emit('exit'), { when: noLayerOpen, allowInWidgets: true, ignore: notForeign })
+
+// ── Lightbox: a modal dialog on the layer stack ─────────────────────────────
+const lightboxEl = useTemplateRef<HTMLElement>('lightboxEl')
+const lightboxOpen = computed(() => lightboxPost.value != null)
+function closeLightbox() {
+  lightbox.value = null
+}
+const { isTop: lightboxOnTop } = useLayer(lightboxOpen, { el: () => lightboxEl.value, modal: true, onEscape: closeLightbox })
+// Opened from a card by keyboard → focus goes back to that card. Opened by a click
+// (cards never take focus from the mouse) → back to the session, not <body>.
+useFocusTrap(lightboxEl, lightboxOpen, { initialFocus: 'container', returnFocus: () => root.value })
+const lightboxActive = () => lightboxOpen.value && lightboxOnTop.value
+useHotkey(['ArrowLeft', 'ArrowRight'], e => lightboxStep(e.key === 'ArrowLeft' ? -1 : 1), { when: lightboxActive, allowInWidgets: true })
+// Enter on the dialog itself closes it (as before); on a focused button it clicks it.
+useHotkey('Enter', closeLightbox, { when: lightboxActive, repeat: false })
+
+// The launcher that started the session is gone; keep focus off <body>.
+onMounted(() => {
+  const active = document.activeElement
+  if (!active || active === document.body) {
+    focusElement(root.value, { preventScroll: true })
   }
-  e.preventDefault()
-  lightboxStep(-1)
-})
-onKeyStroke('ArrowRight', (e) => {
-  if (lightbox.value == null) {
-    return
-  }
-  e.preventDefault()
-  lightboxStep(1)
-})
-onKeyStroke('Escape', (e) => {
-  e.preventDefault()
-  if (lightbox.value != null) {
-    lightbox.value = null
-    return
-  }
-  emit('exit')
 })
 
 // 组变化时重置行序为呈现顺序；undo 已按提交序恢复过的组（成员集相同）不重置。
 watch(current, (cur) => {
+  // Focus was on a card of the group that is about to unmount: hand it to the next
+  // group's first card (or the session) instead of letting it fall to <body>.
+  const hadFocus = !!row.value?.contains(document.activeElement)
+  if (hadFocus) {
+    void nextTick(() => {
+      const first = row.value?.querySelector<HTMLElement>('[data-sort-card]')
+      focusElement(first ?? root.value)
+    })
+  }
+  grabbed.value = null
   const ids = cur?.posts.map(p => p.id) ?? []
   const same = ids.length === order.value.length && ids.every(id => order.value.includes(id))
   if (!same) {
@@ -467,108 +600,205 @@ watch(() => [props.queue?.id, props.dimension] as const, () => {
   refill()
 }, { immediate: true })
 
-const title = computed(() => props.queue?.name ?? '流式排序')
-const totalLabel = computed(() => (props.queue ? `${doneCount.value} / ${props.queue.total}` : `本次 ${doneCount.value} 组`))
+const title = computed(() => props.queue?.name ?? t('annotate.listwise.streamTitle'))
+
+watch(() => exhausted.value && !current.value, (done) => {
+  if (done) {
+    announce(t('annotate.session.exhaustedAnnounce'))
+  }
+})
+
+const hints = computed(() => [
+  { keys: [t('annotate.keys.drag')], label: t('annotate.keys.reorder') },
+  { keys: [t('annotate.keys.click')], label: t('annotate.keys.enlarge') },
+  { keys: ['Enter'], label: t('annotate.keys.submit') },
+  { keys: ['Space'], label: t('annotate.keys.skip') },
+  { keys: ['Esc'], label: t('annotate.keys.exit') },
+])
+const lightboxHints = computed(() => [
+  { keys: ['←', '→'], label: t('annotate.keys.switch') },
+  { keys: ['Esc'], label: t('annotate.keys.close') },
+])
+const submitKeyAria = isMac ? 'Meta+Enter' : 'Control+Enter'
 </script>
 
 <template>
-  <div class="flex flex-col h-full">
+  <div ref="root" class="listwise-session flex flex-col h-full" tabindex="-1" role="region" :aria-label="title">
     <!-- 顶栏 -->
     <div class="text-sm px-4 py-2.5 p-divider flex shrink-0 items-center justify-between">
       <div class="flex gap-3 min-w-0 items-center">
-        <button class="listwise-exit" title="退出（Esc）" @click="emit('exit')">
-          <i class="i-tabler-arrow-left" />
+        <button
+          type="button"
+          class="listwise-exit"
+          :aria-label="$t('annotate.session.exit')"
+          :title="$t('annotate.session.exitHint', { key: 'Esc' })"
+          aria-keyshortcuts="Escape"
+          @click="emit('exit')"
+        >
+          <i class="i-tabler-arrow-left" aria-hidden="true" />
         </button>
-        <span class="text-fg font-medium truncate">{{ title }}</span>
+        <h2 class="text-fg font-medium truncate">
+          {{ title }}
+        </h2>
       </div>
       <div class="text-xs text-fg-muted flex shrink-0 gap-4 items-center">
         <span class="text-fg font-medium tabular-nums">{{ totalLabel }}</span>
         <span
           v-if="agreeLabel"
           class="tabular-nums"
-          :title="`本次 ${agreeTotal} 对可比（同分不计）。呈现顺序是随机的，所以这个数只反映判断本身。`"
-        >与模型一致 <span class="text-fg font-medium">{{ agreeLabel }}</span></span>
-        <span class="listwise-hotkeys"><kbd>拖拽</kbd> 排序 <kbd>点击</kbd> 大图 <kbd>Enter</kbd> 提交 <kbd>Space</kbd> 跳过 <kbd>Esc</kbd> 退出</span>
+          :title="$t('annotate.listwise.agreementTitle', { n: formatNumber(agreeTotal) })"
+        >{{ $t('annotate.listwise.agreement') }} <span class="text-fg font-medium">{{ agreeLabel }}</span></span>
+        <AnnotationKeyHints :hints="hints" />
       </div>
     </div>
 
     <div class="flex flex-1 flex-col min-h-0 min-w-0">
       <div class="text-sm font-medium px-4 py-2 text-center p-divider shrink-0" :class="confirmArmed ? 'listwise-confirm' : 'text-fg'">
-        <template v-if="confirmArmed">
-          还没有调整过顺序 —— 再按一次 <kbd class="listwise-kbd">Enter</kbd> 按当前顺序提交
-        </template>
-        <template v-else>
-          左右拖拽排序 —— 最喜欢的放最左，点击看大图<template v-if="touched">
-            ，<kbd class="listwise-kbd">Enter</kbd> 提交
+        <i18n-t v-if="confirmArmed" keypath="annotate.listwise.confirm" tag="span" scope="global">
+          <template #enter>
+            <kbd class="listwise-kbd">Enter</kbd>
           </template>
+        </i18n-t>
+        <template v-else>
+          {{ $t('annotate.listwise.instructions') }}<i18n-t v-if="touched" keypath="annotate.listwise.submitHint" tag="span" scope="global">
+            <template #enter>
+              <kbd class="listwise-kbd">Enter</kbd>
+            </template>
+          </i18n-t>
         </template>
+        <span v-if="current" class="ml-3 align-middle inline-flex gap-1.5">
+          <PButton size="xs" variant="subtle" :disabled="submitting" @mousedown.prevent @click="skipGroup">
+            {{ $t('annotate.listwise.skip') }}
+          </PButton>
+          <PButton size="xs" variant="primary" :disabled="submitting" :aria-keyshortcuts="submitKeyAria" @mousedown.prevent @click="trySubmit">
+            {{ $t('annotate.listwise.submit') }}
+          </PButton>
+        </span>
       </div>
 
-      <div v-if="current" class="listwise-row flex-1 min-h-0" :class="{ 'listwise-row--submitting': submitting }">
+      <div
+        v-if="current"
+        ref="row"
+        class="listwise-row flex-1 min-h-0"
+        :class="{ 'listwise-row--submitting': submitting }"
+        role="group"
+        :aria-label="$t('annotate.listwise.listLabel')"
+      >
+        <!-- @mousedown.prevent: a click never parks focus on a card, so Enter after a
+             mouse drag still submits instead of picking the card up. -->
         <div
           v-for="(pid, idx) in order"
           :key="`${groupKey}:${pid}`"
+          data-sort-card
+          :data-pid="pid"
+          role="button"
+          :aria-roledescription="$t('annotate.listwise.sortable')"
+          :aria-label="$t('annotate.listwise.cardLabel', { pos: idx + 1, total: order.length, name: postById.get(pid)?.fileName ?? '' })"
+          :aria-describedby="helpId"
           class="listwise-card"
-          :class="{ 'listwise-card--drag': drag?.moved && drag.id === pid }"
+          :class="{ 'listwise-card--drag': (drag?.moved && drag.id === pid) || grabbed?.id === pid }"
           :style="cardStyle(pid, idx)"
+          @mousedown.prevent
           @pointerdown="onPointerDown($event, pid)"
           @pointermove="onPointerMove"
           @pointerup="onPointerUp"
           @pointercancel="onPointerCancel"
           @dragstart.prevent
+          @keydown="onCardKeydown($event, pid)"
+          @focusout="onCardFocusout(pid)"
         >
           <img
             v-if="postById.get(pid)"
             :src="imgURL(postById.get(pid)!)"
-            :alt="postById.get(pid)!.fileName"
+            alt=""
             class="max-h-full max-w-full object-contain"
             decoding="async"
             draggable="false"
             @load="markLoaded(pid)"
             @error="markLoaded(pid)"
           >
-          <span class="listwise-card__rank" :class="{ 'listwise-card__rank--best': displayIndex(idx) === 0 }">{{ displayIndex(idx) + 1 }}</span>
+          <span class="listwise-card__rank" :class="{ 'listwise-card__rank--best': displayIndex(idx) === 0 }" aria-hidden="true">{{ displayIndex(idx) + 1 }}</span>
+        </div>
+        <div :id="helpId" class="sr-only">
+          {{ $t('annotate.listwise.sortHelp', { submitKey: formatShortcut('Mod+Enter') }) }}
         </div>
 
         <!-- 提交/解码快的时候不该闪一下：动画带 160ms 延迟，短等待里它根本不出现 -->
         <div v-if="busy" class="listwise-busy">
-          <span class="listwise-spinner" />{{ busyLabel }}
+          <span class="listwise-spinner" aria-hidden="true" />{{ busyLabel }}
         </div>
       </div>
 
       <!-- 空态 / 完成态 -->
       <div v-else class="flex flex-1 items-center justify-center">
         <div v-if="exhausted" class="text-center">
-          <div class="text-3xl mb-3">
+          <div class="text-3xl mb-3" aria-hidden="true">
             🎉
           </div>
           <div class="text-sm text-fg font-medium">
-            没有更多待排组了
+            {{ $t('annotate.listwise.exhausted') }}
           </div>
           <div class="text-xs text-fg-muted mt-1">
-            本次共排序 {{ doneCount }} 组
+            {{ $t('annotate.listwise.exhaustedDetail', { n: formatNumber(doneCount) }) }}
           </div>
         </div>
-        <div v-else class="text-sm text-fg-muted flex gap-2 items-center">
-          <span class="listwise-spinner" />加载中…
+        <div v-else role="status" class="text-sm text-fg-muted flex gap-2 items-center">
+          <span class="listwise-spinner" aria-hidden="true" />{{ $t('common.loading') }}
         </div>
       </div>
     </div>
 
-    <!-- 大图查看：点击（非拖拽）打开，←/→ 按当前行序切换 -->
-    <div v-if="lightboxPost" class="listwise-lightbox" @click.self="lightbox = null">
-      <img :src="imgURL(lightboxPost)" :alt="lightboxPost.fileName" class="listwise-lightbox__img" draggable="false">
-      <div class="listwise-lightbox__bar">
-        <span class="text-fg font-medium tabular-nums">第 {{ lightboxIndex + 1 }} 位 / {{ order.length }}</span>
-        <span class="text-fg-muted"><kbd>←</kbd><kbd>→</kbd> 切换 <kbd>Esc</kbd> 关闭</span>
+    <!-- 大图查看：点击（非拖拽）或卡片上按 V 打开，←/→ 按当前行序切换 -->
+    <Teleport to="body">
+      <div
+        v-if="lightboxPost"
+        ref="lightboxEl"
+        class="listwise-lightbox"
+        role="dialog"
+        aria-modal="true"
+        :aria-label="$t('annotate.listwise.viewTitle')"
+        tabindex="-1"
+        @click.self="closeLightbox"
+      >
+        <img :src="imgURL(lightboxPost)" :alt="lightboxPost.fileName" class="listwise-lightbox__img" draggable="false">
+        <div class="listwise-lightbox__bar">
+          <span class="text-fg font-medium tabular-nums">{{ $t('annotate.listwise.viewPosition', { pos: lightboxIndex + 1, total: order.length }) }}</span>
+          <AnnotationKeyHints class="text-fg-muted" :hints="lightboxHints" />
+        </div>
+        <button
+          type="button"
+          class="listwise-lightbox__btn listwise-lightbox__close"
+          :aria-label="$t('annotate.listwise.viewClose')"
+          :title="$t('annotate.listwise.viewClose')"
+          aria-keyshortcuts="Escape"
+          @click="closeLightbox"
+        >
+          <i class="i-tabler-x" aria-hidden="true" />
+        </button>
+        <button
+          type="button"
+          class="listwise-lightbox__btn listwise-lightbox__nav listwise-lightbox__nav--left"
+          :aria-label="$t('annotate.listwise.viewPrev')"
+          :title="$t('annotate.listwise.viewPrev')"
+          :aria-disabled="lightboxIndex <= 0"
+          aria-keyshortcuts="ArrowLeft"
+          @click="lightboxStep(-1)"
+        >
+          <i class="i-tabler-chevron-left" aria-hidden="true" />
+        </button>
+        <button
+          type="button"
+          class="listwise-lightbox__btn listwise-lightbox__nav listwise-lightbox__nav--right"
+          :aria-label="$t('annotate.listwise.viewNext')"
+          :title="$t('annotate.listwise.viewNext')"
+          :aria-disabled="lightboxIndex >= order.length - 1"
+          aria-keyshortcuts="ArrowRight"
+          @click="lightboxStep(1)"
+        >
+          <i class="i-tabler-chevron-right" aria-hidden="true" />
+        </button>
       </div>
-      <button v-if="lightboxIndex > 0" class="listwise-lightbox__nav listwise-lightbox__nav--left" @click="lightboxStep(-1)">
-        <i class="i-tabler-chevron-left" />
-      </button>
-      <button v-if="lightboxIndex < order.length - 1" class="listwise-lightbox__nav listwise-lightbox__nav--right" @click="lightboxStep(1)">
-        <i class="i-tabler-chevron-right" />
-      </button>
-    </div>
+    </Teleport>
   </div>
 </template>
 
@@ -591,9 +821,11 @@ const totalLabel = computed(() => (props.queue ? `${doneCount.value} / ${props.q
   color: var(--p-fg);
 }
 
-.listwise-hotkeys kbd,
-.listwise-kbd,
-.listwise-lightbox__bar kbd {
+.listwise-session:focus {
+  outline: none;
+}
+
+.listwise-kbd {
   display: inline-block;
   padding: 1px 5px;
   margin: 0 1px;
@@ -673,6 +905,9 @@ const totalLabel = computed(() => (props.queue ? `${doneCount.value} / ${props.q
   border: 2px solid transparent;
   transition: border-color var(--p-transition-fast);
 }
+.listwise-card:focus-visible {
+  outline-offset: -2px;
+}
 .listwise-card:hover::after {
   border-color: rgb(var(--p-primary-rgb) / 0.45);
 }
@@ -709,6 +944,9 @@ const totalLabel = computed(() => (props.queue ? `${doneCount.value} / ${props.q
   color: white;
 }
 
+.listwise-lightbox:focus {
+  outline: none;
+}
 .listwise-lightbox {
   position: fixed;
   inset: 0;
@@ -741,10 +979,8 @@ const totalLabel = computed(() => (props.queue ? `${doneCount.value} / ${props.q
 .listwise-lightbox__bar .text-fg-muted {
   color: rgb(255 255 255 / 0.85);
 }
-.listwise-lightbox__nav {
+.listwise-lightbox__btn {
   position: absolute;
-  top: 50%;
-  transform: translateY(-50%);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -758,8 +994,20 @@ const totalLabel = computed(() => (props.queue ? `${doneCount.value} / ${props.q
   cursor: pointer;
   transition: background-color var(--p-transition-fast);
 }
-.listwise-lightbox__nav:hover {
+.listwise-lightbox__btn:hover {
   background: rgb(0 0 0 / 0.7);
+}
+.listwise-lightbox__btn[aria-disabled='true'] {
+  opacity: 0.3;
+  cursor: default;
+}
+.listwise-lightbox__nav {
+  top: 50%;
+  transform: translateY(-50%);
+}
+.listwise-lightbox__close {
+  top: 18px;
+  right: 18px;
 }
 .listwise-lightbox__nav--left {
   left: 18px;
