@@ -1,97 +1,188 @@
 <script setup lang="ts">
-import { onClickOutside, useElementBounding, useMouse, useWindowSize } from '@vueuse/core'
-import { nextTick, provide, ref, watch, watchEffect } from 'vue'
+import { useEventListener, useResizeObserver } from '@vueuse/core'
+import { provide, ref, useTemplateRef, watch, watchEffect } from 'vue'
+import { useFocusTrap } from '@/composables/useFocusTrap'
+import { useLayer } from '@/shared/layers'
+import { isTypingTarget } from '@/utils/keyboard'
+import { lastInputWasKeyboard, lastPointerPosition, trackInputModality } from './inputModality'
+import { clampToViewport } from './overlay'
 
+// Generic non-modal floating window (tag selector, folder context menu).
+//
+// - Opens at the cursor — or, when the last interaction was a key press, just
+//   below the focused element — clamped inside the viewport (`safeMargin`).
+// - Layer: Escape ALWAYS closes; an outside pointerdown closes unless pinned.
+// - Focus: on open → [data-autofocus] → first focusable → the window; on close
+//   it returns to where it was. Not a trap: Tab may leave (non-modal).
+// - Drag: from an element marked `data-drag-handle` inside the slot; with no
+//   handle, from anywhere except text fields. Uses pointer capture, and only
+//   starts after a few pixels so plain clicks on buttons still work.
 const props = withDefaults(defineProps<{
   safeMargin?: number
   pinned?: boolean
+  /** @deprecated use v-model */
   show?: boolean
+  role?: string
+  ariaLabel?: string
 }>(), {
   safeMargin: 4,
+  role: 'dialog',
 })
+
+const DRAG_THRESHOLD = 3
+
+trackInputModality()
 
 const pinned = ref(props.pinned ?? false)
 watchEffect(() => {
   pinned.value = props.pinned ?? false
 })
 provide('pinned', pinned)
+
 const show = defineModel<boolean>({
   default: false,
 })
-const position = ref({ left: '0px', top: '0px' })
-const mouse = useMouse()
-const { width: windowWidth, height: windowHeight } = useWindowSize()
-const wrapper = ref<HTMLElement | null>(null)
-const bounding = useElementBounding(wrapper)
+const wrapper = useTemplateRef<HTMLElement>('wrapper')
 
-watch(() => {
-  return bounding.width.value
-}, () => {
-  nextTick(() => {
-    if (wrapper.value) {
-      let newLeft = mouse.x.value
-      let newTop = mouse.y.value
-      const safeMargin = props.safeMargin
-      // Adjust left position considering safeMargin
-      if (newLeft + bounding.width.value > windowWidth.value - safeMargin) {
-        newLeft = windowWidth.value - bounding.width.value - safeMargin
-      }
-      // Adjust top position considering safeMargin
-      if (newTop + bounding.height.value > windowHeight.value - safeMargin) {
-        newTop = windowHeight.value - bounding.width.value - safeMargin
-      }
+/** Top-left corner, client px. */
+const position = ref({ x: 0, y: 0 })
+/** Where the window wants to be (cursor / focused element) until dragged. */
+let anchor = { x: 0, y: 0 }
+let dragged = false
 
-      position.value = {
-        left: `${newLeft}px`,
-        top: `${newTop}px`,
-      }
-    }
-  })
-})
+function viewport() {
+  return { width: window.innerWidth, height: window.innerHeight }
+}
+
+function place() {
+  const el = wrapper.value
+  if (!el) {
+    return
+  }
+  const { width, height } = el.getBoundingClientRect()
+  position.value = clampToViewport(dragged ? position.value : anchor, { width, height }, viewport(), props.safeMargin)
+}
+
+// `sync`: read activeElement / pointer before anything mounts or moves focus.
+watch(show, (on) => {
+  if (!on) {
+    return
+  }
+  const active = document.activeElement as HTMLElement | null
+  if (lastInputWasKeyboard() && active && active !== document.body) {
+    const r = active.getBoundingClientRect()
+    anchor = { x: r.left, y: r.bottom + 4 }
+  }
+  else {
+    anchor = lastPointerPosition()
+  }
+  dragged = false
+  position.value = { ...anchor }
+}, { flush: 'sync' })
+
+watch(wrapper, (el) => {
+  if (el) {
+    place()
+  }
+}, { flush: 'post' })
+useResizeObserver(wrapper, () => place())
+useEventListener(globalThis, 'resize', () => place(), { passive: true })
 
 function toggle() {
   show.value = !show.value
+}
+
+function close() {
+  show.value = false
 }
 
 defineExpose({
   toggle,
 })
 
-onClickOutside(wrapper, () => {
-  if (pinned.value) {
-    return
-  }
-  show.value = false
+useLayer(show, {
+  el: () => wrapper.value,
+  onEscape: () => close(),
+  onPointerDownOutside: () => {
+    if (!pinned.value) {
+      close()
+    }
+  },
 })
 
+useFocusTrap(wrapper, show, { trapTab: false })
+
+// ---- drag -------------------------------------------------------------------
+let pending: { pointerId: number, startX: number, startY: number, offsetX: number, offsetY: number } | null = null
 const dragging = ref(false)
-const offset = ref({ x: 0, y: 0 })
-function startDrag(e: { button: number, pageX: number, pageY: number }) {
-  if (e.button !== 0) {
+
+function onPointerDown(e: PointerEvent) {
+  const el = wrapper.value
+  if (e.button !== 0 || !el || !(e.target instanceof Element)) {
     return
   }
-  dragging.value = true
-  offset.value = {
-    x: e.pageX - bounding.left.value,
-    y: e.pageY - bounding.top.value,
+  const handles = el.querySelectorAll('[data-drag-handle]')
+  if (handles.length > 0) {
+    const handle = e.target.closest('[data-drag-handle]')
+    if (!handle || !el.contains(handle)) {
+      return
+    }
+  }
+  else if (isTypingTarget(e.target)) {
+    return
+  }
+  pending = {
+    pointerId: e.pointerId,
+    startX: e.clientX,
+    startY: e.clientY,
+    offsetX: e.clientX - position.value.x,
+    offsetY: e.clientY - position.value.y,
   }
 }
 
-function drag(e: { pageX: number, pageY: number }) {
-  if (dragging.value === false) {
+useEventListener(globalThis, 'pointermove', (e: PointerEvent) => {
+  if (!pending || e.pointerId !== pending.pointerId) {
     return
   }
-  const newLeft = e.pageX - offset.value.x
-  const newTop = e.pageY - offset.value.y
-  position.value = {
-    left: `${newLeft}px`,
-    top: `${newTop}px`,
+  if (!dragging.value) {
+    if (Math.hypot(e.clientX - pending.startX, e.clientY - pending.startY) < DRAG_THRESHOLD) {
+      return
+    }
+    dragging.value = true
+    try {
+      wrapper.value?.setPointerCapture(pending.pointerId)
+    }
+    catch {
+      // Pointer already released — the window listeners still track it.
+    }
   }
-}
+  e.preventDefault()
+  const el = wrapper.value
+  if (!el) {
+    return
+  }
+  const { width, height } = el.getBoundingClientRect()
+  dragged = true
+  position.value = clampToViewport(
+    { x: e.clientX - pending.offsetX, y: e.clientY - pending.offsetY },
+    { width, height },
+    viewport(),
+    props.safeMargin,
+  )
+})
 
-function stopDrag() {
+function endDrag(e: PointerEvent) {
+  if (!pending || e.pointerId !== pending.pointerId) {
+    return
+  }
+  if (dragging.value && wrapper.value?.hasPointerCapture?.(e.pointerId)) {
+    wrapper.value.releasePointerCapture(e.pointerId)
+  }
+  pending = null
   dragging.value = false
 }
+useEventListener(globalThis, 'pointerup', endDrag)
+useEventListener(globalThis, 'pointercancel', endDrag)
 </script>
 
 <template>
@@ -107,13 +198,27 @@ function stopDrag() {
     <div
       v-if="show"
       ref="wrapper"
-      class="fixed"
-      :style="[position, { zIndex: 'var(--p-z-float)' }]"
-      @pointerdown="startDrag"
-      @pointermove="drag"
-      @pointerup="stopDrag"
+      class="p-float-window fixed"
+      :class="{ 'p-float-window--dragging': dragging }"
+      :role="role"
+      :aria-label="ariaLabel"
+      :style="{ left: `${position.x}px`, top: `${position.y}px`, zIndex: 'var(--p-z-float)' }"
+      @pointerdown="onPointerDown"
     >
       <slot />
     </div>
   </transition>
 </template>
+
+<style>
+.p-float-window:focus {
+  outline: none;
+}
+.p-float-window [data-drag-handle] {
+  cursor: move;
+  touch-action: none;
+}
+.p-float-window--dragging {
+  user-select: none;
+}
+</style>
