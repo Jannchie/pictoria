@@ -14,24 +14,45 @@ const props = withDefaults(defineProps<{
   loading?: boolean
   disabled?: boolean
   active?: boolean
+  /**
+   * Toggle-button state → `aria-pressed`. Leave undefined for a plain
+   * (non-toggle) button; `true` also draws the `active` look.
+   */
+  pressed?: boolean
   type?: 'button' | 'submit' | 'reset'
 }>(), {
   size: 'md',
   rounded: 'md',
   type: 'button',
+  pressed: undefined,
 })
 
 // An icon-only button carries no label to anchor a filled box, so it defaults
 // to the lightest variant in the set: transparent until hovered. Passing
 // `variant` explicitly still wins (the sort segmented control needs `subtle`).
 const variant = computed<Variant>(() => props.variant ?? (props.icon ? 'ghost' : 'secondary'))
+
+// `loading` must not use the native `disabled` attribute: disabling the
+// focused button drops focus to <body>. It is announced as unavailable via
+// aria-disabled instead, and its activations (mouse, Enter/Space, AT clicks)
+// are swallowed in the capture phase — before the caller's own @click
+// listener on the same element, and before any ancestor's.
+const inert = computed(() => props.disabled || props.loading)
+function onClickCapture(e: MouseEvent) {
+  if (props.loading && !props.disabled) {
+    e.preventDefault()
+    e.stopImmediatePropagation()
+  }
+}
 </script>
 
 <template>
   <button
     :type="type"
-    :disabled="disabled || loading"
+    :disabled="disabled"
+    :aria-disabled="(loading && !disabled) || undefined"
     :aria-busy="loading || undefined"
+    :aria-pressed="pressed"
     class="p-btn"
     :class="[
       `p-btn--${variant}`,
@@ -41,9 +62,11 @@ const variant = computed<Variant>(() => props.variant ?? (props.icon ? 'ghost' :
         'p-btn--icon': icon,
         'p-btn--block': block,
         'p-btn--loading': loading,
-        'p-btn--active': active,
+        'p-btn--active': active || pressed,
+        'p-btn--disabled': inert,
       },
     ]"
+    @click.capture="onClickCapture"
   >
     <span v-if="loading" class="p-btn__spinner" aria-hidden="true" />
     <slot />
@@ -72,16 +95,16 @@ const variant = computed<Variant>(() => props.variant ?? (props.icon ? 'ghost' :
     box-shadow var(--p-transition-fast),
     transform var(--p-transition-fast);
 }
-.p-btn:disabled {
+.p-btn--disabled {
   cursor: not-allowed;
   opacity: 0.5;
 }
-.p-btn:active:not(:disabled) {
+.p-btn:active:not(.p-btn--disabled) {
   transform: translateY(1px);
 }
 @media (prefers-reduced-motion: reduce) {
   .p-btn { transition: none; }
-  .p-btn:active:not(:disabled) { transform: none; }
+  .p-btn:active:not(.p-btn--disabled) { transform: none; }
 }
 .p-btn--block { width: 100%; }
 
@@ -115,7 +138,7 @@ const variant = computed<Variant>(() => props.variant ?? (props.icon ? 'ghost' :
   color: var(--p-on-primary);
   border-color: var(--p-primary);
 }
-.p-btn--primary:hover:not(:disabled),
+.p-btn--primary:hover:not(.p-btn--disabled),
 .p-btn--primary.p-btn--active {
   background: var(--p-primary-hover);
   border-color: var(--p-primary-hover);
@@ -129,7 +152,7 @@ const variant = computed<Variant>(() => props.variant ?? (props.icon ? 'ghost' :
      not enough to turn a row of facets into a row of boxes. */
   border-color: var(--p-border-subtle);
 }
-.p-btn--secondary:hover:not(:disabled),
+.p-btn--secondary:hover:not(.p-btn--disabled),
 .p-btn--secondary.p-btn--active {
   background: var(--p-surface-2);
   border-color: var(--p-border);
@@ -140,7 +163,7 @@ const variant = computed<Variant>(() => props.variant ?? (props.icon ? 'ghost' :
   background: transparent;
   color: var(--p-fg-muted);
 }
-.p-btn--ghost:hover:not(:disabled),
+.p-btn--ghost:hover:not(.p-btn--disabled),
 .p-btn--ghost.p-btn--active {
   background: var(--p-surface-2);
   color: var(--p-fg);
@@ -154,7 +177,7 @@ const variant = computed<Variant>(() => props.variant ?? (props.icon ? 'ghost' :
      weight as an unfiltered one — only the fill changes. */
   border-color: rgb(var(--p-primary-rgb) / 0.22);
 }
-.p-btn--subtle:hover:not(:disabled),
+.p-btn--subtle:hover:not(.p-btn--disabled),
 .p-btn--subtle.p-btn--active {
   background: rgb(var(--p-primary-rgb) / 0.28);
   border-color: rgb(var(--p-primary-rgb) / 0.32);
@@ -165,7 +188,7 @@ const variant = computed<Variant>(() => props.variant ?? (props.icon ? 'ghost' :
   background: var(--p-danger-soft);
   color: var(--p-danger);
 }
-.p-btn--danger:hover:not(:disabled) {
+.p-btn--danger:hover:not(.p-btn--disabled) {
   background: rgb(var(--p-danger-rgb) / 0.28);
 }
 
@@ -173,7 +196,7 @@ const variant = computed<Variant>(() => props.variant ?? (props.icon ? 'ghost' :
   background: var(--p-success-soft);
   color: var(--p-success);
 }
-.p-btn--success:hover:not(:disabled) {
+.p-btn--success:hover:not(.p-btn--disabled) {
   background: rgb(var(--p-success-rgb) / 0.28);
 }
 
@@ -181,7 +204,7 @@ const variant = computed<Variant>(() => props.variant ?? (props.icon ? 'ghost' :
   background: var(--p-warning-soft);
   color: var(--p-warning);
 }
-.p-btn--warning:hover:not(:disabled) {
+.p-btn--warning:hover:not(.p-btn--disabled) {
   background: rgb(var(--p-warning-rgb) / 0.28);
 }
 
@@ -189,7 +212,7 @@ const variant = computed<Variant>(() => props.variant ?? (props.icon ? 'ghost' :
   background: rgb(var(--p-info-rgb) / 0.18);
   color: var(--p-info);
 }
-.p-btn--info:hover:not(:disabled) {
+.p-btn--info:hover:not(.p-btn--disabled) {
   background: rgb(var(--p-info-rgb) / 0.28);
 }
 

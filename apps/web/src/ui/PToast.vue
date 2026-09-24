@@ -1,5 +1,7 @@
 <script setup lang="ts">
-defineProps<{
+import { computed } from 'vue'
+
+const props = defineProps<{
   message: string
   icon?: string
   iconColor?: string
@@ -9,15 +11,25 @@ defineProps<{
    * fluid 时宽度随内容收缩，给单条、贴边出现的用法(撤销 snackbar)。
    */
   fluid?: boolean
+  /**
+   * Severity. `error` renders `role="alert"` (assertive: interrupts the
+   * screen reader); everything else `role="status"` (polite). The toast
+   * itself is the live region — its container must not be one too, or each
+   * message is read twice.
+   */
+  tone?: 'info' | 'success' | 'warning' | 'error'
 }>()
 const emit = defineEmits<{
   close: []
 }>()
+
+const role = computed(() => props.tone === 'error' ? 'alert' : 'status')
 </script>
 
 <template>
   <div
-    role="status"
+    :role="role"
+    aria-atomic="true"
     class="text-sm text-fg px-4 py-2 border border-border-default rounded-xl bg-surface inline-flex gap-2 shadow-md items-center"
     :class="fluid ? 'max-w-full' : 'w-96'"
   >
@@ -37,7 +49,7 @@ const emit = defineEmits<{
     <button
       v-if="closeable"
       type="button"
-      aria-label="Dismiss notification"
+      :aria-label="$t('controls.dismissNotification')"
       class="text-fg-muted rounded flex flex-shrink-0 h-5 w-5 transition-colors items-center justify-center hover:text-fg focus-visible:outline-2 focus-visible:outline-primary focus-visible:outline-offset-2 focus-visible:outline hover:bg-surface-2"
       @click="emit('close')"
     >

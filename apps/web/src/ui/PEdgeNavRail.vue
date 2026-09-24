@@ -1,10 +1,26 @@
 <script setup lang="ts">
-defineProps<{
+import { onMounted, useAttrs } from 'vue'
+
+const props = defineProps<{
   /** 贴哪一侧。 */
   side: 'left' | 'right'
   /** 是否浮出来。平时该隐身，由调用方按指针是否贴近该侧来决定（见 useEdgeProximity）。 */
   shown?: boolean
+  /**
+   * Accessible name (the button is icon-only), e.g. `$t('post.previous')`.
+   * A plain `aria-label` attribute works too; one of the two is required.
+   */
+  label?: string
 }>()
+
+const attrs = useAttrs()
+if (import.meta.env.DEV) {
+  onMounted(() => {
+    if (!props.label && !attrs['aria-label'] && !attrs['aria-labelledby']) {
+      console.warn('[PEdgeNavRail] missing `label` / aria-label: the icon-only button has no accessible name.')
+    }
+  })
+}
 </script>
 
 <template>
@@ -12,6 +28,7 @@ defineProps<{
     type="button"
     class="p-edge-nav-rail"
     :class="[`p-edge-nav-rail--${side}`, { 'p-edge-nav-rail--shown': shown }]"
+    :aria-label="label"
     @pointerdown.stop
     @dblclick.stop
   >

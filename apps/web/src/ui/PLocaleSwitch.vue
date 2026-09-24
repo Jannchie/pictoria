@@ -1,7 +1,8 @@
 <script setup lang="ts">
 import type { LocaleSetting } from '@/locale'
-import { computed } from 'vue'
+import { computed, useTemplateRef } from 'vue'
 import { useI18n } from 'vue-i18n'
+import { useRovingFocus } from '@/composables/useRovingFocus'
 import { localeSetting } from '@/locale'
 
 const { t } = useI18n()
@@ -14,10 +15,26 @@ const options = computed<{ value: LocaleSetting, label: string }[]>(() => [
   { value: 'zh-Hans', label: '简体中文' },
   { value: 'zh-Hant', label: '繁體中文' },
 ])
+
+// APG radio group: one Tab stop (the checked option), arrows move focus and
+// check what they land on.
+const group = useTemplateRef<HTMLElement>('group')
+useRovingFocus({
+  container: group,
+  itemSelector: '[role=radio]',
+  orientation: 'both',
+  pageSize: false,
+  onMove: (_el, index) => {
+    const opt = options.value[index]
+    if (opt) {
+      localeSetting.value = opt.value
+    }
+  },
+})
 </script>
 
 <template>
-  <div class="p-locale" role="radiogroup" :aria-label="t('settings.language')">
+  <div ref="group" class="p-locale" role="radiogroup" :aria-label="t('settings.language')">
     <button
       v-for="opt in options"
       :key="opt.value"
@@ -26,6 +43,7 @@ const options = computed<{ value: LocaleSetting, label: string }[]>(() => [
       class="p-locale__btn"
       :class="{ 'p-locale__btn--active': localeSetting === opt.value }"
       :aria-checked="localeSetting === opt.value"
+      :lang="opt.value === 'auto' ? undefined : opt.value"
       @click="localeSetting = opt.value"
     >
       {{ opt.label }}

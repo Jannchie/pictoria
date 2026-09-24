@@ -1,7 +1,8 @@
 <script setup lang="ts">
 import { useColorMode } from '@vueuse/core'
-import { computed } from 'vue'
+import { computed, useTemplateRef } from 'vue'
 import { useI18n } from 'vue-i18n'
+import { useRovingFocus } from '@/composables/useRovingFocus'
 
 const { t } = useI18n()
 
@@ -30,21 +31,39 @@ function pick(value: 'dark' | 'light' | 'auto') {
     })
   })
 }
+
+// APG radio group: one Tab stop (the checked option), arrows move focus and
+// check what they land on. Space/click on a button checks it natively.
+const group = useTemplateRef<HTMLElement>('group')
+useRovingFocus({
+  container: group,
+  itemSelector: '[role=radio]',
+  orientation: 'both',
+  pageSize: false,
+  onMove: (_el, index) => {
+    const opt = options.value[index]
+    if (opt && opt.value !== current.value) {
+      pick(opt.value)
+    }
+  },
+})
 </script>
 
 <template>
-  <div class="p-scheme">
+  <div ref="group" class="p-scheme" role="radiogroup" :aria-label="t('settings.colorScheme')">
     <button
       v-for="opt in options"
       :key="opt.value"
       type="button"
+      role="radio"
       class="p-scheme__btn"
       :class="{ 'p-scheme__btn--active': current === opt.value }"
+      :aria-checked="current === opt.value"
       :aria-label="opt.label"
       :title="opt.label"
-      @click="pick(opt.value)"
+      @click="current !== opt.value && pick(opt.value)"
     >
-      <i :class="opt.icon" />
+      <i :class="opt.icon" aria-hidden="true" />
     </button>
   </div>
 </template>

@@ -1,5 +1,4 @@
 <script setup lang="ts">
-import { useElementBounding, useEventListener } from '@vueuse/core'
 import { computed, onMounted, ref, watchEffect } from 'vue'
 
 const props = withDefaults(
@@ -115,52 +114,60 @@ watchEffect(() => {
 })
 
 const wrapper = ref<HTMLElement>()
+const thumb = ref<HTMLElement>()
 
-const isMoving = ref(false)
+// Drag uses pointer capture on the track: moves keep arriving while the
+// pointer is outside it (or outside the window) and end with exactly one
+// pointerup/pointercancel, no document-wide listener. The track's rect is
+// read once per drag (layout doesn't change mid-drag).
+let dragPointerId: number | null = null
+let dragRect: DOMRect | null = null
 
-function pointEventCallback(event: PointerEvent) {
-  if (!isMoving.value) {
-    return
+function indexFromClientX(clientX: number) {
+  if (!dragRect || dragRect.width === 0) {
+    return currentIndex.value
   }
-  const isPointerDown = event.buttons === 1
-  if (!isPointerDown) {
-    isMoving.value = false
-    return
-  }
-  event.preventDefault()
-  event.stopPropagation()
-  const rect = useElementBounding(wrapper)
-  const { clientX } = event
-  const left = rect.left.value
-  const right = rect.right.value
-  const width = right - left
-  let index = Math.round(((clientX - left) / width) * (length.value - 1))
+  let index = Math.round(((clientX - dragRect.left) / dragRect.width) * (length.value - 1))
   if (props.reverse) {
     index = length.value - 1 - index
   }
-  if (index < 0) {
-    currentIndex.value = 0
-    return
-  }
-  if (index > length.value - 1) {
-    currentIndex.value = length.value - 1
-    return
-  }
-  currentIndex.value = index
+  return Math.max(0, Math.min(length.value - 1, index))
 }
 
-watchEffect(() => {
-  currentIndex.value = optionToIndex(model.value)
-})
-
-function pointDownEventCallback(event: PointerEvent) {
-  if (props.disabled) {
+function onPointerDown(event: PointerEvent) {
+  if (props.disabled || event.button !== 0 || !wrapper.value) {
     return
   }
   event.preventDefault()
   event.stopPropagation()
-  isMoving.value = true
-  pointEventCallback(event)
+  dragPointerId = event.pointerId
+  dragRect = wrapper.value.getBoundingClientRect()
+  wrapper.value.setPointerCapture?.(event.pointerId)
+  // preventDefault above suppresses the default focus move — focus the thumb
+  // by hand so arrow keys continue from where the pointer left it (same as a
+  // native range input).
+  thumb.value?.focus({ preventScroll: true })
+  currentIndex.value = indexFromClientX(event.clientX)
+}
+
+function onPointerMove(event: PointerEvent) {
+  if (dragPointerId !== event.pointerId) {
+    return
+  }
+  event.preventDefault()
+  event.stopPropagation()
+  currentIndex.value = indexFromClientX(event.clientX)
+}
+
+function onPointerEnd(event: PointerEvent) {
+  if (dragPointerId !== event.pointerId) {
+    return
+  }
+  dragPointerId = null
+  dragRect = null
+  if (wrapper.value?.hasPointerCapture?.(event.pointerId)) {
+    wrapper.value.releasePointerCapture(event.pointerId)
+  }
 }
 
 function stepBy(delta: number) {
@@ -213,10 +220,22 @@ function onKeyDown(e: KeyboardEvent) {
   }
 }
 
-useEventListener(wrapper, 'pointerdown', pointDownEventCallback)
 onMounted(() => {
-  useEventListener(document, 'pointermove', pointEventCallback)
   currentIndex.value = Math.max(0, optionToIndex(model.value))
+})
+
+// ARIA values must be numbers. Numeric option lists expose the option itself;
+// anything else (labels, objects) exposes its index plus a text rendering, so
+// a screen reader never hears "NaN".
+const numericOptions = computed(() => options.value.every(o => typeof o === 'number' && Number.isFinite(o)))
+const ariaMin = computed(() => numericOptions.value ? options.value[0] ?? 0 : 0)
+const ariaMax = computed(() => numericOptions.value ? options.value[length.value - 1] ?? 0 : Math.max(0, length.value - 1))
+const ariaNow = computed(() => numericOptions.value ? options.value[currentIndex.value] ?? 0 : currentIndex.value)
+const ariaText = computed(() => {
+  if (props.ariaValuetext !== undefined) {
+    return props.ariaValuetext
+  }
+  return numericOptions.value ? undefined : String(options.value[currentIndex.value] ?? '')
 })
 const sizeCls = computed(() => {
   switch (props.size) {
@@ -268,12 +287,16 @@ const animateCls = computed(() => props.animate
 </script>
 
 <template>
-  <div class="w-full relative">
+  <div class="w-full relative" :class="{ 'p-slider--disabled': disabled }">
     <div
       ref="wrapper"
-      type="size"
-      class="flex w-full cursor-pointer items-center"
-      :class="sizeCls.wrapper"
+      class="flex w-full items-center touch-none"
+      :class="[sizeCls.wrapper, disabled ? 'cursor-not-allowed' : 'cursor-pointer']"
+      @pointerdown="onPointerDown"
+      @pointermove="onPointerMove"
+      @pointerup="onPointerEnd"
+      @pointercancel="onPointerEnd"
+      @lostpointercapture="onPointerEnd"
       @touchmove.prevent
     >
       <div
@@ -299,18 +322,19 @@ const animateCls = computed(() => props.animate
           />
           <div
             v-if="currentIndex !== -1"
+            ref="thumb"
             role="slider"
             :tabindex="disabled ? -1 : 0"
             :aria-label="ariaLabel"
             :aria-labelledby="ariaLabelledby"
-            :aria-valuemin="Number(options[0] ?? 0)"
-            :aria-valuemax="Number(options[length - 1] ?? 0)"
-            :aria-valuenow="Number(options[currentIndex] ?? 0)"
-            :aria-valuetext="ariaValuetext"
+            :aria-valuemin="ariaMin"
+            :aria-valuemax="ariaMax"
+            :aria-valuenow="ariaNow"
+            :aria-valuetext="ariaText"
             aria-orientation="horizontal"
             :aria-disabled="disabled || undefined"
-            class="rounded-full cursor-pointer transition-colors top-50% absolute"
-            :class="[sizeCls.indicator, animateCls.indicator, indicatorOuterCls]"
+            class="rounded-full transition-colors top-50% absolute"
+            :class="[sizeCls.indicator, animateCls.indicator, indicatorOuterCls, disabled ? 'cursor-not-allowed' : 'cursor-pointer']"
             :style="[
               `--i-bg: ${filledColor}`,
               {
@@ -340,8 +364,11 @@ const animateCls = computed(() => props.animate
         </div>
       </div>
     </div>
+    <!-- Tick labels repeat the options visually; the slider's own
+         valuenow/valuetext already carry them for AT. -->
     <div
       v-if="ticks.length > 0"
+      aria-hidden="true"
       class="text-xs text-fg-muted mx-1 h-1em relative"
       :style="{
         width: `${props.width}rem`,
@@ -361,3 +388,9 @@ const animateCls = computed(() => props.animate
     </div>
   </div>
 </template>
+
+<style scoped>
+.p-slider--disabled {
+  opacity: 0.5;
+}
+</style>

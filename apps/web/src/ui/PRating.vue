@@ -1,13 +1,24 @@
 <script setup lang="ts">
-import { computed, ref } from 'vue'
+import { computed, ref, useId } from 'vue'
 
 const props = defineProps<{
   count?: number
   icons?: IconType
   colors?: string[]
   highlightSelectedOnly?: boolean
+  /** Clicking the selected star again, or Delete / Backspace, clears to 0. */
   unselectable?: boolean
   ariaLabel?: string
+  /** No interaction; out of the Tab order (like a disabled native radio group). */
+  disabled?: boolean
+  /** Focusable and announced, arrows move focus, but the value can't change. */
+  readonly?: boolean
+  /**
+   * The value differs across a multi-selection: no star is checked and the
+   * group is described as "mixed". Picking any star (including the one the
+   * model currently holds) selects it.
+   */
+  mixed?: boolean
 }>()
 const emit = defineEmits<{
   select: [number]
@@ -23,6 +34,8 @@ const unselectable = computed(() => {
   return props.unselectable ?? false
 })
 const hoverIndex = ref(-1)
+// What the stars draw: nothing while the value is mixed.
+const shown = computed(() => props.mixed ? 0 : model.value)
 const defaultIcon = 'i-tabler-star'
 const defaultActionIcon = 'i-tabler-star-filled'
 const defaultColor = 'var(--p-primary)'
@@ -99,7 +112,7 @@ function getCls(index: number) {
   const activeIcon = iconData.value[index].active
   if (highlightSelectedOnly.value) {
     if (hoverIndex.value === -1) {
-      if (model.value === index + 1) {
+      if (shown.value === index + 1) {
         return [activeCls, activeIcon]
       }
       return [inactiveCls, normalIcon]
@@ -112,7 +125,7 @@ function getCls(index: number) {
     }
   }
   if (hoverIndex.value === -1) {
-    if (model.value >= index + 1) {
+    if (shown.value >= index + 1) {
       return [activeCls, activeIcon]
     }
     return [inactiveCls, normalIcon]
@@ -137,7 +150,7 @@ function getStyle(index: number) {
   const activeColor = colors.value[index]
   if (highlightSelectedOnly.value) {
     if (hoverIndex.value === -1) {
-      if (model.value === index + 1) {
+      if (shown.value === index + 1) {
         return { color: activeColor }
       }
       return { color: inactiveColor }
@@ -150,7 +163,7 @@ function getStyle(index: number) {
     }
   }
   if (hoverIndex.value === -1) {
-    if (model.value >= index + 1) {
+    if (shown.value >= index + 1) {
       return { color: activeColor }
     }
     return { color: inactiveColor }
@@ -159,55 +172,79 @@ function getStyle(index: number) {
     return hoverIndex.value > index ? { color: activeColor } : { color: inactiveColor }
   }
 }
-function selectAt(index: number) {
-  if (model.value === index + 1 && unselectable.value) {
-    emit('select', 0)
-    model.value = 0
+const interactive = computed(() => !props.disabled && !props.readonly)
+
+/** Set the value; a no-op (no `select` emit) when it wouldn't change anything. */
+function setValue(value: number) {
+  if (!interactive.value || (value === model.value && !props.mixed)) {
+    return
   }
-  else {
-    emit('select', index + 1)
-    model.value = index + 1
-  }
+  emit('select', value)
+  model.value = value
 }
 
-function onPointerDown(index: number) {
-  selectAt(index)
+// Pointer / assistive-tech activation (`click`, so screen-reader and voice
+// control synthetic clicks work too). Clicking the selected star toggles it
+// off when `unselectable` — a pointer affordance only; keys never clear.
+function onClick(index: number) {
+  if (!interactive.value) {
+    return
+  }
+  if (unselectable.value && model.value === index + 1 && !props.mixed) {
+    setValue(0)
+    return
+  }
+  setValue(index + 1)
 }
 
 function onKeyDown(e: KeyboardEvent, index: number) {
+  if (props.disabled || e.isComposing || e.ctrlKey || e.altKey || e.metaKey) {
+    return
+  }
+  // Arrows move focus and (APG radio group) check the focused star; in
+  // readonly mode they only move focus.
+  const moveTo = (next: number) => {
+    e.preventDefault()
+    if (props.readonly) {
+      focusStar(next)
+      return
+    }
+    setValue(next + 1)
+    focusStar(next)
+  }
   switch (e.key) {
     case 'ArrowLeft':
     case 'ArrowDown': {
-      e.preventDefault()
-      const next = Math.max(0, index - 1)
-      selectAt(next)
-      focusStar(next)
+      moveTo(Math.max(0, index - 1))
       break
     }
     case 'ArrowRight':
     case 'ArrowUp': {
-      e.preventDefault()
-      const next = Math.min(count.value - 1, index + 1)
-      selectAt(next)
-      focusStar(next)
+      moveTo(Math.min(count.value - 1, index + 1))
       break
     }
     case 'Home': {
-      e.preventDefault()
-      selectAt(0)
-      focusStar(0)
+      moveTo(0)
       break
     }
     case 'End': {
-      e.preventDefault()
-      selectAt(count.value - 1)
-      focusStar(count.value - 1)
+      moveTo(count.value - 1)
       break
     }
     case ' ':
     case 'Enter': {
       e.preventDefault()
-      selectAt(index)
+      if (!e.repeat) {
+        setValue(index + 1)
+      }
+      break
+    }
+    case 'Delete':
+    case 'Backspace': {
+      if (unselectable.value && interactive.value) {
+        e.preventDefault()
+        setValue(0)
+      }
       break
     }
   }
@@ -218,6 +255,20 @@ function focusStar(index: number) {
   const el = rootRef.value?.querySelectorAll<HTMLElement>('[role="radio"]')[index]
   el?.focus()
 }
+
+function isChecked(index: number) {
+  return !props.mixed && model.value === index + 1
+}
+// One Tab stop: the checked star, else the first.
+function tabStop(index: number) {
+  if (props.disabled) {
+    return -1
+  }
+  const checked = !props.mixed && model.value > 0 && model.value <= count.value
+  return (checked ? model.value - 1 === index : index === 0) ? 0 : -1
+}
+
+const mixedId = useId()
 </script>
 
 <template>
@@ -225,19 +276,26 @@ function focusStar(index: number) {
     ref="rootRef"
     role="radiogroup"
     :aria-label="ariaLabel ?? $t('rating.aria')"
+    :aria-describedby="mixed ? mixedId : undefined"
+    :aria-disabled="disabled || undefined"
+    :aria-readonly="readonly || undefined"
     class="flex"
+    :class="{ 'op-50': disabled }"
   >
+    <span v-if="mixed" :id="mixedId" class="sr-only">{{ $t('rating.mixed') }}</span>
     <div
       v-for="_, i in count"
       :key="i"
       role="radio"
-      :aria-checked="model === i + 1"
+      :aria-checked="isChecked(i)"
+      :aria-disabled="disabled || undefined"
       :aria-label="$t('rating.option', { n: i + 1, count })"
-      :tabindex="(model > 0 ? model - 1 === i : i === 0) ? 0 : -1"
-      class="pr-1 rounded cursor-pointer"
-      @mouseover="hoverIndex = i + 1"
+      :tabindex="tabStop(i)"
+      class="pr-1 rounded"
+      :class="interactive ? 'cursor-pointer' : disabled ? 'cursor-not-allowed' : 'cursor-default'"
+      @mouseover="interactive && (hoverIndex = i + 1)"
       @mouseleave="hoverIndex = -1"
-      @pointerdown="onPointerDown(i)"
+      @click="onClick(i)"
       @keydown="onKeyDown($event, i)"
     >
       <i

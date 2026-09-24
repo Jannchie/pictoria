@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, useSlots } from 'vue'
+import { ref, useSlots, useTemplateRef } from 'vue'
 
 type Size = 'sm' | 'md' | 'lg'
 /**
@@ -24,6 +24,9 @@ withDefaults(defineProps<{
   spellcheck?: boolean
   ariaLabel?: string
   ariaLabelledby?: string
+  ariaDescribedby?: string
+  /** Validation failed → `aria-invalid` + danger border. */
+  invalid?: boolean
   /**
    * Stretch to fill the row. Needed as a prop because inheritAttrs:false
    * forwards any passed class to the inner <input>, so `class="w-full"`
@@ -41,21 +44,48 @@ const slots = useSlots()
 const focused = ref(false)
 const hasLeft = !!slots.leftSection
 const hasRight = !!slots.rightSection
+const field = useTemplateRef<HTMLInputElement>('field')
+
+// The root is a <div>, not a <label>: a label forwards every click inside it
+// to the input, so clicking a right-section button (clear, submit…) would
+// also refocus the field. Clicks on the frame's padding / the decorative left
+// icon still focus the field, done by hand here; preventDefault on mousedown
+// keeps an already-focused field from blurring and refocusing.
+function onFrameMousedown(e: MouseEvent) {
+  const input = field.value
+  if (!input || e.button !== 0 || e.target === input) {
+    return
+  }
+  const target = e.target as HTMLElement | null
+  if (target?.closest('.p-input__slot--right')) {
+    return
+  }
+  e.preventDefault()
+  input.focus()
+}
+
+defineExpose({
+  focus: (options?: FocusOptions) => field.value?.focus(options),
+  blur: () => field.value?.blur(),
+  select: () => field.value?.select(),
+})
 </script>
 
 <template>
-  <label
+  <div
     class="p-input"
     :class="[
       `p-input--${size}`,
       `p-input--v-${variant}`,
-      { 'p-input--focused': focused, 'p-input--disabled': disabled, 'p-input--block': block },
+      { 'p-input--focused': focused, 'p-input--disabled': disabled, 'p-input--block': block, 'p-input--invalid': invalid },
     ]"
+    @mousedown="onFrameMousedown"
   >
     <span v-if="hasLeft" class="p-input__slot p-input__slot--left" aria-hidden="true">
       <slot name="leftSection" />
     </span>
     <input
+      ref="field"
       class="p-input__field"
       :type="type"
       :value="model"
@@ -68,6 +98,8 @@ const hasRight = !!slots.rightSection
       :spellcheck="spellcheck"
       :aria-label="ariaLabel"
       :aria-labelledby="ariaLabelledby"
+      :aria-describedby="ariaDescribedby"
+      :aria-invalid="invalid || undefined"
       v-bind="$attrs"
       @input="(e) => model = (e.target as HTMLInputElement).value"
       @focus="focused = true"
@@ -76,7 +108,7 @@ const hasRight = !!slots.rightSection
     <span v-if="hasRight" class="p-input__slot p-input__slot--right">
       <slot name="rightSection" />
     </span>
-  </label>
+  </div>
 </template>
 
 <style scoped>
@@ -101,6 +133,10 @@ const hasRight = !!slots.rightSection
 .p-input--focused {
   border-color: var(--p-primary);
   background: var(--p-bg);
+}
+.p-input--invalid,
+.p-input--invalid:hover:not(.p-input--disabled) {
+  border-color: var(--p-danger);
 }
 .p-input--v-plain,
 .p-input--v-plain:hover:not(.p-input--disabled),

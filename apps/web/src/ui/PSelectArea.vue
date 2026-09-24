@@ -116,6 +116,7 @@ useEventListener(globalThis, 'dragend', () => {
   <div class="relative">
     <div
       v-if="dragging"
+      aria-hidden="true"
       class="border border-primary/75 bg-primary/25 h-1 absolute z-[var(--p-z-popup)]"
       :style="{
         left: `${Math.min(startPoint.x, endPoint.x)}px`,

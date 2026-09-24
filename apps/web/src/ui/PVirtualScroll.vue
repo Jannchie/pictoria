@@ -1,7 +1,7 @@
 <script setup lang="ts" generic="T">
 import type { Component } from 'vue'
 import { controlledComputed, debouncedWatch, useElementBounding, useScroll } from '@vueuse/core'
-import { computed, ref } from 'vue'
+import { computed, nextTick, ref, watch } from 'vue'
 
 const props = withDefaults(defineProps<{
   is?: Component | string
@@ -151,6 +151,41 @@ debouncedWatch(slotReferences.value, async () => {
 
 // 全是前缀和上的取下标 —— 原先 paddingTop 每次滚动都 slice + reduce 重算整个
 // 前缀，在上万项时是纯浪费。
+/**
+ * Focus safety net. Scrolling unmounts rows that leave the window; if one of
+ * them held keyboard focus, the browser drops focus to <body> — the next Tab
+ * starts from the top of the page and page-level hotkeys lose their context.
+ * So when the rendered range changes while focus is inside a row, and that
+ * row is gone afterwards, focus moves to the scroll container itself
+ * (`tabindex=-1`: focusable by script, not a Tab stop) without scrolling.
+ * Callers with a logical cursor (roving grid / listbox) should still restore
+ * focus to their own active row when it scrolls back into view.
+ */
+function wrapperEl(): HTMLElement | null {
+  const w = wrapper.value
+  return (w?.$el ?? w ?? null) as HTMLElement | null
+}
+watch([startIdx, endIdx], () => {
+  const el = wrapperEl()
+  const active = typeof document === 'undefined' ? null : document.activeElement
+  if (!el || !active || active === el || !el.contains(active)) {
+    return
+  }
+  nextTick(() => {
+    if (active.isConnected) {
+      return
+    }
+    const now = document.activeElement
+    if (now && now !== document.body && now !== document.documentElement) {
+      return
+    }
+    if (!el.hasAttribute('tabindex')) {
+      el.setAttribute('tabindex', '-1')
+    }
+    el.focus({ preventScroll: true })
+  })
+}, { flush: 'pre' })
+
 const remainHeight = computed(() => accumulatedHeights.value[props.items.length] - accumulatedHeights.value[endIdx.value])
 const paddingTop = computed(() => accumulatedHeights.value[startIdx.value])
 </script>

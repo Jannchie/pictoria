@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { useElementBounding, useElementSize, useEventListener, useMouse, useScroll } from '@vueuse/core'
+import { useElementBounding, useElementSize, useMutationObserver, useScroll } from '@vueuse/core'
 import { computed, ref } from 'vue'
 
 const props = withDefaults(
@@ -8,8 +8,17 @@ const props = withDefaults(
     barWidth?: number
     threshold?: number
     stopPropagation?: boolean
+    /** @deprecated No effect since the thumb drag uses pointer capture. */
     capture?: boolean
     minBarHeight?: number
+    /**
+     * Make the scroll viewport itself a Tab stop so arrow / Page / Home / End
+     * scroll it — for text regions with no focusable content of their own.
+     * Requires `ariaLabel` (a focusable region needs a name). Off by default:
+     * a viewport full of controls is scrolled by focusing them.
+     */
+    focusable?: boolean
+    ariaLabel?: string
   }>(),
   {
     barWidth: 4,
@@ -71,44 +80,57 @@ const dragging = ref(false)
 const dragStartY = ref(0)
 const previousUserSelect = ref('')
 const startScrollTop = ref(0)
-const mouse = useMouse({ type: 'client' })
-useEventListener(() => scrollBarIndicatorRef.value, 'pointerdown', (e) => {
+
+// Thumb drag with pointer capture: moves keep arriving while the pointer is
+// off the thumb (or outside the window) and the drag ends with exactly one
+// pointerup / pointercancel / lostpointercapture — no document listeners.
+function maybeStop(e: Event) {
+  if (props.stopPropagation) {
+    e.stopPropagation()
+  }
+}
+
+function onThumbPointerDown(e: PointerEvent) {
+  if (e.button !== 0) {
+    return
+  }
+  maybeStop(e)
   dragging.value = true
   dragStartY.value = e.clientY
   startScrollTop.value = y.value
   previousUserSelect.value = document.body.style.userSelect
   document.body.style.userSelect = 'none'
-}, {
-  capture: props.capture,
-})
+  scrollBarIndicatorRef.value?.setPointerCapture?.(e.pointerId)
+}
 
-useEventListener(() => document, 'pointermove', (e) => {
-  if (props.stopPropagation) {
-    e.stopPropagation()
-  }
+function onThumbPointerMove(e: PointerEvent) {
   if (!dragging.value) {
     return
   }
-  if ((props.threshold < scrollBarIndicatorBounds.left.value - mouse.x.value) || (mouse.x.value - scrollBarIndicatorBounds.right.value > props.threshold)) {
+  maybeStop(e)
+  // Dragging far sideways off the bar snaps back to where the drag began
+  // (native scrollbar behaviour on Windows).
+  if ((props.threshold < scrollBarIndicatorBounds.left.value - e.clientX) || (e.clientX - scrollBarIndicatorBounds.right.value > props.threshold)) {
     y.value = startScrollTop.value
     return
   }
-  const diff = mouse.y.value - dragStartY.value
+  const diff = e.clientY - dragStartY.value
   const progress = diff / scrollableHeight.value
   y.value = startScrollTop.value + progress * scrollableLength.value
-}, {
-  capture: props.capture,
-})
+}
 
-useEventListener(() => document, 'pointerup', (e) => {
-  if (props.stopPropagation) {
-    e.stopPropagation()
+function onThumbPointerEnd(e: PointerEvent) {
+  if (!dragging.value) {
+    return
   }
+  maybeStop(e)
   dragging.value = false
   document.body.style.userSelect = previousUserSelect.value
-}, {
-  capture: props.capture,
-})
+  const thumb = scrollBarIndicatorRef.value
+  if (thumb?.hasPointerCapture?.(e.pointerId)) {
+    thumb.releasePointerCapture(e.pointerId)
+  }
+}
 
 defineExpose({
   $el: scrollDomRef,
@@ -132,19 +154,27 @@ defineExpose({
       <div
         v-show="scrollBarData.barHeight < clientHeight"
         ref="scrollBarIndicatorRef"
-
-        class="rounded-full bg-[var(--p-border-strong)] right-0 absolute"
+        aria-hidden="true"
+        class="rounded-full bg-[var(--p-border-strong)] right-0 absolute touch-none"
         :style="{
           right: '0px',
           width: `${barWidth}px`,
           top: `${scrollBarData.barTop}px`,
           height: `${scrollBarData.barHeight}px`,
         }"
+        @pointerdown="onThumbPointerDown"
+        @pointermove="onThumbPointerMove"
+        @pointerup="onThumbPointerEnd"
+        @pointercancel="onThumbPointerEnd"
+        @lostpointercapture="onThumbPointerEnd"
       />
     </div>
     <div
       ref="scrollDomRef"
       class="scroll-area h-full w-full overflow-auto"
+      :tabindex="focusable ? 0 : undefined"
+      :role="focusable ? 'region' : undefined"
+      :aria-label="focusable ? ariaLabel : undefined"
       v-bind="$attrs"
       :style="{
         scrollbarWidth: 'none',
