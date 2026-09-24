@@ -41,14 +41,35 @@ const metrics = computed<{ key: string, label: string, icon?: string, value: str
     color: m.raw == null ? null : `rgb(${gradeColor(m.raw / m.max)})`,
   })),
 )
+
+// The visual line is glyphs + bare numbers ("R 2.0", "45%"); screen readers get
+// the same facts spelled out, and skip the metrics that have no value yet.
+const spoken = computed(() => {
+  const parts = [t('sidebar.stats.files', { n: formatNumber(props.count ?? 0) }, props.count ?? 0)]
+  if (props.silvaAvg != null) {
+    parts.push(t('sidebar.stats.silva', { v: (props.silvaAvg * 10).toFixed(1) }))
+  }
+  if (props.scoreAvg != null) {
+    parts.push(t('sidebar.stats.score', { v: props.scoreAvg.toFixed(1) }))
+  }
+  if (props.ratingAvg != null) {
+    parts.push(t('sidebar.stats.rating', { v: props.ratingAvg.toFixed(1) }))
+  }
+  if (props.scoredRatio != null) {
+    parts.push(t('sidebar.stats.scored', { v: `${Math.round(props.scoredRatio * 100)}%` }))
+  }
+  return parts.join(', ')
+})
 </script>
 
 <template>
   <div class="text-[10px] leading-none flex flex-nowrap gap-x-2 items-center overflow-hidden">
+    <span class="sr-only">{{ spoken }}</span>
     <span
       v-for="m in metrics"
       :key="m.key"
       class="flex gap-0.5 items-center"
+      aria-hidden="true"
     >
       <i v-if="m.icon" class="text-fg-subtle h-3 w-3" :class="m.icon" aria-hidden="true" />
       <span v-else-if="m.label" class="text-fg-subtle">{{ m.label }}</span>

@@ -3,7 +3,8 @@ import { enableArthash, enableFancyPlaceholder, hideNSFW } from '@/shared'
 </script>
 
 <template>
-  <main class="mx-auto px-6 py-8 max-w-3xl">
+  <!-- Not <main>: App.vue already renders the page's single <main> landmark. -->
+  <div class="mx-auto px-6 py-8 max-w-3xl">
     <div class="mb-8 flex gap-3 items-center">
       <i class="i-tabler-settings text-xl text-fg-muted" aria-hidden="true" />
       <h1 class="text-2xl text-fg tracking-tight font-semibold">
@@ -84,5 +85,5 @@ import { enableArthash, enableFancyPlaceholder, hideNSFW } from '@/shared'
         </SettingRow>
       </div>
     </section>
-  </main>
+  </div>
 </template>

@@ -1,19 +1,25 @@
 <script setup lang="ts">
+import type { ComponentPublicInstance } from 'vue'
 import type { DirectorySummary } from '@/api'
+import type { PMenuItem } from '@/ui'
 import type { TreeListCollapseData, TreeListItemData, TreeListLeafData } from '@/ui/PTreeList.vue'
 import { useQueryClient } from '@tanstack/vue-query'
 import { Pane, Splitpanes } from 'splitpanes'
-import { computed, ref, watch } from 'vue'
+import { computed, nextTick, onBeforeUnmount, ref, useTemplateRef, watch, watchEffect } from 'vue'
 import { useI18n } from 'vue-i18n'
-import { RouterLink, useRoute, useRouter } from 'vue-router'
+import { RouterLink, START_LOCATION, useRoute, useRouter } from 'vue-router'
 import { useAPIError } from '@/composables/useAPIError'
 import { useGlobalUndoRedo } from '@/composables/useGlobalUndoRedo'
-import { notUsingInput } from '@/composables/useKeyScope'
+import { useHotkey } from '@/composables/useHotkey'
+import { usePaneSplitters } from '@/composables/usePaneSplitters'
+import { usePostQuery } from '@/composables/usePostQuery'
 import { useWatchRoute } from '@/composables/useWatchRoute'
 import { formatNumber } from '@/locale'
 import PTreeList, { CHEVRON_SLOT, LEVEL_INDENT } from '@/ui/PTreeList.vue'
+import { formatShortcut } from '@/utils/keyboard'
+import { routeTitle, shouldAnnounceRoute, shouldFocusMain } from '@/utils/routeAnnounce'
 import FolderStatsLine from './components/FolderStatsLine.vue'
-import { commandPaletteOpen, deleteFolder, focusedTreeFolder, isAnyDialogOpen, leftPaneCollapsed, menuData, rightPaneCollapsed, shortcutHelpOpen, showMenu, useCurrentFolder, useFoldersQuery, useSyncFilterWithUrl } from './shared'
+import { announce, commandPaletteOpen, deleteFolder, focusedTreeFolder, hasModalLayer, isAnyDialogOpen, leftPaneCollapsed, rightPaneCollapsed, shortcutHelpOpen, useCurrentFolder, useFoldersQuery, useSyncFilterWithUrl } from './shared'
 import 'splitpanes/dist/splitpanes.css'
 
 const { t } = useI18n()
@@ -178,38 +184,6 @@ watch(currentFolder, (path) => {
   }
 }, { immediate: true })
 
-const contextTarget = ref<TreeListLeafData | TreeListCollapseData | null>(null)
-function onItemContext({ data }: { data: TreeListLeafData | TreeListCollapseData, event: MouseEvent }) {
-  contextTarget.value = data
-  menuData.value = data
-}
-function closeMenu() {
-  menuData.value = null
-}
-async function revealInExplorer() {
-  closeMenu()
-}
-async function copyPath() {
-  if (!contextTarget.value?.value) {
-    return
-  }
-  await navigator.clipboard.writeText(contextTarget.value.value).catch(() => {})
-  closeMenu()
-}
-function openFolder() {
-  if (!contextTarget.value?.value) {
-    return
-  }
-  router.push({ path: `/dir/${contextTarget.value.value}`, query: route.query })
-  closeMenu()
-}
-
-// ── 删除目录（树行获得焦点时按 Delete，或右键菜单） ──────────────────────
-const queryClient = useQueryClient()
-const { handle: handleAPIError } = useAPIError()
-const pendingDeleteFolder = ref<{ path: string, title: string, postCount: number } | null>(null)
-const isDeletingFolder = ref(false)
-
 function findFolderNode(items: TreeListItemData[], path: string): TreeListItemData | null {
   for (const item of items) {
     if ('value' in item && item.value === path) {
@@ -225,6 +199,94 @@ function findFolderNode(items: TreeListItemData[], path: string): TreeListItemDa
   return null
 }
 
+// ── Folder-tree context menu (PMenu: right-click, or Shift+F10 / ContextMenu
+// on the focused row) ───────────────────────────────────────────────────────
+const tree = useTemplateRef<{ focusValue: (value: string) => void, focus: () => void }>('tree')
+const contextTarget = ref<TreeListLeafData | TreeListCollapseData | null>(null)
+
+const treeMenuItems = computed<PMenuItem[]>(() => [
+  { role: 'label', title: contextTarget.value?.title ?? t('sidebar.actions') },
+  { title: t('sidebar.openFolder'), icon: 'i-tabler-folder-open', value: 'open' },
+  { title: t('sidebar.copyPath'), icon: 'i-tabler-copy', value: 'copy' },
+  { role: 'divider' },
+  // The root is the library itself — it can't be deleted.
+  { title: t('sidebar.deleteFolder'), icon: 'i-tabler-folder-x', value: 'delete', disabled: contextTarget.value?.value === '@' },
+])
+
+// Which folder a context-menu event is about: the tree row it came from, or —
+// for the menu key while focus is parked on the tree container (see
+// PTreeList) — the container's cursor value.
+function treeValueFromTarget(target: EventTarget | null): string | undefined {
+  if (!(target instanceof HTMLElement)) {
+    return undefined
+  }
+  const row = target.closest<HTMLElement>('[role="treeitem"][data-tree-value]')
+  if (row) {
+    return row.dataset.treeValue
+  }
+  if (target === document.activeElement && target.getAttribute('role') === 'tree') {
+    return target.dataset.treeValue
+  }
+  return undefined
+}
+function setContextTarget(value: string | undefined): boolean {
+  const node = value ? findFolderNode(folderTree.value, value) : null
+  contextTarget.value = node && 'value' in node ? node as TreeListLeafData | TreeListCollapseData : null
+  return contextTarget.value !== null
+}
+// Runs before PMenu's own contextmenu handler (bubble order: row → this
+// wrapper → PMenu host). Outside a row there is no folder to act on: no menu.
+function onTreeContextMenu(e: MouseEvent) {
+  if (!setContextTarget(treeValueFromTarget(e.target))) {
+    e.preventDefault()
+    e.stopPropagation()
+  }
+}
+// PMenu may open its keyboard menu straight from keydown, without a
+// contextmenu event — resolve the target from the focused row first.
+function onTreeKeydownCapture(e: KeyboardEvent) {
+  if (e.key === 'ContextMenu' || (e.key === 'F10' && e.shiftKey)) {
+    setContextTarget(treeValueFromTarget(e.target))
+  }
+}
+
+async function copyPath(path: string) {
+  try {
+    await navigator.clipboard.writeText(path)
+    announce(t('sidebar.pathCopied'))
+  }
+  catch {
+    announce(t('sidebar.copyPathFailed'), 'assertive')
+  }
+}
+
+function onTreeMenuSelect(action: string | number | symbol) {
+  const path = contextTarget.value?.value
+  if (!path) {
+    return
+  }
+  switch (action) {
+    case 'open': {
+      router.push({ path: `/dir/${path}`, query: route.query })
+      break
+    }
+    case 'copy': {
+      copyPath(path)
+      break
+    }
+    case 'delete': {
+      requestDeleteFolder(path)
+      break
+    }
+  }
+}
+
+// ── 删除目录（树行获得焦点时按 Delete，或右键菜单） ──────────────────────
+const queryClient = useQueryClient()
+const { handle: handleAPIError } = useAPIError()
+const pendingDeleteFolder = ref<{ path: string, title: string, postCount: number } | null>(null)
+const isDeletingFolder = ref(false)
+
 function requestDeleteFolder(path: string | null | undefined) {
   if (!path || path === '@') {
     return // 根目录不可删
@@ -237,21 +299,25 @@ function requestDeleteFolder(path: string | null | undefined) {
   }
 }
 
-function onMenuDeleteFolder() {
-  const path = contextTarget.value?.value
-  closeMenu()
-  requestDeleteFolder(path)
-}
-
-// 点击树行会聚焦它的 RouterLink（data-tree-value）；此时 Delete 针对该目录，
-// 画廊的"删除选中图片"热键经共享的 useKeyScope 作用域让位（见 composables/useKeyScope.ts）。
-onKeyStroke('Delete', (e) => {
-  if (!focusedTreeFolder.value || isAnyDialogOpen.value) {
-    return
-  }
-  e.preventDefault()
-  requestDeleteFolder(focusedTreeFolder.value)
+// 树行（role=treeitem，带 data-tree-value）获得焦点时按 Delete 删除该目录。树行是
+// widget，画廊的"删除选中图片"热键（useHotkey 默认跳过 widget）自然让位。
+useHotkey('Delete', () => requestDeleteFolder(focusedTreeFolder.value), {
+  when: () => Boolean(focusedTreeFolder.value) && !isAnyDialogOpen.value,
+  allowInWidgets: true,
 })
+
+// After a delete the row is gone. Focus normally returns to it from the
+// dialog and PTreeList then falls back to its nearest surviving ancestor; if
+// the dialog found nothing to return to, put focus on the parent row here.
+function refocusTreeAfterDelete(path: string) {
+  const parent = path.includes('/') ? path.slice(0, path.lastIndexOf('/')) : '@'
+  setTimeout(() => {
+    const active = document.activeElement
+    if (!active || active === document.body || !active.isConnected) {
+      tree.value?.focusValue(parent)
+    }
+  }, 50)
+}
 
 async function confirmDeleteFolder() {
   const target = pendingDeleteFolder.value
@@ -267,6 +333,8 @@ async function confirmDeleteFolder() {
       router.push({ path: '/', query: route.query })
     }
     pendingDeleteFolder.value = null
+    announce(t('sidebar.folderDeleted', { title: target.title }))
+    refocusTreeAfterDelete(target.path)
   }
   catch (error) {
     handleAPIError(error, t('sidebar.deleteFolderFailed', { title: target.title }))
@@ -280,41 +348,144 @@ function clearFilter() {
   folderFilter.value = ''
 }
 
+// ── Global hotkeys ──────────────────────────────────────────────────────────
 // ⌘K / Ctrl+K opens the palette from anywhere, including from inside an input
 // (that's the point — it's the one key that always works).
-onKeyStroke('k', (e) => {
-  if (!e.ctrlKey && !e.metaKey) {
-    return
-  }
-  e.preventDefault()
+useHotkey('Mod+K', () => {
   commandPaletteOpen.value = !commandPaletteOpen.value
-})
+}, { allowInTyping: true, allowInWidgets: true })
 
 // '?' opens the shortcut sheet, but only when not typing — otherwise it would
 // swallow the character in the folder filter or a caption field.
-onKeyStroke('?', (e) => {
-  if (!notUsingInput.value || isAnyDialogOpen.value) {
-    return
-  }
-  e.preventDefault()
+useHotkey('?', () => {
   shortcutHelpOpen.value = true
-})
+}, { allowInWidgets: true, when: () => !isAnyDialogOpen.value })
 
-// Pane toggles. Ctrl+B / Ctrl+Shift+B mirror the editor convention; the same
+// Pane toggles. Mod+B / Mod+Shift+B mirror the editor convention; the same
 // state is driven by the bottom bar's buttons, which stay reachable once a
 // pane is gone (the pane's own header would collapse with it).
-onKeyStroke('b', (e) => {
-  if (!e.ctrlKey || isAnyDialogOpen.value) {
-    return
+useHotkey('Mod+B', () => {
+  leftPaneCollapsed.value = !leftPaneCollapsed.value
+}, { allowInTyping: true, allowInWidgets: true, when: () => !isAnyDialogOpen.value })
+useHotkey('Mod+Shift+B', () => {
+  rightPaneCollapsed.value = !rightPaneCollapsed.value
+}, { allowInTyping: true, allowInWidgets: true, when: () => !isAnyDialogOpen.value })
+
+// ── Layout: pane sizes, keyboard splitters, F6 landmark cycling ─────────────
+const LEFT_PANE = { min: 8, max: 36 }
+const RIGHT_PANE = { min: 12, max: 36 }
+// Sizes (percent) live here so the keyboard splitters can set them; drags
+// write them back through @resize / @resized. The centre takes the rest.
+const leftSize = ref(12)
+const rightSize = ref(12)
+const centerSize = computed(() =>
+  100 - (leftPaneCollapsed.value ? 0 : leftSize.value) - (rightPaneCollapsed.value ? 0 : rightSize.value))
+function onPanesResized({ panes }: { panes: { size: number }[] }) {
+  let i = 0
+  if (!leftPaneCollapsed.value) {
+    if (panes[i]) {
+      leftSize.value = panes[i].size
+    }
+    i++
   }
-  e.preventDefault()
-  if (e.shiftKey) {
-    rightPaneCollapsed.value = !rightPaneCollapsed.value
+  i++ // the centre pane
+  if (!rightPaneCollapsed.value && panes[i]) {
+    rightSize.value = panes[i].size
+  }
+}
+
+const split = useTemplateRef<ComponentPublicInstance>('split')
+const navEl = useTemplateRef<HTMLElement>('navEl')
+const mainEl = useTemplateRef<HTMLElement>('mainEl')
+const asideEl = useTemplateRef<HTMLElement>('asideEl')
+
+// Enter on a splitter hides its pane. The splitter goes with it, so focus
+// moves to the main area and the way back is announced.
+function collapsePane(side: 'left' | 'right') {
+  if (side === 'left') {
+    leftPaneCollapsed.value = true
   }
   else {
-    leftPaneCollapsed.value = !leftPaneCollapsed.value
+    rightPaneCollapsed.value = true
   }
+  nextTick(() => mainEl.value?.focus({ preventScroll: true }))
+  announce(side === 'left'
+    ? t('pane.leftHidden', { key: formatShortcut('Mod+B') })
+    : t('pane.rightHidden', { key: formatShortcut('Mod+Shift+B') }))
+}
+
+usePaneSplitters(() => split.value?.$el as HTMLElement | undefined, [
+  { id: 'pane-left', side: 'left', size: leftSize, ...LEFT_PANE, label: () => t('pane.resizeLeft'), collapse: () => collapsePane('left') },
+  { id: 'pane-right', side: 'right', size: rightSize, ...RIGHT_PANE, label: () => t('pane.resizeRight'), collapse: () => collapsePane('right') },
+])
+
+// F6 / Shift+F6 cycle focus through the landmarks (sidebar nav → main →
+// detail aside), skipping collapsed panes. The landmark element itself takes
+// focus (its name is announced, Tab continues inside it); nav/aside get a
+// temporary tabindex that is dropped on blur so mouse clicks never land on them.
+function focusRegion(el: HTMLElement) {
+  if (!el.hasAttribute('tabindex')) {
+    el.setAttribute('tabindex', '-1')
+    el.addEventListener('blur', () => el.removeAttribute('tabindex'), { once: true })
+  }
+  el.focus({ preventScroll: true })
+}
+useHotkey(['F6', 'Shift+F6'], (e) => {
+  const regions = [navEl.value, mainEl.value, asideEl.value].filter((el): el is HTMLElement => !!el?.isConnected)
+  if (regions.length === 0) {
+    return
+  }
+  const active = document.activeElement
+  const current = regions.findIndex(el => el.contains(active))
+  const dir = e.shiftKey ? -1 : 1
+  const next = current === -1
+    ? (dir === 1 ? 0 : regions.length - 1)
+    : (current + dir + regions.length) % regions.length
+  focusRegion(regions[next])
+}, { allowInTyping: true, allowInWidgets: true, when: () => !hasModalLayer.value })
+
+// ── Route changes: document.title, announcement, focus ──────────────────────
+// The policy (which navigations announce / move focus) is in
+// utils/routeAnnounce.ts, with tests.
+const routePostId = computed(() => (route.name === 'post' ? Number(route.params.postId) : undefined))
+const { data: routePost } = usePostQuery(routePostId)
+const pageTitle = computed(() => {
+  const post = routePost.value
+  const postName = post && post.id === routePostId.value ? `${post.fileName}.${post.extension}` : null
+  const title = routeTitle(route, postName)
+  return title.key ? t(title.key, title.params ?? {}) : (title.text ?? '')
 })
+watchEffect(() => {
+  document.title = t('route.documentTitle', { title: pageTitle.value })
+})
+
+const removeAfterEach = router.afterEach((to, from, failure) => {
+  if (failure) {
+    return
+  }
+  const initial = from === START_LOCATION
+  const announceIt = shouldAnnounceRoute(to, from, initial)
+  const focusIt = shouldFocusMain(to, from, initial)
+  if (!announceIt && !focusIt) {
+    return
+  }
+  // Route views are lazy chunks: give the new view a moment to mount (and to
+  // place focus itself) before judging where focus is.
+  setTimeout(() => {
+    if (announceIt) {
+      announce(t('route.navigated', { title: pageTitle.value }))
+    }
+    const main = mainEl.value
+    const active = document.activeElement
+    const focusInMain = !!main && !!active && active !== document.body && main.contains(active)
+    // A folder picked in the tree keeps focus in the tree.
+    const inTree = active instanceof HTMLElement && active.closest('[role="tree"]') !== null
+    if (focusIt && main && !focusInMain && !inTree && !hasModalLayer.value) {
+      main.focus({ preventScroll: true })
+    }
+  }, 50)
+})
+onBeforeUnmount(removeAfterEach)
 
 interface HighlightPart { text: string, match: boolean }
 function splitHighlight(text: string, filter: string): HighlightPart[] {
@@ -347,289 +518,288 @@ function splitHighlight(text: string, filter: string): HighlightPart[] {
   <div
     class="text-fg bg-bg flex flex-col h-100vh w-100vw select-none overflow-hidden"
   >
-    <PFloatWindow v-model="showMenu">
-      <div
-        role="menu"
-        :aria-label="contextTarget?.title"
-        class="text-sm p-1 border border-border-default rounded-md bg-surface min-w-44 shadow-md"
-      >
-        <div class="text-xs text-fg-subtle px-2.5 pb-1.5 pt-1">
-          <span class="max-w-60 block truncate">{{ contextTarget?.title ?? $t('sidebar.actions') }}</span>
-        </div>
-        <PListItem
-          :title="$t('sidebar.openFolder')"
-          icon="i-tabler-folder-open"
-          @click="openFolder"
-        />
-        <PListItem
-          :title="$t('sidebar.copyPath')"
-          icon="i-tabler-copy"
-          @click="copyPath"
-        />
-        <PListItem
-          :title="$t('sidebar.revealInSystem')"
-          icon="i-tabler-external-link"
-          @click="revealInExplorer"
-        />
-        <div class="my-1 border-t border-border-subtle" />
-        <PListItem
-          :title="$t('sidebar.newSubfolder')"
-          icon="i-tabler-folder-plus"
-        />
-        <PListItem
-          :title="$t('sidebar.deleteFolder')"
-          icon="i-tabler-folder-x"
-          @click="onMenuDeleteFolder"
-        />
-      </div>
-    </PFloatWindow>
     <TagSelectorWindow />
-    <Splitpanes class="max-h-[calc(100vh-24px)]">
+    <Splitpanes
+      ref="split"
+      class="max-h-[calc(100vh-24px)]"
+      :keyboard-step="0"
+      @resize="onPanesResized"
+      @resized="onPanesResized"
+    >
       <Pane
         v-if="!leftPaneCollapsed"
-        :min-size="8"
-        :size="12"
-        :max-size="36"
-        class="border-r border-border-subtle flex flex-col min-w-64"
+        id="pane-left"
+        :min-size="LEFT_PANE.min"
+        :size="leftSize"
+        :max-size="LEFT_PANE.max"
+        class="border-r border-border-subtle min-w-64"
       >
-        <!-- Wordmark sits on the nav rows' icon column (24px: pane px-2 + row
-             px-4) at body size: it is a label for the pane, not a hero. -->
-        <div class="text-base tracking-tight font-semibold px-6 pb-1.5 pt-3 flex shrink-0 gap-2 items-center">
-          <img
-            src="/Pictoria.svg"
-            alt=""
-            aria-hidden="true"
-            width="16"
-            height="16"
-            class="h-4 w-4"
-          >
-          <span>Pictoria</span>
-        </div>
-        <div class="px-2 pb-2">
-          <SpecialPathList />
-        </div>
-        <div class="px-2 pb-2 flex gap-1.5 items-center">
-          <div class="flex-grow relative">
-            <i class="i-tabler-search text-fg-subtle h-3.5 w-3.5 pointer-events-none left-2.5 top-1/2 absolute -translate-y-1/2" aria-hidden="true" />
-            <label for="folder-filter-input" class="sr-only">{{ $t('sidebar.filterFolders') }}</label>
-            <input
-              id="folder-filter-input"
-              v-model="folderFilter"
-              type="search"
-              name="folder-filter"
-              autocomplete="off"
-              spellcheck="false"
-              :placeholder="$t('sidebar.filterFoldersPlaceholder')"
-              class="text-sm text-fg pl-8 pr-7 outline-none border border-border-subtle rounded-md bg-surface-1 h-7 w-full transition-colors placeholder:text-fg-subtle focus:border-primary/60 hover:border-border-default focus:bg-bg"
-              @keydown.escape="clearFilter"
+        <nav
+          ref="navEl"
+          :aria-label="$t('nav.aria')"
+          class="flex flex-col h-full focus-visible:[outline-offset:-2px]"
+        >
+          <!-- Wordmark sits on the nav rows' icon column (24px: pane px-2 + row
+               px-4) at body size: it is a label for the pane, not a hero. -->
+          <div class="text-base tracking-tight font-semibold px-6 pb-1.5 pt-3 flex shrink-0 gap-2 items-center">
+            <img
+              src="/Pictoria.svg"
+              alt=""
+              aria-hidden="true"
+              width="16"
+              height="16"
+              class="h-4 w-4"
             >
-            <button
-              v-if="folderFilter"
-              type="button"
-              :aria-label="$t('sidebar.clearFilter')"
-              class="text-fg-subtle rounded flex h-5 w-5 transition-colors items-center right-1.5 top-1/2 justify-center absolute hover:text-fg hover:bg-surface-1 -translate-y-1/2"
-              @click="clearFilter"
-            >
-              <i class="i-tabler-x h-3.5 w-3.5" aria-hidden="true" />
-            </button>
+            <span>Pictoria</span>
           </div>
-          <PPopover v-model="folderSortShow" position="bottom-end">
-            <PButton size="sm" icon variant="ghost" :active="folderSortShow" :aria-label="$t('sidebar.sortFolders')" :title="$t('sidebar.sortTitle', { label: sortKeyLabel })">
-              <i class="i-tabler-arrows-sort" aria-hidden="true" />
-            </PButton>
-            <template #content>
-              <div class="p-popover-panel min-w-40">
-                <div class="mb-1 pb-1 p-divider flex gap-1">
-                  <PButton
-                    v-for="order in orderOptions"
-                    :key="order.id"
-                    size="sm"
-                    block
-                    :variant="folderSortOrder === order.id ? 'subtle' : 'ghost'"
-                    @click="folderSortOrder = order.id"
-                  >
-                    <i :class="order.icon" aria-hidden="true" />
-                    <span class="flex-grow">{{ $t(order.labelKey) }}</span>
-                  </PButton>
-                </div>
-                <PListItem
-                  v-for="opt in sortOptions"
-                  :key="opt.key"
-                  :icon="opt.icon"
-                  :title="$t(opt.labelKey)"
-                  :active="folderSortKey === opt.key"
-                  @click="folderSortKey = opt.key; folderSortShow = false"
-                />
-              </div>
-            </template>
-          </PPopover>
-        </div>
-        <div class="px-2 pb-1 flex-grow min-h-0">
-          <PTreeList
-            :model-value="currentFolder"
-            :open-paths="openPaths"
-            :items="folderTree"
-            :filter="folderFilter"
-            :highlight-chain="highlightChain"
-            :item-height="treeItemHeight"
-            :loading="foldersQuery.isPending.value && folderTree.length === 0"
-            :empty-text="$t('sidebar.noFolderMatch')"
-            @update:open-paths="(v) => (openPaths = v)"
-            @item-context="onItemContext"
-          >
-            <template #collapse="{ data, level, isOpen, isSelected, inChain, toggle }">
-              <div
-                role="treeitem"
-                :aria-expanded="isOpen"
-                :aria-selected="isSelected"
-                :aria-level="level + 1"
-                class="h-full relative"
+          <div class="px-2 pb-2">
+            <SpecialPathList />
+          </div>
+          <div class="px-2 pb-2 flex gap-1.5 items-center">
+            <div class="flex-grow relative">
+              <i class="i-tabler-search text-fg-subtle h-3.5 w-3.5 pointer-events-none left-2.5 top-1/2 absolute -translate-y-1/2" aria-hidden="true" />
+              <label for="folder-filter-input" class="sr-only">{{ $t('sidebar.filterFolders') }}</label>
+              <input
+                id="folder-filter-input"
+                v-model="folderFilter"
+                type="search"
+                name="folder-filter"
+                autocomplete="off"
+                spellcheck="false"
+                :placeholder="$t('sidebar.filterFoldersPlaceholder')"
+                class="text-sm text-fg pl-8 pr-7 outline-none border border-border-subtle rounded-md bg-surface-1 h-7 w-full transition-colors placeholder:text-fg-subtle focus:border-primary/60 hover:border-border-default focus:bg-bg"
+                @keydown.escape="clearFilter"
               >
-                <RouterLink
-                  :to="{ path: `/dir/${data.value}`, query: $route.query }"
-                  tabindex="0"
-                  :data-tree-value="data.value"
-                  :title="data.value"
-                  class="group/row text-sm pr-3 rounded-md flex h-full w-full cursor-pointer transition-colors items-center relative focus-visible:[outline-offset:-2px]"
-                  :class="[
-                    isSelected ? 'text-fg bg-primary/10 hover:bg-primary/15' : 'text-fg-muted hover:bg-surface-1 hover:text-fg',
-                  ]"
-                  :style="{ paddingLeft: `${CHEVRON_SLOT + level * LEVEL_INDENT}px` }"
-                  @contextmenu.prevent="onItemContext({ data, event: $event })"
+              <button
+                v-if="folderFilter"
+                type="button"
+                :aria-label="$t('sidebar.clearFilter')"
+                class="text-fg-subtle rounded flex h-5 w-5 transition-colors items-center right-1.5 top-1/2 justify-center absolute hover:text-fg hover:bg-surface-1 -translate-y-1/2"
+                @click="clearFilter"
+              >
+                <i class="i-tabler-x h-3.5 w-3.5" aria-hidden="true" />
+              </button>
+            </div>
+            <PPopover v-model="folderSortShow" position="bottom-end">
+              <PButton size="sm" icon variant="ghost" :active="folderSortShow" :aria-label="$t('sidebar.sortFolders')" :title="$t('sidebar.sortTitle', { label: sortKeyLabel })">
+                <i class="i-tabler-arrows-sort" aria-hidden="true" />
+              </PButton>
+              <template #content>
+                <div class="p-popover-panel min-w-40">
+                  <div class="mb-1 pb-1 p-divider flex gap-1">
+                    <PButton
+                      v-for="order in orderOptions"
+                      :key="order.id"
+                      size="sm"
+                      block
+                      :variant="folderSortOrder === order.id ? 'subtle' : 'ghost'"
+                      :aria-pressed="folderSortOrder === order.id"
+                      @click="folderSortOrder = order.id"
+                    >
+                      <i :class="order.icon" aria-hidden="true" />
+                      <span class="flex-grow">{{ $t(order.labelKey) }}</span>
+                    </PButton>
+                  </div>
+                  <div role="group" :aria-label="$t('sidebar.sortFolders')" class="flex flex-col">
+                    <PButton
+                      v-for="opt in sortOptions"
+                      :key="opt.key"
+                      size="sm"
+                      block
+                      :variant="folderSortKey === opt.key ? 'subtle' : 'ghost'"
+                      :aria-pressed="folderSortKey === opt.key"
+                      class="justify-start!"
+                      @click="folderSortKey = opt.key; folderSortShow = false"
+                    >
+                      <i :class="[opt.icon, folderSortKey === opt.key ? 'text-primary' : 'text-fg-subtle']" aria-hidden="true" />
+                      <span class="text-left flex-grow">{{ $t(opt.labelKey) }}</span>
+                    </PButton>
+                  </div>
+                </div>
+              </template>
+            </PPopover>
+          </div>
+          <div class="px-2 pb-1 flex-grow min-h-0">
+            <PMenu
+              :data="treeMenuItems"
+              class="h-full"
+              @select="onTreeMenuSelect"
+            >
+              <div
+                class="h-full"
+                @contextmenu="onTreeContextMenu"
+                @keydown.capture="onTreeKeydownCapture"
+              >
+                <PTreeList
+                  ref="tree"
+                  :aria-label="$t('sidebar.folderTree')"
+                  :model-value="currentFolder"
+                  :open-paths="openPaths"
+                  :items="folderTree"
+                  :filter="folderFilter"
+                  :highlight-chain="highlightChain"
+                  :item-height="treeItemHeight"
+                  :loading="foldersQuery.isPending.value && folderTree.length === 0"
+                  :empty-text="$t('sidebar.noFolderMatch')"
+                  @update:open-paths="(v) => (openPaths = v)"
                 >
-                  <span
-                    v-for="i in level"
-                    :key="i"
-                    class="w-px pointer-events-none bottom-0 top-0 absolute"
-                    :class="[
-                      inChain && i === level ? 'bg-primary/40' : 'bg-border-subtle',
-                    ]"
-                    :style="{ left: `${10 + (i - 1) * LEVEL_INDENT}px` }"
-                  />
-                  <div class="flex flex-grow flex-col min-w-0 justify-center">
-                    <div class="flex gap-1.5 h-6 items-center">
-                      <span aria-hidden="true" class="shrink-0 h-3.5 w-3.5 inline-block" />
-                      <span class="truncate">
-                        <template
-                          v-for="(part, i) in splitHighlight(data.title, folderFilter)"
+                  <!-- Row slots: the RouterLink IS the treeitem (role, roving
+                       tabindex, aria-* and data-tree-value via itemProps), so
+                       focus and semantics sit on one element. The chevron is a
+                       mouse-only affordance (←/→ do the same from the keyboard). -->
+                  <template #collapse="{ data, level, isOpen, isSelected, inChain, toggle, itemProps }">
+                    <div class="h-full relative">
+                      <RouterLink
+                        v-bind="itemProps"
+                        :to="{ path: `/dir/${data.value}`, query: $route.query }"
+                        :title="data.value"
+                        class="group/row text-sm pr-3 rounded-md flex h-full w-full cursor-pointer transition-colors items-center relative focus-visible:[outline-offset:-2px]"
+                        :class="[
+                          isSelected ? 'text-fg bg-primary/10 hover:bg-primary/15' : 'text-fg-muted hover:bg-surface-1 hover:text-fg',
+                        ]"
+                        :style="{ paddingLeft: `${CHEVRON_SLOT + level * LEVEL_INDENT}px` }"
+                      >
+                        <span
+                          v-for="i in level"
                           :key="i"
-                        >
-                          <mark
-                            v-if="part.match"
-                            class="text-fg px-0.5 rounded-sm bg-primary/30"
-                          >{{ part.text }}</mark>
-                          <template v-else>{{ part.text }}</template>
-                        </template>
+                          aria-hidden="true"
+                          class="w-px pointer-events-none bottom-0 top-0 absolute"
+                          :class="[
+                            inChain && i === level ? 'bg-primary/40' : 'bg-border-subtle',
+                          ]"
+                          :style="{ left: `${10 + (i - 1) * LEVEL_INDENT}px` }"
+                        />
+                        <div class="flex flex-grow flex-col min-w-0 justify-center">
+                          <div class="flex gap-1.5 h-6 items-center">
+                            <span aria-hidden="true" class="shrink-0 h-3.5 w-3.5 inline-block" />
+                            <span class="truncate">
+                              <template
+                                v-for="(part, i) in splitHighlight(data.title, folderFilter)"
+                                :key="i"
+                              >
+                                <mark
+                                  v-if="part.match"
+                                  class="text-fg px-0.5 rounded-sm bg-primary/30"
+                                >{{ part.text }}</mark>
+                                <template v-else>{{ part.text }}</template>
+                              </template>
+                            </span>
+                          </div>
+                          <FolderStatsLine
+                            v-if="hasStatsLine(data)"
+                            v-bind="data.meta"
+                            :count="data.count"
+                            class="pl-5"
+                          />
+                        </div>
+                      </RouterLink>
+                      <span
+                        aria-hidden="true"
+                        class="text-fg-subtle rounded flex shrink-0 h-5 w-5 cursor-pointer transition-colors items-center top-1/2 justify-center absolute hover:text-fg hover:bg-surface-2 -translate-y-1/2"
+                        :style="{ left: `${CHEVRON_SLOT + level * LEVEL_INDENT - 3}px` }"
+                        @mousedown.prevent
+                        @click.stop.prevent="toggle"
+                      >
+                        <i
+                          class="i-tabler-chevron-down h-4 w-4 transition-transform"
+                          :class="[isOpen ? 'rotate-0' : '-rotate-90']"
+                        />
                       </span>
                     </div>
-                    <FolderStatsLine
-                      v-if="hasStatsLine(data)"
-                      v-bind="data.meta"
-                      :count="data.count"
-                      class="pl-5"
-                    />
-                  </div>
-                </RouterLink>
-                <button
-                  type="button"
-                  class="text-fg-subtle rounded flex shrink-0 h-5 w-5 transition-colors items-center top-1/2 justify-center absolute hover:text-fg hover:bg-surface-2 -translate-y-1/2"
-                  :style="{ left: `${CHEVRON_SLOT + level * LEVEL_INDENT - 3}px` }"
-                  :aria-label="isOpen ? $t('sidebar.collapse') : $t('sidebar.expand')"
-                  :aria-expanded="isOpen"
-                  @click.stop.prevent="toggle"
-                >
-                  <i
-                    class="i-tabler-chevron-down h-4 w-4 transition-transform"
-                    :class="[isOpen ? 'rotate-0' : '-rotate-90']"
-                    aria-hidden="true"
-                  />
-                </button>
-              </div>
-            </template>
-            <template #link="{ data, level, isSelected, inChain }">
-              <RouterLink
-                :to="{ path: `/dir/${data.value}`, query: $route.query }"
-                role="treeitem"
-                :aria-selected="isSelected"
-                :aria-level="level + 1"
-                tabindex="0"
-                :data-tree-value="data.value"
-                :title="data.value"
-                class="group/row text-sm pr-3 rounded-md flex h-full w-full cursor-pointer transition-colors items-center relative focus-visible:[outline-offset:-2px]"
-                :class="[
-                  isSelected ? 'text-fg bg-primary/10 hover:bg-primary/15' : 'text-fg-muted hover:bg-surface-1 hover:text-fg',
-                ]"
-                :style="{ paddingLeft: `${CHEVRON_SLOT + level * LEVEL_INDENT}px` }"
-                @contextmenu.prevent="onItemContext({ data, event: $event })"
-              >
-                <span
-                  v-for="i in level"
-                  :key="i"
-                  class="w-px pointer-events-none bottom-0 top-0 absolute"
-                  :class="[
-                    inChain && i === level ? 'bg-primary/40' : 'bg-border-subtle',
-                  ]"
-                  :style="{ left: `${10 + (i - 1) * LEVEL_INDENT}px` }"
-                />
-                <div class="flex flex-grow flex-col min-w-0 justify-center">
-                  <div class="flex gap-1.5 h-6 items-center">
-                    <span aria-hidden="true" class="inline-flex shrink-0 h-3.5 w-3.5 items-center justify-center">
-                      <i v-if="data.icon" class="h-3.5 w-3.5" :class="[data.icon as string]" />
-                    </span>
-                    <span class="truncate">
-                      <template
-                        v-for="(part, i) in splitHighlight(data.title, folderFilter)"
+                  </template>
+                  <template #link="{ data, level, isSelected, inChain, itemProps }">
+                    <RouterLink
+                      v-bind="itemProps"
+                      :to="{ path: `/dir/${data.value}`, query: $route.query }"
+                      :title="data.value"
+                      class="group/row text-sm pr-3 rounded-md flex h-full w-full cursor-pointer transition-colors items-center relative focus-visible:[outline-offset:-2px]"
+                      :class="[
+                        isSelected ? 'text-fg bg-primary/10 hover:bg-primary/15' : 'text-fg-muted hover:bg-surface-1 hover:text-fg',
+                      ]"
+                      :style="{ paddingLeft: `${CHEVRON_SLOT + level * LEVEL_INDENT}px` }"
+                    >
+                      <span
+                        v-for="i in level"
                         :key="i"
-                      >
-                        <mark
-                          v-if="part.match"
-                          class="text-fg px-0.5 rounded-sm bg-primary/30"
-                        >{{ part.text }}</mark>
-                        <template v-else>{{ part.text }}</template>
-                      </template>
-                    </span>
-                  </div>
-                  <FolderStatsLine
-                    v-if="hasStatsLine(data)"
-                    v-bind="data.meta"
-                    :count="data.count"
-                    class="pl-5"
-                  />
-                </div>
-              </RouterLink>
-            </template>
-          </PTreeList>
-        </div>
-        <div class="border-t border-border-subtle">
-          <SyncStatus />
-          <div class="p-2">
-            <RouterLink
-              to="/settings"
-              class="rounded block"
-            >
-              <PListItem
-                class="px-4!"
-                icon="i-tabler-settings"
-                :active="$route.path === '/settings'"
-                :title="$t('common.settings')"
-              />
-            </RouterLink>
+                        aria-hidden="true"
+                        class="w-px pointer-events-none bottom-0 top-0 absolute"
+                        :class="[
+                          inChain && i === level ? 'bg-primary/40' : 'bg-border-subtle',
+                        ]"
+                        :style="{ left: `${10 + (i - 1) * LEVEL_INDENT}px` }"
+                      />
+                      <div class="flex flex-grow flex-col min-w-0 justify-center">
+                        <div class="flex gap-1.5 h-6 items-center">
+                          <span aria-hidden="true" class="inline-flex shrink-0 h-3.5 w-3.5 items-center justify-center">
+                            <i v-if="data.icon" class="h-3.5 w-3.5" :class="[data.icon as string]" />
+                          </span>
+                          <span class="truncate">
+                            <template
+                              v-for="(part, i) in splitHighlight(data.title, folderFilter)"
+                              :key="i"
+                            >
+                              <mark
+                                v-if="part.match"
+                                class="text-fg px-0.5 rounded-sm bg-primary/30"
+                              >{{ part.text }}</mark>
+                              <template v-else>{{ part.text }}</template>
+                            </template>
+                          </span>
+                        </div>
+                        <FolderStatsLine
+                          v-if="hasStatsLine(data)"
+                          v-bind="data.meta"
+                          :count="data.count"
+                          class="pl-5"
+                        />
+                      </div>
+                    </RouterLink>
+                  </template>
+                </PTreeList>
+              </div>
+            </PMenu>
           </div>
-        </div>
+          <div class="border-t border-border-subtle">
+            <SyncStatus />
+            <div class="p-2">
+              <RouterLink
+                to="/settings"
+                class="rounded block"
+              >
+                <PListItem
+                  class="px-4!"
+                  icon="i-tabler-settings"
+                  :active="$route.path === '/settings'"
+                  :title="$t('common.settings')"
+                />
+              </RouterLink>
+            </div>
+          </div>
+        </nav>
       </Pane>
-      <Pane class="relative">
-        <main id="main-content" class="h-full">
+      <Pane id="pane-main" :size="centerSize" class="relative">
+        <main
+          id="main-content"
+          ref="mainEl"
+          tabindex="-1"
+          class="h-full focus-visible:[outline-offset:-2px]"
+        >
           <RouterView />
         </main>
       </Pane>
       <Pane
         v-if="!rightPaneCollapsed"
-        :min-size="12"
-        :size="12"
-        :max-size="36"
+        id="pane-right"
+        :min-size="RIGHT_PANE.min"
+        :size="rightSize"
+        :max-size="RIGHT_PANE.max"
         class="border-l border-border-subtle min-w-64"
       >
-        <aside :aria-label="$t('rightPanel.aria')" class="h-full">
+        <aside
+          ref="asideEl"
+          :aria-label="$t('rightPanel.aria')"
+          class="h-full focus-visible:[outline-offset:-2px]"
+        >
           <RightPanel />
         </aside>
       </Pane>
@@ -682,5 +852,12 @@ function splitHighlight(text: string, filter: string): HighlightPart[] {
 }
 .splitpanes__splitter {
   width: 4px;
+}
+/* Keyboard-operable splitters (usePaneSplitters): splitpanes' own stylesheet
+   sets outline:none on :focus, so restore a ring for keyboard focus. */
+.splitpanes .splitpanes__splitter:focus-visible {
+  outline: var(--p-focus-ring);
+  outline-offset: -1px;
+  background-color: var(--p-primary);
 }
 </style>

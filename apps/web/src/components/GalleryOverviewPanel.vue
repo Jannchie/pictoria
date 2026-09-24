@@ -88,9 +88,9 @@ function fmtAvg(value: number | null | undefined): string {
           :class="scopeLabel ? 'i-tabler-folder' : 'i-tabler-photo'"
           aria-hidden="true"
         />
-        <span class="text-sm text-fg font-medium truncate">
+        <h2 class="text-sm text-fg font-medium truncate">
           {{ scopeLabel ?? $t('nav.all') }}
-        </span>
+        </h2>
         <span
           v-if="stats"
           class="text-fg-subtle font-mono ml-auto tabular-nums"
@@ -103,10 +103,10 @@ function fmtAvg(value: number | null | undefined): string {
         class="py-3 p-divider"
       >
         <div class="mb-2 flex items-center justify-between">
-          <div class="text-[11px] text-fg-subtle tracking-wider font-semibold flex gap-1.5 uppercase items-center">
+          <h3 class="text-[11px] text-fg-subtle tracking-wider font-semibold flex gap-1.5 uppercase items-center">
             <i class="i-tabler-filter" aria-hidden="true" />
             <span>{{ $t('overview.activeFilters') }}</span>
-          </div>
+          </h3>
           <PButton
             size="xs"
             variant="subtle"
@@ -123,6 +123,7 @@ function fmtAvg(value: number | null | undefined): string {
             type="button"
             class="text-xs text-primary px-1.5 py-0.5 border border-primary/20 rounded-sm bg-primary/10 flex gap-1 max-w-full transition-colors items-center hover:border-primary/35 hover:bg-primary/18"
             :title="$t('overview.removeFilter', { label: chip.label })"
+            :aria-label="$t('overview.removeFilter', { label: chip.label })"
             @click="chip.remove()"
           >
             <i :class="chip.icon" class="shrink-0" aria-hidden="true" />
@@ -137,10 +138,10 @@ function fmtAvg(value: number | null | undefined): string {
         v-if="hasRatingData"
         class="py-3 p-divider"
       >
-        <div class="text-[11px] text-fg-subtle tracking-wider font-semibold mb-2 flex gap-1.5 uppercase items-center">
+        <h3 class="text-[11px] text-fg-subtle tracking-wider font-semibold mb-2 flex gap-1.5 uppercase items-center">
           <i class="i-tabler-thumb-up" aria-hidden="true" />
           <span>{{ $t('overview.ratingDistribution') }}</span>
-        </div>
+        </h3>
         <div class="flex flex-col gap-1">
           <button
             v-for="row in ratingRows"
@@ -159,7 +160,7 @@ function fmtAvg(value: number | null | undefined): string {
             />
             <span class="text-fg-muted text-left shrink-0 w-14 truncate">{{ $t(row.labelKey) }}</span>
             <!-- Bar track: --p-surface-3 is the in-control pedestal case. -->
-            <span class="rounded-full bg-surface-3 flex-grow h-1 overflow-hidden">
+            <span class="rounded-full bg-surface-3 flex-grow h-1 overflow-hidden" aria-hidden="true">
               <span
                 class="rounded-full h-full block"
                 :style="{ width: `${row.ratio * 100}%`, backgroundColor: row.color }"
@@ -175,10 +176,10 @@ function fmtAvg(value: number | null | undefined): string {
         v-if="stats"
         class="py-3 p-divider"
       >
-        <div class="text-[11px] text-fg-subtle tracking-wider font-semibold mb-2 flex gap-1.5 uppercase items-center">
+        <h3 class="text-[11px] text-fg-subtle tracking-wider font-semibold mb-2 flex gap-1.5 uppercase items-center">
           <i class="i-tabler-chart-bar" aria-hidden="true" />
           <span>{{ $t('overview.averages') }}</span>
-        </div>
+        </h3>
         <div class="gap-x-3 gap-y-1.5 grid grid-cols-[auto_1fr_auto] items-center">
           <i class="i-tabler-star text-fg-subtle" aria-hidden="true" />
           <span class="text-fg-muted">{{ $t('post.scoreLabel') }}</span>

@@ -1,10 +1,11 @@
 <script setup lang="ts">
 import { useQuery } from '@tanstack/vue-query'
 import { useStorage } from '@vueuse/core'
-import { computed, useId } from 'vue'
+import { computed, useId, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { v2GetQueuesStatus } from '@/api'
 import { formatNumber } from '@/locale'
+import { announce } from '@/shared/announce'
 import { queryKeys } from '@/shared/queryKeys'
 
 // Sidebar "sync status": what the backfill loops (basics / scorers / tagger /
@@ -84,6 +85,32 @@ function formatRate(perSecond: number): string {
     ? t('syncStatus.ratePerSecond', { rate: formatNumber(Math.round(perSecond * 10) / 10) })
     : t('syncStatus.ratePerMinute', { rate: formatNumber(Math.round(perSecond * 60)) })
 }
+
+// Screen readers hear the coarse state *changes* (started / finished / failed /
+// scheduler down) — not every poll's counts, which would never stop talking.
+const LIVE_KEY = {
+  working: 'syncStatus.live.working',
+  done: 'syncStatus.live.done',
+  down: 'syncStatus.live.down',
+  error: 'syncStatus.live.error',
+} as const
+const liveState = computed<keyof typeof LIVE_KEY | null>(() => {
+  if (!status.value) {
+    return null
+  }
+  if (schedulerDown.value) {
+    return 'down'
+  }
+  if (hasError.value) {
+    return 'error'
+  }
+  return active.value.length > 0 ? 'working' : 'done'
+})
+watch(liveState, (state, previous) => {
+  if (state && previous) {
+    announce(t(LIVE_KEY[state]), state === 'down' || state === 'error' ? 'assertive' : 'polite')
+  }
+})
 
 // One view model per busy loop, so the template reads each derived value once.
 const rows = computed(() => active.value.map((loop) => {
@@ -173,6 +200,7 @@ const rows = computed(() => active.value.map((loop) => {
           aria-valuemin="0"
           aria-valuemax="100"
           :aria-valuenow="loop.percent ?? undefined"
+          :aria-valuetext="loop.remaining === null ? t('syncStatus.counting') : t('syncStatus.remaining', { n: formatNumber(loop.remaining) })"
         >
           <div
             class="rounded-full h-full transition-[width] duration-500"

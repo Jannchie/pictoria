@@ -38,8 +38,9 @@ const subFolders = computed(() => {
   <!-- Sub-folder shortcuts above the grid: text rows with a folder glyph, no
        card chrome — they are navigation, and must not compete with the
        thumbnails directly below. -->
-  <div
+  <nav
     v-if="subFolders.length > 0"
+    :aria-label="$t('sidebar.subfolders')"
     class="px-3 pb-1 pt-2 flex shrink-0 flex-wrap gap-x-1 gap-y-0.5"
   >
     <RouterLink
@@ -54,5 +55,5 @@ const subFolders = computed(() => {
         {{ f.title }}
       </span>
     </RouterLink>
-  </div>
+  </nav>
 </template>

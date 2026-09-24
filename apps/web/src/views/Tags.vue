@@ -171,6 +171,9 @@ function indentOf(row: Row) {
 
 <template>
   <div class="flex flex-col h-full">
+    <h1 class="sr-only">
+      {{ $t('tagsView.title') }}
+    </h1>
     <div class="px-4 py-3 border-b border-border-default bg-bg/85 top-0 sticky z-10 backdrop-blur">
       <PInput
         v-model="search"
@@ -206,6 +209,7 @@ function indentOf(row: Row) {
     </div>
     <PEmpty
       v-else-if="rows.length === 0"
+      role="status"
       icon="i-tabler-mood-empty"
       class="p-16"
     >
