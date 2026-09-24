@@ -5,9 +5,11 @@
 
 export * from './annotationReview'
 export * from './annotationTimeline'
+export * from './announce'
 export * from './buckets'
 export * from './commandPalette'
 export * from './history'
+export * from './layers'
 export * from './mutations'
 export * from './queries'
 export * from './queryKeys'

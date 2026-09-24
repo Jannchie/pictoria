@@ -209,6 +209,14 @@ export function openTagSelectorWindow() {
 
 export const showPostDetail = ref<PostSimplePublic | null>(null)
 
+/**
+ * Id of the post the user was last looking at, for restoring the gallery
+ * place on the way back. Set by the post page / detail overlay when leaving a
+ * post; read by the gallery grid on mount to restore selection + keyboard
+ * focus on that thumbnail (then it may be cleared). `null` = nothing to restore.
+ */
+export const lastViewedPostId = ref<number | null>(null)
+
 // Dialog open-count lives in the design system (ui/) so it doesn't depend on
 // the app store; re-exported here so `@/shared` stays the single import.
 export { isAnyDialogOpen, openDialogCount } from '@/ui/modal'

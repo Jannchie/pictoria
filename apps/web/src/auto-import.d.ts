@@ -55,6 +55,7 @@ declare global {
   const getCurrentScope: typeof import('vue').getCurrentScope
   const getCurrentWatcher: typeof import('vue').getCurrentWatcher
   const h: typeof import('vue').h
+  const handleHotkey: typeof import('./composables/useHotkey').handleHotkey
   const i18n: typeof import('./locale/index').i18n
   const ignorableWatch: typeof import('@vueuse/core').ignorableWatch
   const inject: typeof import('vue').inject
@@ -65,11 +66,13 @@ declare global {
   const isReadonly: typeof import('vue').isReadonly
   const isRef: typeof import('vue').isRef
   const isShallow: typeof import('vue').isShallow
+  const isTypeaheadKey: typeof import('./composables/useTypeahead').isTypeaheadKey
   const keyToChoice: typeof import('./composables/useAnnotationKeymap').keyToChoice
   const lastRovingIndex: typeof import('./composables/useRovingIndex').lastRovingIndex
   const localeSetting: typeof import('./locale/index').localeSetting
   const makeDestructurable: typeof import('@vueuse/core').makeDestructurable
   const markRaw: typeof import('vue').markRaw
+  const matchTypeahead: typeof import('./composables/useTypeahead').matchTypeahead
   const nextRovingIndex: typeof import('./composables/useRovingIndex').nextRovingIndex
   const nextTick: typeof import('vue').nextTick
   const notUsingInput: typeof import('./composables/useKeyScope').notUsingInput
@@ -114,9 +117,12 @@ declare global {
   const resolveKeyScope: typeof import('./composables/useKeyScope').resolveKeyScope
   const resolveScoreScope: typeof import('./composables/useKeyScope').resolveScoreScope
   const resolvedLocale: typeof import('./locale/index').resolvedLocale
+  const scoreFromKeyEvent: typeof import('./composables/useKeyScope').scoreFromKeyEvent
   const shallowReactive: typeof import('vue').shallowReactive
   const shallowReadonly: typeof import('vue').shallowReadonly
   const shallowRef: typeof import('vue').shallowRef
+  const shouldHandleHotkey: typeof import('./composables/useHotkey').shouldHandleHotkey
+  const stepIndex: typeof import('./composables/useRovingFocus').stepIndex
   const syncRef: typeof import('@vueuse/core').syncRef
   const syncRefs: typeof import('@vueuse/core').syncRefs
   const templateRef: typeof import('@vueuse/core').templateRef
@@ -208,6 +214,8 @@ declare global {
   const useFileDialog: typeof import('@vueuse/core').useFileDialog
   const useFileSystemAccess: typeof import('@vueuse/core').useFileSystemAccess
   const useFocus: typeof import('@vueuse/core').useFocus
+  const useFocusReturn: typeof import('./composables/useFocusTrap').useFocusReturn
+  const useFocusTrap: typeof import('./composables/useFocusTrap').useFocusTrap
   const useFocusWithin: typeof import('@vueuse/core').useFocusWithin
   const useFocusedPost: typeof import('./composables/useFocusedPost').useFocusedPost
   const useFps: typeof import('@vueuse/core').useFps
@@ -215,6 +223,7 @@ declare global {
   const useGamepad: typeof import('@vueuse/core').useGamepad
   const useGeolocation: typeof import('@vueuse/core').useGeolocation
   const useGlobalUndoRedo: typeof import('./composables/useGlobalUndoRedo').useGlobalUndoRedo
+  const useHotkey: typeof import('./composables/useHotkey').useHotkey
   const useId: typeof import('vue').useId
   const useIdle: typeof import('@vueuse/core').useIdle
   const useImage: typeof import('@vueuse/core').useImage
@@ -267,6 +276,7 @@ declare global {
   const useRafFn: typeof import('@vueuse/core').useRafFn
   const useRefHistory: typeof import('@vueuse/core').useRefHistory
   const useResizeObserver: typeof import('@vueuse/core').useResizeObserver
+  const useRovingFocus: typeof import('./composables/useRovingFocus').useRovingFocus
   const useRovingIndex: typeof import('./composables/useRovingIndex').useRovingIndex
   const useSSRWidth: typeof import('@vueuse/core').useSSRWidth
   const useScoreHotkeys: typeof import('./composables/useKeyScope').useScoreHotkeys
@@ -311,6 +321,7 @@ declare global {
   const useToggle: typeof import('@vueuse/core').useToggle
   const useTopCategoryGrouper: typeof import('./composables/useTagTree').useTopCategoryGrouper
   const useTransition: typeof import('@vueuse/core').useTransition
+  const useTypeahead: typeof import('./composables/useTypeahead').useTypeahead
   const useUrlSearchParams: typeof import('@vueuse/core').useUrlSearchParams
   const useUserMedia: typeof import('@vueuse/core').useUserMedia
   const useVModel: typeof import('@vueuse/core').useVModel
@@ -364,8 +375,14 @@ declare global {
   export type { PostFilterValue } from './composables/useFacetFilter'
   import('./composables/useFacetFilter')
   // @ts-ignore
+  export type { FocusReturnOptions, FocusTrapOptions } from './composables/useFocusTrap'
+  import('./composables/useFocusTrap')
+  // @ts-ignore
   export type { FocusMode } from './composables/useFocusedPost'
   import('./composables/useFocusedPost')
+  // @ts-ignore
+  export type { HotkeyOptions } from './composables/useHotkey'
+  import('./composables/useHotkey')
   // @ts-ignore
   export type { KeyScope, KeyScopeInputs, ScoreScope } from './composables/useKeyScope'
   import('./composables/useKeyScope')
@@ -373,11 +390,17 @@ declare global {
   export type { GroupEvidenceItem } from './composables/usePostGroupEvidenceQuery'
   import('./composables/usePostGroupEvidenceQuery')
   // @ts-ignore
+  export type { RovingOrientation, UseRovingFocusOptions, RovingFocus } from './composables/useRovingFocus'
+  import('./composables/useRovingFocus')
+  // @ts-ignore
   export type { UseRovingIndexOptions } from './composables/useRovingIndex'
   import('./composables/useRovingIndex')
   // @ts-ignore
   export type { TagTreeNode, TopCategoryGroup } from './composables/useTagTree'
   import('./composables/useTagTree')
+  // @ts-ignore
+  export type { UseTypeaheadOptions, Typeahead } from './composables/useTypeahead'
+  import('./composables/useTypeahead')
   // @ts-ignore
   export type { AppLocale, LocaleSetting } from './locale/index'
   import('./locale/index')

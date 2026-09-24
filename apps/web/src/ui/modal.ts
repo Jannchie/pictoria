@@ -1,10 +1,13 @@
 import { computed, ref } from 'vue'
+import { hasModalLayer } from '@/shared/layers'
 
-// Count of mounted <PDialog> modals — PDialog.vue increments/decrements on
-// mount/unmount. Pages gate their global onKeyStroke hotkeys on this
-// (see canHandle*Keys): PDialog's own Enter/Escape handlers can't swallow
-// other window-level listeners, so the standing-down has to happen at each
-// listener's guard, and a shared count beats every caller hand-tracking its
-// own "is my dialog open" flag.
+// Legacy manual count of open modals. PDialog.vue increments/decrements it on
+// mount/unmount, and CommandPalette / ShortcutHelp still bump it by hand until
+// they migrate onto the layer stack (`@/shared/layers`, `modal: true`).
 export const openDialogCount = ref(0)
-export const isAnyDialogOpen = computed(() => openDialogCount.value > 0)
+
+// "Is a dialog open?" — pages gate their global hotkeys on this (see
+// useKeyScope). True for either source: the legacy counter above, or any
+// `modal: true` layer on the layer stack. Once every modal registers a layer,
+// the counter can go.
+export const isAnyDialogOpen = computed(() => openDialogCount.value > 0 || hasModalLayer.value)

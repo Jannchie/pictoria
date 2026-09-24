@@ -211,3 +211,30 @@ primitives:
 - **No gradients** — `linear-gradient` / `radial-gradient` are rejected.
 - **Token z-index** — raw `z-index > 10` must use a `--p-z-*` token.
 - **No reserved shadow** — `shadow-lg` is banned in `components/` and `views/`.
+
+## 8. Keyboard & a11y infrastructure
+
+Shared plumbing every keyboard interaction builds on. Three rules:
+
+1. **Every floating layer registers on the layer stack** (`useLayer` from
+   `@/shared/layers`) — dialogs, overlays, popovers, menus, float windows.
+2. **Global hotkeys go through `useHotkey`** (or `handleHotkey` inside an
+   existing listener) — never a bare `onKeyStroke` / `window.addEventListener`.
+3. **Never bind window Escape directly.** Escape belongs to the layer stack
+   while anything is open; a page-level Escape hotkey via `useHotkey('Escape', …)`
+   only ever sees the key when no layer is on top.
+
+| Module | What it gives you |
+| ------ | ----------------- |
+| `utils/keyboard.ts` | `isTypingTarget` / `isWidgetTarget` / `isValueWidgetTarget`; `parseShortcut`, `matchesShortcut` (exact modifiers, `Mod` = ⌘ on Mac / Ctrl elsewhere), `formatShortcut` / `shortcutKeys` for `<kbd>` hints. |
+| `composables/useHotkey.ts` | `useHotkey(shortcut, handler, { when, allowInTyping, allowInWidgets, preventDefault, repeat, ignore, target })`. Stands down on handled / IME-composing events, in text fields, and on widgets that own their keys (buttons, sliders, menu items, grid cells…) unless allowed. |
+| `shared/layers.ts` | The layer stack. One capture-phase Escape listener calls the **top** layer's `onEscape` and swallows the key; one capture-phase pointerdown listener drives the top layer's `onPointerDownOutside` (`inside()` = e.g. the trigger). `modal` layers feed `isAnyDialogOpen` and make every other `<body>` child `inert` (teleport to body to get this; `data-layer-keep-active` opts an element out; `data-layer-escape-passthrough` lets Escape through to a widget). |
+| `composables/useFocusTrap.ts` | `useFocusTrap(container, active, opts)` for modals: initial focus (`initialFocus` → `[data-autofocus]` → first tabbable → container), Tab cycling, focus return. `useFocusReturn(active, { container })` for non-modal popovers. Focus is not returned if the user already moved it elsewhere on purpose. |
+| `utils/focus.ts` | `getFocusable`, `focusFirst`, `focusElement`. |
+| `composables/useRovingFocus.ts` | Roving tabindex for composite widgets (radio group, toolbar, menu, listbox, tabs): one Tab stop, arrows / Home / End / PageUp / PageDown / typeahead move focus, disabled items skipped, RTL-aware. |
+| `composables/useTypeahead.ts` | `matchTypeahead` (pure) + `useTypeahead` buffer + `isTypeaheadKey`. |
+| `shared/announce.ts` | `announce(message, 'polite' \| 'assertive')` through persistent live regions. Messages go through i18n. |
+
+`useRovingIndex.ts` stays for index-based (non-DOM-focus) cruising such as
+TagSelector's hover index. The legacy `openDialogCount` counter is still OR-ed
+into `isAnyDialogOpen` until CommandPalette / ShortcutHelp move onto the stack.

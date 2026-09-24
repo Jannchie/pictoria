@@ -1,9 +1,10 @@
 import type { ComputedRef } from 'vue'
-import { useActiveElement, useMagicKeys, whenever } from '@vueuse/core'
-import { logicAnd } from '@vueuse/math'
+import { useActiveElement, useEventListener } from '@vueuse/core'
 import { computed } from 'vue'
 import { useRoute } from 'vue-router'
 import { focusedTreeFolder, isAnyDialogOpen, showPostDetail } from '@/shared'
+import { isTypingTarget, isValueWidgetTarget } from '@/utils/keyboard'
+import { shouldHandleHotkey } from './useHotkey'
 
 /**
  * 单一事实来源，统一了此前散落在 5 个组件里逐字复制的键盘热键守卫。
@@ -17,11 +18,14 @@ import { focusedTreeFolder, isAnyDialogOpen, showPostDetail } from '@/shared'
  *   PostDetailPanel 里靠 `route.name` 检查来防止与 MainSection 双触发的做法。
  */
 
-/** 当前焦点是否不在 <input> / <textarea> 里（唯一实现，只查这两种标签）。 */
+/**
+ * 当前焦点是否不在文本输入类控件里（唯一实现）。判定交给 `isTypingTarget`：
+ * 文本类 <input>、<textarea>、<select>、contenteditable，以及 role=textbox /
+ * combobox / searchbox / spinbutton 都算「在输入」。
+ */
 const activeElement = useActiveElement()
 export const notUsingInput: ComputedRef<boolean> = computed(() =>
-  activeElement.value?.tagName !== 'INPUT'
-  && activeElement.value?.tagName !== 'TEXTAREA',
+  !isTypingTarget(activeElement.value ?? null),
 )
 
 /**
@@ -34,11 +38,15 @@ export const notUsingInput: ComputedRef<boolean> = computed(() =>
 export type KeyScope = 'grid' | 'postPage' | 'detailOverlay' | 'none'
 
 export interface KeyScopeInputs {
-  /** 焦点是否落在 <input> / <textarea> 里。 */
+  /** 焦点是否落在文本输入类控件里（见 `notUsingInput`）。 */
   usingInput: boolean
   /** PostDetail 全屏覆盖层是否打开。 */
   detailOverlayOpen: boolean
-  /** 是否有对话框（PDialog / POverlay）打开。 */
+  /**
+   * 是否有对话框打开（`isAnyDialogOpen`）：PDialog / CommandPalette /
+   * ShortcutHelp 的手动计数，或图层栈上任意 `modal: true` 的图层。
+   * 裸 POverlay 本身不计入。
+   */
   dialogOpen: boolean
   /** 侧栏目录树是否有某一行获得键盘焦点。 */
   treeFocused: boolean
@@ -96,11 +104,39 @@ export function useKeyScope(): ComputedRef<KeyScope> {
   }))
 }
 
+/** 打分热键：1–5。 */
+const SCORE_KEYS = ['1', '2', '3', '4', '5'] as const
+
+/**
+ * 纯函数：这次按键是否是一次打分，是则返回分数（1–5），否则 null。
+ *
+ * - 必须是不带任何修饰键的数字（Ctrl/Alt/Meta+数字不打分；Shift+数字产生的
+ *   是 `!` 之类的符号，本就不匹配）；按住不放的自动重复不重复打分。
+ * - 已被处理（`defaultPrevented`）或 IME 组字中的按键不算。
+ * - 焦点在文本输入类控件里不算。
+ * - 焦点在「数值控件」（slider / spinbutton / radio / radiogroup / range）里
+ *   不算——那里的数字键属于控件自己。其余控件（按钮、画廊缩略图等）照常
+ *   打分：选中缩略图后按数字键打分是核心用法，缩略图本身就是可聚焦按钮。
+ */
+export function scoreFromKeyEvent(e: KeyboardEvent): number | null {
+  for (const key of SCORE_KEYS) {
+    if (shouldHandleHotkey(e, key, {
+      allowInWidgets: true,
+      repeat: false,
+      ignore: ev => isValueWidgetTarget(ev.target),
+    })) {
+      return Number(key)
+    }
+  }
+  return null
+}
+
 /**
  * 1–5 数字键打分的唯一注册点。消费者声明自己所属的作用域，并传入实际的打分
  * 动作（继续走 `shared/mutations.ts` 的 `commitScore`，不在这里复制）。只有当
  * 当前打分作用域与声明的一致时才触发，凭此实现 MainSection（grid）与
  * PostDetailPanel（postPage）的互斥——取代原来的 route.name 检查。
+ * 按键过滤规则见 {@link scoreFromKeyEvent}。
  *
  * @param scope 消费者所属作用域：网格用 'grid'，详情页侧栏用 'postPage'。
  * @param applyScore 施加分数的动作，入参为 1–5。
@@ -116,11 +152,15 @@ export function useScoreHotkeys(
       isPostRoute: route.name === 'post',
     }) === scope,
   )
-  const { 1: one, 2: two, 3: three, 4: four, 5: five } = useMagicKeys()
-  const digitRefs = [one, two, three, four, five]
-  for (const [i, keyRef] of digitRefs.entries()) {
-    whenever(logicAnd(keyRef, canScore), () => {
-      void applyScore(i + 1)
-    })
-  }
+  useEventListener('keydown', (e: KeyboardEvent) => {
+    if (!canScore.value) {
+      return
+    }
+    const score = scoreFromKeyEvent(e)
+    if (score == null) {
+      return
+    }
+    e.preventDefault()
+    void applyScore(score)
+  })
 }

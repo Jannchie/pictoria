@@ -1,6 +1,7 @@
+// @vitest-environment happy-dom
 import type { KeyScope, KeyScopeInputs, ScoreScope } from '@/composables/useKeyScope'
 import { describe, expect, it } from 'vitest'
-import { resolveKeyScope, resolveScoreScope } from '@/composables/useKeyScope'
+import { resolveKeyScope, resolveScoreScope, scoreFromKeyEvent } from '@/composables/useKeyScope'
 
 // All-false baseline = "gallery route, nothing blocking" → the plain grid scope.
 const BASE: KeyScopeInputs = {
@@ -98,5 +99,49 @@ describe('resolvescorescope', () => {
     expect(gallery).toBe('grid')
     expect(post).toBe('postPage')
     expect(gallery).not.toBe(post)
+  })
+})
+
+function press(key: string, init: KeyboardEventInit = {}, target: EventTarget = document.body): KeyboardEvent {
+  const e = new KeyboardEvent('keydown', { key, bubbles: true, cancelable: true, ...init })
+  target.dispatchEvent(e)
+  return e
+}
+function focusable(html: string): HTMLElement {
+  document.body.innerHTML = html
+  return document.body.querySelector('[data-t]') as HTMLElement
+}
+
+describe('scorefromkeyevent', () => {
+  it('maps bare digits 1–5 to scores', () => {
+    expect(scoreFromKeyEvent(press('1'))).toBe(1)
+    expect(scoreFromKeyEvent(press('5'))).toBe(5)
+    expect(scoreFromKeyEvent(press('0'))).toBeNull()
+    expect(scoreFromKeyEvent(press('6'))).toBeNull()
+  })
+
+  it('ignores any modifier — ctrl/alt/meta+digit must not score', () => {
+    expect(scoreFromKeyEvent(press('1', { ctrlKey: true }))).toBeNull()
+    expect(scoreFromKeyEvent(press('1', { altKey: true }))).toBeNull()
+    expect(scoreFromKeyEvent(press('1', { metaKey: true }))).toBeNull()
+    expect(scoreFromKeyEvent(press('!', { shiftKey: true }))).toBeNull()
+  })
+
+  it('ignores handled, composing and auto-repeat events', () => {
+    const handled = new KeyboardEvent('keydown', { key: '1', cancelable: true })
+    handled.preventDefault()
+    expect(scoreFromKeyEvent(handled)).toBeNull()
+    expect(scoreFromKeyEvent(press('1', { isComposing: true }))).toBeNull()
+    expect(scoreFromKeyEvent(press('1', { repeat: true }))).toBeNull()
+  })
+
+  it('stands down in text fields and value widgets, but not on buttons / thumbnails', () => {
+    expect(scoreFromKeyEvent(press('3', {}, focusable('<input data-t>')))).toBeNull()
+    expect(scoreFromKeyEvent(press('3', {}, focusable('<select data-t></select>')))).toBeNull()
+    expect(scoreFromKeyEvent(press('3', {}, focusable('<div data-t contenteditable="true"></div>')))).toBeNull()
+    expect(scoreFromKeyEvent(press('3', {}, focusable('<div data-t role="slider"></div>')))).toBeNull()
+    expect(scoreFromKeyEvent(press('3', {}, focusable('<div role="radiogroup"><button data-t role="radio"></button></div>')))).toBeNull()
+    expect(scoreFromKeyEvent(press('3', {}, focusable('<button data-t></button>')))).toBe(3)
+    expect(scoreFromKeyEvent(press('3', {}, focusable('<div data-t role="gridcell" tabindex="0"></div>')))).toBe(3)
   })
 })
