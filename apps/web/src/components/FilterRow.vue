@@ -17,7 +17,7 @@ const { chips, isFiltered, clearAll } = useActiveFilters()
 // The palette's global hotkey (registered by the palette itself) — shown as a
 // hint here, and exposed via aria-keyshortcuts.
 const paletteShortcut = formatShortcut(shortcuts.global.openPalette.keys[0])
-const paletteAriaShortcut = isMac ? 'Meta+K' : 'Control+K'
+const paletteAriaShortcut = isMac ? '/ Meta+K' : '/ Control+K'
 
 const chipList = useTemplateRef<HTMLElement>('chipList')
 const searchButton = useTemplateRef<HTMLElement>('searchButton')

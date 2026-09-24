@@ -99,6 +99,10 @@ describe('matchesshortcut', () => {
     expect(matchesShortcut(key('+', { shiftKey: true }), 'Plus', pc)).toBe(true)
     expect(matchesShortcut(key('+'), '+', pc)).toBe(true)
     expect(matchesShortcut(key('?'), 'Shift+?', pc)).toBe(false)
+    // '/' opens the palette: unshifted on US, Shift+7 on German layouts.
+    expect(matchesShortcut(key('/'), '/', pc)).toBe(true)
+    expect(matchesShortcut(key('/', { shiftKey: true }), '/', pc)).toBe(true)
+    expect(matchesShortcut(key('/', { ctrlKey: true }), '/', pc)).toBe(false)
     // …but digits keep strict shift.
     expect(matchesShortcut(key('1', { shiftKey: true }), '1', pc)).toBe(false)
   })

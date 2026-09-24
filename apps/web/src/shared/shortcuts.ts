@@ -41,7 +41,9 @@ const withMods = (mod: string, keys: readonly string[]) => keys.map(k => `${mod}
 
 export const shortcuts = {
   global: {
-    openPalette: { keys: ['Mod+K'], descKey: 'shortcuts.openPalette' },
+    // Two bindings with different guards (App.vue binds each): Mod+K works
+    // even while typing; '/' is the quick one, but only outside text fields.
+    openPalette: { keys: ['/', 'Mod+K'], descKey: 'shortcuts.openPalette' },
     openHelp: { keys: ['?'], descKey: 'shortcuts.openHelp' },
     toggleLeft: { keys: ['Mod+B'], descKey: 'pane.toggleLeft' },
     toggleRight: { keys: ['Mod+Shift+B'], descKey: 'pane.toggleRight' },

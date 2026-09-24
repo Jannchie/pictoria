@@ -353,9 +353,15 @@ function clearFilter() {
 // ── Global hotkeys ──────────────────────────────────────────────────────────
 // ⌘K / Ctrl+K opens the palette from anywhere, including from inside an input
 // (that's the point — it's the one key that always works).
-useHotkey(shortcuts.global.openPalette.keys, () => {
+useHotkey('Mod+K', () => {
   commandPaletteOpen.value = !commandPaletteOpen.value
 }, { allowInTyping: true, allowInWidgets: true })
+
+// '/' is the quick way in (the search-box convention), but it's a character:
+// never while typing, and not over another dialog.
+useHotkey('/', () => {
+  commandPaletteOpen.value = true
+}, { allowInWidgets: true, when: () => !isAnyDialogOpen.value })
 
 // '?' opens the shortcut sheet, but only when not typing — otherwise it would
 // swallow the character in the folder filter or a caption field.
