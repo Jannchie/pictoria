@@ -113,3 +113,88 @@ export function findGridNeighbor(
   }
   return best === -1 ? undefined : cells[best].id
 }
+
+/**
+ * PageUp / PageDown in the masonry: the cell nearest to the point one
+ * `pageHeight` above/below the focused cell's centre, preferring the same
+ * column (horizontal distance weighs double, like up/down). Only cells
+ * strictly on the requested side qualify, so when the page overshoots the
+ * end of the grid the move lands on the furthest row instead of doing nothing.
+ */
+export function findPageTarget(
+  cells: GridCell[],
+  focusedId: number,
+  direction: 'up' | 'down',
+  pageHeight: number,
+): number | undefined {
+  const cur = cells.find(c => c.id === focusedId)?.rect
+  if (!cur) {
+    return undefined
+  }
+  const curCx = cur.x + cur.width / 2
+  const curCy = cur.y + cur.height / 2
+  const targetY = curCy + (direction === 'down' ? pageHeight : -pageHeight)
+  let best: number | undefined
+  let bestScore = Number.POSITIVE_INFINITY
+  for (const cell of cells) {
+    if (cell.id === focusedId) {
+      continue
+    }
+    const el = cell.rect
+    const cy = el.y + el.height / 2
+    const dy = cy - curCy
+    if (direction === 'up' ? dy >= -1 : dy <= 1) {
+      continue
+    }
+    const score = Math.abs(cy - targetY) + Math.abs((el.x + el.width / 2) - curCx) * 2
+    if (score < bestScore) {
+      bestScore = score
+      best = cell.id
+    }
+  }
+  return best
+}
+
+/** Index of the first rect (in array order) that intersects `[viewTop, viewBottom]`, or -1. */
+export function firstVisibleIndex(rects: readonly GridRect[], viewTop: number, viewBottom: number): number {
+  return rects.findIndex(r => r.y + r.height > viewTop && r.y < viewBottom)
+}
+
+export interface RevealInput {
+  /** Item top / height in the scroller's content coordinates. */
+  itemTop: number
+  itemHeight: number
+  /** Current scrollTop and visible height of the scroller. */
+  viewTop: number
+  viewHeight: number
+  /** Breathing room kept between the item and the viewport edge. */
+  margin?: number
+  /**
+   * `nearest`: scroll the minimum amount (like `block: 'nearest'`).
+   * `center-if-hidden`: centre the item when it is entirely out of view,
+   * otherwise behave like `nearest` (used when returning to a remembered post).
+   */
+  align?: 'nearest' | 'center-if-hidden'
+}
+
+/**
+ * The scrollTop that brings an item into view, or `null` when it already is.
+ * Pure so off-screen (unrendered, virtualised) cells can be revealed from
+ * layout data alone. Items taller than the viewport align to their top.
+ */
+export function revealScrollTop({ itemTop, itemHeight, viewTop, viewHeight, margin = 0, align = 'nearest' }: RevealInput): number | null {
+  const itemBottom = itemTop + itemHeight
+  const viewBottom = viewTop + viewHeight
+  const clamp = (v: number) => Math.max(0, v)
+  if (align === 'center-if-hidden' && (itemBottom <= viewTop || itemTop >= viewBottom)) {
+    return clamp(itemTop + itemHeight / 2 - viewHeight / 2)
+  }
+  const m = Math.max(0, Math.min(margin, (viewHeight - itemHeight) / 2))
+  if (itemTop - m < viewTop || itemHeight + 2 * m > viewHeight) {
+    return itemTop - m === viewTop ? null : clamp(itemTop - m)
+  }
+  if (itemBottom + m > viewBottom) {
+    return clamp(itemBottom + m - viewHeight)
+  }
+  return null
+}

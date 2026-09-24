@@ -1,17 +1,48 @@
 <script setup lang="ts">
 import type { PostSimplePublic } from '@/api'
-import { computed, ref } from 'vue'
-import { useRoute, useRouter } from 'vue-router'
+import { computed, inject, onBeforeUnmount, ref, watch } from 'vue'
+import { useI18n } from 'vue-i18n'
+import { useRoute } from 'vue-router'
 import ArthashPlaceholder from '@/components/ArthashPlaceholder.vue'
+import { galleryGridKey } from '@/composables/useGalleryGrid'
 import { formatDate } from '@/locale'
-import { addToSelection, collapseSelectionTo, enableArthash, enableFancyPlaceholder, hideNSFW, isCommittedSelected, isSelected, postSort, RATING_LEVEL_COLORS, RATING_LEVEL_ICONS, SCORE_LEVEL_COLORS, selectOnly, toggle, togglePendingAt, waifuLevelRgb } from '@/shared'
+import { addToSelection, collapseSelectionTo, commitPendingSelection, enableArthash, enableFancyPlaceholder, gridCursorId, hideNSFW, isCommittedSelected, isSelected, postSort, RATING_LEVEL_COLORS, RATING_LEVEL_ICONS, RATING_LEVEL_LABEL_KEYS, RATING_UNRATED_LABEL_KEY, SCORE_LEVEL_COLORS, selectOnly, setGridCursor, toggle, togglePendingAt, waifuLevelRgb } from '@/shared'
 import { getPostThumbnailURL, isImageExtension } from '@/utils'
 import { colorNumToHex, labToRgbaString } from '@/utils/color'
 
+// A thumbnail is an `option` of the gallery listbox (MainSection /
+// SimilarPosts). It is never focusable itself: DOM focus stays on the listbox
+// and the keyboard cursor reaches it through aria-activedescendant plus the
+// `cursor` ring below (vue-wf unmounts off-screen thumbnails, so a focused
+// thumbnail would drop focus to <body>). All keyboard handling lives in
+// useGalleryGrid; this component only handles the pointer.
 const props = defineProps<{
   post: PostSimplePublic
 }>()
 const post = computed(() => props.post)
+const { t } = useI18n()
+
+const grid = inject(galleryGridKey, null)
+watch(() => post.value.id, (id, old) => {
+  if (old !== undefined) {
+    grid?.unregister(old)
+  }
+  grid?.register(id)
+}, { immediate: true })
+onBeforeUnmount(() => grid?.unregister(post.value.id))
+const isCursor = computed(() => gridCursorId.value === post.value.id && (grid?.showCursor.value ?? false))
+
+// Accessible name: file name + rating + manual score (the picture alone says
+// nothing to a screen reader, and these are what the grid is triaged by).
+const accessibleName = computed(() => {
+  const p = post.value
+  const ratingKey = p.rating >= 1 ? RATING_LEVEL_LABEL_KEYS[p.rating - 1] : undefined
+  return t('gallery.optionLabel', {
+    name: `${p.fileName}.${p.extension}`,
+    rating: ratingKey ? t('gallery.optionRating', { rating: t(ratingKey) }) : t(RATING_UNRATED_LABEL_KEY),
+    score: p.score >= 1 ? t('gallery.optionScore', { score: p.score }) : t('common.unscored'),
+  })
+})
 function onPointerUp(e: PointerEvent) {
   if (e.button !== 0) {
     return
@@ -29,6 +60,10 @@ function onPointerDown(e: PointerEvent) {
   const id = post.value.id
   if (e.shiftKey) {
     togglePendingAt(id)
+    // Nothing else commits a shift-click: the drag-box only commits on a real
+    // drag, so the toggle used to show as selected yet stay out of the
+    // committed selection that batch actions (Delete, 1-5) read.
+    commitPendingSelection()
   }
   else if (e.ctrlKey) {
     toggle(id)
@@ -36,6 +71,9 @@ function onPointerDown(e: PointerEvent) {
   else if (!isCommittedSelected(id)) {
     selectOnly(id)
   }
+  // Every click moves the keyboard cursor and range anchor here, so arrows /
+  // Shift+arrows continue from the item the mouse last touched.
+  setGridCursor(id)
 }
 const selected = computed(() => isSelected(post.value.id))
 
@@ -138,6 +176,7 @@ function onContextmenu(e: MouseEvent) {
   else {
     selectOnly(post.value.id)
   }
+  setGridCursor(post.value.id)
 }
 
 // Top-right value badge: when the gallery is sorted by a value-bearing
@@ -210,23 +249,6 @@ const sortBadgeStyle = computed(() => {
     backgroundColor: `color-mix(in srgb, ${color} 30%, rgb(0 0 0 / 0.78))`,
   }
 })
-
-const router = useRouter()
-function onKeyDown(e: KeyboardEvent) {
-  if (e.key === 'Enter') {
-    e.preventDefault()
-    router.push(`/post/${post.value.id}`)
-  }
-  else if (e.key === ' ') {
-    e.preventDefault()
-    if (e.ctrlKey) {
-      toggle(post.value.id)
-    }
-    else {
-      selectOnly(post.value.id)
-    }
-  }
-}
 </script>
 
 <template>
@@ -235,18 +257,16 @@ function onKeyDown(e: KeyboardEvent) {
        the image itself, so a full grid reads as pictures, not as a table of
        labels. -->
   <div
-    role="button"
-    tabindex="0"
-    :aria-pressed="selected"
-    :aria-label="`${post.fileName}.${post.extension}`"
-    class="post-item group/post focus:outline-none"
-    :class="{ selected }"
+    role="option"
+    :aria-selected="selected"
+    :aria-label="accessibleName"
+    class="post-item group/post"
+    :class="{ selected, cursor: isCursor }"
     draggable="true"
     @dragstart.stop
     @pointerdown.stop="onPointerDown"
     @pointerup="onPointerUp"
     @dblclick="$router.push(`/post/${post.id}`)"
-    @keydown="onKeyDown"
     @contextmenu.capture="onContextmenu"
   >
     <PAspectRatio
@@ -311,7 +331,7 @@ function onKeyDown(e: KeyboardEvent) {
         <!-- Dimensions on demand: visible on hover / keyboard focus only. -->
         <div
           v-if="post.width && post.height"
-          class="p-thumb-badge bg-black/60 opacity-0 transition-opacity bottom-1.5 left-1.5 absolute group-focus-visible/post:opacity-100 group-hover/post:opacity-100"
+          class="dims-badge p-thumb-badge bg-black/60 opacity-0 transition-opacity bottom-1.5 left-1.5 absolute group-hover/post:opacity-100"
         >
           {{ post.width }}×{{ post.height }}
         </div>
@@ -347,14 +367,25 @@ function onKeyDown(e: KeyboardEvent) {
 .post-item:hover .post-content {
   outline-color: rgb(var(--p-fg-rgb) / 0.2);
 }
-.post-item:focus-visible .post-content {
-  outline-color: rgb(var(--p-primary-rgb) / 0.7);
-}
 /* Selected: the primary ring alone, no halo — a halo on twenty selected
    thumbnails turns the grid into a glow field. */
 .selected .post-content,
 .selected:hover .post-content {
   outline-color: var(--p-primary);
+}
+/* Keyboard cursor: a second, outer ring in the foreground colour, so "where
+   the keys act" stays distinguishable from "what is selected" (either can be
+   on without the other). Only drawn while the grid has keyboard focus. */
+.post-item {
+  border-radius: var(--p-radius-md);
+  outline: 2px solid transparent;
+  outline-offset: 5px;
+}
+.post-item.cursor {
+  outline-color: var(--p-fg);
+}
+.post-item.cursor .dims-badge {
+  opacity: 1;
 }
 @media (prefers-reduced-motion: reduce) {
   .post-content { transition: none; }

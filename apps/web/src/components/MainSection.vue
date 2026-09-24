@@ -1,21 +1,22 @@
 <script setup lang="ts">
 import type { PostSimplePublic } from '@/api'
 import type { PMenuItem } from '@/ui'
-import type { GridCell, GridDirection } from '@/utils/gridGeometry'
 import { useQuery, useQueryClient } from '@tanstack/vue-query'
 import { refDebounced } from '@vueuse/core'
-import { logicAnd } from '@vueuse/math'
 import { useI18n } from 'vue-i18n'
 import { onBeforeRouteLeave, useRoute, useRouter } from 'vue-router'
 import { Waterfall } from 'vue-wf'
 import { v2SearchPostsByText } from '@/api'
-import { notUsingInput, useKeyScope, useScoreHotkeys } from '@/composables/useKeyScope'
-import { clear as clearSelection, commitRotate, commitScore, currentPostList, deletePosts, galleryScrollPositions, postFilter, queryKeys, selectAll, selectedCount, selectedIdList, selectOnly, textSearchQuery, useInfinityPostsQuery, waterfallRowCount } from '@/shared'
+import { useGalleryGrid } from '@/composables/useGalleryGrid'
+import { useHotkey } from '@/composables/useHotkey'
+import { useKeyScope, useScoreHotkeys } from '@/composables/useKeyScope'
+import { announce, clear as clearSelection, commitRotate, commitScore, currentPostList, deletePosts, galleryScrollPositions, gridCursorId, lastViewedPostId, postFilter, queryKeys, selectedCount, selectedIdList, selectOnly, setGridCursor, textSearchQuery, useInfinityPostsQuery, waterfallRowCount } from '@/shared'
 import { GRID_GAP, GRID_PAD } from '@/shared/gridLayout'
+import { useToast } from '@/shared/toast'
 import { POverlay } from '@/ui'
 import PDialog from '@/ui/PDialog.vue'
 import { isImageExtension } from '@/utils'
-import { findGridNeighbor } from '@/utils/gridGeometry'
+import { nextCursorAfterRemoval } from '@/utils/gridSelection'
 
 const { t } = useI18n()
 const route = useRoute()
@@ -115,125 +116,93 @@ function emptyPointerDown(e: PointerEvent) {
   }
 }
 
-const { Ctrl_A } = useMagicKeys()
-
 // Keep the shared list in sync so PostDetail / Post.vue can navigate prev/next
 watchEffect(() => {
   currentPostList.value = posts.value
 })
+
+const mainSectionRef = ref<HTMLElement>()
+// PScrollArea exposes its inner scroller as `$el`; both the scroll-position
+// cache below and the infinite-scroll observer need it as their root.
+const galleryScrollEl = computed<HTMLElement | undefined>(() => (mainSectionRef.value as unknown as { $el?: HTMLElement } | undefined)?.$el)
 
 // Grid hotkeys stand down while a confirm dialog is open (Enter would
 // otherwise open the post detail instead of confirming the delete), while a
 // folder-tree row has focus (Delete targets that folder, not the selection),
 // and while the fullscreen overlay is up — all folded into the shared scope.
 const activeKeyScope = useKeyScope()
+const inGridScope = () => activeKeyScope.value === 'grid'
 
-function scrollSelectedIntoView(postId: number) {
-  // Defer to next tick so the DOM has the selection update committed.
-  requestAnimationFrame(() => {
-    document.querySelector(`#post-item-${postId}`)?.scrollIntoView({
-      block: 'nearest',
-      behavior: 'smooth',
-    })
-  })
-}
-
-type Direction = GridDirection
-
-function moveSelection(direction: Direction) {
-  const layout = layoutData.value
-  if (posts.value.length === 0 || !layout || layout.length === 0) {
-    return
-  }
-  // Pair each laid-out rect with its post id, preserving visual/DOM order so
-  // the pure navigator's tie-breaking (array order) matches the grid.
-  const cells: GridCell[] = []
-  for (const [i, el] of layout.entries()) {
-    const id = posts.value[i]?.id
-    if (id === undefined) {
-      continue
-    }
-    cells.push({ id, rect: { x: el.x, y: el.y, width: el.width, height: el.height } })
-  }
-  if (cells.length === 0) {
-    return
-  }
-  // Resolve the id the move starts from: with no selection, start at the
-  // corner (first for right/down, last for left/up); otherwise the last-
-  // selected anchor, falling back to the first post if it's no longer present.
-  const current = selectedIdList.value
-  let startIdx: number
-  if (current.length === 0) {
-    startIdx = direction === 'right' || direction === 'down' ? 0 : posts.value.length - 1
-  }
-  else {
-    const anchor = current.at(-1)!
-    const idx = posts.value.findIndex(p => p.id === anchor)
-    startIdx = idx === -1 ? 0 : idx
-  }
-  const startId = posts.value[startIdx]?.id
-  if (startId === undefined) {
-    return
-  }
-  const nextId = findGridNeighbor(cells, startId, direction)
-  if (nextId === undefined) {
-    return
-  }
-  selectOnly(nextId)
-  // Drop stale post_id from the URL so the watch effect does not fight us.
+// Drop a stale ?post_id from the URL once the keyboard takes over, so the
+// post_id watch effect below does not fight the cursor.
+function dropPostIdQuery() {
   if (route.query.post_id !== undefined) {
     const currentQuery = { ...route.query }
     delete currentQuery.post_id
     router.replace({ query: currentQuery })
   }
-  scrollSelectedIntoView(nextId)
 }
 
-// 一张表而不是"注册的键"+"switch 的键"两份清单 —— 两份漂开的表现是某个方向
-// 被 preventDefault 吃掉却不移动选区。
-const ARROW_DIRECTIONS: Record<string, Direction> = {
-  ArrowLeft: 'left',
-  ArrowRight: 'right',
-  ArrowUp: 'up',
-  ArrowDown: 'down',
-}
-
-onKeyStroke(Object.keys(ARROW_DIRECTIONS), (e) => {
-  if (activeKeyScope.value !== 'grid') {
-    return
-  }
-  const direction = ARROW_DIRECTIONS[e.key]
-  if (!direction) {
-    return
-  }
-  e.preventDefault()
-  moveSelection(direction)
+// ── The grid as one keyboard composite (listbox) ─────────────────────────
+// Keys, cursor/anchor model and focus handling live in useGalleryGrid; see
+// its header. The waterfall wrapper is the listbox and the only Tab stop.
+const postIds = computed(() => posts.value.map(post => post.id))
+const gridEl = computed<HTMLElement | null>(() => waterfallWrapperDom.value ?? null)
+const grid = useGalleryGrid({
+  container: gridEl,
+  scroller: galleryScrollEl,
+  ids: postIds,
+  layout: layoutData,
+  enabled: inGridScope,
+  open: id => router.push(`/post/${id}`),
+  requestDelete,
+  contextMenu: true,
+  onMove: dropPostIdQuery,
 })
 
-onKeyStroke('Enter', (e) => {
-  if (activeKeyScope.value !== 'grid') {
+// With focus outside the grid (on <body> after a load, or on a non-widget),
+// the arrows / Enter / Delete / Mod+A still drive the grid, as they always
+// have; the first arrow moves focus into it. Foreign widgets and text fields
+// keep their keys (handleHotkey's default guards).
+useEventListener(globalThis, 'keydown', (e: KeyboardEvent) => {
+  const el = gridEl.value
+  if (!inGridScope() || !el || (e.target instanceof Node && el.contains(e.target))) {
     return
   }
-  const ids = selectedIdList.value
-  if (ids.length !== 1) {
-    return
-  }
-  e.preventDefault()
-  router.push(`/post/${ids[0]}`)
+  grid.handleOutsideKey(e)
 })
 
-onKeyStroke('Escape', () => {
-  if (activeKeyScope.value !== 'grid') {
-    return
-  }
-  if (selectedCount.value > 0) {
-    clearSelection()
-  }
+// Escape clears the selection from anywhere in the gallery (inside the grid
+// the listbox handles it first). Open layers swallow Escape before this.
+useHotkey('Escape', () => clearSelection(), {
+  when: () => inGridScope() && selectedCount.value > 0,
+  allowInWidgets: true,
 })
+
+const gridName = computed(() => {
+  if (route.name === 'dir') {
+    const folder = route.params.folder
+    const parts = Array.isArray(folder) ? folder : [folder]
+    const last = parts.findLast(Boolean)
+    if (last) {
+      return last
+    }
+  }
+  if (route.name === 'recently') {
+    return t('nav.recently')
+  }
+  return route.path === '/random' ? t('nav.random') : t('nav.all')
+})
+const gridLabel = computed(() => isTextSearchActive.value
+  ? t('gallery.gridLabelSearch', { query: textSearchPrompt.value })
+  : t('gallery.gridLabel', { name: gridName.value }))
+// Unknown (-1) while more pages can still arrive.
+const gridSetSize = computed(() => (!isTextSearchActive.value && infinityPostsQuery.hasNextPage.value) ? -1 : posts.value.length)
 
 // Batch rating via 1–5, registered through the shared score-hotkey scope so it
 // stays mutually exclusive with the detail page's per-post scoring.
 const queryClient = useQueryClient()
+const { pushToast } = useToast()
 
 async function applyScoreToSelection(score: number) {
   const ids = selectedIdList.value
@@ -244,10 +213,6 @@ async function applyScoreToSelection(score: number) {
 }
 
 useScoreHotkeys('grid', applyScoreToSelection)
-
-whenever(logicAnd(Ctrl_A, notUsingInput), () => {
-  selectAll(posts.value.map(post => post.id))
-})
 
 const shouldScroll = ref(true)
 watchEffect(async () => {
@@ -277,6 +242,7 @@ watchEffect(async () => {
         }
         shouldScroll.value = false
         selectOnly(postId)
+        setGridCursor(postId)
       }
     }
   }
@@ -354,9 +320,24 @@ async function confirmDelete() {
     return
   }
   isDeleting.value = true
+  // Where the cursor lands: the next surviving post (else the previous one),
+  // computed against the order before the list shrinks.
+  const next = nextCursorAfterRemoval(postIds.value, ids, gridCursorId.value)
   try {
     await deletePosts(queryClient, ids)
-    clearSelection()
+    if (next === null) {
+      clearSelection()
+    }
+    else {
+      selectOnly(next)
+    }
+    setGridCursor(next)
+    announce(t('gallery.deletedAnnounce', { n: ids.length }, ids.length))
+    settleFocusAfterDelete(next)
+  }
+  catch {
+    // The toast is itself announced (live region), so no separate announce.
+    pushToast({ type: 'error', message: t('gallery.deleteFailed'), duration: 6000, closeable: true })
   }
   finally {
     isDeleting.value = false
@@ -364,17 +345,24 @@ async function confirmDelete() {
   }
 }
 
+// After the dialog closes (it returns focus itself) and the list has
+// re-laid out: reveal the new cursor, and pull focus back into the grid if it
+// fell to <body> (e.g. the deleted thumbnail's context menu was the origin).
+function settleFocusAfterDelete(next: number | null) {
+  requestAnimationFrame(() => {
+    if (next !== null) {
+      grid.reveal(next)
+    }
+    const active = document.activeElement
+    if (!active || active === document.body) {
+      grid.focusGrid()
+    }
+  })
+}
+
 function cancelDelete() {
   showDeleteConfirm.value = false
 }
-
-onKeyStroke('Delete', (e) => {
-  if (activeKeyScope.value !== 'grid') {
-    return
-  }
-  e.preventDefault()
-  requestDelete()
-})
 
 async function onMenuSelect(value: string | number | symbol) {
   const ids = selectedIdList.value
@@ -393,10 +381,6 @@ async function onMenuSelect(value: string | number | symbol) {
     }
   }
 }
-const mainSectionRef = ref<HTMLElement>()
-// PScrollArea exposes its inner scroller as `$el`; both the scroll-position
-// cache below and the infinite-scroll observer need it as their root.
-const galleryScrollEl = computed<HTMLElement | undefined>(() => (mainSectionRef.value as unknown as { $el?: HTMLElement } | undefined)?.$el)
 
 // ── 无限滚动 ────────────────────────────────────────────────────────────
 // Text search returns one fixed result set (no paging), so the sentinel only
@@ -445,9 +429,49 @@ onBeforeRouteLeave((_to, from) => {
   }
 })
 
+// Coming back from a post (page or overlay): put the cursor + selection on
+// the post last viewed there, scroll it into view (centred if it's off-screen)
+// and, if focus was dropped on <body>, give it back to the grid. Waits for the
+// scroll-position restore below so the two don't fight, and for the layout.
+let scrollRestored = false
+function restoreLastViewed() {
+  const id = lastViewedPostId.value
+  if (id === null || !scrollRestored) {
+    return
+  }
+  const index = postIds.value.indexOf(id)
+  if (index === -1) {
+    // Not in this list (deleted, filtered out, another folder): give up once
+    // nothing is loading any more.
+    const fetching = infinityPostsQuery.isFetching.value || textSearchQueryResult.isFetching.value
+    if (!fetching) {
+      lastViewedPostId.value = null
+    }
+    return
+  }
+  if (!layoutData.value?.[index]) {
+    return
+  }
+  lastViewedPostId.value = null
+  selectOnly(id)
+  setGridCursor(id)
+  grid.reveal(id, { align: 'center-if-hidden' })
+  const active = document.activeElement
+  if (!active || active === document.body) {
+    grid.focusGrid()
+  }
+}
+watch([lastViewedPostId, postIds, layoutData], restoreLastViewed, { flush: 'post' })
+
+function finishScrollRestore() {
+  scrollRestored = true
+  restoreLastViewed()
+}
+
 onMounted(() => {
   const targetTop = galleryScrollPositions.get(route.fullPath)
   if (!targetTop) {
+    finishScrollRestore()
     return
   }
   // Waterfall layout fills in asynchronously after react-query hands back cached
@@ -459,14 +483,21 @@ onMounted(() => {
       if (attempts++ < 60) {
         requestAnimationFrame(tick)
       }
+      else {
+        finishScrollRestore()
+      }
       return
     }
     if (el.scrollHeight - el.clientHeight >= targetTop) {
       el.scrollTop = targetTop
+      finishScrollRestore()
       return
     }
     if (attempts++ < 60) {
       requestAnimationFrame(tick)
+    }
+    else {
+      finishScrollRestore()
     }
   }
   requestAnimationFrame(tick)
@@ -526,9 +557,16 @@ onMounted(() => {
         {{ $t('gallery.noPosts') }}
       </PEmpty>
 
+      <!-- The waterfall wrapper is the listbox: one Tab stop, focus stays on
+           it, the cursor thumbnail is its aria-activedescendant. -->
       <Waterfall
         ref="waterfallRef"
-        class="waterfall-wrapper select-none"
+        class="waterfall-wrapper select-none focus:outline-none"
+        role="listbox"
+        tabindex="0"
+        aria-multiselectable="true"
+        :aria-label="gridLabel"
+        data-gallery-grid
         :scroll-element="mainSectionRef"
         :items="items"
         :item-width="waterfallItemWidth"
@@ -539,10 +577,12 @@ onMounted(() => {
         @pointerdown="emptyPointerDown"
       >
         <PostItem
-          v-for="post in posts"
+          v-for="(post, index) in posts"
           :id="`post-item-${post.id}`"
           :key="post.id"
           :post="post"
+          :aria-posinset="index + 1"
+          :aria-setsize="gridSetSize"
         />
       </Waterfall>
       <!-- Infinite-scroll sentinel. The observer (see script) fires while this

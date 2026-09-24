@@ -32,6 +32,8 @@ const columns = computed(() => {
 </script>
 
 <template>
+  <!-- The shapes are decoration; assistive tech gets one status line instead. -->
+  <span class="sr-only" role="status">{{ $t('gallery.loadingPosts') }}</span>
   <div
     class="flex items-start"
     :style="{ padding: `${GRID_PAD}px`, gap: `${GRID_GAP}px` }"

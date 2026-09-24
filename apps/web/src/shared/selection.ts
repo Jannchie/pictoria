@@ -1,4 +1,5 @@
 import { computed, ref } from 'vue'
+import { extendRange } from '@/utils/gridSelection'
 
 // The single home for post-selection state. Three private Set refs back the
 // selection; nothing outside this module touches them. Read the selection
@@ -177,4 +178,84 @@ export function commitPendingSelection(): void {
   )
   selecting.value = new Set()
   unselected.value = new Set()
+}
+
+// ---------------------------------------------------------------------------
+// Grid cursor & anchor (keyboard model)
+// ---------------------------------------------------------------------------
+//
+// The gallery grid separates the *cursor* (the item keyboard focus is on) and
+// the *anchor* (where a Shift range starts) from the selection itself. Both
+// grids (MainSection, SimilarPosts) share them because they share the
+// selection; they are never mounted together. `rangeEnd` is the far end of the
+// last Shift extension, so the next extension can replace that range instead
+// of piling onto it. The set maths lives in `utils/gridSelection.ts` (pure).
+
+const cursor = ref<number | null>(null)
+const anchor = ref<number | null>(null)
+const rangeEnd = ref<number | null>(null)
+
+/** The item the grid's keyboard focus is on (may be unselected). */
+export const gridCursorId = computed<number | null>(() => cursor.value)
+/** Where the next Shift range starts. */
+export const gridAnchorId = computed<number | null>(() => anchor.value)
+
+/**
+ * Put the cursor on `id` and make it the new range anchor — what every
+ * pointer click on a thumbnail and every plain keyboard selection does.
+ */
+export function setGridCursor(id: number | null): void {
+  cursor.value = id
+  anchor.value = id
+  rangeEnd.value = id
+}
+
+/**
+ * How a keyboard move treats the selection:
+ * - `select`  select only the target (plain arrows / Home / End / Page keys);
+ * - `extend`  select the list-order range anchor..target (Shift+…);
+ * - `focus`   move the cursor, leave selection and anchor alone (Ctrl/⌘+…).
+ */
+export type GridMoveMode = 'select' | 'extend' | 'focus'
+
+/** Move the grid cursor to `target`; `order` is the grid's ids in list order. */
+export function moveGridCursor(order: readonly number[], target: number, mode: GridMoveMode): void {
+  if (mode === 'select') {
+    selectOnly(target)
+    setGridCursor(target)
+    return
+  }
+  if (mode === 'focus') {
+    cursor.value = target
+    return
+  }
+  // extend: fall back to the cursor (then the target) when the anchor has
+  // left the list (deleted, filtered out, different folder).
+  const from = anchor.value !== null && order.includes(anchor.value)
+    ? anchor.value
+    : (cursor.value !== null && order.includes(cursor.value) ? cursor.value : target)
+  const prevEnd = rangeEnd.value !== null && order.includes(rangeEnd.value) ? rangeEnd.value : from
+  committed.value = extendRange(committed.value, order, from, prevEnd, target)
+  anchor.value = from
+  rangeEnd.value = target
+  cursor.value = target
+}
+
+/** Space / Ctrl+Space: toggle the cursor item and make it the anchor. */
+export function toggleGridCursor(): void {
+  const id = cursor.value
+  if (id === null) {
+    return
+  }
+  toggle(id)
+  setGridCursor(id)
+}
+
+/** Shift+Space: select the range from the anchor to the cursor. */
+export function extendToGridCursor(order: readonly number[]): void {
+  const id = cursor.value
+  if (id === null) {
+    return
+  }
+  moveGridCursor(order, id, 'extend')
 }

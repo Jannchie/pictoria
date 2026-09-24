@@ -1,6 +1,6 @@
 import type { GridCell, GridDirection } from '@/utils/gridGeometry'
 import { describe, expect, it } from 'vitest'
-import { findGridNeighbor } from '@/utils/gridGeometry'
+import { findGridNeighbor, findPageTarget, firstVisibleIndex, revealScrollTop } from '@/utils/gridGeometry'
 
 // Helper: build a cell with a rect. Default item is 100x100.
 function cell(id: number, x: number, y: number, width = 100, height = 100): GridCell {
@@ -170,5 +170,76 @@ describe('findgridneighbor — degenerate inputs', () => {
     for (const direction of ['left', 'right', 'up', 'down'] as GridDirection[]) {
       expect(findGridNeighbor(one, 0, direction)).toBeUndefined()
     }
+  })
+})
+
+// A tall 2-column strip: ids 0..9 in column 0 (x=0) and 10..19 in column 1
+// (x=120), 100px rows every 120px.
+const strip: GridCell[] = [
+  ...Array.from({ length: 10 }, (_, i) => cell(i, 0, i * 120)),
+  ...Array.from({ length: 10 }, (_, i) => cell(10 + i, 120, i * 120)),
+]
+
+describe('findpagetarget', () => {
+  it('jumps one page down in the same column', () => {
+    expect(findPageTarget(strip, 0, 'down', 360)).toBe(3)
+  })
+
+  it('jumps one page up in the same column', () => {
+    expect(findPageTarget(strip, 15, 'up', 240)).toBe(13)
+  })
+
+  it('lands on the furthest row when the page overshoots the end', () => {
+    expect(findPageTarget(strip, 7, 'down', 10_000)).toBe(9)
+    expect(findPageTarget(strip, 12, 'up', 10_000)).toBe(10)
+  })
+
+  it('returns undefined at the edge or for an unknown id', () => {
+    expect(findPageTarget(strip, 9, 'down', 360)).toBeUndefined()
+    expect(findPageTarget(strip, 0, 'up', 360)).toBeUndefined()
+    expect(findPageTarget(strip, 999, 'down', 360)).toBeUndefined()
+  })
+})
+
+describe('firstvisibleindex', () => {
+  const rects = strip.map(c => c.rect)
+  it('finds the first rect intersecting the viewport', () => {
+    expect(firstVisibleIndex(rects, 250, 600)).toBe(2)
+  })
+  it('returns -1 when nothing is in view', () => {
+    expect(firstVisibleIndex(rects, 5000, 6000)).toBe(-1)
+  })
+})
+
+describe('revealscrolltop', () => {
+  const view = { viewTop: 1000, viewHeight: 500, margin: 16 }
+
+  it('returns null when the item is already fully in view (with margin)', () => {
+    expect(revealScrollTop({ ...view, itemTop: 1100, itemHeight: 200 })).toBeNull()
+  })
+
+  it('scrolls up just enough to show an item above the viewport', () => {
+    expect(revealScrollTop({ ...view, itemTop: 900, itemHeight: 100 })).toBe(884)
+  })
+
+  it('scrolls down just enough to show an item below the viewport', () => {
+    expect(revealScrollTop({ ...view, itemTop: 1600, itemHeight: 100 })).toBe(1216)
+  })
+
+  it('aligns an item taller than the viewport to its top', () => {
+    expect(revealScrollTop({ ...view, itemTop: 1200, itemHeight: 800 })).toBe(1200)
+    expect(revealScrollTop({ ...view, itemTop: 1000, itemHeight: 800 })).toBeNull()
+  })
+
+  it('never returns a negative scrolltop', () => {
+    expect(revealScrollTop({ ...view, itemTop: 4, itemHeight: 100 })).toBe(0)
+  })
+
+  it('center-if-hidden centres an item that is entirely off-screen', () => {
+    expect(revealScrollTop({ ...view, itemTop: 3000, itemHeight: 100, align: 'center-if-hidden' })).toBe(2800)
+  })
+
+  it('center-if-hidden behaves like nearest for a partly visible item', () => {
+    expect(revealScrollTop({ ...view, itemTop: 1450, itemHeight: 100, align: 'center-if-hidden' })).toBe(1066)
   })
 })

@@ -177,6 +177,7 @@ watch(ready, () => {
     ref="wrapper"
     class="arthash-placeholder"
     :class="{ dissolving, fancy }"
+    aria-hidden="true"
     v-html="svg"
   />
 </template>

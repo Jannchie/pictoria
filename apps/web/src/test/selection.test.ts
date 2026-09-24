@@ -5,14 +5,20 @@ import {
   collapseSelectionTo,
   commitPendingSelection,
   effectiveSelectedIds,
+  extendToGridCursor,
+  gridAnchorId,
+  gridCursorId,
   isCommittedSelected,
   isSelected,
+  moveGridCursor,
   selectAll,
   selectedCount,
   selectedIdList,
   selectOnly,
+  setGridCursor,
   soleSelectedId,
   toggle,
+  toggleGridCursor,
   togglePendingAt,
   updatePendingSelection,
 } from '@/shared/selection'
@@ -31,6 +37,7 @@ function effective(): number[] {
 function resetSelection() {
   commitPendingSelection()
   clear()
+  setGridCursor(null)
 }
 
 beforeEach(() => {
@@ -198,4 +205,80 @@ describe('committed read helpers', () => {
       expect(selectedCount.value).toBe(ids.length)
     })
   }
+})
+
+describe('grid cursor & anchor', () => {
+  const ORDER = [1, 2, 3, 4, 5, 6]
+
+  it('select mode selects only the target and re-anchors there', () => {
+    selectAll([1, 2])
+    moveGridCursor(ORDER, 4, 'select')
+    expect(committed()).toEqual([4])
+    expect(gridCursorId.value).toBe(4)
+    expect(gridAnchorId.value).toBe(4)
+  })
+
+  it('focus mode moves the cursor only', () => {
+    setGridCursor(2)
+    selectOnly(2)
+    moveGridCursor(ORDER, 5, 'focus')
+    expect(committed()).toEqual([2])
+    expect(gridCursorId.value).toBe(5)
+    expect(gridAnchorId.value).toBe(2)
+  })
+
+  it('extend mode grows and shrinks a range from the anchor', () => {
+    moveGridCursor(ORDER, 2, 'select')
+    moveGridCursor(ORDER, 3, 'extend')
+    moveGridCursor(ORDER, 5, 'extend')
+    expect(committed()).toEqual([2, 3, 4, 5])
+    moveGridCursor(ORDER, 3, 'extend')
+    expect(committed()).toEqual([2, 3])
+    expect(gridAnchorId.value).toBe(2)
+    expect(gridCursorId.value).toBe(3)
+  })
+
+  it('extend keeps toggled items outside the range', () => {
+    moveGridCursor(ORDER, 1, 'select')
+    moveGridCursor(ORDER, 4, 'focus')
+    toggleGridCursor()
+    expect(committed()).toEqual([1, 4])
+    moveGridCursor(ORDER, 6, 'extend')
+    expect(committed()).toEqual([1, 4, 5, 6])
+  })
+
+  it('extend falls back to the cursor when the anchor left the list', () => {
+    setGridCursor(99)
+    moveGridCursor([1, 2, 3], 2, 'focus')
+    moveGridCursor([1, 2, 3], 3, 'extend')
+    expect(committed()).toEqual([2, 3])
+  })
+
+  it('togglegridcursor toggles the cursor item and anchors there', () => {
+    setGridCursor(3)
+    toggleGridCursor()
+    expect(committed()).toEqual([3])
+    toggleGridCursor()
+    expect(committed()).toEqual([])
+    expect(gridAnchorId.value).toBe(3)
+  })
+
+  it('extendtogridcursor selects anchor..cursor after a focus-only move', () => {
+    moveGridCursor(ORDER, 2, 'select')
+    moveGridCursor(ORDER, 5, 'focus')
+    extendToGridCursor(ORDER)
+    expect(committed()).toEqual([2, 3, 4, 5])
+  })
+
+  it('cursor verbs are no-ops without a cursor', () => {
+    toggleGridCursor()
+    extendToGridCursor(ORDER)
+    expect(committed()).toEqual([])
+  })
+
+  it('clearing the selection keeps the cursor', () => {
+    moveGridCursor(ORDER, 3, 'select')
+    clear()
+    expect(gridCursorId.value).toBe(3)
+  })
 })
