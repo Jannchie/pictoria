@@ -1,8 +1,8 @@
 <script setup lang="ts">
-import { computed } from 'vue'
+import { computed, useTemplateRef } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { v2GetScoreCount } from '@/api'
-import { useFacetFilter } from '@/composables/useFacetFilter'
+import { activateOptionOnKey, facetOptionLabel, facetTriggerLabel, initialOptionIndex, useFacetFilter, useFacetListbox } from '@/composables/useFacetFilter'
 
 const { t } = useI18n()
 
@@ -25,10 +25,25 @@ const scoreCountList = computed(() => {
   return resp
 })
 
+// Popover rows, best first; 0 = not scored yet.
+const DISPLAY_ORDER = [5, 4, 3, 2, 1, 0]
+
+function scoreName(score: number): string {
+  return score === 0 ? t('filter.notScoredYet') : t('filter.star', { n: score }, score)
+}
+
 const btnText = computed(() => {
   const item = scoreFilterData.value
-  return item.length === 0 ? t('filter.score') : item.map(s => s === 0 ? t('filter.notScoredYet') : t('filter.star', { n: s }, s)).join(', ')
+  return item.length === 0 ? t('filter.score') : item.map(scoreName).join(', ')
 })
+
+const listbox = useTemplateRef<HTMLElement>('listbox')
+useFacetListbox(listbox)
+const autofocusIndex = computed(() => initialOptionIndex(DISPLAY_ORDER, hasScore))
+const triggerLabel = computed(() => facetTriggerLabel(t, t('filter.score'), scoreFilterData.value.map(scoreName)))
+function optionLabel(score: number) {
+  return facetOptionLabel(t, scoreName(score), countQuery.data.value ? scoreCountList.value[score] : undefined)
+}
 </script>
 
 <template>
@@ -38,25 +53,39 @@ const btnText = computed(() => {
         size="sm"
         :variant="scoreFilterData.length > 0 ? 'subtle' : 'secondary'"
         :active="opened"
+        :aria-label="triggerLabel"
       >
-        <i class="i-tabler-star" />
+        <i class="i-tabler-star" aria-hidden="true" />
         <span>
           {{ btnText }}
         </span>
       </PButton>
       <template #content>
         <div
+          ref="listbox"
+          role="listbox"
+          aria-multiselectable="true"
+          :aria-label="$t('filter.score')"
           class="p-popover-panel min-w-52"
         >
+          <!-- Typeahead on the digit: "3" jumps to three stars, "0" to unscored. -->
           <div
-            v-for="score in [5, 4, 3, 2, 1, 0]"
+            v-for="(score, i) in DISPLAY_ORDER"
             :key="score"
-            class="text-xs px-2 py-1 rounded flex gap-2 w-full cursor-pointer items-center hover:bg-surface-2"
-            @pointerdown="toggle(score)"
+            role="option"
+            :aria-selected="hasScore(score)"
+            :aria-label="optionLabel(score)"
+            :data-typeahead="String(score)"
+            :data-autofocus="i === autofocusIndex || undefined"
+            class="text-xs px-2 py-1 rounded flex gap-2 w-full cursor-pointer items-center hover:bg-surface-2 focus-visible:[outline-offset:-2px]"
+            @click="toggle(score)"
+            @keydown="activateOptionOnKey($event, () => toggle(score))"
           >
             <PCheckbox
               class="flex-shrink-0 pointer-events-none"
               :model-value="hasScore(score)"
+              inert
+              aria-hidden="true"
             />
             <div class="flex flex-grow gap-1 items-center">
               <template v-if="score === 0">
@@ -64,9 +93,10 @@ const btnText = computed(() => {
               </template>
               <template v-else>
                 <i
-                  v-for="i in score"
-                  :key="i"
+                  v-for="n in score"
+                  :key="n"
                   class="i-tabler-star-filled text-warning"
+                  aria-hidden="true"
                 />
               </template>
             </div>

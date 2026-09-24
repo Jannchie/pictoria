@@ -4,6 +4,7 @@ import { useI18n } from 'vue-i18n'
 import { useRoute } from 'vue-router'
 import { v2UploadFile } from '@/api'
 import { useAPIError } from '@/composables/useAPIError'
+import { announce } from '@/shared/announce'
 import { queryKeys } from '@/shared/queryKeys'
 
 const { t } = useI18n()
@@ -12,6 +13,10 @@ const { handle: handleAPIError } = useAPIError()
 const isDraggingFiles = ref(false)
 const dragEnterCount = ref(0)
 const queryClient = useQueryClient()
+
+// Files saved by the current drop; announced once when the drop finishes
+// (failures already surface as error toasts via handleAPIError).
+let savedCount = 0
 
 async function onUploadFile(file: File, path: string | null, source?: string) {
   try {
@@ -22,6 +27,7 @@ async function onUploadFile(file: File, path: string | null, source?: string) {
         source,
       },
     })
+    savedCount++
     queryClient.invalidateQueries({ queryKey: queryKeys.postsRoot })
   }
   catch (error) {
@@ -84,6 +90,7 @@ useEventListener(globalThis, 'drop', async (event: DragEvent) => {
   event.preventDefault()
   dragEnterCount.value = 0
   isDraggingFiles.value = false
+  savedCount = 0
   const source = event.dataTransfer?.getData('text/uri-list')
   const entries = [...event.dataTransfer?.items ?? []].map(item => item.webkitGetAsEntry())
   if (entries) {
@@ -114,14 +121,17 @@ useEventListener(globalThis, 'drop', async (event: DragEvent) => {
       await onUploadFile(file, baseFolder.value, source)
     }
   }
+  if (savedCount > 0) {
+    announce(t('dropOverlay.saved', { n: savedCount }, savedCount))
+  }
 }, {
   passive: false,
   capture: true,
 })
 
-globalThis.addEventListener('dragover', (e) => {
+useEventListener(globalThis, 'dragover', (e: DragEvent) => {
   e.preventDefault()
-}, false)
+})
 
 useEventListener(globalThis, 'dragend', () => {
   dragEnterCount.value = 0
@@ -141,13 +151,26 @@ useEventListener(globalThis, 'dragleave', (event: DragEvent) => {
   passive: true,
   capture: true,
 })
+
+// Hidden = out of the accessibility tree too (it used to be only op-0, so a
+// screen reader read the hint at all times). Showing it announces the hint
+// once through the shared live region: flipping aria-hidden and inserting a
+// role=status in the same frame is read unreliably.
+const visible = computed(() => dragEnterCount.value > 0 && isDraggingFiles.value)
+watch(visible, (v) => {
+  if (v) {
+    announce(t('dropOverlay.hint'))
+  }
+})
 </script>
 
 <template>
   <div
     :class="{
-      'op-0': dragEnterCount === 0 || !isDraggingFiles,
+      'op-0': !visible,
     }"
+    :aria-hidden="!visible || undefined"
+    :inert="!visible || undefined"
     class="text-lg bg-primary/25 flex h-100vh w-100vw pointer-events-none items-center justify-center fixed z-10"
   >
     <div class="text-black">

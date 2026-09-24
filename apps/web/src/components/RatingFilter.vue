@@ -1,8 +1,8 @@
 <script setup lang="ts">
-import { computed } from 'vue'
+import { computed, useTemplateRef } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { v2GetRatingCount } from '@/api'
-import { useFacetFilter } from '@/composables/useFacetFilter'
+import { activateOptionOnKey, facetOptionLabel, facetTriggerLabel, initialOptionIndex, useFacetFilter, useFacetListbox } from '@/composables/useFacetFilter'
 import { RATING_LEVEL_COLORS, RATING_LEVEL_ICONS, RATING_LEVEL_LABEL_KEYS, RATING_UNRATED_ICON, RATING_UNRATED_LABEL_KEY } from '@/shared/ratings'
 
 const { t } = useI18n()
@@ -38,6 +38,14 @@ const btnText = computed(() => {
   return item.length === 0 ? t('filter.rating') : item.map(s => getRatingName(s)).join(', ')
 })
 
+const listbox = useTemplateRef<HTMLElement>('listbox')
+useFacetListbox(listbox)
+const autofocusIndex = computed(() => initialOptionIndex(DISPLAY_ORDER, hasRating))
+const triggerLabel = computed(() => facetTriggerLabel(t, t('filter.rating'), sortedSelection.value.map(getRatingName)))
+function optionLabel(rating: number) {
+  return facetOptionLabel(t, getRatingName(rating), countQuery.data.value ? scoreCountList.value[rating] : undefined)
+}
+
 function ratingIcon(rating: number) {
   return rating === 0 ? RATING_UNRATED_ICON : RATING_LEVEL_ICONS[rating - 1]
 }
@@ -60,6 +68,7 @@ function getRatingName(rating: number) {
         size="sm"
         :variant="sortedSelection.length > 0 ? 'subtle' : 'secondary'"
         :active="opened"
+        :aria-label="triggerLabel"
       >
         <template v-if="sortedSelection.length > 0">
           <i
@@ -67,26 +76,39 @@ function getRatingName(rating: number) {
             :key="r"
             :class="ratingIcon(r)"
             :style="ratingIconStyle(r)"
+            aria-hidden="true"
           />
         </template>
-        <i v-else class="i-tabler-star" />
+        <i v-else class="i-tabler-star" aria-hidden="true" />
         <span>
           {{ btnText }}
         </span>
       </PButton>
       <template #content>
         <div
+          ref="listbox"
+          role="listbox"
+          aria-multiselectable="true"
+          :aria-label="$t('filter.rating')"
           class="p-popover-panel min-w-52"
         >
           <div
-            v-for="rating in [1, 2, 3, 4, 0]"
+            v-for="(rating, i) in DISPLAY_ORDER"
             :key="rating"
-            class="text-xs px-2 py-1 rounded flex gap-2 w-full cursor-pointer items-center hover:bg-surface-2"
-            @pointerdown="toggle(rating)"
+            role="option"
+            :aria-selected="hasRating(rating)"
+            :aria-label="optionLabel(rating)"
+            :data-typeahead="getRatingName(rating)"
+            :data-autofocus="i === autofocusIndex || undefined"
+            class="text-xs px-2 py-1 rounded flex gap-2 w-full cursor-pointer items-center hover:bg-surface-2 focus-visible:[outline-offset:-2px]"
+            @click="toggle(rating)"
+            @keydown="activateOptionOnKey($event, () => toggle(rating))"
           >
             <PCheckbox
               class="flex-shrink-0 pointer-events-none"
               :model-value="hasRating(rating)"
+              inert
+              aria-hidden="true"
             />
             <div class="flex flex-grow gap-1 items-center">
               <span :class="{ 'text-fg-subtle italic': rating === 0 }">

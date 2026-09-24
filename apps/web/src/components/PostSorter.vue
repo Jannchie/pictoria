@@ -1,6 +1,8 @@
 <script setup lang="ts">
-import { computed, ref } from 'vue'
+import { computed, ref, useId, useTemplateRef } from 'vue'
 import { useI18n } from 'vue-i18n'
+import { activateOptionOnKey } from '@/composables/useFacetFilter'
+import { useRovingFocus } from '@/composables/useRovingFocus'
 import { postSort, postSortColor, postSortOrder, textSearchQuery } from '@/shared'
 
 const { t } = useI18n()
@@ -26,10 +28,12 @@ const sortOptions: {
 const orderOptions: {
   id: 'asc' | 'desc'
   labelKey: string
+  /** Unabbreviated spoken name ("Ascending" for the visible "Asc"). */
+  ariaKey: string
   icon: string
 }[] = [
-  { id: 'asc', labelKey: 'sort.asc', icon: 'i-tabler-arrow-up' },
-  { id: 'desc', labelKey: 'sort.desc', icon: 'i-tabler-arrow-down' },
+  { id: 'asc', labelKey: 'sort.asc', ariaKey: 'sort.ascending', icon: 'i-tabler-arrow-up' },
+  { id: 'desc', labelKey: 'sort.desc', ariaKey: 'sort.descending', icon: 'i-tabler-arrow-down' },
 ]
 
 // Localised label of the active sort; the default 'id' sort has no option
@@ -49,6 +53,39 @@ const sortOverriddenBySearch = computed(() => textSearchQuery.value.trim().lengt
 const isNonDefaultSort = computed(() =>
   postSort.value !== 'id' || postSortOrder.value !== 'desc' || !!postSortColor.value,
 )
+
+// Trigger name: the visible text drops the direction (and becomes a bare
+// swatch under colour sort), so spell the whole ordering out for AT.
+const triggerLabel = computed(() => {
+  if (postSortColor.value) {
+    return t('sort.triggerColor', { color: postSortColor.value.toUpperCase() })
+  }
+  const order = orderOptions.find(o => o.id === postSortOrder.value)
+  return t('sort.triggerSummary', { field: currentSortLabel.value, order: order ? t(order.ariaKey) : postSortOrder.value })
+})
+
+// Sort field = single-select listbox: arrows / Home / End / typeahead move
+// focus, Enter / Space / click pick it and close the popover (picking the
+// current field again returns to the default order, as before). Not a radio
+// group on purpose — APG radios check on arrow, and every check here closes
+// the popover and refetches the gallery.
+const fieldListId = useId()
+const fieldHintId = useId()
+const fieldList = useTemplateRef<HTMLElement>('fieldList')
+useRovingFocus({ container: fieldList, itemSelector: '[role=option]', typeahead: true })
+const fieldDisabled = computed(() => !!postSortColor.value)
+const autofocusFieldIndex = computed(() => {
+  const i = sortOptions.findIndex(o => o.id === postSort.value)
+  return i === -1 ? 0 : i
+})
+
+function pickField(id: typeof sortOptions[number]['id']) {
+  if (fieldDisabled.value) {
+    return
+  }
+  postSort.value = postSort.value === id ? 'id' : id
+  show.value = false
+}
 
 function resetSort() {
   postSort.value = 'id'
@@ -89,7 +126,7 @@ function resetSort() {
         :variant="isNonDefaultSort ? 'subtle' : 'secondary'"
         :active="show"
         :class="{ joined: isNonDefaultSort }"
-        :aria-label="$t('sort.sortPosts')"
+        :aria-label="triggerLabel"
       >
         <i class="i-tabler-arrows-sort" aria-hidden="true" />
         <span
@@ -105,7 +142,7 @@ function resetSort() {
           v-else
           class="flex-grow"
         >
-          <PColorSwatch :color="postSortColor" />
+          <PColorSwatch :color="postSortColor" aria-hidden="true" />
         </span>
       </PButton>
       <template #content>
@@ -147,7 +184,12 @@ function resetSort() {
               <i class="i-tabler-x" aria-hidden="true" />
             </PButton>
           </div>
-          <div class="my-1 pb-1 p-divider flex gap-1">
+          <!-- Direction: two toggle buttons, the current one pressed. -->
+          <div
+            role="group"
+            :aria-label="$t('sort.orderGroup')"
+            class="my-1 pb-1 p-divider flex gap-1"
+          >
             <PButton
               v-for="order in orderOptions"
               :key="order.id"
@@ -155,6 +197,8 @@ function resetSort() {
               size="sm"
               block
               :variant="postSortOrder === order.id && !postSortColor ? 'subtle' : 'ghost'"
+              :aria-pressed="postSortOrder === order.id && !postSortColor"
+              :aria-label="$t(order.ariaKey)"
               @click="postSortOrder = order.id; show = false"
             >
               <i :class="order.icon" aria-hidden="true" />
@@ -163,19 +207,46 @@ function resetSort() {
               </span>
             </PButton>
           </div>
+          <!-- Same look as PListItem (primary wash for the current field), but
+               an ARIA option: PListItem is a plain clickable div. -->
           <div
+            :id="fieldListId"
+            ref="fieldList"
+            role="listbox"
+            :aria-label="$t('sort.fieldList')"
+            :aria-describedby="fieldDisabled ? fieldHintId : undefined"
             class="flex flex-col"
-            :class="{ 'op-50 pointer-events-none': !!postSortColor }"
+            :class="{ 'op-50 pointer-events-none': fieldDisabled }"
           >
-            <PListItem
-              v-for="option in sortOptions"
+            <div
+              v-for="(option, i) in sortOptions"
               :key="option.id"
-              :icon="option.icon"
-              :title="$t(option.labelKey)"
-              :active="postSort === option.id && !postSortColor"
-              @click="postSort = postSort === option.id ? 'id' : option.id; show = false"
-            />
+              role="option"
+              :aria-selected="postSort === option.id && !fieldDisabled"
+              :aria-disabled="fieldDisabled || undefined"
+              :data-autofocus="(!fieldDisabled && i === autofocusFieldIndex) || undefined"
+              class="px-2.5 rounded flex gap-2 min-h-7 w-full cursor-pointer transition-colors items-center focus-visible:[outline-offset:-2px]"
+              :class="postSort === option.id && !fieldDisabled
+                ? 'text-fg bg-primary/10 font-medium hover:bg-primary/15'
+                : 'text-fg-muted hover:text-fg hover:bg-surface-1'"
+              @click="pickField(option.id)"
+              @keydown="activateOptionOnKey($event, () => pickField(option.id))"
+            >
+              <i
+                class="flex-shrink-0 h-4 w-4"
+                :class="[option.icon, postSort === option.id && !fieldDisabled ? 'text-primary' : 'text-fg-subtle']"
+                aria-hidden="true"
+              />
+              <div class="flex-grow truncate">
+                {{ $t(option.labelKey) }}
+              </div>
+            </div>
           </div>
+          <span
+            v-if="fieldDisabled"
+            :id="fieldHintId"
+            class="sr-only"
+          >{{ $t('sort.fieldDisabledByColor') }}</span>
         </div>
       </template>
     </PPopover>

@@ -2,10 +2,10 @@
 import type { TagCountRequest } from '@/api'
 import { useQuery } from '@tanstack/vue-query'
 import { useDebounce } from '@vueuse/core'
-import { computed, ref } from 'vue'
+import { computed, ref, useId, useTemplateRef } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { v2GetPostsCount, v2GetTagCount } from '@/api'
-import { formatPct, gatedCountOptions } from '@/composables/useFacetFilter'
+import { activateOptionOnKey, facetOptionLabel, facetTriggerLabel, formatPct, gatedCountOptions, useFacetListbox } from '@/composables/useFacetFilter'
 import { resolvedLocale } from '@/locale'
 import { postFilter, queryKeys } from '@/shared'
 import { naturalizeTagName } from '@/utils'
@@ -106,6 +106,64 @@ const tagRows = computed(() => {
 
 const isLoading = computed(() => countQuery.isLoading.value)
 const btnText = computed(() => (selected.value.length === 0 ? t('filter.tags') : selected.value.map(naturalizeTagName).join(', ')))
+const triggerLabel = computed(() => facetTriggerLabel(t, t('filter.tags'), selected.value.map(naturalizeTagName)))
+
+function tagDisplayName(tag: string): string {
+  const translated = translationMap.value[tag]
+  return translated ? `${naturalizeTagName(tag)} ${translated}` : naturalizeTagName(tag)
+}
+function optionLabel(tag: string): string {
+  return facetOptionLabel(t, tagDisplayName(tag), countQuery.data.value ? (countMap.value[tag] ?? 0) : undefined)
+}
+
+// Keyboard model: the search box takes initial focus; ArrowDown enters the
+// listbox, ArrowUp on the first option returns to the box. Inside the list,
+// typing is not typeahead (the tags are open-ended) — it goes on into the
+// search box, the same as a combobox, so "search → pick → refine" never
+// needs the mouse. Space / Enter toggle the focused tag.
+const listboxId = useId()
+const listbox = useTemplateRef<HTMLElement>('listbox')
+const searchBox = useTemplateRef<HTMLElement>('searchBox')
+const roving = useFacetListbox(listbox, { typeahead: false, loop: false })
+
+function focusSearch() {
+  searchBox.value?.querySelector<HTMLInputElement>('input')?.focus()
+}
+
+function onSearchKeydown(e: KeyboardEvent) {
+  if (e.isComposing || e.ctrlKey || e.metaKey || e.altKey || e.shiftKey) {
+    return
+  }
+  if (e.key === 'ArrowDown' && tagRows.value.length > 0) {
+    e.preventDefault()
+    roving.focusFirst()
+  }
+}
+
+function onOptionKeydown(e: KeyboardEvent, tag: string, index: number) {
+  if (activateOptionOnKey(e, () => toggle(tag))) {
+    return
+  }
+  if (e.defaultPrevented || e.isComposing || e.ctrlKey || e.metaKey || e.altKey) {
+    return
+  }
+  if (e.key === 'ArrowUp' && index === 0 && !e.shiftKey) {
+    e.preventDefault()
+    focusSearch()
+  }
+  else if (e.key === 'Backspace') {
+    e.preventDefault()
+    search.value = search.value.slice(0, -1)
+    focusSearch()
+  }
+  else if ([...e.key].length === 1) {
+    // Printable character: continue the query in the search box. Consumed
+    // here (not left to bubble) so no global letter hotkey sees it.
+    e.preventDefault()
+    search.value += e.key
+    focusSearch()
+  }
+}
 </script>
 
 <template>
@@ -118,8 +176,9 @@ const btnText = computed(() => (selected.value.length === 0 ? t('filter.tags') :
         size="sm"
         :variant="selected.length > 0 ? 'subtle' : 'secondary'"
         :active="opened"
+        :aria-label="triggerLabel"
       >
-        <i class="i-tabler-tag" />
+        <i class="i-tabler-tag" aria-hidden="true" />
         <!-- leading-normal: the button sets line-height:1, and `truncate`
              (overflow:hidden) would otherwise clip glyph descenders (e.g. "g"). -->
         <span class="leading-normal flex-grow max-w-40 truncate">
@@ -128,13 +187,16 @@ const btnText = computed(() => (selected.value.length === 0 ? t('filter.tags') :
       </PButton>
       <template #content>
         <div class="p-popover-panel min-w-64">
-          <div class="mb-2">
+          <div ref="searchBox" class="mb-2">
             <PInput
               v-model="search"
               size="sm"
-              block
               :placeholder="$t('filter.searchTagsPlaceholder')"
               :aria-label="$t('filter.searchTags')"
+              :aria-controls="listboxId"
+              block
+              data-autofocus="true"
+              @keydown="onSearchKeydown"
             >
               <template #leftSection>
                 <i class="i-tabler-search text-fg-muted" aria-hidden="true" />
@@ -143,25 +205,40 @@ const btnText = computed(() => (selected.value.length === 0 ? t('filter.tags') :
           </div>
           <div class="max-h-72 overflow-y-auto">
             <div
-              v-for="tag in tagRows"
-              :key="tag"
-              class="text-xs px-2 py-1 rounded flex gap-2 w-full cursor-pointer items-center hover:bg-surface-2"
-              @pointerdown="toggle(tag)"
+              :id="listboxId"
+              ref="listbox"
+              role="listbox"
+              aria-multiselectable="true"
+              :aria-label="$t('filter.tags')"
+              :aria-busy="isLoading || undefined"
             >
-              <PCheckbox
-                class="flex-shrink-0 pointer-events-none"
-                :model-value="has(tag)"
-              />
-              <span class="flex-grow truncate">
-                {{ naturalizeTagName(tag) }}
-                <span v-if="translationMap[tag]" class="text-fg-subtle ml-0.5">{{ translationMap[tag] }}</span>
-              </span>
               <div
-                v-if="countMap[tag] || has(tag)"
-                class="font-mono inline-flex flex-shrink-0 tabular-nums"
+                v-for="(tag, i) in tagRows"
+                :key="tag"
+                role="option"
+                :aria-selected="has(tag)"
+                :aria-label="optionLabel(tag)"
+                class="text-xs px-2 py-1 rounded flex gap-2 w-full cursor-pointer items-center hover:bg-surface-2 focus-visible:[outline-offset:-2px]"
+                @click="toggle(tag)"
+                @keydown="onOptionKeydown($event, tag, i)"
               >
-                <span class="text-right flex-shrink-0 w-10" :class="countMap[tag] ? 'text-fg-muted' : 'text-fg-subtle'">{{ countMap[tag] || 0 }}</span>
-                <span v-if="countMap[tag]" class="text-fg-subtle text-right flex-shrink-0 w-14">{{ pct(countMap[tag]) }}%</span>
+                <PCheckbox
+                  class="flex-shrink-0 pointer-events-none"
+                  :model-value="has(tag)"
+                  inert
+                  aria-hidden="true"
+                />
+                <span class="flex-grow truncate">
+                  {{ naturalizeTagName(tag) }}
+                  <span v-if="translationMap[tag]" class="text-fg-subtle ml-0.5">{{ translationMap[tag] }}</span>
+                </span>
+                <div
+                  v-if="countMap[tag] || has(tag)"
+                  class="font-mono inline-flex flex-shrink-0 tabular-nums"
+                >
+                  <span class="text-right flex-shrink-0 w-10" :class="countMap[tag] ? 'text-fg-muted' : 'text-fg-subtle'">{{ countMap[tag] || 0 }}</span>
+                  <span v-if="countMap[tag]" class="text-fg-subtle text-right flex-shrink-0 w-14">{{ pct(countMap[tag]) }}%</span>
+                </div>
               </div>
             </div>
             <div

@@ -1,8 +1,8 @@
 <script setup lang="ts">
-import { computed } from 'vue'
+import { computed, useTemplateRef } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { v2GetExtensionCount } from '@/api'
-import { useFacetFilter } from '@/composables/useFacetFilter'
+import { activateOptionOnKey, facetOptionLabel, facetTriggerLabel, initialOptionIndex, useFacetFilter, useFacetListbox } from '@/composables/useFacetFilter'
 
 const { t } = useI18n()
 
@@ -45,6 +45,19 @@ const btnText = computed(() => {
 function getExtensionName(extension: string) {
   return extension
 }
+
+/** Spoken / typeahead name: the bare extension, or "No extension". */
+function extensionLabel(extension: string): string {
+  return extension === '' ? t('filter.noExtension') : extension
+}
+
+const listbox = useTemplateRef<HTMLElement>('listbox')
+useFacetListbox(listbox)
+const autofocusIndex = computed(() => initialOptionIndex(extensions.value, hasExt))
+const triggerLabel = computed(() => facetTriggerLabel(t, t('filter.extension'), ratingFilterData.value.map(extensionLabel)))
+function optionLabel(extension: string) {
+  return facetOptionLabel(t, extensionLabel(extension), countQuery.data.value ? (scoreCountList.value[extension] ?? 0) : undefined)
+}
 </script>
 
 <template>
@@ -54,25 +67,38 @@ function getExtensionName(extension: string) {
         size="sm"
         :variant="ratingFilterData.length > 0 ? 'subtle' : 'secondary'"
         :active="opened"
+        :aria-label="triggerLabel"
       >
-        <i class="i-tabler-file" />
+        <i class="i-tabler-file" aria-hidden="true" />
         <span class="flex-grow">
           {{ btnText }}
         </span>
       </PButton>
       <template #content>
         <div
+          ref="listbox"
+          role="listbox"
+          aria-multiselectable="true"
+          :aria-label="$t('filter.extension')"
           class="p-popover-panel min-w-52"
         >
           <div
-            v-for="ext in extensions"
+            v-for="(ext, i) in extensions"
             :key="ext"
-            class="text-xs px-2 py-1 rounded flex gap-2 w-full cursor-pointer items-center hover:bg-surface-2"
-            @pointerdown="toggle(ext)"
+            role="option"
+            :aria-selected="hasExt(ext)"
+            :aria-label="optionLabel(ext)"
+            :data-typeahead="extensionLabel(ext)"
+            :data-autofocus="i === autofocusIndex || undefined"
+            class="text-xs px-2 py-1 rounded flex gap-2 w-full cursor-pointer items-center hover:bg-surface-2 focus-visible:[outline-offset:-2px]"
+            @click="toggle(ext)"
+            @keydown="activateOptionOnKey($event, () => toggle(ext))"
           >
             <PCheckbox
               class="flex-shrink-0 pointer-events-none"
               :model-value="hasExt(ext)"
+              inert
+              aria-hidden="true"
             />
             <div class="flex flex-grow gap-1 items-center">
               <template v-if="ext === ''">

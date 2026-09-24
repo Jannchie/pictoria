@@ -1,8 +1,11 @@
-import type { Ref } from 'vue'
+import type { MaybeRefOrGetter, Ref } from 'vue'
+import type { RovingFocus } from '@/composables/useRovingFocus'
 import type { CountKind } from '@/shared'
 import type { ScorerUi } from '@/shared/scorers'
 import { keepPreviousData, useQuery } from '@tanstack/vue-query'
 import { computed, ref } from 'vue'
+import { useRovingFocus } from '@/composables/useRovingFocus'
+import { formatNumber } from '@/locale'
 import { postFilter, queryKeys } from '@/shared'
 
 /**
@@ -90,4 +93,88 @@ export function useFacetFilter<T extends string | number, TRow extends { count: 
   }
 
   return { selected, has, toggle, filterWithoutSelf, countQuery, total, pct, opened }
+}
+
+// ---------------------------------------------------------------------------
+// Keyboard / AT model shared by every facet popover.
+//
+// Each popover body is a multi-select listbox (`role=listbox`,
+// `aria-multiselectable`), one Tab stop, options `role=option` +
+// `aria-selected`. Arrows / Home / End / PageUp / PageDown / typeahead move
+// focus (useRovingFocus); Space / Enter toggle the focused option; a pointer
+// click toggles through `@click`, so AT synthetic clicks work too. The inner
+// PCheckbox is decoration only (`inert` + `aria-hidden`), never a tab stop.
+// ---------------------------------------------------------------------------
+
+/** Selector the facet listboxes rove over. */
+export const FACET_OPTION_SELECTOR = '[role=option]'
+
+/**
+ * Roving focus for a facet listbox. `typeahead` defaults to on; TagFilter
+ * turns it off because typing there goes to its search box instead.
+ */
+export function useFacetListbox(
+  listbox: MaybeRefOrGetter<HTMLElement | null | undefined>,
+  options: { typeahead?: boolean, loop?: boolean } = {},
+): RovingFocus {
+  return useRovingFocus({
+    container: listbox,
+    itemSelector: FACET_OPTION_SELECTOR,
+    orientation: 'vertical',
+    typeahead: options.typeahead ?? true,
+    loop: options.loop ?? true,
+  })
+}
+
+/**
+ * Space / Enter on a focused option toggles it (APG multi-select listbox).
+ * Returns true when the key was consumed. IME composition, modifier chords
+ * and auto-repeat are ignored so a held key doesn't flicker the selection.
+ */
+export function activateOptionOnKey(e: KeyboardEvent, activate: () => void): boolean {
+  if (e.defaultPrevented || e.isComposing || e.ctrlKey || e.metaKey || e.altKey) {
+    return false
+  }
+  if (e.key !== 'Enter' && e.key !== ' ') {
+    return false
+  }
+  e.preventDefault()
+  if (!e.repeat) {
+    activate()
+  }
+  return true
+}
+
+/**
+ * Index of the option that should take focus when the popover opens: the
+ * first selected one (so reopening lands where you left off), else the first.
+ */
+export function initialOptionIndex<T>(values: readonly T[], isSelected: (value: T) => boolean): number {
+  const i = values.findIndex(v => isSelected(v))
+  return i === -1 ? 0 : i
+}
+
+type Translate = (key: string, named: Record<string, unknown>, plural: number) => string
+
+/**
+ * Accessible name of a facet option: "Safe, 1,234 posts". `count` undefined
+ * (counts not loaded yet) → just the label.
+ */
+export function facetOptionLabel(t: Translate, label: string, count: number | undefined): string {
+  if (count === undefined) {
+    return label
+  }
+  return t('filter.optionCount', { label, count: formatNumber(count) }, count)
+}
+
+/**
+ * Accessible name of a facet trigger: the facet name alone at rest, and
+ * "Rating: Safe, Sensitive" once something is selected — the visible text
+ * then shows only the values, so the facet name would otherwise be lost.
+ */
+export function facetTriggerLabel(t: Translate, facet: string, values: readonly string[]): string {
+  if (values.length === 0) {
+    return facet
+  }
+  return t('filter.triggerActive', { facet, values: values.join(', ') }, values.length)
 }
