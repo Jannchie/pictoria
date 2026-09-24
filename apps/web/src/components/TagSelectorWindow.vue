@@ -15,6 +15,13 @@ const { focusedPostId } = useFocusedPost()
 function bindTagSelectorWindow(el: Element | ComponentPublicInstance | null) {
   tagSelectorWindowRef.value = el
 }
+
+// Adding the first / removing the last tag swaps the panel's "Add tag" button
+// for another one, so the opener is gone when the window closes: fall back to
+// whichever opener exists now.
+function currentOpener(): HTMLElement | null {
+  return document.querySelector<HTMLElement>('[data-tag-editor-opener]')
+}
 </script>
 
 <template>
@@ -23,6 +30,7 @@ function bindTagSelectorWindow(el: Element | ComponentPublicInstance | null) {
     :safe-margin="16"
     role="dialog"
     :aria-label="$t('tagSelector.title')"
+    :return-focus="currentOpener"
   >
     <TagSelector
       :post-id="focusedPostId"

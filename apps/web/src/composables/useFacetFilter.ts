@@ -3,7 +3,8 @@ import type { RovingFocus } from '@/composables/useRovingFocus'
 import type { CountKind } from '@/shared'
 import type { ScorerUi } from '@/shared/scorers'
 import { keepPreviousData, useQuery } from '@tanstack/vue-query'
-import { computed, ref } from 'vue'
+import { useMutationObserver } from '@vueuse/core'
+import { computed, ref, toValue } from 'vue'
 import { useRovingFocus } from '@/composables/useRovingFocus'
 import { formatNumber } from '@/locale'
 import { postFilter, queryKeys } from '@/shared'
@@ -117,13 +118,34 @@ export function useFacetListbox(
   listbox: MaybeRefOrGetter<HTMLElement | null | undefined>,
   options: { typeahead?: boolean, loop?: boolean } = {},
 ): RovingFocus {
-  return useRovingFocus({
+  const roving = useRovingFocus({
     container: listbox,
     itemSelector: FACET_OPTION_SELECTOR,
     orientation: 'vertical',
     typeahead: options.typeahead ?? true,
     loop: options.loop ?? true,
   })
+  // Counts load after the popover opens: until then there is no option, so
+  // the popover parks focus on its own panel. When the options arrive, move
+  // focus onto the [data-autofocus] option (else the first) — otherwise arrow
+  // keys land on a non-widget and page-level hotkeys take them. Only while
+  // focus is still parked (on the listbox or a wrapper around it), so a
+  // search field next to the list (TagFilter) keeps its focus.
+  useMutationObserver(() => toValue(listbox) ?? undefined, () => {
+    const el = toValue(listbox)
+    const active = document.activeElement
+    if (!el || !(active instanceof HTMLElement) || active === document.body || !active.contains(el)) {
+      return
+    }
+    const items = [...el.querySelectorAll<HTMLElement>(FACET_OPTION_SELECTOR)]
+    if (items.length === 0) {
+      return
+    }
+    const preferred = items.findIndex(item => Object.hasOwn(item.dataset, 'autofocus'))
+    roving.sync()
+    roving.focusItem(preferred === -1 ? 0 : preferred)
+  }, { childList: true, subtree: true })
+  return roving
 }
 
 /**

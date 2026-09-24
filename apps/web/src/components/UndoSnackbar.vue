@@ -3,6 +3,7 @@ import { useTimeoutFn } from '@vueuse/core'
 import { computed, nextTick, ref, useTemplateRef, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { announce } from '@/shared/announce'
+import { shortcuts } from '@/shared/shortcuts'
 import { dismissUndoSnackbar, performRedo, performUndo, undoSnackbar } from '@/shared/undoSnackbar'
 import { focusElement } from '@/utils/focus'
 import { formatShortcut, isMac } from '@/utils/keyboard'
@@ -11,12 +12,12 @@ const { t } = useI18n()
 
 const AUTO_DISMISS_MS = 5000
 
-// The global chords live in useGlobalUndoRedo (Mod+Z / Mod+Shift+Z, Ctrl+Y);
-// the snackbar only advertises them. aria-keyshortcuts wants the literal
+// The global chords are bound by useGlobalUndoRedo from the shortcut catalogue
+// (Mod+Z / Mod+Shift+Z, Mod+Y); the snackbar only advertises them. aria-keyshortcuts wants the literal
 // modifier names, the visible hint the platform glyphs.
 const SHORTCUTS = {
-  undo: { display: formatShortcut('Mod+Z'), aria: isMac ? 'Meta+Z' : 'Control+Z' },
-  redo: { display: formatShortcut('Mod+Shift+Z'), aria: isMac ? 'Meta+Shift+Z' : 'Control+Shift+Z Control+Y' },
+  undo: { display: formatShortcut(shortcuts.global.undo.keys[0]), aria: isMac ? 'Meta+Z' : 'Control+Z' },
+  redo: { display: formatShortcut(shortcuts.global.redo.keys[0]), aria: isMac ? 'Meta+Shift+Z Meta+Y' : 'Control+Shift+Z Control+Y' },
 } as const
 
 const data = computed(() => undoSnackbar.value)
@@ -140,48 +141,55 @@ function onKeydown(e: KeyboardEvent) {
 </script>
 
 <template>
-  <div
-    ref="root"
-    class="px-4 pb-6 flex pointer-events-none bottom-0 left-0 right-0 justify-center fixed z-[var(--p-z-toast)]"
-    @focusin="onFocusin"
-    @focusout="onFocusout"
-    @keydown="onKeydown"
-  >
-    <Transition name="undo-snackbar">
-      <!-- 同一张卡片，只是换了个角落：顶部通知队列用的也是 PToast。这里单条、
-           宽度随内容(fluid)，并把撤销/重做塞进 action 插槽。role="none"：朗读
-           走上面的 announce()，卡片本身不再是 live region，免得读两遍。 -->
-      <PToast
-        v-if="data"
-        fluid
-        role="none"
-        class="pointer-events-none"
-        :message="data.message"
-        :icon="data.tone === 'error' ? 'i-tabler-alert-triangle' : undefined"
-        icon-color="var(--p-fg-muted)"
-      >
-        <template #action>
-          <button
-            v-if="data.action"
-            type="button"
-            class="text-primary font-medium px-2 py-0.5 rounded flex flex-shrink-0 gap-1 pointer-events-auto transition-colors items-center focus-visible:outline-2 focus-visible:outline-primary focus-visible:outline-offset-2 focus-visible:outline hover:bg-surface-2"
-            :aria-keyshortcuts="shortcut?.aria"
-            @click="onAction"
-            @pointerenter="onPointerEnter"
-            @pointerleave="onPointerLeave"
-          >
-            <i :class="actionIcon" aria-hidden="true" />
-            {{ actionLabel }}
-            <kbd
-              v-if="shortcut"
-              class="text-2xs text-fg-subtle leading-none font-mono font-normal px-1 py-0.5 border border-border-subtle rounded-xs"
-              aria-hidden="true"
-            >{{ shortcut.display }}</kbd>
-          </button>
-        </template>
-      </PToast>
-    </Transition>
-  </div>
+  <!-- Teleported + data-layer-keep-active: a modal layer inerts every other
+       body child, and Undo must stay reachable while e.g. a dialog is open. -->
+  <Teleport to="body">
+    <div
+      ref="root"
+      data-layer-keep-active
+      class="px-4 pb-6 flex pointer-events-none bottom-0 left-0 right-0 justify-center fixed z-[var(--p-z-toast)]"
+      @focusin="onFocusin"
+      @focusout="onFocusout"
+      @keydown="onKeydown"
+    >
+      <Transition name="undo-snackbar">
+        <!-- 同一张卡片，只是换了个角落：顶部通知队列用的也是 PToast。这里单条、
+             宽度随内容(fluid)，并把撤销/重做塞进 action 插槽。role="none" 覆盖
+             PToast 按 tone 给的 status/alert：朗读只走上面的 announce()（错误走
+             assertive），卡片本身不再是 live region，一条 snackbar 只读一次。 -->
+        <PToast
+          v-if="data"
+          fluid
+          role="none"
+          :tone="data.tone === 'error' ? 'error' : 'info'"
+          class="pointer-events-none"
+          :message="data.message"
+          :icon="data.tone === 'error' ? 'i-tabler-alert-triangle' : undefined"
+          icon-color="var(--p-fg-muted)"
+        >
+          <template #action>
+            <button
+              v-if="data.action"
+              type="button"
+              class="text-primary font-medium px-2 py-0.5 rounded flex flex-shrink-0 gap-1 pointer-events-auto transition-colors items-center focus-visible:outline-2 focus-visible:outline-primary focus-visible:outline-offset-2 focus-visible:outline hover:bg-surface-2"
+              :aria-keyshortcuts="shortcut?.aria"
+              @click="onAction"
+              @pointerenter="onPointerEnter"
+              @pointerleave="onPointerLeave"
+            >
+              <i :class="actionIcon" aria-hidden="true" />
+              {{ actionLabel }}
+              <kbd
+                v-if="shortcut"
+                class="text-2xs text-fg-subtle leading-none font-mono font-normal px-1 py-0.5 border border-border-subtle rounded-xs"
+                aria-hidden="true"
+              >{{ shortcut.display }}</kbd>
+            </button>
+          </template>
+        </PToast>
+      </Transition>
+    </div>
+  </Teleport>
 </template>
 
 <style scoped>

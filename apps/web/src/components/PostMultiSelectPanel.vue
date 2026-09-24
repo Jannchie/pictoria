@@ -6,6 +6,7 @@ import { computed, onUnmounted, ref, useId, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useRoute } from 'vue-router'
 import { useAPIError } from '@/composables/useAPIError'
+import { focusGalleryGrid } from '@/composables/useGalleryGrid'
 import { useSelectedPostStats } from '@/composables/useSelectedPostStats'
 import { formatNumber } from '@/locale'
 import {
@@ -27,6 +28,7 @@ import {
   selectedCount,
   selectedIdList,
   selectOnly,
+  setGridCursor,
   showPostDetail,
   similarPostList,
 } from '@/shared'
@@ -229,8 +231,12 @@ onUnmounted(() => {
   thumbTimers.clear()
 })
 
+// The actions below empty or shrink the selection, so this panel is swapped
+// for another one while its button still holds focus. Send focus to the grid
+// (the cursor item) instead of letting it fall to <body>.
 function clearSelection() {
   clear()
+  focusGalleryGrid()
 }
 
 function selectAllInList() {
@@ -240,6 +246,8 @@ function selectAllInList() {
 function focusOne(id: number) {
   showPostDetail.value = null
   selectOnly(id)
+  setGridCursor(id)
+  focusGalleryGrid()
 }
 
 async function applyRating(rating: number) {
@@ -308,6 +316,7 @@ async function deleteSelected() {
   try {
     await deletePosts(queryClient, ids)
     clear()
+    focusGalleryGrid()
   }
   catch (error) {
     handleAPIError(error)

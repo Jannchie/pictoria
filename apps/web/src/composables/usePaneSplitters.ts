@@ -10,7 +10,8 @@ export interface SidePaneSpec {
   side: 'left' | 'right'
   /** Current size in percent; written on keyboard resize. */
   size: Ref<number>
-  min: number
+  /** Lower bound in percent (may be reactive, e.g. a pixel floor converted to %). */
+  min: MaybeRefOrGetter<number>
   max: number
   /** Accessible name of the splitter (i18n, read reactively). */
   label: () => string
@@ -46,7 +47,7 @@ export function usePaneSplitters(root: MaybeRefOrGetter<HTMLElement | null | und
     if (!spec || e.isComposing) {
       return
     }
-    const action = splitterKeyAction(e, { value: spec.size.value, min: spec.min, max: spec.max }, spec.side === 'left' ? 'ArrowRight' : 'ArrowLeft')
+    const action = splitterKeyAction(e, { value: spec.size.value, min: toValue(spec.min), max: spec.max }, spec.side === 'left' ? 'ArrowRight' : 'ArrowLeft')
     if (!action) {
       if (isSplitterKey(e.key) && !e.ctrlKey && !e.altKey && !e.metaKey) {
         e.preventDefault()
@@ -77,7 +78,7 @@ export function usePaneSplitters(root: MaybeRefOrGetter<HTMLElement | null | und
       splitter.setAttribute('aria-orientation', 'vertical')
       splitter.setAttribute('aria-controls', spec.id)
       splitter.setAttribute('aria-label', spec.label())
-      splitter.setAttribute('aria-valuemin', String(spec.min))
+      splitter.setAttribute('aria-valuemin', String(toValue(spec.min)))
       splitter.setAttribute('aria-valuemax', String(spec.max))
       splitter.setAttribute('aria-valuenow', String(Math.round(spec.size.value)))
       if (!bound.has(splitter)) {
@@ -102,6 +103,7 @@ export function usePaneSplitters(root: MaybeRefOrGetter<HTMLElement | null | und
   watchEffect(() => {
     for (const p of panes) {
       void p.size.value
+      void toValue(p.min)
       p.label()
     }
     enhance()

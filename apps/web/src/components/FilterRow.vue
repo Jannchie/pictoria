@@ -4,6 +4,7 @@ import { nextTick, useTemplateRef } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useActiveFilters } from '@/composables/useActiveFilters'
 import { announce, openCommandPalette, textSearchQuery, waterfallRowCount } from '@/shared'
+import { shortcuts } from '@/shared/shortcuts'
 import { focusElement } from '@/utils/focus'
 import { formatShortcut, isMac } from '@/utils/keyboard'
 
@@ -15,7 +16,7 @@ const { chips, isFiltered, clearAll } = useActiveFilters()
 
 // The palette's global hotkey (registered by the palette itself) — shown as a
 // hint here, and exposed via aria-keyshortcuts.
-const paletteShortcut = formatShortcut('Mod+K')
+const paletteShortcut = formatShortcut(shortcuts.global.openPalette.keys[0])
 const paletteAriaShortcut = isMac ? 'Meta+K' : 'Control+K'
 
 const chipList = useTemplateRef<HTMLElement>('chipList')

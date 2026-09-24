@@ -456,8 +456,11 @@ function restoreLastViewed() {
   selectOnly(id)
   setGridCursor(id)
   grid.reveal(id, { align: 'center-if-hidden' })
+  // Focus goes to the grid unless the user already put it on a control. The
+  // <main> landmark itself doesn't count: App.vue parks focus there on route
+  // changes, which can land before this restore runs.
   const active = document.activeElement
-  if (!active || active === document.body) {
+  if (!active || active === document.body || active.id === 'main-content') {
     grid.focusGrid()
   }
 }
@@ -517,45 +520,53 @@ onMounted(() => {
     <PMenu
       :data="menuData"
       trigger="contextmenu"
+      :aria-label="$t('gallery.menuActions')"
       class="shrink-0 grow-1 basis-0 h-full w-full"
       @select="onMenuSelect"
     >
       <FolderSection />
-      <PEmpty
-        v-if="isTextSearchActive && textSearchQueryResult.isLoading.value"
-        icon="i-tabler-loader animate-spin"
-        class="p-16"
-      >
-        {{ $t('gallery.searching', { query: textSearchPrompt }) }}
-      </PEmpty>
-      <PEmpty
-        v-else-if="isTextSearchActive && textSearchQueryResult.error.value"
-        icon="i-tabler-alert-circle"
-        class="text-danger p-16"
-      >
-        {{ $t('gallery.searchFailed') }}
-      </PEmpty>
-      <PEmpty
-        v-else-if="isTextSearchActive && posts.length === 0"
-        icon="i-tabler-mood-empty"
-        class="p-16"
-      >
-        {{ $t('gallery.noTextMatch', { query: textSearchPrompt }) }}
-      </PEmpty>
-      <!-- First page in flight: draw the masonry skeleton at the real column
-           geometry so the grid doesn't jump when the data lands. -->
-      <GallerySkeleton
-        v-else-if="!isTextSearchActive && infinityPostsQuery.isLoading.value && posts.length === 0"
-        :cols="cols"
-        :item-width="waterfallItemWidth"
-      />
-      <PEmpty
-        v-else-if="posts.length === 0"
-        icon="i-tabler-photo-off"
-        class="p-16"
-      >
-        {{ $t('gallery.noPosts') }}
-      </PEmpty>
+      <!-- The status slot (loading / empty / error) has its own stable wrapper
+           (display: contents — no layout box). Without it, switching between
+           these v-if branches makes Vue re-insert the grid below them, and a
+           DOM move blurs the focused grid (focus fell to <body> whenever a
+           search started). -->
+      <div class="contents">
+        <PEmpty
+          v-if="isTextSearchActive && textSearchQueryResult.isLoading.value"
+          icon="i-tabler-loader animate-spin"
+          class="p-16"
+        >
+          {{ $t('gallery.searching', { query: textSearchPrompt }) }}
+        </PEmpty>
+        <PEmpty
+          v-else-if="isTextSearchActive && textSearchQueryResult.error.value"
+          icon="i-tabler-alert-circle"
+          class="text-danger p-16"
+        >
+          {{ $t('gallery.searchFailed') }}
+        </PEmpty>
+        <PEmpty
+          v-else-if="isTextSearchActive && posts.length === 0"
+          icon="i-tabler-mood-empty"
+          class="p-16"
+        >
+          {{ $t('gallery.noTextMatch', { query: textSearchPrompt }) }}
+        </PEmpty>
+        <!-- First page in flight: draw the masonry skeleton at the real column
+             geometry so the grid doesn't jump when the data lands. -->
+        <GallerySkeleton
+          v-else-if="!isTextSearchActive && infinityPostsQuery.isLoading.value && posts.length === 0"
+          :cols="cols"
+          :item-width="waterfallItemWidth"
+        />
+        <PEmpty
+          v-else-if="posts.length === 0"
+          icon="i-tabler-photo-off"
+          class="p-16"
+        >
+          {{ $t('gallery.noPosts') }}
+        </PEmpty>
+      </div>
 
       <!-- The waterfall wrapper is the listbox: one Tab stop, focus stays on
            it, the cursor thumbnail is its aria-activedescendant. -->

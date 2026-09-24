@@ -43,9 +43,8 @@ export interface KeyScopeInputs {
   /** PostDetail 全屏覆盖层是否打开。 */
   detailOverlayOpen: boolean
   /**
-   * 是否有对话框打开（`isAnyDialogOpen`）：PDialog / CommandPalette /
-   * ShortcutHelp 的手动计数，或图层栈上任意 `modal: true` 的图层。
-   * 裸 POverlay 本身不计入。
+   * 是否有对话框打开（`isAnyDialogOpen` = 图层栈上存在 `modal: true` 的图层，
+   * 如 PDialog / CommandPalette / ShortcutHelp）。裸 POverlay 本身不计入。
    */
   dialogOpen: boolean
   /** 侧栏目录树是否有某一行获得键盘焦点。 */

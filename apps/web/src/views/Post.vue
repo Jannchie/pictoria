@@ -10,6 +10,7 @@ import { useHotkey } from '@/composables/useHotkey'
 import { useKeyScope } from '@/composables/useKeyScope'
 import { usePostNavAnnounce, usePostNavigation } from '@/composables/usePostNavigation'
 import { announce, bottomBarInfo, clear as clearSelection, deletePosts, enableArthash, enableFancyPlaceholder, isCommittedSelected, lastViewedPostId, selectedIdList, selectOnly, showPostDetail, similarPostList } from '@/shared'
+import { shortcuts } from '@/shared/shortcuts'
 import { useToast } from '@/shared/toast'
 import { POverlay } from '@/ui'
 import PDialog from '@/ui/PDialog.vue'
@@ -218,17 +219,17 @@ const viewKeyOptions = {
   ignore: (e: KeyboardEvent) => !allowsViewKeys(e.target, pageRootRef.value),
 }
 
-useHotkey('Escape', () => {
+useHotkey(shortcuts.postPage.back.keys, () => {
   router.back()
 }, viewKeyOptions)
 
-useHotkey(['ArrowLeft', 'ArrowRight'], (e) => {
+useHotkey(shortcuts.postPage.prevNext.keys, (e) => {
   navigatePost(e.key === 'ArrowRight' ? 1 : -1)
 }, viewKeyOptions)
 
 // Enter / 空格看大图：任何按钮、缩略图等控件获得焦点时都让位（它们自己的
 // Enter/空格优先），只在主图或页面空白处生效。
-useHotkey([' ', 'Enter'], openOverlay, {
+useHotkey(shortcuts.postPage.openViewer.keys, openOverlay, {
   when: onPage,
   repeat: false,
   ignore: e => isInteractiveTarget(e.target),
@@ -256,7 +257,7 @@ function deleteTargets(e: KeyboardEvent): number[] {
 
 // 控件上也生效（选中相似图后焦点就在缩略图上），只是不抢文本框和目录树（后者
 // 有自己的删除目录）。
-useHotkey('Delete', (e) => {
+useHotkey(shortcuts.postPage.deleteSelected.keys, (e) => {
   pendingDeleteIds.value = deleteTargets(e)
   showDeleteConfirm.value = true
 }, {

@@ -4,6 +4,7 @@ import type { DirectorySummary } from '@/api'
 import type { PMenuItem } from '@/ui'
 import type { TreeListCollapseData, TreeListItemData, TreeListLeafData } from '@/ui/PTreeList.vue'
 import { useQueryClient } from '@tanstack/vue-query'
+import { useResizeObserver } from '@vueuse/core'
 import { Pane, Splitpanes } from 'splitpanes'
 import { computed, nextTick, onBeforeUnmount, ref, useTemplateRef, watch, watchEffect } from 'vue'
 import { useI18n } from 'vue-i18n'
@@ -15,6 +16,7 @@ import { usePaneSplitters } from '@/composables/usePaneSplitters'
 import { usePostQuery } from '@/composables/usePostQuery'
 import { useWatchRoute } from '@/composables/useWatchRoute'
 import { formatNumber } from '@/locale'
+import { shortcuts } from '@/shared/shortcuts'
 import PTreeList, { CHEVRON_SLOT, LEVEL_INDENT } from '@/ui/PTreeList.vue'
 import { formatShortcut } from '@/utils/keyboard'
 import { routeTitle, shouldAnnounceRoute, shouldFocusMain } from '@/utils/routeAnnounce'
@@ -301,7 +303,7 @@ function requestDeleteFolder(path: string | null | undefined) {
 
 // 树行（role=treeitem，带 data-tree-value）获得焦点时按 Delete 删除该目录。树行是
 // widget，画廊的"删除选中图片"热键（useHotkey 默认跳过 widget）自然让位。
-useHotkey('Delete', () => requestDeleteFolder(focusedTreeFolder.value), {
+useHotkey(shortcuts.folderTree.deleteFolder.keys, () => requestDeleteFolder(focusedTreeFolder.value), {
   when: () => Boolean(focusedTreeFolder.value) && !isAnyDialogOpen.value,
   allowInWidgets: true,
 })
@@ -351,23 +353,23 @@ function clearFilter() {
 // ── Global hotkeys ──────────────────────────────────────────────────────────
 // ⌘K / Ctrl+K opens the palette from anywhere, including from inside an input
 // (that's the point — it's the one key that always works).
-useHotkey('Mod+K', () => {
+useHotkey(shortcuts.global.openPalette.keys, () => {
   commandPaletteOpen.value = !commandPaletteOpen.value
 }, { allowInTyping: true, allowInWidgets: true })
 
 // '?' opens the shortcut sheet, but only when not typing — otherwise it would
 // swallow the character in the folder filter or a caption field.
-useHotkey('?', () => {
+useHotkey(shortcuts.global.openHelp.keys, () => {
   shortcutHelpOpen.value = true
 }, { allowInWidgets: true, when: () => !isAnyDialogOpen.value })
 
 // Pane toggles. Mod+B / Mod+Shift+B mirror the editor convention; the same
 // state is driven by the bottom bar's buttons, which stay reachable once a
 // pane is gone (the pane's own header would collapse with it).
-useHotkey('Mod+B', () => {
+useHotkey(shortcuts.global.toggleLeft.keys, () => {
   leftPaneCollapsed.value = !leftPaneCollapsed.value
 }, { allowInTyping: true, allowInWidgets: true, when: () => !isAnyDialogOpen.value })
-useHotkey('Mod+Shift+B', () => {
+useHotkey(shortcuts.global.toggleRight.keys, () => {
   rightPaneCollapsed.value = !rightPaneCollapsed.value
 }, { allowInTyping: true, allowInWidgets: true, when: () => !isAnyDialogOpen.value })
 
@@ -395,6 +397,33 @@ function onPanesResized({ panes }: { panes: { size: number }[] }) {
 }
 
 const split = useTemplateRef<ComponentPublicInstance>('split')
+// Side panes also carry a pixel floor (min-w-64 = 256px). Below it the
+// percent size is fiction: the pane stays 256px wide, so keyboard steps did
+// nothing visible and aria-valuenow lied. Convert the floor to a percent of
+// the layout width and use it as the effective minimum.
+const SIDE_PANE_MIN_PX = 256
+const splitWidth = ref(0)
+useResizeObserver(() => split.value?.$el as HTMLElement | undefined, ([entry]) => {
+  splitWidth.value = entry.contentRect.width
+})
+function floorPct(base: { min: number, max: number }) {
+  if (splitWidth.value <= 0) {
+    return base.min
+  }
+  return Math.min(base.max, Math.max(base.min, Math.ceil(SIDE_PANE_MIN_PX / splitWidth.value * 100)))
+}
+const leftMin = computed(() => floorPct(LEFT_PANE))
+const rightMin = computed(() => floorPct(RIGHT_PANE))
+watch(leftMin, (min) => {
+  if (leftSize.value < min) {
+    leftSize.value = min
+  }
+})
+watch(rightMin, (min) => {
+  if (rightSize.value < min) {
+    rightSize.value = min
+  }
+})
 const navEl = useTemplateRef<HTMLElement>('navEl')
 const mainEl = useTemplateRef<HTMLElement>('mainEl')
 const asideEl = useTemplateRef<HTMLElement>('asideEl')
@@ -410,13 +439,13 @@ function collapsePane(side: 'left' | 'right') {
   }
   nextTick(() => mainEl.value?.focus({ preventScroll: true }))
   announce(side === 'left'
-    ? t('pane.leftHidden', { key: formatShortcut('Mod+B') })
-    : t('pane.rightHidden', { key: formatShortcut('Mod+Shift+B') }))
+    ? t('pane.leftHidden', { key: formatShortcut(shortcuts.global.toggleLeft.keys[0]) })
+    : t('pane.rightHidden', { key: formatShortcut(shortcuts.global.toggleRight.keys[0]) }))
 }
 
 usePaneSplitters(() => split.value?.$el as HTMLElement | undefined, [
-  { id: 'pane-left', side: 'left', size: leftSize, ...LEFT_PANE, label: () => t('pane.resizeLeft'), collapse: () => collapsePane('left') },
-  { id: 'pane-right', side: 'right', size: rightSize, ...RIGHT_PANE, label: () => t('pane.resizeRight'), collapse: () => collapsePane('right') },
+  { id: 'pane-left', side: 'left', size: leftSize, min: leftMin, max: LEFT_PANE.max, label: () => t('pane.resizeLeft'), collapse: () => collapsePane('left') },
+  { id: 'pane-right', side: 'right', size: rightSize, min: rightMin, max: RIGHT_PANE.max, label: () => t('pane.resizeRight'), collapse: () => collapsePane('right') },
 ])
 
 // F6 / Shift+F6 cycle focus through the landmarks (sidebar nav → main →
@@ -430,7 +459,7 @@ function focusRegion(el: HTMLElement) {
   }
   el.focus({ preventScroll: true })
 }
-useHotkey(['F6', 'Shift+F6'], (e) => {
+useHotkey(shortcuts.global.cycleRegions.keys, (e) => {
   const regions = [navEl.value, mainEl.value, asideEl.value].filter((el): el is HTMLElement => !!el?.isConnected)
   if (regions.length === 0) {
     return
@@ -529,7 +558,7 @@ function splitHighlight(text: string, filter: string): HighlightPart[] {
       <Pane
         v-if="!leftPaneCollapsed"
         id="pane-left"
-        :min-size="LEFT_PANE.min"
+        :min-size="leftMin"
         :size="leftSize"
         :max-size="LEFT_PANE.max"
         class="border-r border-border-subtle min-w-64"
@@ -622,6 +651,7 @@ function splitHighlight(text: string, filter: string): HighlightPart[] {
           <div class="px-2 pb-1 flex-grow min-h-0">
             <PMenu
               :data="treeMenuItems"
+              :aria-label="$t('sidebar.folderActions')"
               class="h-full"
               @select="onTreeMenuSelect"
             >
@@ -790,7 +820,7 @@ function splitHighlight(text: string, filter: string): HighlightPart[] {
       <Pane
         v-if="!rightPaneCollapsed"
         id="pane-right"
-        :min-size="RIGHT_PANE.min"
+        :min-size="rightMin"
         :size="rightSize"
         :max-size="RIGHT_PANE.max"
         class="border-l border-border-subtle min-w-64"

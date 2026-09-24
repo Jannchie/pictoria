@@ -51,6 +51,7 @@ declare global {
   const facetTriggerLabel: typeof import('./composables/useFacetFilter').facetTriggerLabel
   const filterTagTree: typeof import('./composables/useTagTree').filterTagTree
   const firstRovingIndex: typeof import('./composables/useRovingIndex').firstRovingIndex
+  const focusGalleryGrid: typeof import('./composables/useGalleryGrid').focusGalleryGrid
   const formatDate: typeof import('./locale/index').formatDate
   const formatDateTime: typeof import('./locale/index').formatDateTime
   const formatNumber: typeof import('./locale/index').formatNumber

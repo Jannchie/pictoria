@@ -83,11 +83,12 @@ describe('catalogue covers every key used in source', () => {
 
   // Literal keys reach vue-i18n three ways: direct t('…')/$t('…') calls,
   // <i18n-t keypath="…">, and option arrays carrying labelKey/fullKey fields
-  // that templates resolve via $t(opt.labelKey).
+  // that templates resolve via $t(opt.labelKey); the shortcut catalogue's
+  // descKey/titleKey/gestureKey (shared/shortcuts.ts) likewise.
   const KEY_PATTERNS = [
     /\bt\(\s*'([a-z0-9.]+)'/gi,
     /keypath="([a-z0-9.]+)"/gi,
-    /(?:labelKey|fullKey):\s*'([a-z0-9.]+)'/g,
+    /(?:labelKey|fullKey|descKey|titleKey|gestureKey):\s*'([a-z0-9.]+)'/gi,
   ]
 
   it('every literal i18n key in src/ exists in the en catalogue', () => {

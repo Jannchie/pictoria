@@ -622,6 +622,7 @@ const sectionTitleClass
             type="button"
             class="rounded-sm self-start"
             aria-haspopup="dialog"
+            data-tag-editor-opener
             @click="openTagSelectorWindow()"
           >
             <PTag
@@ -647,8 +648,9 @@ const sectionTitleClass
           </div>
           <PButton
             size="sm"
-            block
+
             aria-haspopup="dialog"
+            data-tag-editor-opener block
             @click="openTagSelectorWindow()"
           >
             <i class="i-tabler-bookmark-plus" aria-hidden="true" />

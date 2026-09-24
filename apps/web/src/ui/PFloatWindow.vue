@@ -24,6 +24,11 @@ const props = withDefaults(defineProps<{
   show?: boolean
   role?: string
   ariaLabel?: string
+  /**
+   * Where focus goes on close when the element that opened the window is
+   * gone (e.g. the opener was re-rendered by what the window changed).
+   */
+  returnFocus?: () => HTMLElement | null | undefined
 }>(), {
   safeMargin: 4,
   role: 'dialog',
@@ -110,7 +115,7 @@ useLayer(show, {
   },
 })
 
-useFocusTrap(wrapper, show, { trapTab: false })
+useFocusTrap(wrapper, show, { trapTab: false, returnFocus: () => props.returnFocus?.() })
 
 // ---- drag -------------------------------------------------------------------
 let pending: { pointerId: number, startX: number, startY: number, offsetX: number, offsetY: number } | null = null

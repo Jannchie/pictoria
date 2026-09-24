@@ -19,6 +19,7 @@ import {
   textSearchQuery,
   useLayer,
 } from '@/shared'
+import { shortcuts } from '@/shared/shortcuts'
 import { POverlay } from '@/ui'
 import { hasFilterTerms, parseFilterQuery, stringifyFilterQuery } from '@/utils/filterDsl'
 import { formatShortcut } from '@/utils/keyboard'
@@ -120,7 +121,7 @@ const commands = computed<Command[]>(() => {
       id: 'view-left',
       group: 'view',
       label: t('pane.toggleLeft'),
-      shortcut: 'Mod+B',
+      shortcut: shortcuts.global.toggleLeft.keys[0],
       icon: 'i-tabler-layout-sidebar-left-collapse',
       run: () => {
         leftPaneCollapsed.value = !leftPaneCollapsed.value
@@ -130,7 +131,7 @@ const commands = computed<Command[]>(() => {
       id: 'view-right',
       group: 'view',
       label: t('pane.toggleRight'),
-      shortcut: 'Mod+Shift+B',
+      shortcut: shortcuts.global.toggleRight.keys[0],
       icon: 'i-tabler-layout-sidebar-right-collapse',
       run: () => {
         rightPaneCollapsed.value = !rightPaneCollapsed.value
@@ -149,7 +150,7 @@ const commands = computed<Command[]>(() => {
       id: 'help-shortcuts',
       group: 'help',
       label: t('command.shortcuts'),
-      shortcut: '?',
+      shortcut: shortcuts.global.openHelp.keys[0],
       icon: 'i-tabler-keyboard',
       keywords: 'keyboard help hotkeys',
       run: () => {

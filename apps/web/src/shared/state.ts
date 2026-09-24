@@ -217,9 +217,9 @@ export const showPostDetail = ref<PostSimplePublic | null>(null)
  */
 export const lastViewedPostId = ref<number | null>(null)
 
-// Dialog open-count lives in the design system (ui/) so it doesn't depend on
+// `isAnyDialogOpen` lives in the design system (ui/) so it doesn't depend on
 // the app store; re-exported here so `@/shared` stays the single import.
-export { isAnyDialogOpen, openDialogCount } from '@/ui/modal'
+export { isAnyDialogOpen } from '@/ui/modal'
 
 // Path of the folder-tree row that currently has keyboard focus (the tree's
 // RouterLinks carry data-tree-value; clicking one focuses it). While a tree
@@ -245,10 +245,3 @@ export const similarPostList = ref<PostSimplePublic[]>([])
 // unmount when navigating to /post/:id so Esc/back restores the same position.
 // Keyed by route.fullPath so different folders/filters keep separate state.
 export const galleryScrollPositions = new Map<string, number>()
-
-export const menuData = ref<any | null>(null)
-export const showMenu = computed({ get: () => !!menuData.value, set: (value) => {
-  if (!value) {
-    menuData.value = null
-  }
-} })

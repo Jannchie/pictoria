@@ -95,6 +95,19 @@ function currentFocusInHost(): HTMLElement | null {
   return active && active !== document.body && host.value?.contains(active) ? active : null
 }
 
+/**
+ * Keyboard anchor: a composite that keeps DOM focus on its container and
+ * points at the logical item with `aria-activedescendant` (the gallery grid,
+ * a combobox) anchors the menu to that item, not to the whole container.
+ */
+function keyboardAnchorTarget(focused: HTMLElement): HTMLElement {
+  const id = focused.getAttribute('aria-activedescendant')
+  if (!id) {
+    return focused
+  }
+  return host.value?.querySelector<HTMLElement>(`#${CSS.escape(id)}`) ?? focused
+}
+
 function openWith(anchor: VirtualElement) {
   const active = document.activeElement as HTMLElement | null
   invoker = active && active !== document.body ? active : null
@@ -103,7 +116,8 @@ function openWith(anchor: VirtualElement) {
 }
 
 function openFromKeyboard() {
-  const target = currentFocusInHost() ?? menuButton() ?? host.value
+  const focused = currentFocusInHost()
+  const target = (focused ? keyboardAnchorTarget(focused) : null) ?? menuButton() ?? host.value
   if (target) {
     openWith(elementAnchor(target))
   }

@@ -1,4 +1,4 @@
-export { isAnyDialogOpen, openDialogCount } from './modal'
+export { isAnyDialogOpen } from './modal'
 export { default as PAspectRatio } from './PAspectRatio.vue'
 export { default as PButton } from './PButton.vue'
 export { default as PCheckbox } from './PCheckbox.vue'

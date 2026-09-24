@@ -142,17 +142,17 @@ reference in `PSelectArea`.
 
 | Primitive          | Purpose                              | Key props                                                    |
 | ------------------ | ------------------------------------ | ------------------------------------------------------------ |
-| `PButton`          | Button                               | `variant` (primary/secondary/ghost/subtle/danger/success/warning/info), `size` (xs/sm/md/lg), `rounded`, `icon`, `block`, `loading`, `active` |
-| `PInput`           | Text input                           | `size` (sm/md/lg), `type`, `inputmode`                       |
-| `PCheckbox`        | Checkbox                             | bound value                                                  |
+| `PButton`          | Button                               | `variant` (primary/secondary/ghost/subtle/danger/success/warning/info), `size` (xs/sm/md/lg), `rounded`, `icon`, `block`, `loading`, `active` (visual only), `pressed` (toggle button → `aria-pressed`; leave undefined for a plain button) |
+| `PInput`           | Text input                           | `size` (sm/md/lg), `variant` (default/plain), `type`, `inputmode`, `ariaLabel` / `ariaLabelledby` / `ariaDescribedby`, `invalid` (→ `aria-invalid` + danger border), `block` |
+| `PCheckbox`        | Checkbox                             | bound value, `label`, `indeterminate` (dash glyph, `aria-checked="mixed"`; caller-owned), `presentational` (visual only inside a row that is itself the checkbox/option), `ariaLabel` / `ariaLabelledby` |
 | `PSwitch`          | Toggle                               | `size` (sm/md/lg)                                            |
-| `PSlider`          | Range slider                         | `size` (sm/md/lg), `color` (primary/secondary/tertiary/error) |
-| `PRating`          | Star-style rating row                | `count`, custom icon set                                    |
+| `PSlider`          | Range slider (`role=slider`, arrows / Home / End / PageUp / PageDown) | `size` (sm/md/lg), `color` (primary/secondary/tertiary/error), `ariaLabel` / `ariaLabelledby`, `ariaValuetext`, `disabled` |
+| `PRating`          | Star-style rating row (radio group, roving focus) | `count`, custom icon set, `ariaLabel`, `mixed` (multi-selection with differing values: no star drawn, group described as mixed), `readonly`, `disabled` |
 | `PTag`             | Pill / label                         | `variant` (soft/outline/solid), `tone` (neutral/primary/success/warning/danger/info), `size` (xs/sm/md) |
-| `PColorSwatch`     | Color chip                           | `size`, `rounded` (sm/md/lg/full)                           |
-| `PListItem`        | Interactive list row                 | `type` (normal/checkbox)                                    |
+| `PColorSwatch`     | Color chip                           | `size`, `rounded` (sm/md/lg/full), `label` (accessible name; decorative without it) |
+| `PListItem`        | Interactive list row                 | `type` (normal/checkbox), `role` (option/menuitem… → focusable), `focusable` (false when the parent owns tabindex), `current` (→ `aria-current`), `as` (div/button/a), `to` (RouterLink row, `aria-current="page"` while active) |
 | `PEmpty`           | Empty state (no border / card)       | `icon`; default slot = text (caller passes `$t`), `action` slot |
-| `PEdgeNavRail`     | Edge prev/next rail over an image    | `side` (left/right), `shown` (pair with `useEdgeProximity`)  |
+| `PEdgeNavRail`     | Edge prev/next rail over an image    | `side` (left/right), `shown` (pair with `useEdgeProximity`), `label` (accessible name of the button) |
 | `PMenu`            | Context / click menu (APG menu): right click at the cursor, Shift+F10 / ContextMenu key at the focused element; roving focus, typeahead, label rows → `role=group`; Escape / Tab close and return focus | `data` (label/divider/item roles, `disabled` → `aria-disabled`, still focusable), `trigger` (contextmenu/click), `ariaLabel`; emits `select` |
 | `PPopover`         | Anchored non-modal popover, teleported + floating-ui (flip/shift). Trigger = first focusable in the default slot, wired with `aria-haspopup/expanded/controls`; toggles on `click`; focus moves in on open; Escape / inside close return focus to the trigger; Tab past the end closes and continues after the trigger | `v-model`, `position` (12 floating-ui placements), `zIndex` (default `var(--p-z-popup)`), `offset`, `overlay`, `popupRole` (dialog/menu/listbox), `ariaLabel`; `trigger="hover"` = legacy alias for `PTooltip` |
 | `PTooltip`         | Tooltip (hover after 400 ms, keyboard focus immediately; hoverable; Escape hides; never takes focus; `aria-describedby` on the trigger) | `content` or `#content` slot, `position`, `openDelay`, `closeDelay`, `disabled`, `as` |
@@ -161,19 +161,19 @@ reference in `PSelectArea`.
 | `PFloatWindow`     | Non-modal draggable floating window: opens at the cursor, or below the focused element after a key press; Escape always closes, outside click closes unless pinned; focus in on open, back on close; drag from `[data-drag-handle]` (whole window if none) | `v-model`, `pinned` (provided as `'pinned'`), `role` (default dialog), `ariaLabel`, `safeMargin`; exposes `toggle()` |
 | `PSurface`         | Surface container                    | `level` (base/1/2/3), `bordered`, `rounded`, `padded`, `shadow` (none/sm/md/lg) |
 | `PAspectRatio`     | Aspect-ratio box                     | ratio props                                                 |
-| `PScrollArea`      | Custom scroll container              | scroll props                                                |
+| `PScrollArea`      | Custom scroll container              | scroll props, `focusable` + `ariaLabel` (a Tab stop for text regions with nothing focusable inside, so the keyboard can scroll them) |
 | `PVirtualScroll`   | Virtualized list                     | `items`, `is`                                               |
 | `PSelectArea`      | Drag-select box (exports `Area`)     | `target`                                                    |
 | `PTreeList`        | Virtualized tree (sidebar folders)   | typed `TreeListItemData`, `rounded`                         |
-| `PToast`           | Notification card (toast + snackbar) | `message`, `icon`, `iconColor`, `closeable`, `fluid` (hug content instead of the fixed 384px), `#action` slot |
+| `PToast`           | Notification card (toast + snackbar) — the card is its own live region | `message`, `icon`, `iconColor`, `closeable`, `fluid` (hug content instead of the fixed 384px), `tone` (info/success/warning/error; `error` → `role=alert`, else `role=status`), `#action` slot. A caller that announces through `announce()` instead passes `role="none"` (UndoSnackbar) so each message is read once |
 | `PToastContainer`  | Toast stack layout                   | `items`                                                     |
 | `PLocaleSwitch`    | Language picker                      | (wired to locale state)                                     |
 | `PSchemeSwitch`    | Dark/light/auto picker               | (wired to `data-scheme`)                                    |
 
-`src/ui/index.ts` also re-exports `modal.ts` (`openDialogCount`,
-`isAnyDialogOpen`) so pages can gate their window-level hotkeys while any dialog
-is open. `PDialog` no longer touches the counter — its `modal` layer feeds
-`isAnyDialogOpen` through `hasModalLayer`.
+`src/ui/index.ts` also re-exports `modal.ts` (`isAnyDialogOpen`, an alias of
+the layer stack's `hasModalLayer`) so pages can gate their window-level hotkeys
+while any dialog is open. Every modal registers `useLayer({ modal: true })`;
+there is no manual dialog counter any more.
 
 **Modal layering.** A modal is `<POverlay>` (scrim, teleported to `<body>`)
 wrapping `<PDialog>` (the `modal: true` layer). Because the scrim subtree is a
@@ -255,5 +255,38 @@ Shared plumbing every keyboard interaction builds on. Three rules:
 | `shared/announce.ts` | `announce(message, 'polite' \| 'assertive')` through persistent live regions. Messages go through i18n. |
 
 `useRovingIndex.ts` stays for index-based (non-DOM-focus) cruising such as
-TagSelector's hover index. The legacy `openDialogCount` counter is still OR-ed
-into `isAnyDialogOpen` until CommandPalette / ShortcutHelp move onto the stack.
+TagSelector's hover index.
+
+### Keyboard model
+
+The user-facing key map lives in one place: **`src/shared/shortcuts.ts`**.
+Groups (global, gallery grid, post page, viewer, folder tree, palette / tag
+editor, annotation) × entries `{ keys, descKey }`, with `keys` in the
+`utils/keyboard` grammar (`'Mod+Shift+B'`). The `?` sheet
+(`components/ShortcutHelp.vue`) and the command palette's hints render from it,
+and the plain `useHotkey` / `handleHotkey` bindings (App.vue's global keys, the
+grid, undo / redo) import their keys from it — change the entry, and binding
+and documentation move together. Widget-internal keys (tree, listboxes,
+splitters, sortable cards) are implemented by their components and only
+*listed* in the catalogue; update the entry when you change one.
+`src/test/shortcuts.test.ts` checks every entry parses and every `descKey`
+exists.
+
+How keys are distributed:
+
+- **One Tab stop per region / composite.** Skip link → folder tree → gallery
+  grid → detail panel; F6 / Shift+F6 cycles the three regions. Inside a
+  composite the arrows move (roving tabindex, or `aria-activedescendant` for
+  the grid and comboboxes).
+- **Widgets own their keys.** A focused button, slider, radio, tree row or
+  grid keeps Enter / Space / arrows; page hotkeys stand down there
+  (`useHotkey` default). Letter and `Mod+…` hotkeys that no widget uses opt in
+  with `allowInWidgets`.
+- **Escape closes exactly one thing** — the top layer. Page-level Escape
+  (clear selection, back, leave a session) only runs when no layer is open.
+- **Context menus** open with Shift+F10 / the Menu key, anchored to the
+  focused element — or to its `aria-activedescendant` item (the grid cursor).
+- **Focus never falls to `<body>`.** Closing a layer returns focus to its
+  invoker; a panel that swaps its own content under focus (multi-select
+  delete, "select only") sends focus to the gallery grid
+  (`focusGalleryGrid()` in `composables/useGalleryGrid.ts`).

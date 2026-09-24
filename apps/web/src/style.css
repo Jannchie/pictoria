@@ -123,6 +123,14 @@ textarea:focus-visible {
   transform: translateY(2px);
 }
 
+/* A leaving layer is already gone as far as the user is concerned: it must
+   never take clicks, even if its transition stalls (a background tab pauses
+   requestAnimationFrame, so Vue's leave can sit at leave-from for a while). */
+.p-float-leave-active,
+.p-float-fade-leave-active {
+  pointer-events: none;
+}
+
 /* Overlay variant: fade only — a backdrop must not shift position. */
 .p-float-fade-enter-active,
 .p-float-fade-leave-active {

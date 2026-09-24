@@ -207,7 +207,9 @@ const KEY_ALIASES: Record<string, string> = {
  */
 export function parseShortcut(shortcut: string, options: ShortcutPlatformOptions = {}): ParsedShortcut {
   const mac = options.mac ?? isMac
-  let tokens = shortcut.split('+').map(t => t.trim())
+  // A literal space key (`' '`, `'Shift+ '`) would be trimmed away below.
+  const source = shortcut === ' ' || shortcut.endsWith('+ ') ? `${shortcut.slice(0, -1)}Space` : shortcut
+  let tokens = source.split('+').map(t => t.trim())
   // `Mod++` / a lone `+` → the key is '+' (split leaves empty tokens behind).
   let key: string | undefined
   if (tokens.length >= 2 && tokens.at(-1) === '' && tokens.at(-2) === '') {
@@ -331,6 +333,7 @@ const KEY_DISPLAY: Record<string, string> = {
   'end': 'End',
   'pageup': 'PgUp',
   'pagedown': 'PgDn',
+  'contextmenu': 'Menu',
 }
 
 function displayKey(key: string): string {

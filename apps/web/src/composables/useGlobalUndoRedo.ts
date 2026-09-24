@@ -1,28 +1,14 @@
-import { onKeyStroke } from '@vueuse/core'
-import { notUsingInput } from '@/composables/useKeyScope'
+import { useHotkey } from '@/composables/useHotkey'
+import { shortcuts } from '@/shared/shortcuts'
 import { performRedo, performUndo } from '@/shared/undoSnackbar'
 
 /**
- * 全局 Ctrl/Cmd+Z 撤销、Ctrl+Y / Ctrl+Shift+Z 重做。
- * 输入框聚焦时不拦截，交给浏览器原生文本撤销。撤销/重做的反馈与 popup 内的
- * 按钮共用 performUndo/performRedo，统一走底部 snackbar。
+ * 全局 Mod+Z 撤销、Mod+Shift+Z / Mod+Y 重做（键位见 `shared/shortcuts.ts`）。
+ * 输入框聚焦时不拦截（useHotkey 默认跳过 typing target），交给浏览器原生文本
+ * 撤销。按钮、缩略图等控件上照常生效。撤销/重做的反馈与 popup 内的按钮共用
+ * performUndo/performRedo，统一走底部 snackbar。
  */
 export function useGlobalUndoRedo() {
-  onKeyStroke(['z', 'Z', 'y', 'Y'], async (e) => {
-    if (!notUsingInput.value) {
-      return
-    }
-    const ctrl = e.ctrlKey || e.metaKey
-    if (!ctrl) {
-      return
-    }
-    const key = e.key.toLowerCase()
-    const isRedo = key === 'y' || (key === 'z' && e.shiftKey)
-    const isUndo = key === 'z' && !e.shiftKey
-    if (!isUndo && !isRedo) {
-      return
-    }
-    e.preventDefault()
-    await (isRedo ? performRedo() : performUndo())
-  })
+  useHotkey(shortcuts.global.undo.keys, () => void performUndo(), { allowInWidgets: true })
+  useHotkey(shortcuts.global.redo.keys, () => void performRedo(), { allowInWidgets: true })
 }

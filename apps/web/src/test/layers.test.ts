@@ -3,7 +3,7 @@ import type { LayerHandle } from '@/shared/layers'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { effectScope, nextTick, ref } from 'vue'
 import { hasModalLayer, isTopLayer, layerCount, pushLayer, topLayer, useLayer } from '@/shared/layers'
-import { isAnyDialogOpen, openDialogCount } from '@/ui/modal'
+import { isAnyDialogOpen } from '@/ui/modal'
 
 function byId(id: string): HTMLElement {
   return document.querySelector<HTMLElement>(`#${id}`)!
@@ -63,13 +63,6 @@ describe('layer stack', () => {
     b.remove() // idempotent
     expect(a.isTop()).toBe(true)
     expect(hasModalLayer.value).toBe(false)
-    expect(isAnyDialogOpen.value).toBe(false)
-  })
-
-  it('keeps the legacy dialog counter in isanydialogopen', () => {
-    openDialogCount.value++
-    expect(isAnyDialogOpen.value).toBe(true)
-    openDialogCount.value--
     expect(isAnyDialogOpen.value).toBe(false)
   })
 })

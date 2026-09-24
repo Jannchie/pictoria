@@ -6,6 +6,7 @@ import { computed, provide, reactive, ref, toValue, watch, watchEffect } from 'v
 import { useI18n } from 'vue-i18n'
 import { handleHotkey } from '@/composables/useHotkey'
 import { announce } from '@/shared/announce'
+import { layerCount } from '@/shared/layers'
 import {
   clear as clearSelection,
   extendToGridCursor,
@@ -20,6 +21,7 @@ import {
   soleSelectedId,
   toggleGridCursor,
 } from '@/shared/selection'
+import { shortcuts } from '@/shared/shortcuts'
 import { findGridNeighbor, findPageTarget, firstVisibleIndex, revealScrollTop } from '@/utils/gridGeometry'
 
 /**
@@ -51,6 +53,24 @@ export function gridItemDomId(id: number): string {
 
 /** Marks a gallery listbox, so page-level hotkeys can recognise it as "the grid" rather than a foreign widget. */
 export const GALLERY_GRID_ATTR = 'data-gallery-grid'
+
+/**
+ * Put keyboard focus on the gallery grid (its focus handler shows / seeds the
+ * cursor). For actions in a side panel that replace the panel's own content
+ * under focus — the focused button is about to vanish and focus would fall
+ * to <body>. Returns false when no grid is on the page.
+ */
+export function focusGalleryGrid(): boolean {
+  if (typeof document === 'undefined') {
+    return false
+  }
+  const grid = document.querySelector<HTMLElement>(`[${GALLERY_GRID_ATTR}]`)
+  if (!grid) {
+    return false
+  }
+  grid.focus({ preventScroll: true })
+  return document.activeElement === grid
+}
 
 export interface UseGalleryGridOptions {
   /** The listbox element (the Waterfall wrapper). */
@@ -116,9 +136,12 @@ const INSIDE_NAV = navBindings(Object.keys(NAV_KEYS))
 // From outside the grid (focus on <body>) only the keys the grid always
 // answered to: arrows. Home/End/Page keys stay with the page there.
 const OUTSIDE_NAV = navBindings(Object.keys(ARROWS))
-const TOGGLE_KEYS = ['Space', 'Ctrl+Space', 'Mod+Space']
-const DELETE_KEYS = ['Delete', 'Mod+Backspace']
-const MENU_KEYS = ['Shift+F10', 'ContextMenu']
+// Bindings come from the shortcut catalogue (the help sheet reads the same
+// entries). Ctrl+Space also toggles on a Mac, where Mod is Cmd.
+const KEYS = shortcuts.gallery
+const TOGGLE_KEYS = [...KEYS.toggle.keys, 'Ctrl+Space']
+const DELETE_KEYS = KEYS.deleteSelected.keys
+const MENU_KEYS = KEYS.contextMenu.keys
 const REVEAL_MARGIN = 16
 
 /** Container top in the scroller's content coordinates. */
@@ -339,14 +362,14 @@ export function useGalleryGrid(options: UseGalleryGridOptions): GalleryGrid {
       toggleGridCursor()
       keyboardActive.value = true
     }, { ...opts, repeat: false })
-    || handleHotkey(e, 'Shift+Space', () => {
+    || handleHotkey(e, KEYS.rangeToCursor.keys, () => {
       ensureCursor()
       extendToGridCursor(options.ids.value)
       keyboardActive.value = true
     }, { ...opts, repeat: false })
-    || handleHotkey(e, 'Enter', openCurrent, { ...opts, repeat: false })
-    || handleHotkey(e, 'Mod+A', () => selectAll(options.ids.value), opts)
-    || handleHotkey(e, 'Escape', clearSelection, { ...opts, when: () => selectedCount.value > 0 })
+    || handleHotkey(e, KEYS.openPost.keys, openCurrent, { ...opts, repeat: false })
+    || handleHotkey(e, KEYS.selectAll.keys, () => selectAll(options.ids.value), opts)
+    || handleHotkey(e, KEYS.clearSelection.keys, clearSelection, { ...opts, when: () => selectedCount.value > 0 })
     || (options.requestDelete !== undefined
       && handleHotkey(e, DELETE_KEYS, () => options.requestDelete?.(), { ...opts, repeat: false }))
     || (options.contextMenu === true
@@ -354,7 +377,10 @@ export function useGalleryGrid(options: UseGalleryGridOptions): GalleryGrid {
   }
 
   function handleOutsideKey(e: KeyboardEvent): boolean {
-    if (!enabled()) {
+    // While a popover / menu / dialog is open, keys that reach the page belong
+    // to it (e.g. arrows on a popover panel that has no options yet) — the
+    // grid must not pull focus out from under it.
+    if (!enabled() || layerCount.value > 0) {
       return false
     }
     // Default guards: text fields and foreign widgets (buttons, sliders, tree
@@ -368,8 +394,8 @@ export function useGalleryGrid(options: UseGalleryGridOptions): GalleryGrid {
         return true
       }
     }
-    return handleHotkey(e, 'Enter', openCurrent, { repeat: false })
-      || handleHotkey(e, 'Mod+A', () => selectAll(options.ids.value))
+    return handleHotkey(e, KEYS.openPost.keys, openCurrent, { repeat: false })
+      || handleHotkey(e, KEYS.selectAll.keys, () => selectAll(options.ids.value))
       || (options.requestDelete !== undefined
         && handleHotkey(e, DELETE_KEYS, () => options.requestDelete?.(), { repeat: false }))
   }

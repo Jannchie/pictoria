@@ -50,6 +50,9 @@ describe('parseshortcut', () => {
   it('normalises modifiers and aliases', () => {
     expect(parseShortcut('ctrl+alt+shift+Esc')).toMatchObject({ key: 'escape', ctrl: true, alt: true, shift: true })
     expect(parseShortcut('Cmd+Up').meta).toBe(true)
+    // a literal space is the Space key, not an empty shortcut
+    expect(parseShortcut(' ')).toMatchObject({ key: ' ', shift: false })
+    expect(parseShortcut('Shift+ ')).toMatchObject({ key: ' ', shift: true })
     expect(parseShortcut('Space').key).toBe(' ')
     expect(parseShortcut('Plus').key).toBe('+')
     expect(parseShortcut('Ctrl++')).toMatchObject({ key: '+', ctrl: true })
