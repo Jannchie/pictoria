@@ -97,7 +97,7 @@ function notAnImage(postId: number) {
  * （0.6 时代那会让这张图的这个端点永久 500）。语义细节见 `tasks.ts` 头注。
  */
 function oneShot(key: string) {
-  return { queue: GPU_QUEUE, key, waitTimeoutMs: 300_000, maxAttempts: 1 } as const
+  return { queue: GPU_QUEUE, key, timeoutMs: 300_000, maxAttempts: 1 } as const
 }
 
 commandsRoutes.openapi(
@@ -368,7 +368,7 @@ commandsRoutes.openapi(
     const tasks: CairnQ = await getTasks()
     const result = await tasks.call(captionTask, {
       imagePath: `${targetDir()}/${post.fullPath}`,
-    }, { queue: IO_QUEUE, waitTimeoutMs: 120_000, pollMs: 20, maxPollMs: 50, maxAttempts: 1 })
+    }, { queue: IO_QUEUE, timeoutMs: 120_000, pollMs: 20, maxPollMs: 50, maxAttempts: 1 })
 
     if (!result.configured)
       return fail(400, 'MissingConfigError', 'OpenAI API key is not set.')
@@ -498,7 +498,7 @@ commandsRoutes.openapi(
     }, {
       queue: IO_QUEUE,
       // 一次大标签的列表 + 下载是分钟级的：CDN 被限到约 1 req/s。
-      waitTimeoutMs: 60 * 60_000,
+      timeoutMs: 60 * 60_000,
       pollMs: 200,
       maxAttempts: 1,
     })
@@ -597,7 +597,7 @@ async function importOnce(url: string, status: typeof urlImportStatus): Promise<
 
   const scan = await tasks.call(urlScanTask, { url }, {
     queue: IO_QUEUE,
-    waitTimeoutMs: 30 * 60_000,
+    timeoutMs: 30 * 60_000,
     pollMs: 200,
     maxAttempts: 1,
   })
@@ -625,7 +625,7 @@ async function importOnce(url: string, status: typeof urlImportStatus): Promise<
     typeToGroupId: ensureCanonicalTagGroups(sqlite),
   }, {
     queue: IO_QUEUE,
-    waitTimeoutMs: 60 * 60_000,
+    timeoutMs: 60 * 60_000,
     pollMs: 200,
     maxAttempts: 1,
   })

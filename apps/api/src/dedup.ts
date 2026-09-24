@@ -315,7 +315,7 @@ async function arbitrate(
       return
     const result = await tasks.call(lpipsVerifyTask, { pairs }, {
       queue: CPU_QUEUE,
-      waitTimeoutMs: ARBITRATION_TIMEOUT_MS,
+      timeoutMs: ARBITRATION_TIMEOUT_MS,
     })
     const rows: AutoEdge[] = []
     for (const one of result.results) {
@@ -416,7 +416,7 @@ async function doRebuild(
   const dryRun = options.dryRun ?? false
   const log = options.log ?? console
   // 每次一个新文件名，不复用固定路径。超时的那一轮**不会**停掉 worker（cairnq 的
-  // `pollWait` 明说了 waitTimeoutMs 只是不再等），它还 mmap 着这个文件 —— 固定路径
+  // `pollWait` 明说了 timeoutMs 只是不再等），它还 mmap 着这个文件 —— 固定路径
   // 下一轮的 `openSync(file, 'w')` 在 Windows 上会撞 EBUSY 撞到重建根本起不来。
   const started = Date.now()
   const file = dedupMatrixPath(`${process.pid}-${started}`)
@@ -450,7 +450,7 @@ async function doRebuild(
       threshold: Math.max(threshold, greyThreshold),
       chunkSize: DEDUP_CHUNK_SIZE,
       maxPerRow: DEDUP_GREY_MAX_PER_ROW,
-    }, { queue: GPU_QUEUE, waitTimeoutMs: REBUILD_TIMEOUT_MS })
+    }, { queue: GPU_QUEUE, timeoutMs: REBUILD_TIMEOUT_MS })
 
     // 契约说每一对都带距离；不带就是 worker 还跑着改动前的代码（Python 不热重载）。
     // 分不了档就没法仲裁，整轮停下来比悄悄按缺省值分组好。

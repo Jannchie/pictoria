@@ -20,9 +20,10 @@ dependencies = [
     "arthash>=0.2.0",
     "silva-scorer>=0.2.0",
     "gallery-dl>=1.32.1",
-    "cairnq==0.8.0",
+    "cairnq==0.15.1",
     "onnxruntime>=1.29.0",
     "pyarrow>=19",
+    "timm>=1.0.30",
 ]
 
 requires-python = ">=3.11"
@@ -81,6 +82,7 @@ ignore = [
     "B008",
     "FAST002",
     "INP001",
+    "CPY001",
 ]
 [tool.ruff.lint.per-file-ignores]
 "**/test/**/*" = ["S101"]

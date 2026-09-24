@@ -123,7 +123,7 @@ async function ensureThumbnail(originalPath: string, thumbPath: string): Promise
     // cairnq 的 key 在任务完成之后依然有效：缩略图被删掉再请求，拿回的是上一次
     // 那个"已生成"的结论，于是文件不在、fileResponse 404，而且会一直 404。
     // 重复生成是幂等的、几十毫秒的 CPU，比这个陷阱便宜得多。
-    waitTimeoutMs: 60_000,
+    timeoutMs: 60_000,
     pollMs: 20,
     maxPollMs: 50,
     maxAttempts: 1,

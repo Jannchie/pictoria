@@ -14,14 +14,14 @@
   "dependencies": {
     "@pictoria/contracts": "workspace:*",
     "better-sqlite3": "^13.0.3",
-    "drizzle-orm": "^0.45.2",
+    "drizzle-orm": "^0.45.3",
     "sqlite-vec": "^0.1.9"
   },
   "devDependencies": {
-    "@types/better-sqlite3": "^7.6.11",
-    "@types/node": "^25.9.6",
-    "drizzle-kit": "^0.31.10",
+    "@types/better-sqlite3": "^9.6.0",
+    "@types/node": "^26.6.2",
+    "drizzle-kit": "^0.31.11",
     "typescript": "^6.0.3",
-    "vitest": "^4.1.6"
+    "vitest": "^5.0.1"
   }
 }

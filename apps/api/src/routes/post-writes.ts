@@ -362,7 +362,7 @@ postWritesRoutes.openapi(
       originalPath: path.resolve(base, post.fullPath),
       thumbnailPath: thumbnailPathFor(post.fullPath),
       clockwise,
-    }, { queue: IO_QUEUE, waitTimeoutMs: 120_000, pollMs: 20, maxAttempts: 1 })
+    }, { queue: IO_QUEUE, timeoutMs: 120_000, pollMs: 20, maxAttempts: 1 })
 
     updateForRotate(sqlite, postId, result)
     // `arthash` 是 `string | null`，而 `updateForRotate` 直接 `SET arthash = ?`（不是

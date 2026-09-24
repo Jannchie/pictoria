@@ -311,7 +311,7 @@ class DanbooruClient:
         response.raise_for_status()
         return DanbooruPost(**response.json())
 
-    def get_posts(  # noqa: PLR0913
+    def get_posts(  # noqa: PLR0913, PLR0917
         self,
         key: str | None = None,
         value: str | int | None = None,

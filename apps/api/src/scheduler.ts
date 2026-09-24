@@ -260,7 +260,7 @@ export function startSilvaBackfill(
       // 同一批重复提交拿回同一个在跑的任务（或超时后已完成的结果），而不是第二次 GPU 计算
       key: batchKey(scorer, items.map(i => i.postId)),
       conflict: 'reuse-succeeded',
-      waitTimeoutMs: CALL_TIMEOUT_MS,
+      timeoutMs: CALL_TIMEOUT_MS,
     })
     upsertAestheticScores(sqlite, scorer, result.scores)
     log.info(`[${scorer}] 落库 ${result.scores.length} 条，起始 id ${items[0]!.postId}`)
@@ -290,7 +290,7 @@ export function startWaifuBackfill(
       queue: GPU_QUEUE,
       key: batchKey('waifu', items.map(i => i.postId)),
       conflict: 'reuse-succeeded',
-      waitTimeoutMs: CALL_TIMEOUT_MS,
+      timeoutMs: CALL_TIMEOUT_MS,
     })
     upsertWaifuScores(sqlite, result.scores)
     recordFailures(sqlite, WAIFU_WORKER_KEY, result.failures)
@@ -329,7 +329,7 @@ export function startTaggerBackfill(
       queue: GPU_QUEUE,
       key: batchKey(`tagger:${TAGGER_MODEL}`, items.map(i => i.postId)),
       conflict: 'reuse-succeeded',
-      waitTimeoutMs: CALL_TIMEOUT_MS,
+      timeoutMs: CALL_TIMEOUT_MS,
     })
 
     const groups = ensureCanonicalTagGroups(sqlite)
@@ -390,7 +390,7 @@ export function startEmbeddingBackfill(
       queue: GPU_QUEUE,
       key: batchKey('embedding', items.map(i => i.postId)),
       conflict: 'reuse-succeeded',
-      waitTimeoutMs: CALL_TIMEOUT_MS,
+      timeoutMs: CALL_TIMEOUT_MS,
     })
     // 用真正写进去的条数，不是回来的条数：算完的这段时间里 post 可能已经被 sync
     // 删掉了，那种会被 upsertVectors 跳过。拿回来的条数计数会让"这一轮写过向量"
@@ -434,7 +434,7 @@ export function startBasicsBackfill(
       queue: IO_QUEUE,
       key: batchKey('basics', items.map(i => i.postId)),
       conflict: 'reuse-succeeded',
-      waitTimeoutMs: CALL_TIMEOUT_MS,
+      timeoutMs: CALL_TIMEOUT_MS,
     })
     upsertBasics(sqlite, result.rows)
     recordFailures(sqlite, BASICS_WORKER_KEY, result.failures)

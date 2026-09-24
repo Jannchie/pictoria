@@ -280,7 +280,7 @@ class MMCQ:
 class VBox:
     """3d color space box"""
 
-    def __init__(self, r1: int, r2: int, g1: int, g2: int, b1: int, b2: int, histo: dict[int, int]) -> None:  # noqa: PLR0913
+    def __init__(self, r1: int, r2: int, g1: int, g2: int, b1: int, b2: int, histo: dict[int, int]) -> None:  # noqa: PLR0913, PLR0917
         self.r1 = r1
         self.r2 = r2
         self.g1 = g1
