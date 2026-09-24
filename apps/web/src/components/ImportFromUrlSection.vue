@@ -47,8 +47,17 @@ watch(() => status.value?.state, (next, prev) => {
   }
 })
 
+// IME: the Enter that commits a composition is not a submit.
+function onEnter(e: KeyboardEvent) {
+  if (e.isComposing || e.keyCode === 229) {
+    return
+  }
+  e.preventDefault()
+  onImport()
+}
+
 function onImport() {
-  if (!urlValid.value || isRunning.value) {
+  if (!urlValid.value || isRunning.value || mutation.isPending.value) {
     return
   }
   mutation.mutate()
@@ -63,7 +72,7 @@ function onImport() {
         <h3 id="setting-import-from-url" class="text-fg font-medium">
           {{ $t('import.title') }}
         </h3>
-        <p class="text-sm text-fg-muted mt-0.5 text-pretty">
+        <p id="setting-import-from-url-desc" class="text-sm text-fg-muted mt-0.5 text-pretty">
           {{ $t('import.desc') }}
         </p>
 
@@ -78,8 +87,9 @@ function onImport() {
             :spellcheck="false"
             autocomplete="off"
             aria-labelledby="setting-import-from-url"
+            aria-describedby="setting-import-from-url-desc"
             :disabled="isRunning"
-            @keydown.enter="onImport"
+            @keydown.enter="onEnter"
           />
           <PButton
             size="sm"
@@ -97,47 +107,51 @@ function onImport() {
           </PButton>
         </div>
 
-        <div v-if="status && status.state !== 'idle'" class="text-sm mt-3" aria-live="polite">
-          <div v-if="status.state === 'running'" class="text-fg-muted flex gap-2 items-center">
-            <i class="i-svg-spinners-90-ring-with-bg shrink-0" aria-hidden="true" />
-            <i18n-t keypath="import.importing" tag="span" scope="global" class="min-w-0 truncate">
-              <template #url>
-                <code translate="no" class="text-fg font-mono">{{ status.url }}</code>
-              </template>
-            </i18n-t>
-          </div>
-
-          <div v-else-if="status.state === 'done'" class="space-y-1">
-            <div class="text-fg flex gap-2 items-center">
-              <i class="i-tabler-circle-check text-success shrink-0" aria-hidden="true" />
-              <i18n-t keypath="import.imported" tag="span" scope="global" class="min-w-0 truncate">
+        <!-- Persistent live region: it must exist before its content changes,
+             or the running → done transition is never announced. -->
+        <div role="status" aria-live="polite">
+          <div v-if="status && status.state !== 'idle'" class="text-sm mt-3">
+            <div v-if="status.state === 'running'" class="text-fg-muted flex gap-2 items-center">
+              <i class="i-svg-spinners-90-ring-with-bg shrink-0" aria-hidden="true" />
+              <i18n-t keypath="import.importing" tag="span" scope="global" class="min-w-0 truncate">
                 <template #url>
                   <code translate="no" class="text-fg font-mono">{{ status.url }}</code>
                 </template>
               </i18n-t>
             </div>
-            <div class="text-xs text-fg-muted font-mono pl-6">
-              {{ $t('import.statFetched') }} {{ status.stats?.fetched }} · {{ $t('import.statImages') }} {{ status.stats?.images }} · {{ $t('import.statNew') }} {{ status.stats?.new }} · {{ $t('import.statDownloaded') }} {{ status.stats?.downloaded }} · {{ $t('import.statFailed') }} {{ status.stats?.failed }}
-            </div>
-            <i18n-t v-if="status.stats?.fetched === 0" keypath="import.noEntries" tag="p" scope="global" class="text-warning pl-6">
-              <template #conf>
-                <code translate="no" class="font-mono">.pictoria/gallery-dl.conf</code>
-              </template>
-            </i18n-t>
-            <p v-if="(status.stats?.failed ?? 0) > 0" class="text-warning pl-6">
-              {{ $t('import.failedRetry', { n: status.stats?.failed ?? 0 }, status.stats?.failed ?? 0) }}
-            </p>
-            <p v-if="status.syncTriggered" class="text-fg-subtle pl-6">
-              {{ $t('import.metadataSync') }}
-            </p>
-          </div>
 
-          <div v-else-if="status.state === 'failed'" class="text-danger flex gap-2 items-start">
-            <i class="i-tabler-alert-circle mt-0.5 shrink-0" aria-hidden="true" />
-            <span class="min-w-0 break-all">{{ $t('import.failed', { error: status.error }) }}</span>
+            <div v-else-if="status.state === 'done'" class="space-y-1">
+              <div class="text-fg flex gap-2 items-center">
+                <i class="i-tabler-circle-check text-success shrink-0" aria-hidden="true" />
+                <i18n-t keypath="import.imported" tag="span" scope="global" class="min-w-0 truncate">
+                  <template #url>
+                    <code translate="no" class="text-fg font-mono">{{ status.url }}</code>
+                  </template>
+                </i18n-t>
+              </div>
+              <div class="text-xs text-fg-muted font-mono pl-6">
+                {{ $t('import.statFetched') }} {{ status.stats?.fetched }} · {{ $t('import.statImages') }} {{ status.stats?.images }} · {{ $t('import.statNew') }} {{ status.stats?.new }} · {{ $t('import.statDownloaded') }} {{ status.stats?.downloaded }} · {{ $t('import.statFailed') }} {{ status.stats?.failed }}
+              </div>
+              <i18n-t v-if="status.stats?.fetched === 0" keypath="import.noEntries" tag="p" scope="global" class="text-warning pl-6">
+                <template #conf>
+                  <code translate="no" class="font-mono">.pictoria/gallery-dl.conf</code>
+                </template>
+              </i18n-t>
+              <p v-if="(status.stats?.failed ?? 0) > 0" class="text-warning pl-6">
+                {{ $t('import.failedRetry', { n: status.stats?.failed ?? 0 }, status.stats?.failed ?? 0) }}
+              </p>
+              <p v-if="status.syncTriggered" class="text-fg-subtle pl-6">
+                {{ $t('import.metadataSync') }}
+              </p>
+            </div>
+
+            <div v-else-if="status.state === 'failed'" class="text-danger flex gap-2 items-start">
+              <i class="i-tabler-alert-circle mt-0.5 shrink-0" aria-hidden="true" />
+              <span class="min-w-0 break-all">{{ $t('import.failed', { error: status.error }) }}</span>
+            </div>
           </div>
         </div>
-        <p v-if="mutation.error.value" class="text-sm text-danger mt-2">
+        <p v-if="mutation.error.value" role="alert" class="text-sm text-danger mt-2">
           {{ describeAPIError(mutation.error.value) }}
         </p>
       </div>

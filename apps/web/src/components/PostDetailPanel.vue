@@ -2,6 +2,7 @@
 import type { PostDetailPublic, PostHasTagPublic } from '@/api'
 import { useQueryClient } from '@tanstack/vue-query'
 import { filesize } from 'filesize'
+import { useId } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useRouter } from 'vue-router'
 import { v2GetSilvaLunaScorerOne, v2GetSilvaScorerOne, v2GetWaifuScorerOne } from '@/api'
@@ -11,7 +12,7 @@ import { usePostGroupEvidenceQuery } from '@/composables/usePostGroupEvidenceQue
 import { usePostGroupQuery } from '@/composables/usePostGroupQuery'
 import { UNCATEGORISED, useTopCategoryGrouper } from '@/composables/useTagTree'
 import { formatDateTime } from '@/locale'
-import { commitCaption, commitRating, commitScore, commitSource, hideNSFW, makePostCanonical, markPostsDifferent, openTagSelectorWindow, queryKeys, RATING_LEVEL_COLORS, RATING_LEVEL_ICONS, showPostDetail, ungroupPost } from '@/shared'
+import { announce, commitCaption, commitRating, commitScore, commitSource, hideNSFW, makePostCanonical, markPostsDifferent, openTagSelectorWindow, queryKeys, RATING_LEVEL_COLORS, RATING_LEVEL_ICONS, showPostDetail, ungroupPost } from '@/shared'
 import { getPostThumbnailURL, isImageExtension } from '@/utils'
 import { colorNumToHex, labToRgbaString } from '@/utils/color'
 
@@ -117,12 +118,25 @@ function categoryLabel(key: string) {
 }
 const tagGroups = computed(() =>
   groupByCategory(tagSorted.value, tag => tag.tagInfo.name, tag => tag.tagInfo.group?.name, categoryLabel))
-function onCopyTags() {
+async function onCopyTags() {
   const tags = tagSorted.value.map(tag => tag.tagInfo.name).join(', ')
-  if (tags) {
-    navigator.clipboard.writeText(tags)
+  if (!tags) {
+    return
+  }
+  try {
+    await navigator.clipboard.writeText(tags)
+    announce(t('post.panel.tagsCopied'))
+  }
+  catch {
+    announce(t('post.panel.copyFailed'), 'assertive')
   }
 }
+
+// Ids so each section / control group is named by its visible title.
+const uid = useId()
+const tagsHeadingId = `${uid}-tags`
+const ratingLabelId = `${uid}-rating`
+const scoreLabelId = `${uid}-score`
 
 const isCalculatingWaifuScore = ref(false)
 
@@ -234,6 +248,7 @@ const sectionTitleClass
           >
             <img
               :src="getPostThumbnailURL(post)"
+              :alt="$t('post.panel.previewAlt', { name: `${post.fileName}.${post.extension}` })"
               class="rounded-md h-40 max-w-full ring-1 ring-border-subtle object-contain"
               :class="{
                 blur: (post?.rating ?? 0) >= 3 && hideNSFW,
@@ -243,6 +258,7 @@ const sectionTitleClass
           <div
             v-if="post.dominantColor || (post.colors && post.colors.length > 0)"
             class="flex flex-wrap gap-1 items-center justify-center"
+            aria-hidden="true"
           >
             <PColorSwatch
               v-if="post.dominantColor"
@@ -264,19 +280,22 @@ const sectionTitleClass
            scrolling and zero clicks. Everything below is reference material
            and collapses. -->
       <section class="pb-3 pt-3 p-divider">
-        <div
+        <h3
           :class="sectionTitleClass"
           class="mb-2"
         >
-          <i class="i-tabler-star" />
+          <i class="i-tabler-star" aria-hidden="true" />
           <span>{{ $t('post.ratings') }}</span>
-        </div>
+        </h3>
         <div
           class="gap-x-3 gap-y-1 grid grid-cols-[auto_1fr] items-center children:break-words odd:children:text-fg-muted"
         >
-          <div>{{ $t('post.ratingLabel') }}</div>
+          <div :id="ratingLabelId">
+            {{ $t('post.ratingLabel') }}
+          </div>
           <div>
             <PRating
+              :aria-labelledby="ratingLabelId"
               :model-value="post.rating"
               highlight-selected-only
               :count="4"
@@ -285,9 +304,12 @@ const sectionTitleClass
               @select="(d) => commitRating(queryClient, [post], [post.id], d)"
             />
           </div>
-          <div>{{ $t('post.scoreLabel') }}</div>
+          <div :id="scoreLabelId">
+            {{ $t('post.scoreLabel') }}
+          </div>
           <div>
             <PRating
+              :aria-labelledby="scoreLabelId"
               :model-value="post.score"
               :count="5"
               @select="(d) => onSelectScore(post.id, d)"
@@ -349,13 +371,13 @@ const sectionTitleClass
         v-if="post.canonicalPostId != null || groupMembers.length > 0"
         class="py-3 p-divider"
       >
-        <div
+        <h3
           :class="sectionTitleClass"
           class="mb-2"
         >
-          <i class="i-tabler-stack-2" />
+          <i class="i-tabler-stack-2" aria-hidden="true" />
           <span>{{ $t('post.sameGroup') }}</span>
-        </div>
+        </h3>
 
         <!-- This post is itself a hidden member of another group. -->
         <div
@@ -369,15 +391,15 @@ const sectionTitleClass
             <PButton
               size="sm"
               block
-              @pointerup="router.push(`/post/${post.canonicalPostId}`)"
+              @click="router.push(`/post/${post.canonicalPostId}`)"
             >
-              <i class="i-tabler-arrow-up-right" />
+              <i class="i-tabler-arrow-up-right" aria-hidden="true" />
               {{ $t('post.viewRepresentative') }}
             </PButton>
             <PButton
               size="sm"
               variant="subtle"
-              @pointerup="onUngroupSelf"
+              @click="onUngroupSelf"
             >
               {{ $t('post.removeFromGroup') }}
             </PButton>
@@ -397,43 +419,54 @@ const sectionTitleClass
             :key="m.id"
             class="p-1 rounded-md flex gap-2 transition-colors items-center -mx-1 hover:bg-surface-1"
           >
-            <img
-              :src="getPostThumbnailURL(m)"
-              class="rounded-sm h-12 w-12 cursor-pointer object-cover"
-              :class="{ blur: (m.rating ?? 0) >= 3 && hideNSFW }"
-              @click="router.push(`/post/${m.id}`)"
+            <RouterLink
+              :to="`/post/${m.id}`"
+              class="rounded-sm shrink-0"
+              :aria-label="$t('post.panel.openMember', { width: m.width, height: m.height })"
             >
-            <div class="text-fg-subtle flex-1 tabular-nums">
+              <img
+                :src="getPostThumbnailURL(m)"
+                alt=""
+                class="rounded-sm h-12 w-12 block cursor-pointer object-cover"
+                :class="{ blur: (m.rating ?? 0) >= 3 && hideNSFW }"
+              >
+            </RouterLink>
+            <div class="text-fg-subtle flex-1 tabular-nums" aria-hidden="true">
               {{ m.width }} × {{ m.height }}
             </div>
             <i
               v-if="decidedMembers.has(m.id)"
               class="i-tabler-pin text-fg-subtle"
+              role="img"
+              :aria-label="`${$t('post.groupPinned')} — ${$t('post.groupUserPriorityNote')}`"
               :title="`${$t('post.groupPinned')} — ${$t('post.groupUserPriorityNote')}`"
             />
             <PButton
               size="sm"
               icon
+              :aria-label="$t('post.setRepresentative')"
               :title="$t('post.setRepresentative')"
-              @pointerup="onMakeCanonical(m.id)"
+              @click="onMakeCanonical(m.id)"
             >
-              <i class="i-tabler-crown" />
+              <i class="i-tabler-crown" aria-hidden="true" />
             </PButton>
             <PButton
               size="sm"
               icon
+              :aria-label="$t('post.markDifferent')"
               :title="$t('post.markDifferent')"
-              @pointerup="onMarkDifferent(m.id)"
+              @click="onMarkDifferent(m.id)"
             >
-              <i class="i-tabler-equal-not" />
+              <i class="i-tabler-equal-not" aria-hidden="true" />
             </PButton>
             <PButton
               size="sm"
               icon
+              :aria-label="$t('post.removeFromGroup')"
               :title="$t('post.removeFromGroup')"
-              @pointerup="onUngroupMember(m.id)"
+              @click="onUngroupMember(m.id)"
             >
-              <i class="i-tabler-unlink" />
+              <i class="i-tabler-unlink" aria-hidden="true" />
             </PButton>
           </div>
         </div>
@@ -499,7 +532,7 @@ const sectionTitleClass
             class="text-fg-muted flex flex-col h-8 w-full items-center justify-center"
           >
             <div class="op50 flex flex-col items-center">
-              <i class="i-tabler-folder-off" />
+              <i class="i-tabler-folder-off" aria-hidden="true" />
               <div>
                 {{ $t('post.noFolder') }}
               </div>
@@ -509,7 +542,7 @@ const sectionTitleClass
             v-for="folder in folders"
             :key="folder.path"
             size="sm"
-            @pointerup="$router.push(`/dir/${folder.path}?post_id=${post.id}`); showPostDetail = null"
+            @click="$router.push(`/dir/${folder.path}?post_id=${post.id}`); showPostDetail = null"
           >
             {{ folder.name }}
           </PButton>
@@ -519,10 +552,10 @@ const sectionTitleClass
       <!-- Tags: stays a plain always-open section — tagging is high-frequency. -->
       <section class="py-3 p-divider">
         <div class="mb-2 flex items-center justify-between">
-          <div :class="sectionTitleClass">
-            <i class="i-tabler-tag" />
+          <h3 :id="tagsHeadingId" :class="sectionTitleClass">
+            <i class="i-tabler-tag" aria-hidden="true" />
             <span>{{ $t('post.tags') }}</span>
-          </div>
+          </h3>
           <div class="flex gap-1 items-center">
             <!-- 星标在图例里出现一次，虚线标签自己再带一个：混排之后，「哪些是
                  机器打的」得能不点开就看懂。 -->
@@ -531,8 +564,9 @@ const sectionTitleClass
               class="text-2xs text-fg-subtle flex gap-1 items-center"
               :title="$t('post.autoTags')"
             >
-              <i class="i-tabler-sparkles" />
+              <i class="i-tabler-sparkles" aria-hidden="true" />
               {{ autoTagCount }}
+              <span class="sr-only">{{ $t('post.autoTags') }}</span>
             </span>
             <!-- xs + negative margin: the affordance stays clickable without
                  making this section heading taller than the others. -->
@@ -545,13 +579,15 @@ const sectionTitleClass
               :title="$t('post.copyTags')"
               @click="onCopyTags"
             >
-              <i class="i-tabler-copy" />
+              <i class="i-tabler-copy" aria-hidden="true" />
             </PButton>
           </div>
         </div>
         <div
           v-if="tagSorted.length > 0"
           class="flex flex-col gap-2"
+          role="group"
+          :aria-labelledby="tagsHeadingId"
         >
           <div
             v-for="cat of tagGroups"
@@ -561,36 +597,50 @@ const sectionTitleClass
             <div class="text-2xs text-fg-subtle tracking-wide uppercase">
               {{ cat.name }}
             </div>
-            <div class="flex flex-wrap gap-1">
+            <!-- Tags are a read-only list; clicking one opens the editor as a
+                 mouse shortcut. The keyboard path is the "Add Tag" button
+                 below (one Tab stop instead of one per tag). -->
+            <div
+              class="flex flex-wrap gap-1"
+              role="list"
+              :aria-label="cat.name"
+            >
               <!-- PostTag renders the localised display name itself (no slot). -->
               <PostTag
                 v-for="tag of cat.items"
                 :key="tag.tagInfo.name"
+                role="listitem"
                 class="cursor-pointer"
                 :data="tag"
                 :auto="tag.isAuto"
                 :color="tag.tagInfo.group?.color"
-                @pointerup="openTagSelectorWindow()"
+                @click="openTagSelectorWindow()"
               />
             </div>
           </div>
-          <PTag
-            variant="outline"
-            tone="neutral"
-            size="xs"
-            class="cursor-pointer self-start"
-            @pointerup="openTagSelectorWindow()"
+          <button
+            type="button"
+            class="rounded-sm self-start"
+            aria-haspopup="dialog"
+            @click="openTagSelectorWindow()"
           >
-            <i class="i-tabler-plus" />
-            {{ $t('post.addTag') }}
-          </PTag>
+            <PTag
+              variant="outline"
+              tone="neutral"
+              size="xs"
+              class="cursor-pointer"
+            >
+              <i class="i-tabler-plus" aria-hidden="true" />
+              {{ $t('post.addTag') }}
+            </PTag>
+          </button>
         </div>
         <div
           v-else
           class="text-fg-muted flex flex-col gap-2"
         >
           <div class="op50 flex flex-col gap-1 items-center">
-            <i class="i-tabler-bookmark-off" />
+            <i class="i-tabler-bookmark-off" aria-hidden="true" />
             <div class="text-xs">
               {{ $t('post.noTag') }}
             </div>
@@ -598,9 +648,10 @@ const sectionTitleClass
           <PButton
             size="sm"
             block
-            @pointerup="openTagSelectorWindow()"
+            aria-haspopup="dialog"
+            @click="openTagSelectorWindow()"
           >
-            <i class="i-tabler-bookmark-plus" />
+            <i class="i-tabler-bookmark-plus" aria-hidden="true" />
             {{ $t('post.addTag') }}
           </PButton>
         </div>
@@ -615,6 +666,7 @@ const sectionTitleClass
       >
         <PInput
           :model-value="post.caption ?? ''"
+          :aria-label="$t('post.caption')"
           size="sm"
           block
           @update:model-value="updateCaption"
@@ -630,6 +682,7 @@ const sectionTitleClass
       >
         <PInput
           :model-value="post.source ?? ''"
+          :aria-label="$t('post.source')"
           size="sm"
           block
           @update:model-value="updateSource"

@@ -1,9 +1,13 @@
 <script setup lang="ts">
-import { computed, nextTick, ref, watch } from 'vue'
+import { useDebounceFn } from '@vueuse/core'
+import { computed, nextTick, ref, useId, useTemplateRef, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useRouter } from 'vue-router'
 import { useActiveFilters } from '@/composables/useActiveFilters'
+import { useFocusTrap } from '@/composables/useFocusTrap'
 import {
+  announce,
+  closeCommandPalette,
   commandPaletteOpen,
   hideNSFW,
   leftPaneCollapsed,
@@ -13,9 +17,12 @@ import {
   rightPaneCollapsed,
   shortcutHelpOpen,
   textSearchQuery,
+  useLayer,
 } from '@/shared'
-import { openDialogCount, POverlay } from '@/ui'
+import { POverlay } from '@/ui'
 import { hasFilterTerms, parseFilterQuery, stringifyFilterQuery } from '@/utils/filterDsl'
+import { formatShortcut } from '@/utils/keyboard'
+import { idFragment, listboxKeyIndex } from '@/utils/listboxNav'
 
 /**
  * One input for the three things this app couldn't otherwise expose: semantic
@@ -26,6 +33,13 @@ import { hasFilterTerms, parseFilterQuery, stringifyFilterQuery } from '@/utils/
  * What the input means is decided by what's in it: `key:value` terms become
  * filter facets, everything else becomes the SigLIP2 prompt, and the list below
  * always offers the matching commands.
+ *
+ * Accessibility: APG combobox (the input) + listbox (the rows). DOM focus
+ * never leaves the input; the active row is `aria-activedescendant`, keyed by
+ * the command id so it is stable while the list filters. Keys: see
+ * `utils/listboxNav.ts` (↑↓ wrap, PageUp/PageDown, Ctrl+Home/End always,
+ * Home/End only with an empty input), Enter runs (IME-safe), Escape closes via
+ * the layer stack. Modal layer + focus trap + focus return.
  */
 const { t } = useI18n()
 const router = useRouter()
@@ -33,20 +47,42 @@ const { isFiltered, clearAll, resetAll } = useActiveFilters()
 
 const query = ref('')
 const activeIndex = ref(0)
-const inputRef = ref<HTMLInputElement>()
+const inputRef = useTemplateRef<HTMLInputElement>('input')
+const dialogRef = useTemplateRef<HTMLElement>('dialog')
+const listboxRef = useTemplateRef<HTMLElement>('listbox')
+
+const uid = useId()
+const listboxId = `${uid}-listbox`
+const syntaxId = `${uid}-syntax`
+function optionId(cmd: Command) {
+  return `${uid}-opt-${idFragment(cmd.id)}`
+}
 
 const parsed = computed(() => parseFilterQuery(query.value))
 const hasTerms = computed(() => hasFilterTerms(parsed.value))
 const promptText = computed(() => parsed.value.text)
 
+type CommandGroup = 'action' | 'filter' | 'navigate' | 'sort' | 'view' | 'help'
+
 interface Command {
   id: string
   label: string
-  hint?: string
+  group: CommandGroup
+  /** Shortcut in `useHotkey` grammar; rendered Mac-aware via formatShortcut. */
+  shortcut?: string
   icon: string
   /** Extra words this command should match on, beyond its label. */
   keywords?: string
   run: () => void
+}
+
+const GROUP_LABEL_KEYS: Record<CommandGroup, string> = {
+  action: 'command.groupAction',
+  filter: 'command.groupFilter',
+  navigate: 'command.groupNavigate',
+  sort: 'command.groupSort',
+  view: 'command.groupView',
+  help: 'command.groupHelp',
 }
 
 function go(path: string) {
@@ -65,25 +101,26 @@ function sortBy(id: typeof postSort.value) {
 // locale switch rebuilds them.
 const commands = computed<Command[]>(() => {
   const list: Command[] = [
-    { id: 'nav-all', label: t('nav.all'), icon: 'i-tabler-photo', keywords: 'gallery home', run: go('/all') },
-    { id: 'nav-recently', label: t('nav.recently'), icon: 'i-tabler-clock', run: go('/recently') },
-    { id: 'nav-random', label: t('nav.random'), icon: 'i-tabler-arrows-cross', run: go('/random') },
-    { id: 'nav-tags', label: t('nav.tagManager'), icon: 'i-tabler-bookmarks', run: go('/tags') },
-    { id: 'nav-annotate', label: t('nav.annotate'), icon: 'i-tabler-checklist', run: go('/annotate') },
-    { id: 'nav-settings', label: t('common.settings'), icon: 'i-tabler-settings', run: go('/settings') },
+    { id: 'nav-all', group: 'navigate', label: t('nav.all'), icon: 'i-tabler-photo', keywords: 'gallery home', run: go('/all') },
+    { id: 'nav-recently', group: 'navigate', label: t('nav.recently'), icon: 'i-tabler-clock', run: go('/recently') },
+    { id: 'nav-random', group: 'navigate', label: t('nav.random'), icon: 'i-tabler-arrows-cross', run: go('/random') },
+    { id: 'nav-tags', group: 'navigate', label: t('nav.tagManager'), icon: 'i-tabler-bookmarks', run: go('/tags') },
+    { id: 'nav-annotate', group: 'navigate', label: t('nav.annotate'), icon: 'i-tabler-checklist', run: go('/annotate') },
+    { id: 'nav-settings', group: 'navigate', label: t('common.settings'), icon: 'i-tabler-settings', run: go('/settings') },
 
-    { id: 'sort-score', label: t('command.sortBy', { label: t('sort.score') }), icon: 'i-tabler-star', run: sortBy('score') },
-    { id: 'sort-rating', label: t('command.sortBy', { label: t('sort.rating') }), icon: 'i-tabler-thumb-up', run: sortBy('rating') },
-    { id: 'sort-silva', label: t('command.sortBy', { label: t('sort.silvaScore') }), icon: 'i-tabler-rosette', run: sortBy('silva_score') },
-    { id: 'sort-silva-luna', label: t('command.sortBy', { label: t('sort.silvaLunaScore') }), icon: 'i-tabler-moon', run: sortBy('silva_luna_score') },
-    { id: 'sort-waifu', label: t('command.sortBy', { label: t('sort.waifuScore') }), icon: 'i-tabler-heart', run: sortBy('waifu_score') },
-    { id: 'sort-discrepancy', label: t('command.sortBy', { label: t('sort.discrepancy') }), icon: 'i-tabler-git-compare', keywords: 'model vs me disagree', run: sortBy('discrepancy') },
-    { id: 'sort-created', label: t('command.sortBy', { label: t('sort.created') }), icon: 'i-tabler-calendar-event', run: sortBy('created_at') },
+    { id: 'sort-score', group: 'sort', label: t('command.sortBy', { label: t('sort.score') }), icon: 'i-tabler-star', run: sortBy('score') },
+    { id: 'sort-rating', group: 'sort', label: t('command.sortBy', { label: t('sort.rating') }), icon: 'i-tabler-thumb-up', run: sortBy('rating') },
+    { id: 'sort-silva', group: 'sort', label: t('command.sortBy', { label: t('sort.silvaScore') }), icon: 'i-tabler-rosette', run: sortBy('silva_score') },
+    { id: 'sort-silva-luna', group: 'sort', label: t('command.sortBy', { label: t('sort.silvaLunaScore') }), icon: 'i-tabler-moon', run: sortBy('silva_luna_score') },
+    { id: 'sort-waifu', group: 'sort', label: t('command.sortBy', { label: t('sort.waifuScore') }), icon: 'i-tabler-heart', run: sortBy('waifu_score') },
+    { id: 'sort-discrepancy', group: 'sort', label: t('command.sortBy', { label: t('sort.discrepancy') }), icon: 'i-tabler-git-compare', keywords: 'model vs me disagree', run: sortBy('discrepancy') },
+    { id: 'sort-created', group: 'sort', label: t('command.sortBy', { label: t('sort.created') }), icon: 'i-tabler-calendar-event', run: sortBy('created_at') },
 
     {
       id: 'view-left',
+      group: 'view',
       label: t('pane.toggleLeft'),
-      hint: 'Ctrl+B',
+      shortcut: 'Mod+B',
       icon: 'i-tabler-layout-sidebar-left-collapse',
       run: () => {
         leftPaneCollapsed.value = !leftPaneCollapsed.value
@@ -91,8 +128,9 @@ const commands = computed<Command[]>(() => {
     },
     {
       id: 'view-right',
+      group: 'view',
       label: t('pane.toggleRight'),
-      hint: 'Ctrl+Shift+B',
+      shortcut: 'Mod+Shift+B',
       icon: 'i-tabler-layout-sidebar-right-collapse',
       run: () => {
         rightPaneCollapsed.value = !rightPaneCollapsed.value
@@ -100,6 +138,7 @@ const commands = computed<Command[]>(() => {
     },
     {
       id: 'view-nsfw',
+      group: 'view',
       label: t('command.toggleNsfw'),
       icon: 'i-tabler-eye-off',
       run: () => {
@@ -108,8 +147,9 @@ const commands = computed<Command[]>(() => {
     },
     {
       id: 'help-shortcuts',
+      group: 'help',
       label: t('command.shortcuts'),
-      hint: '?',
+      shortcut: '?',
       icon: 'i-tabler-keyboard',
       keywords: 'keyboard help hotkeys',
       run: () => {
@@ -119,8 +159,8 @@ const commands = computed<Command[]>(() => {
   ]
   if (isFiltered.value) {
     list.unshift(
-      { id: 'filter-clear', label: t('overview.clearAll'), icon: 'i-tabler-filter-off', keywords: 'reset filters', run: clearAll },
-      { id: 'filter-reset', label: t('command.resetAll'), icon: 'i-tabler-restore', keywords: 'reset sort filters', run: resetAll },
+      { id: 'filter-clear', group: 'filter', label: t('overview.clearAll'), icon: 'i-tabler-filter-off', keywords: 'reset filters', run: clearAll },
+      { id: 'filter-reset', group: 'filter', label: t('command.resetAll'), icon: 'i-tabler-restore', keywords: 'reset sort filters', run: resetAll },
     )
   }
   return list
@@ -153,7 +193,6 @@ function applyQuery() {
     }
   }
   textSearchQuery.value = p.text
-  commandPaletteOpen.value = false
 }
 
 // The top entry, when the input says something the commands can't: apply the
@@ -169,6 +208,7 @@ const applyAction = computed<Command | null>(() => {
     : t('command.searchFor', { query: promptText.value })
   return {
     id: '__apply',
+    group: 'action',
     label,
     icon: hasTerms.value ? 'i-tabler-filter' : 'i-tabler-search',
     run: applyQuery,
@@ -180,44 +220,118 @@ const rows = computed<Command[]>(() => {
   return action ? [action, ...matchedCommands.value] : matchedCommands.value
 })
 
-// Keep the highlight in range as the list shrinks under typing.
+interface RowSection {
+  group: CommandGroup
+  labelId: string
+  items: { cmd: Command, index: number }[]
+}
+
+/**
+ * Consecutive rows of the same group → one `role=group` section. The flat
+ * `rows` order is what the keyboard walks; sections only wrap it.
+ */
+const sections = computed<RowSection[]>(() => {
+  const out: RowSection[] = []
+  for (const [index, cmd] of rows.value.entries()) {
+    const last = out.at(-1)
+    if (last && last.group === cmd.group) {
+      last.items.push({ cmd, index })
+    }
+    else {
+      out.push({ group: cmd.group, labelId: `${uid}-group-${cmd.group}`, items: [{ cmd, index }] })
+    }
+  }
+  return out
+})
+
+const activeDescendant = computed(() => {
+  const cmd = rows.value[activeIndex.value]
+  return cmd ? optionId(cmd) : undefined
+})
+
+// Typing re-ranks the list: the most relevant row (the first) becomes active.
+watch(query, () => {
+  activeIndex.value = 0
+})
+// …and the list may shrink under a locale/filter change without typing.
 watch(rows, (list) => {
   if (activeIndex.value >= list.length) {
     activeIndex.value = Math.max(0, list.length - 1)
   }
 })
 
-function move(delta: number) {
-  const n = rows.value.length
-  if (n === 0) {
-    return
-  }
-  activeIndex.value = (activeIndex.value + delta + n) % n
+function scrollActiveIntoView() {
   nextTick(() => {
-    document.querySelector(`#cmd-row-${activeIndex.value}`)?.scrollIntoView({ block: 'nearest' })
+    listboxRef.value
+      ?.querySelector(`[data-option-index="${activeIndex.value}"]`)
+      ?.scrollIntoView({ block: 'nearest' })
   })
 }
 
-function runActive() {
-  const cmd = rows.value[activeIndex.value]
+function close() {
+  closeCommandPalette()
+}
+
+/**
+ * Close first, run after: the focus trap returns focus to where the palette
+ * was opened from (a microtask), and only then does the command act — so a
+ * command that opens another layer (the shortcut sheet) remembers the page
+ * element, not the palette's vanishing input, as its own focus-return target.
+ */
+function runRow(index: number) {
+  const cmd = rows.value[index]
   if (!cmd) {
     return
   }
-  cmd.run()
-  // The apply action closes the palette itself; commands close here.
-  if (cmd.id !== '__apply') {
-    commandPaletteOpen.value = false
-  }
+  close()
+  setTimeout(cmd.run, 0)
 }
 
 function onKeydown(e: KeyboardEvent) {
-  switch (e.key) {
-    case 'ArrowDown': { e.preventDefault(); move(1); break }
-    case 'ArrowUp': { e.preventDefault(); move(-1); break }
-    case 'Enter': { e.preventDefault(); runActive(); break }
-    case 'Escape': { e.preventDefault(); commandPaletteOpen.value = false; break }
+  if (e.defaultPrevented) {
+    return
+  }
+  const next = listboxKeyIndex(e, {
+    index: activeIndex.value,
+    count: rows.value.length,
+    inputEmpty: query.value === '',
+  })
+  if (next !== null) {
+    e.preventDefault()
+    activeIndex.value = next
+    scrollActiveIntoView()
+    return
+  }
+  // IME: Enter that confirms a composition must not run the command.
+  if (e.key === 'Enter' && !e.isComposing && e.keyCode !== 229
+    && !e.ctrlKey && !e.altKey && !e.metaKey && !e.shiftKey) {
+    e.preventDefault()
+    runRow(activeIndex.value)
   }
 }
+
+useLayer(commandPaletteOpen, {
+  el: () => dialogRef.value,
+  modal: true,
+  onEscape: close,
+  onPointerDownOutside: close,
+})
+useFocusTrap(dialogRef, commandPaletteOpen, { initialFocus: () => inputRef.value })
+
+// Live result count for screen readers, debounced so each keystroke doesn't
+// queue an announcement.
+const announceCount = useDebounceFn(() => {
+  if (!commandPaletteOpen.value) {
+    return
+  }
+  const n = rows.value.length
+  announce(n === 0 ? t('command.noMatch') : t('command.resultCount', { n }, n))
+}, 500)
+watch(query, () => {
+  if (commandPaletteOpen.value) {
+    announceCount()
+  }
+})
 
 // Opening seeds the input with the live filter so the palette reads as "here is
 // what's applied", editable in place — not an empty box that silently discards
@@ -226,91 +340,122 @@ watch(commandPaletteOpen, (open) => {
   if (open) {
     query.value = stringifyFilterQuery(postFilter.value, textSearchQuery.value)
     activeIndex.value = 0
-    // Count as a dialog so grid/page hotkeys stand down while it's up.
-    openDialogCount.value++
     nextTick(() => {
-      inputRef.value?.focus()
       inputRef.value?.select()
     })
-  }
-  else {
-    openDialogCount.value = Math.max(0, openDialogCount.value - 1)
   }
 })
 </script>
 
 <template>
-  <POverlay
-    v-if="commandPaletteOpen"
-    class="pt-[12vh] flex justify-center"
-    @click.self="commandPaletteOpen = false"
-  >
-    <div
-      role="dialog"
-      aria-modal="true"
-      :aria-label="$t('command.title')"
-      class="border border-border-default rounded-lg bg-surface flex flex-col max-h-[70vh] max-w-[90vw] w-160 shadow-md overflow-hidden"
+  <Teleport to="body">
+    <POverlay
+      v-if="commandPaletteOpen"
+      class="pt-[12vh] flex justify-center"
     >
-      <div class="px-3 border-b border-border-subtle flex shrink-0 gap-2.5 h-12 items-center">
-        <i class="i-tabler-search text-fg-subtle shrink-0" aria-hidden="true" />
-        <input
-          ref="inputRef"
-          v-model="query"
-          type="text"
-          autocomplete="off"
-          spellcheck="false"
-          :placeholder="$t('command.placeholder')"
-          :aria-label="$t('command.title')"
-          class="text-base text-fg outline-none bg-transparent flex-grow"
-          @keydown="onKeydown"
-        >
-        <kbd class="text-2xs text-fg-subtle font-mono px-1.5 py-0.5 border border-border-subtle rounded shrink-0">Esc</kbd>
-      </div>
-
-      <!-- Parse feedback: shows terms that were understood but matched nothing
-           we support, so a typo doesn't quietly become search text. -->
       <div
-        v-if="parsed.unknown.length > 0"
-        class="text-xs text-fg-subtle px-3 py-1.5 border-b border-border-subtle"
+        ref="dialog"
+        role="dialog"
+        aria-modal="true"
+        :aria-label="$t('command.title')"
+        class="border border-border-default rounded-lg bg-surface flex flex-col max-h-[70vh] max-w-[90vw] w-160 shadow-md overflow-hidden"
       >
-        {{ $t('command.unknownTerms', { terms: parsed.unknown.join(', ') }) }}
-      </div>
-
-      <div class="flex-grow overflow-y-auto">
-        <button
-          v-for="(cmd, i) in rows"
-          :id="`cmd-row-${i}`"
-          :key="cmd.id"
-          type="button"
-          class="text-sm px-3 py-2 text-left flex gap-2.5 w-full transition-colors items-center"
-          :class="i === activeIndex ? 'bg-surface-2 text-fg' : 'text-fg-muted hover:bg-surface-1'"
-          @click="activeIndex = i; runActive()"
-          @mousemove="activeIndex = i"
-        >
-          <i :class="cmd.icon" class="shrink-0" aria-hidden="true" />
-          <span class="flex-grow truncate">{{ cmd.label }}</span>
+        <div class="px-3 border-b border-border-subtle flex shrink-0 gap-2.5 h-12 items-center">
+          <i class="i-tabler-search text-fg-subtle shrink-0" aria-hidden="true" />
+          <input
+            ref="input"
+            v-model="query"
+            type="text"
+            role="combobox"
+            aria-expanded="true"
+            aria-autocomplete="list"
+            :aria-controls="listboxId"
+            :aria-activedescendant="activeDescendant"
+            :aria-describedby="syntaxId"
+            autocomplete="off"
+            spellcheck="false"
+            :placeholder="$t('command.placeholder')"
+            :aria-label="$t('command.title')"
+            class="text-base text-fg outline-none bg-transparent flex-grow"
+            @keydown="onKeydown"
+          >
           <kbd
-            v-if="cmd.hint"
             class="text-2xs text-fg-subtle font-mono px-1.5 py-0.5 border border-border-subtle rounded shrink-0"
-          >{{ cmd.hint }}</kbd>
-        </button>
+            aria-hidden="true"
+          >{{ formatShortcut('Esc') }}</kbd>
+        </div>
+
+        <!-- Parse feedback: shows terms that were understood but matched nothing
+             we support, so a typo doesn't quietly become search text. -->
+        <div
+          v-if="parsed.unknown.length > 0"
+          class="text-xs text-fg-subtle px-3 py-1.5 border-b border-border-subtle"
+        >
+          {{ $t('command.unknownTerms', { terms: parsed.unknown.join(', ') }) }}
+        </div>
+
+        <!-- mousedown.prevent: clicking a row must not pull focus out of the
+             combobox input (rows are not focusable; the input owns the cursor). -->
+        <div
+          :id="listboxId"
+          ref="listbox"
+          role="listbox"
+          :aria-label="$t('command.listLabel')"
+          class="flex-grow overflow-y-auto"
+          @mousedown.prevent
+        >
+          <div
+            v-for="section in sections"
+            :key="section.group"
+            role="group"
+            :aria-labelledby="section.labelId"
+          >
+            <!-- Group names are for assistive tech; the list keeps its flat look. -->
+            <div :id="section.labelId" class="sr-only">
+              {{ $t(GROUP_LABEL_KEYS[section.group]) }}
+            </div>
+            <div
+              v-for="{ cmd, index } in section.items"
+              :id="optionId(cmd)"
+              :key="cmd.id"
+              role="option"
+              :aria-selected="index === activeIndex"
+              :data-option-index="index"
+              class="text-sm px-3 py-2 text-left flex gap-2.5 w-full cursor-pointer transition-colors items-center"
+              :class="index === activeIndex ? 'bg-surface-2 text-fg' : 'text-fg-muted hover:bg-surface-1'"
+              @click="runRow(index)"
+              @mousemove="activeIndex = index"
+            >
+              <i :class="cmd.icon" class="shrink-0" aria-hidden="true" />
+              <span class="flex-grow truncate">{{ cmd.label }}</span>
+              <kbd
+                v-if="cmd.shortcut"
+                class="text-2xs text-fg-subtle font-mono px-1.5 py-0.5 border border-border-subtle rounded shrink-0"
+              >{{ formatShortcut(cmd.shortcut) }}</kbd>
+            </div>
+          </div>
+        </div>
         <div
           v-if="rows.length === 0"
           class="text-sm text-fg-subtle px-3 py-6 text-center"
         >
           {{ $t('command.noMatch') }}
         </div>
-      </div>
 
-      <!-- Syntax cheat line: the DSL is only usable if it's visible. -->
-      <div class="text-xs text-fg-subtle px-3 py-1.5 border-t border-border-subtle flex shrink-0 gap-3 overflow-x-auto">
-        <span class="font-mono whitespace-nowrap">rating:&gt;=3</span>
-        <span class="font-mono whitespace-nowrap">score:5</span>
-        <span class="font-mono whitespace-nowrap">tag:1girl</span>
-        <span class="font-mono whitespace-nowrap">ext:png</span>
-        <span class="font-mono whitespace-nowrap">silva:best</span>
-        <span class="font-mono whitespace-nowrap">luna:best</span>
+        <!-- Syntax cheat line: the DSL is only usable if it's visible. Also the
+             input's description, so screen readers hear the grammar once. -->
+        <div
+          :id="syntaxId"
+          class="text-xs text-fg-subtle px-3 py-1.5 border-t border-border-subtle flex shrink-0 gap-3 overflow-x-auto"
+        >
+          <span class="font-mono whitespace-nowrap">rating:&gt;=3</span>
+          <span class="font-mono whitespace-nowrap">score:5</span>
+          <span class="font-mono whitespace-nowrap">tag:1girl</span>
+          <span class="font-mono whitespace-nowrap">ext:png</span>
+          <span class="font-mono whitespace-nowrap">silva:best</span>
+          <span class="font-mono whitespace-nowrap">luna:best</span>
+        </div>
       </div>
-    </div>
-  </POverlay>
+    </POverlay>
+  </Teleport>
 </template>

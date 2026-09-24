@@ -31,21 +31,21 @@ const sectionTitleClass
 
 <template>
   <section v-if="hasAny" class="py-4">
-    <div :class="sectionTitleClass" class="mb-2">
-      <i class="i-tabler-tags" />
+    <h3 :class="sectionTitleClass" class="mb-2">
+      <i class="i-tabler-tags" aria-hidden="true" />
       <span>{{ $t('post.annotationHistory') }}</span>
-    </div>
+    </h3>
     <div class="text-xs flex flex-col gap-1">
       <div v-if="data?.contentFlag">
         {{ flagGlyph(data.contentFlag) }} {{ data.contentFlag }}
       </div>
       <div v-for="a in data?.absolute" :key="`abs-${a.id}`" class="text-fg-muted flex justify-between">
         <span>{{ a.dimension }} = {{ a.value }}/{{ a.scale }}</span>
-        <span>{{ a.createdAt.slice(0, 10) }}</span>
+        <time :datetime="a.createdAt">{{ a.createdAt.slice(0, 10) }}</time>
       </div>
       <div v-for="p in data?.pairwise" :key="`pw-${p.id}`" class="text-fg-muted flex justify-between">
         <span>{{ p.dimension }}: #{{ p.postA }} vs #{{ p.postB }} → {{ winnerLabel(p.winner) }}</span>
-        <span>{{ p.createdAt.slice(0, 10) }}</span>
+        <time :datetime="p.createdAt">{{ p.createdAt.slice(0, 10) }}</time>
       </div>
     </div>
   </section>

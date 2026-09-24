@@ -73,10 +73,13 @@ const label = computed(() => {
     <i
       v-if="auto"
       class="i-tabler-sparkles op-70 shrink-0"
+      aria-hidden="true"
     />
     <!-- 超长标签名（danbooru 的角色全名能到几十字）在受限容器里必须截断,
          否则会撑破所在格子盖住旁边的内容。完整名字仍在 title 上。 -->
     <span class="truncate">{{ label }}</span>
+    <!-- The dashed border + sparkle say "auto" visually; say it in words too. -->
+    <span v-if="auto" class="sr-only">{{ $t('post.panel.autoTagMarker') }}</span>
   </PTag>
 </template>
 

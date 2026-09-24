@@ -2,13 +2,14 @@
 import type { PostSimplePublic } from '@/api'
 import { useQueryClient } from '@tanstack/vue-query'
 import { filesize } from 'filesize'
-import { computed, onUnmounted, ref, watch } from 'vue'
+import { computed, onUnmounted, ref, useId, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useRoute } from 'vue-router'
 import { useAPIError } from '@/composables/useAPIError'
 import { useSelectedPostStats } from '@/composables/useSelectedPostStats'
 import { formatNumber } from '@/locale'
 import {
+  announce,
   clear,
   commitRating,
   commitScore,
@@ -18,6 +19,7 @@ import {
   isCommittedSelected,
   RATING_LEVEL_COLORS,
   RATING_LEVEL_ICONS,
+  RATING_LEVEL_LABEL_KEYS,
   RATING_LEVEL_SHORT,
   RATING_UNRATED_LABEL_KEY,
   SCORE_LEVEL_COLORS,
@@ -69,6 +71,11 @@ const {
 } = useSelectedPostStats(selectedPosts)
 
 const RATING_LABELS = computed(() => [t(RATING_UNRATED_LABEL_KEY), ...RATING_LEVEL_SHORT])
+// Full names for the screen-reader rendering of the distribution bars.
+const RATING_FULL_LABELS = computed(() => [t(RATING_UNRATED_LABEL_KEY), ...RATING_LEVEL_LABEL_KEYS.map(k => t(k))])
+// Visual legend under the bar heading: "—" stands for the unrated/unscored bucket.
+const RATING_LEGEND = ['—', ...RATING_LEVEL_SHORT].join(' · ')
+const SCORE_LEGEND = ['—', '1', '2', '3', '4', '5'].join(' · ')
 const RATING_COLORS = ['var(--p-fg-subtle)', ...RATING_LEVEL_COLORS]
 const SCORE_LABELS = computed(() => [t('common.unscored'), '1', '2', '3', '4', '5'])
 // Quality ramp: low score = red, high score = green (0 = unscored, muted).
@@ -244,11 +251,16 @@ async function applyScore(score: number) {
 }
 
 async function copyPaths() {
-  const text = selectedPosts.value
-    .map(p => `${p.filePath}/${p.fileName}.${p.extension}`)
-    .join('\n')
-  if (text) {
-    await navigator.clipboard.writeText(text).catch(() => {})
+  const paths = selectedPosts.value.map(p => `${p.filePath}/${p.fileName}.${p.extension}`)
+  if (paths.length === 0) {
+    return
+  }
+  try {
+    await navigator.clipboard.writeText(paths.join('\n'))
+    announce(t('multiSelect.pathsCopied', { n: formatNumber(paths.length) }, paths.length))
+  }
+  catch {
+    announce(t('multiSelect.copyFailed'), 'assertive')
   }
 }
 
@@ -283,6 +295,9 @@ const confirmingDelete = ref(false)
 async function deleteSelected() {
   if (!confirmingDelete.value) {
     confirmingDelete.value = true
+    // The button's label changes under focus; not every screen reader
+    // re-reads it, so say the new state.
+    announce(t('multiSelect.deleteConfirm', { n: formatNumber(count.value) }))
     return
   }
   const ids = selectedIdList.value
@@ -290,10 +305,22 @@ async function deleteSelected() {
     confirmingDelete.value = false
     return
   }
-  await deletePosts(queryClient, ids)
-  clear()
-  confirmingDelete.value = false
+  try {
+    await deletePosts(queryClient, ids)
+    clear()
+  }
+  catch (error) {
+    handleAPIError(error)
+  }
+  finally {
+    confirmingDelete.value = false
+  }
 }
+
+const uid = useId()
+const ratingLabelId = `${uid}-rating`
+const scoreLabelId = `${uid}-score`
+const thumbsLabelId = `${uid}-thumbs`
 
 const distributionTotal = computed(() => knownCount.value)
 
@@ -328,19 +355,21 @@ const sectionTitleClass
               icon
               size="sm"
               variant="ghost"
+              :aria-label="$t('multiSelect.selectAll')"
               :title="$t('multiSelect.selectAll')"
               @click="selectAllInList"
             >
-              <i class="i-tabler-square-check" />
+              <i class="i-tabler-square-check" aria-hidden="true" />
             </PButton>
             <PButton
               icon
               size="sm"
               variant="ghost"
+              :aria-label="$t('multiSelect.clearSelection')"
               :title="$t('multiSelect.clearSelection')"
               @click="clearSelection"
             >
-              <i class="i-tabler-x" />
+              <i class="i-tabler-x" aria-hidden="true" />
             </PButton>
           </div>
         </div>
@@ -348,7 +377,7 @@ const sectionTitleClass
           <span v-if="totalSize > 0" class="font-mono tabular-nums">
             {{ filesize(totalSize) }}
           </span>
-          <span v-if="totalSize > 0 && extensionDist.length > 0" class="op50">·</span>
+          <span v-if="totalSize > 0 && extensionDist.length > 0" class="op50" aria-hidden="true">·</span>
           <span v-if="extensionDist.length > 0" class="font-mono">
             {{ extensionDist.map(([e]) => e).join(', ') }}
           </span>
@@ -358,6 +387,7 @@ const sectionTitleClass
             :title="$t('multiSelect.outsideNote', { missing: missingCount, known: knownCount }, missingCount)"
           >
             {{ $t('multiSelect.inView', { known: formatNumber(knownCount), total: formatNumber(count) }) }}
+            <span class="sr-only">{{ $t('multiSelect.outsideNote', { missing: missingCount, known: knownCount }, missingCount) }}</span>
           </span>
         </div>
       </div>
@@ -367,8 +397,11 @@ const sectionTitleClass
            badge's z sits above the topmost thumb without leaking outward. -->
       <div
         v-if="displayedThumbs.length > 0"
+        role="group"
+        :aria-labelledby="thumbsLabelId"
         class="flex shrink-0 h-50 w-full select-none items-center justify-center relative isolate"
       >
+        <span :id="thumbsLabelId" class="sr-only">{{ $t('multiSelect.thumbnailsLabel') }}</span>
         <button
           v-for="d of displayedThumbs"
           :key="d.id"
@@ -380,10 +413,13 @@ const sectionTitleClass
             transition: `opacity ${d.duration}ms cubic-bezier(0.22, 1, 0.36, 1)`,
           }"
           :title="`${d.post.fileName}.${d.post.extension}`"
+          :aria-label="$t('multiSelect.showOnly', { name: `${d.post.fileName}.${d.post.extension}` })"
+          :tabindex="d.opacity === 0 ? -1 : undefined"
           @click="focusOne(d.id)"
         >
           <img
             :src="getPostThumbnailURL(d.post)"
+            alt=""
             class="h-full w-full block object-cover"
             draggable="false"
           >
@@ -392,22 +428,27 @@ const sectionTitleClass
           v-if="overflowCount > 0"
           class="text-sm text-fg tracking-tight font-mono font-semibold px-2.5 py-1 rounded-full bg-surface pointer-events-none ring-1 ring-border-default shadow-sm left-1/2 top-1/2 absolute tabular-nums -translate-x-1/2 -translate-y-1/2"
           :style="{ zIndex: Z_LEVELS }"
+          aria-hidden="true"
         >
           +{{ overflowCount }}
         </div>
       </div>
 
       <section class="py-3 p-divider">
-        <div
+        <h3
           :class="sectionTitleClass"
           class="mb-2"
         >
-          <i class="i-tabler-edit" />
+          <i class="i-tabler-edit" aria-hidden="true" />
           <span>{{ $t('multiSelect.batch') }}</span>
-        </div>
+        </h3>
         <div class="gap-x-3 gap-y-2 grid grid-cols-[auto_1fr_auto] items-center">
-          <div>{{ $t('post.ratingLabel') }}</div>
+          <div :id="ratingLabelId">
+            {{ $t('post.ratingLabel') }}
+          </div>
           <PRating
+            :aria-labelledby="ratingLabelId"
+            :mixed="commonRating === null && knownCount > 0"
             :model-value="commonRating ?? 0"
             highlight-selected-only
             :count="4"
@@ -418,11 +459,16 @@ const sectionTitleClass
           <span
             v-if="commonRating === null && knownCount > 0"
             class="text-[10px] text-fg-subtle tracking-wide uppercase"
+            aria-hidden="true"
           >{{ $t('common.mixed') }}</span>
           <span v-else />
 
-          <div>{{ $t('post.scoreLabel') }}</div>
+          <div :id="scoreLabelId">
+            {{ $t('post.scoreLabel') }}
+          </div>
           <PRating
+            :aria-labelledby="scoreLabelId"
+            :mixed="commonScore === null && knownCount > 0"
             :model-value="commonScore ?? 0"
             :count="5"
             @select="applyScore"
@@ -430,6 +476,7 @@ const sectionTitleClass
           <span
             v-if="commonScore === null && knownCount > 0"
             class="text-[10px] text-fg-subtle tracking-wide uppercase"
+            aria-hidden="true"
           >{{ $t('common.mixed') }}</span>
           <span v-else />
         </div>
@@ -440,7 +487,7 @@ const sectionTitleClass
             block
             @click="copyPaths"
           >
-            <i class="i-tabler-copy" />
+            <i class="i-tabler-copy" aria-hidden="true" />
             {{ $t('multiSelect.copyPaths') }}
           </PButton>
           <PButton
@@ -452,7 +499,7 @@ const sectionTitleClass
             :title="$t('post.groupUserPriorityNote')"
             @click="groupSelected"
           >
-            <i class="i-tabler-stack-2" />
+            <i class="i-tabler-stack-2" aria-hidden="true" />
             {{ $t('multiSelect.groupSelected') }}
           </PButton>
         </div>
@@ -462,41 +509,52 @@ const sectionTitleClass
         v-if="knownCount > 0"
         class="py-3 p-divider"
       >
-        <div
+        <h3
           :class="sectionTitleClass"
           class="mb-2"
         >
-          <i class="i-tabler-chart-bar" />
+          <i class="i-tabler-chart-bar" aria-hidden="true" />
           <span>{{ $t('multiSelect.distribution') }}</span>
-        </div>
+        </h3>
         <div class="flex flex-col gap-2.5">
           <div class="flex flex-col gap-1">
             <div class="text-fg-subtle flex items-center justify-between">
               <span>{{ $t('post.ratingLabel') }}</span>
-              <span class="text-[10px] text-fg-subtle font-mono">— · G · S · Q · E</span>
+              <span class="text-[10px] text-fg-subtle font-mono" aria-hidden="true">{{ RATING_LEGEND }}</span>
             </div>
-            <div class="rounded-full bg-surface-3 flex h-1.5 overflow-hidden">
+            <!-- The bar is a picture; its numbers are in the sr-only list. -->
+            <div class="rounded-full bg-surface-3 flex h-1.5 overflow-hidden" aria-hidden="true">
               <div
                 v-for="(n, i) of ratingDist"
                 :key="i"
                 :style="{ width: `${pct(n)}%`, backgroundColor: RATING_COLORS[i] }"
-                :title="`${RATING_LABELS[i]}: ${n}`"
+                :title="$t('multiSelect.distItem', { label: RATING_LABELS[i], n: formatNumber(n) })"
               />
             </div>
+            <ul class="sr-only">
+              <li v-for="(n, i) of ratingDist" :key="i">
+                {{ $t('multiSelect.distItem', { label: RATING_FULL_LABELS[i], n: formatNumber(n) }) }}
+              </li>
+            </ul>
           </div>
           <div class="flex flex-col gap-1">
             <div class="text-fg-subtle flex items-center justify-between">
               <span>{{ $t('post.scoreLabel') }}</span>
-              <span class="text-[10px] text-fg-subtle font-mono">— · 1 · 2 · 3 · 4 · 5</span>
+              <span class="text-[10px] text-fg-subtle font-mono" aria-hidden="true">{{ SCORE_LEGEND }}</span>
             </div>
-            <div class="rounded-full bg-surface-3 flex h-1.5 overflow-hidden">
+            <div class="rounded-full bg-surface-3 flex h-1.5 overflow-hidden" aria-hidden="true">
               <div
                 v-for="(n, i) of scoreDist"
                 :key="i"
                 :style="{ width: `${pct(n)}%`, backgroundColor: SCORE_COLORS[i] }"
-                :title="`${SCORE_LABELS[i]}: ${n}`"
+                :title="$t('multiSelect.distItem', { label: SCORE_LABELS[i], n: formatNumber(n) })"
               />
             </div>
+            <ul class="sr-only">
+              <li v-for="(n, i) of scoreDist" :key="i">
+                {{ $t('multiSelect.distItem', { label: SCORE_LABELS[i], n: formatNumber(n) }) }}
+              </li>
+            </ul>
           </div>
         </div>
       </section>
@@ -505,13 +563,13 @@ const sectionTitleClass
         v-if="knownCount > 0"
         class="py-3"
       >
-        <div
+        <h3
           :class="sectionTitleClass"
           class="mb-2"
         >
-          <i class="i-tabler-files" />
+          <i class="i-tabler-files" aria-hidden="true" />
           <span>{{ $t('multiSelect.files') }}</span>
-        </div>
+        </h3>
         <div
           class="gap-x-3 gap-y-2 grid grid-cols-[auto_1fr] children:break-words odd:children:text-fg-subtle"
         >
@@ -554,7 +612,7 @@ const sectionTitleClass
           @click="deleteSelected"
           @blur="confirmingDelete = false"
         >
-          <i class="i-tabler-trash" />
+          <i class="i-tabler-trash" aria-hidden="true" />
           {{ confirmingDelete ? $t('multiSelect.deleteConfirm', { n: formatNumber(count) }) : $t('multiSelect.deleteSelected') }}
         </PButton>
       </div>
