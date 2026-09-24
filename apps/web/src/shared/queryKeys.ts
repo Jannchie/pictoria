@@ -54,6 +54,8 @@ export const queryKeys = {
    * sub-kind (not a mutually-exclusive facet, so it isn't a `CountKind`).
    */
   tagsTotalCount: (filter: unknown) => ['count', 'tags-total', filter] as const,
+  /** Command-palette tag autocomplete (small top-N, keyed on query + scope + locale). */
+  tagSuggest: (params: unknown) => ['count', 'tag-suggest', params] as const,
 
   /** SigLIP text-to-image search results. */
   textSearch: (prompt: string, filter: unknown) => ['textSearch', prompt, filter] as const,

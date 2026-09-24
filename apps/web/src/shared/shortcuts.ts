@@ -102,6 +102,8 @@ export const shortcuts = {
     page: { keys: ['PageUp', 'PageDown'], descKey: 'shortcuts.listPage' },
     firstLast: { keys: ['Mod+Home', 'Mod+End'], descKey: 'shortcuts.firstLast' },
     run: { keys: ['Enter'], descKey: 'shortcuts.paletteRun' },
+    complete: { keys: ['Tab'], descKey: 'shortcuts.paletteComplete' },
+    applyNow: { keys: ['Mod+Enter'], descKey: 'shortcuts.paletteApplyNow' },
     tagToggle: { keys: ['Enter'], descKey: 'shortcuts.tagToggle' },
     tagSwitchGroup: { keys: ['Mod+ArrowDown', 'Mod+ArrowUp'], descKey: 'shortcuts.tagSwitchGroup' },
   },
