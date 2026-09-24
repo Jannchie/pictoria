@@ -39,6 +39,11 @@ import {
 } from '@pictoria/contracts'
 import { Buffer } from 'node:buffer'
 import {
+  countBasicsPending,
+  countEmbeddingPending,
+  countSilvaPending,
+  countTaggerPending,
+  countWaifuPending,
   ensureCanonicalTagGroups,
   listBasicsPending,
   fetchEmbeddingBlobs,
@@ -54,6 +59,7 @@ import {
   upsertWaifuScores,
 } from '@pictoria/db'
 import { targetDir } from './paths.js'
+import { type PendingCounter, registerLoop } from './queue-status.js'
 
 /** better-sqlite3 的连接类型，从 `getDb()` 借出来 —— apps/api 不直接依赖那个包。 */
 type SqliteHandle = ReturnType<typeof getDb>['sqlite']
@@ -160,11 +166,26 @@ function sleep(ms: number, signal: AbortSignal, waker: { resolve?: () => void })
 }
 
 /**
+ * 一批的结果：落库了几条、拉黑了几条。`tick` 在待办查询**扫空**时返回 `null`。
+ *
+ * 两者要分开：`null` 证明了此刻没有待办（状态区据此显示精确的 0），而 `{0, 0}` 只是
+ * 这一批一步没动 —— worker 会把文件已经不在盘上的项静默丢掉（`handlers.py` 的
+ * `_resolve_items`），整批都这样时回来的就是空结果。两种都让循环退到 `IDLE_MS`：
+ * 把"一步没动"当成干了活就是一个不睡觉的死循环 —— 待办查询按 id 排序，下一轮选出的
+ * 还是同一批。
+ */
+interface BatchOutcome {
+  done: number
+  failed: number
+}
+
+/**
  * 一个 worker 的调度循环骨架。
  *
- * `tick` 做完一批返回 `true`，没活干返回 `false`。有活就立刻接着下一批，没活就退到
- * `IDLE_MS`。**串行**：GPU 一次只跑一个批次，多提交只是让任务在队列里排着，除了把
- * 内存花在 payload 上什么也换不到。
+ * `tick` 做完一批返回 `BatchOutcome`，没活干返回 `null`。推进了就立刻接着下一批，否则
+ * 退到 `IDLE_MS`。**串行**：GPU 一次只跑一个批次，多提交只是让任务在队列里排着，除了把
+ * 内存花在 payload 上什么也换不到。进度记账（`queue-status.ts`）也在这里统一做，
+ * tick 只管返回结果。
  *
  * `tick` 收到的 `force` 是 `wake()` 立的旗：这一轮的待办查询要清掉水位线重新全扫
  * （理由见 `wakeAllBackfills`）。读了就清，而 wake() 可能发生在一次 tick 正跑到一半
@@ -173,9 +194,13 @@ function sleep(ms: number, signal: AbortSignal, waker: { resolve?: () => void })
  */
 function loop(
   name: string,
-  tick: (opts: { force: boolean }) => Promise<boolean>,
+  queue: string,
+  /** 此刻还剩多少待办 —— 只给状态显示用，由 `queue-status.ts` 在后台分块调用。 */
+  counter: PendingCounter,
+  tick: (opts: { force: boolean }) => Promise<BatchOutcome | null>,
   log: Log,
 ): BackfillHandle {
+  const tracker = registerLoop(name, queue, counter)
   const controller = new AbortController()
   const { signal } = controller
   // 空等时这里放着那一次 sleep 的 resolve；wake() 就是提前调它。
@@ -189,10 +214,19 @@ function loop(
       const force: boolean = forceRescan
       forceRescan = false
       let worked = false
+      tracker.begin()
       try {
-        worked = await tick({ force })
+        const outcome = await tick({ force })
+        if (outcome === null) {
+          tracker.idle()
+        }
+        else {
+          tracker.record(outcome.done, outcome.failed)
+          worked = outcome.done + outcome.failed > 0
+        }
       }
       catch (err) {
+        tracker.error(err)
         log.warn(`[${name}] 这一批失败：${String(err)}`)
         // 这一轮的强制重扫没兑现（查询可能压根没跑到）—— 旗子还回去，别把
         // wakeAllBackfills 的信号吞在一次异常里。
@@ -218,20 +252,6 @@ function loop(
 }
 
 /**
- * 这一批推进了吗 —— 所有产物都空就是**一步没动**。
- *
- * 空结果不等于"干完了"：worker 会把文件已经不在盘上的项静默丢掉（`handlers.py` 的
- * `_resolve_items`），整批都这样时回来的就是空 scores + 空 failures。当成"干了活"
- * 就是一个不睡觉的死循环 —— 待办查询按 id 排序，下一轮选出的还是同一批。
- *
- * 五个 worker 共用这一条规则。写在各自的 tick 里意味着加第六个 worker 时要重新推导
- * 一遍，而推错的表现是 CPU 空转。
- */
-function progressed(...produced: Array<{ length: number }>): boolean {
-  return produced.some(p => p.length > 0)
-}
-
-/**
  * SILVA / SILVA-Luna：输入是已存的向量，输出一个标量。
  *
  * 失败不拉黑 —— 能取到向量就应该能打分，所以失败是暂时的/代码的问题，值得下一轮
@@ -242,18 +262,18 @@ export function startSilvaBackfill(
   tasks: CairnQ,
   { scorer, log = console }: { scorer: SilvaScorer, log?: Log },
 ): BackfillHandle {
-  return loop(scorer, async ({ force }) => {
+  return loop(scorer, GPU_QUEUE, rows => countSilvaPending(sqlite, scorer, rows), async ({ force }) => {
     const pending = listSilvaPending(sqlite, scorer, SILVA_TASK_BATCH, { force })
     if (!pending.length)
-      return false
+      return null
 
     const blobs = fetchEmbeddingBlobs(sqlite, pending)
     const items = pending
       .filter(pid => blobs.has(pid))
       .map(pid => ({ postId: pid, embedding: encodeVectorBlob(blobs.get(pid)!) }))
-    // 待办查询说它们有向量，取的时候却没有 —— 两次查询之间被删了。
+    // 待办查询说它们有向量，取的时候却没有 —— 两次查询之间被删了。待办并没有扫空。
     if (!items.length)
-      return false
+      return { done: 0, failed: 0 }
 
     const result = await tasks.call(silvaTask, { scorer, items }, {
       queue: GPU_QUEUE,
@@ -264,7 +284,7 @@ export function startSilvaBackfill(
     })
     upsertAestheticScores(sqlite, scorer, result.scores)
     log.info(`[${scorer}] 落库 ${result.scores.length} 条，起始 id ${items[0]!.postId}`)
-    return progressed(result.scores)
+    return { done: result.scores.length, failed: 0 }
   }, log)
 }
 
@@ -281,10 +301,10 @@ export function startWaifuBackfill(
   { log = console }: { log?: Log } = {},
 ): BackfillHandle {
   const root = targetDir()
-  return loop('waifu', async ({ force }) => {
+  return loop('waifu', GPU_QUEUE, rows => countWaifuPending(sqlite, rows), async ({ force }) => {
     const items = listWaifuPending(sqlite, root, WAIFU_TASK_BATCH, { force })
     if (!items.length)
-      return false
+      return null
 
     const result = await tasks.call(waifuTask, { items }, {
       queue: GPU_QUEUE,
@@ -300,7 +320,7 @@ export function startWaifuBackfill(
       + `，起始 id ${items[0]!.postId}`,
     )
     // 整批都失败时仍然算"干了活"：黑名单已经写下，下一轮的待办查询不会再选它们。
-    return progressed(result.scores, result.failures)
+    return { done: result.scores.length, failed: result.failures.length }
   }, log)
 }
 
@@ -320,10 +340,10 @@ export function startTaggerBackfill(
   { log = console }: { log?: Log } = {},
 ): BackfillHandle {
   const root = targetDir()
-  return loop('tagger', async ({ force }) => {
+  return loop('tagger', GPU_QUEUE, rows => countTaggerPending(sqlite, TAGGER_MODEL, rows), async ({ force }) => {
     const items = listTaggerPending(sqlite, root, TAGGER_MODEL, TAGGER_TASK_BATCH, { force })
     if (!items.length)
-      return false
+      return null
 
     const result = await tasks.call(taggerTask, { items }, {
       queue: GPU_QUEUE,
@@ -347,7 +367,7 @@ export function startTaggerBackfill(
         : '')
       + `，起始 id ${items[0]!.postId}`,
     )
-    return progressed(result.results, result.failures)
+    return { done: result.results.length, failed: result.failures.length }
   }, log)
 }
 
@@ -372,7 +392,7 @@ export function startEmbeddingBackfill(
 ): BackfillHandle {
   const root = targetDir()
   let writtenSinceIdle = 0
-  return loop('embedding', async ({ force }) => {
+  return loop('embedding', GPU_QUEUE, rows => countEmbeddingPending(sqlite, rows), async ({ force }) => {
     const items = listEmbeddingPending(sqlite, root, EMBEDDING_TASK_BATCH, { force })
     if (!items.length) {
       if (writtenSinceIdle && onDrained) {
@@ -383,7 +403,7 @@ export function startEmbeddingBackfill(
         log.info(`[embedding] 待办清空，本轮写入 ${written} 条，触发近重复重组`)
         await onDrained(written)
       }
-      return false
+      return null
     }
 
     const result = await tasks.call(embeddingTask, { items }, {
@@ -407,7 +427,7 @@ export function startEmbeddingBackfill(
       + (result.failures.length ? `，拉黑 ${result.failures.length} 条` : '')
       + `，起始 id ${items[0]!.postId}`,
     )
-    return progressed(result.embeddings, result.failures)
+    return { done: result.embeddings.length, failed: result.failures.length }
   }, log)
 }
 
@@ -425,10 +445,10 @@ export function startBasicsBackfill(
   { log = console }: { log?: Log } = {},
 ): BackfillHandle {
   const root = targetDir()
-  return loop('basics', async ({ force }) => {
+  return loop('basics', IO_QUEUE, rows => countBasicsPending(sqlite, rows), async ({ force }) => {
     const items = listBasicsPending(sqlite, root, BASICS_TASK_BATCH, { force })
     if (!items.length)
-      return false
+      return null
 
     const result = await tasks.call(basicsTask, { items }, {
       queue: IO_QUEUE,
@@ -443,6 +463,6 @@ export function startBasicsBackfill(
       + (result.failures.length ? `，拉黑 ${result.failures.length} 条` : '')
       + `，起始 id ${items[0]!.postId}`,
     )
-    return progressed(result.rows, result.failures)
+    return { done: result.rows.length, failed: result.failures.length }
   }, log)
 }

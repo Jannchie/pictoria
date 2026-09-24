@@ -1,3 +1,4 @@
+import type { CairnQ } from 'cairnq'
 import process from 'node:process'
 import { serve } from '@hono/node-server'
 import { OpenAPIHono } from '@hono/zod-openapi'
@@ -7,6 +8,7 @@ import { rebuildGroups } from './dedup.js'
 import { SILVA_SCORERS } from '@pictoria/contracts'
 import { getDb, migrate } from './db.js'
 import { fail } from './openapi.js'
+import { setSchedulerError } from './queue-status.js'
 import { startBasicsBackfill, startEmbeddingBackfill, startSilvaBackfill, startTaggerBackfill, startWaifuBackfill, wakeAllBackfills } from './scheduler.js'
 import { startAutoSync } from './sync.js'
 import { getTasks } from './tasks.js'
@@ -19,6 +21,7 @@ import { postCountsRoutes } from './routes/post-counts.js'
 import { postListRoutes } from './routes/post-list.js'
 import { postReadsRoutes } from './routes/post-reads.js'
 import { postWritesRoutes } from './routes/post-writes.js'
+import { queuesRoutes } from './routes/queues.js'
 import { statisticsRoutes } from './routes/statistics.js'
 import { tagsRoutes } from './routes/tags.js'
 import { tagWritesRoutes } from './routes/tag-writes.js'
@@ -53,6 +56,7 @@ app.use('*', cors({
 app.use('*', compress())
 
 app.route('/', statisticsRoutes)
+app.route('/', queuesRoutes)
 app.route('/', foldersRoutes)
 app.route('/', tagsRoutes)
 app.route('/', tagWritesRoutes)
@@ -103,9 +107,36 @@ serve({ fetch: app.fetch, port: PORT }, (info) => {
 
 // ---- backfill 调度（§D2：挑活在 TS，干活在 Python worker） ----
 // 默认开着 —— 这是迁移的目标状态。设 PICTORIA_SCHEDULER=0 可以整个停掉，用来二分定位。
+/**
+ * 调度器的任务库句柄：开库失败就退避重试（2 秒起、翻倍、封顶 1 分钟），一直重试下去。
+ *
+ * 调度器只在启动时开一次库，失败一次就整段不启动、只剩 HTTP。失败的原因里有真实
+ * 发生过的暂时性问题（2026-09-24 升 cairnq 0.15 后第一次 `pnpm dev`，开库撞上另一个
+ * 进程的写锁，等满 busy_timeout），也有要等 worker 那边跟上的问题（协议版本对不上）
+ * —— 两种都是"过一会儿再试"就能好，不值得让人去重启 API。每次失败都报给前端的
+ * 同步状态区，成功后清掉。
+ *
+ * 重试放在这里而不是 `getTasks()` 里：交互端点（缩略图、打标、转图）要的是快速失败。
+ */
+async function tasksForScheduler(): Promise<CairnQ> {
+  for (let delay = 2_000; ; delay = Math.min(delay * 2, 60_000)) {
+    try {
+      const tasks = await getTasks()
+      setSchedulerError(null)
+      return tasks
+    }
+    catch (err) {
+      // 带上整个 err（堆栈 + code）：只打 String(err) 时分不清是哪一步失败的。
+      console.error(`[pictoria-api] 后台调度开库失败，${delay / 1000}s 后重试（HTTP 服务不受影响）：`, err)
+      setSchedulerError(err)
+      await new Promise(resolve => setTimeout(resolve, delay))
+    }
+  }
+}
+
 if (process.env.PICTORIA_SCHEDULER !== '0') {
   void (async () => {
-    const tasks = await getTasks()
+    const tasks = await tasksForScheduler()
     const { sqlite } = getDb()
     // basics 排在最前：其余 worker 的输入（尺寸、缩略图）都由它产出。
     startBasicsBackfill(sqlite, tasks)
@@ -127,11 +158,12 @@ if (process.env.PICTORIA_SCHEDULER !== '0') {
     console.warn('[pictoria-api] backfill 调度已启动：basics, silva, silva_luna, waifu, tagger, embedding')
     console.warn('[pictoria-api] 文件监视 + 10 分钟轮询已启动')
   })().catch((err: unknown) => {
-    // ⚠️ 这个 catch 不能省。上面整段是 fire-and-forget，而 `getTasks()` 会 reject
-    // （cairnq 协议版本和 worker 建的 tasks.sqlite 对不上、文件被锁）—— Node 默认
-    // `--unhandled-rejections=throw`，于是一个**已经绑好端口、70 个端点都能正常服务**
-    // 的进程会被一个后台初始化失败直接干掉。退役掉的 app.py 每条后台循环都包了
-    // try/except，就是这个原因。
-    console.error(`[pictoria-api] 后台调度启动失败，HTTP 服务继续：${String(err)}`)
+    // ⚠️ 这个 catch 不能省。上面整段是 fire-and-forget，开库之后的启动步骤抛出的
+    // 异常会一路冒到这里 —— Node 默认 `--unhandled-rejections=throw`，于是一个**已经
+    // 绑好端口、70 个端点都能正常服务**的进程会被一个后台初始化失败直接干掉。退役掉的
+    // app.py 每条后台循环都包了 try/except，就是这个原因。
+    console.error('[pictoria-api] 后台调度启动失败，HTTP 服务继续：', err)
+    // 也报给前端的同步状态区：只有一行终端日志的话，调度停了很久都没人发现。
+    setSchedulerError(err)
   })
 }

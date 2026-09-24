@@ -77,6 +77,8 @@ export const queryKeys = {
   postCount: ['post-count'] as const,
   /** Background gallery-dl URL import task status (Settings page polls this). */
   urlImportStatus: ['urlImportStatus'] as const,
+  /** Backfill progress + cairnq queue depths (sidebar sync-status area polls this). */
+  queuesStatus: ['queuesStatus'] as const,
 
   /** Annotation queue list (Annotate view). */
   annotationQueues: ['annotation-queues'] as const,

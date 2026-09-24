@@ -6,6 +6,7 @@
  * 东西 —— 生产库上 silva 已经打满，那条路径在真机上根本没被走到过。
  */
 import type { TaggerCategories } from '@pictoria/contracts'
+import { EMBEDDING_WORKER_KEY } from '@pictoria/contracts'
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
@@ -17,6 +18,11 @@ import { MIGRATIONS_DIR, runMigrations } from '../migrate.js'
 import {
   aestheticWorkerKey,
   CANONICAL_TAG_GROUPS,
+  countBasicsPending,
+  countEmbeddingPending,
+  countSilvaPending,
+  countTaggerPending,
+  countWaifuPending,
   fetchEmbeddingBlobs,
   listSilvaPending,
   ensureCanonicalTagGroups,
@@ -684,4 +690,73 @@ describe('待办水位线（waifu / tagger / basics）', () => {
       expect(forced.map(p => p.postId)).toEqual([1])
     })
   }
+})
+
+describe('待办计数', () => {
+  const MODEL = 'model-under-test'
+
+  /** 1..6 六张图：2、4 有向量；3 被 embedding 拉黑；5 已打 waifu 分；6 是 .txt。 */
+  function seed(): void {
+    for (const id of [1, 2, 3, 4, 5]) insertPost(id)
+    insertPost(6, 'txt')
+    upsertVectors(sqlite, [{ postId: 2, embedding: vectorBlob(2) }, { postId: 4, embedding: vectorBlob(4) }])
+    recordFailures(sqlite, EMBEDDING_WORKER_KEY, [{ postId: 3, error: 'x' }])
+    upsertWaifuScores(sqlite, [{ postId: 5, score: 5 }])
+    upsertAestheticScores(sqlite, 'silva', [{ postId: 4, score: 0.5 }])
+  }
+
+  const sum = (chunks: Iterable<number>) => [...chunks].reduce((a, b) => a + b, 0)
+
+  const cases: Array<[string, (chunkRows?: number) => Iterable<number>, () => number]> = [
+    ['waifu', r => countWaifuPending(sqlite, r), () => listWaifuPending(sqlite, '/lib').length],
+    ['tagger', r => countTaggerPending(sqlite, MODEL, r), () => listTaggerPending(sqlite, '/lib', MODEL).length],
+    ['basics', r => countBasicsPending(sqlite, r), () => listBasicsPending(sqlite, '/lib').length],
+    ['embedding', r => countEmbeddingPending(sqlite, r), () => listEmbeddingPending(sqlite, '/lib').length],
+    ['silva', r => countSilvaPending(sqlite, 'silva', r), () => listSilvaPending(sqlite, 'silva').length],
+  ]
+
+  for (const [name, count, list] of cases) {
+    it(`${name}：计数等于不限量的待办查询条数，扫描前后都是`, () => {
+      seed()
+      const before = sum(count())
+      expect(before).toBeGreaterThan(0)
+      expect(before).toBe(list())
+      // 扫描推进了水位线，计数跟着从新水位往上数，结果不变
+      expect(sum(count())).toBe(before)
+    })
+
+    it(`${name}：分块数，各块之和等于一次数完`, () => {
+      seed()
+      const whole = sum(count())
+      for (const rows of [1, 2, 5])
+        expect(sum(count(rows))).toBe(whole)
+    })
+
+    it(`${name}：计数不推动水位线`, () => {
+      seed()
+      const expected = list()
+      // 计数只读水位线：连数两次之后，扫描看到的还是同一批
+      sum(count())
+      sum(count(1))
+      expect(list()).toBe(expected)
+    })
+  }
+
+  it('空库全是 0', () => {
+    for (const [, count] of cases) expect(sum(count())).toBe(0)
+  })
+
+  it('具体数值：embedding 不算被拉黑的和非图片，silva 只算有向量且没分的', () => {
+    seed()
+    expect(sum(countEmbeddingPending(sqlite))).toBe(2) // 1、5
+    expect(sum(countSilvaPending(sqlite, 'silva'))).toBe(1) // 2
+    expect(sum(countWaifuPending(sqlite))).toBe(4) // 1..4
+  })
+
+  it('分块从水位线开始，水位线以下不产生块', () => {
+    for (const id of [1, 2, 3, 4, 5, 6]) insertPost(id)
+    upsertWaifuScores(sqlite, [1, 2, 3, 4].map(postId => ({ postId, score: 5 })))
+    listWaifuPending(sqlite, '/lib') // 水位线落在第一个待办 5 上
+    expect([...countWaifuPending(sqlite, 1)]).toEqual([1, 1])
+  })
 })

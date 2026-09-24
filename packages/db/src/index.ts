@@ -29,7 +29,7 @@ export type { AnnotationQueueRow, QueueWithProgress } from './repositories/annot
 export { cosine, existingVectors, knn, SIGLIP2_TABLE, unitVectors, vectorExists } from './repositories/vectors.js'
 export { comparisonEdges, PairGraph, sampleGroups, samplePairs, samplePostIds, Sampler } from './repositories/sampling.js'
 export type { Block, ComparisonEdge } from './repositories/sampling.js'
-export { aestheticWorkerKey, ensureCanonicalTagGroups, listBasicsPending, upsertBasics, fetchEmbeddingBlobs, listEmbeddingPending, listSilvaPending, listTaggerPending, listWaifuPending, notFailedClause, persistTaggerResults, ratingToInt, recordFailures, TAG_GROUP_COLORS, upsertAestheticScores, upsertVectors, upsertWaifuScores } from './repositories/backfill.js'
+export { aestheticWorkerKey, countBasicsPending, countEmbeddingPending, countSilvaPending, countTaggerPending, countWaifuPending, ensureCanonicalTagGroups, listBasicsPending, upsertBasics, fetchEmbeddingBlobs, listEmbeddingPending, listSilvaPending, listTaggerPending, listWaifuPending, notFailedClause, persistTaggerResults, ratingToInt, recordFailures, TAG_GROUP_COLORS, upsertAestheticScores, upsertVectors, upsertWaifuScores } from './repositories/backfill.js'
 export type { BasicsPending, BasicsRowIn, PendingImage, TaggerRow } from './repositories/backfill.js'
 export { assignFromEdges, exportVectorMatrix, replaceAllGroups } from './repositories/dedup.js'
 export type { AssignOptions, VariantEdge } from './repositories/dedup.js'

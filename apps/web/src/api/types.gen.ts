@@ -13,6 +13,72 @@ export type WaifuScoreResult = {
 };
 
 /**
+ * QueuesStatus
+ */
+export type QueuesStatus = {
+    scheduler: {
+        running: boolean;
+        /**
+         * 调度器启动失败时的错误；正常为 `null`。
+         */
+        error: string | null;
+    };
+    loops: Array<QueueLoopStatus>;
+    /**
+     * cairnq 各队列此刻排队 / 运行中的任务数；任务库还没连上时为空。
+     */
+    queues: Array<QueueDepth>;
+};
+
+/**
+ * QueueLoopStatus
+ */
+export type QueueLoopStatus = {
+    /**
+     * 循环名：`basics` / `silva` / `silva_luna` / `waifu` / `tagger` / `embedding`。
+     */
+    key: string;
+    queue: string;
+    state: 'idle' | 'working' | 'error';
+    /**
+     * 还剩多少条；`null` = 还没数出来（第一遍计数在后台进行中）。两次精确计数之间是估计值。
+     */
+    remaining: number | null;
+    /**
+     * 进程启动以来落库的条数。
+     */
+    processed: number;
+    /**
+     * 进程启动以来被拉黑的条数。
+     */
+    failed: number;
+    /**
+     * 这一段忙碌期已完成的条数（进度条的分子）。
+     */
+    sessionDone: number;
+    ratePerSecond: number | null;
+    etaSeconds: number | null;
+    /**
+     * epoch ms
+     */
+    batchStartedAt: number | null;
+    /**
+     * epoch ms
+     */
+    lastBatchAt: number | null;
+    lastError: string | null;
+};
+
+/**
+ * QueueDepth
+ */
+export type QueueDepth = {
+    name: string;
+    queued: number;
+    running: number;
+};
+
+/**
  * DirectorySummary
  */
 export type DirectorySummary = {
@@ -958,6 +1024,22 @@ export type V2GetWaifuScorerStatisticsResponses = {
 };
 
 export type V2GetWaifuScorerStatisticsResponse = V2GetWaifuScorerStatisticsResponses[keyof V2GetWaifuScorerStatisticsResponses];
+
+export type V2GetQueuesStatusData = {
+    body?: never;
+    path?: never;
+    query?: never;
+    url: '/v2/queues/status';
+};
+
+export type V2GetQueuesStatusResponses = {
+    /**
+     * OK
+     */
+    200: QueuesStatus;
+};
+
+export type V2GetQueuesStatusResponse = V2GetQueuesStatusResponses[keyof V2GetQueuesStatusResponses];
 
 export type V2GetFoldersData = {
     body?: never;

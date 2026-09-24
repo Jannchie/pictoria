@@ -600,18 +600,21 @@ function splitHighlight(text: string, filter: string): HighlightPart[] {
             </template>
           </PTreeList>
         </div>
-        <div class="p-2 border-t border-border-subtle">
-          <RouterLink
-            to="/settings"
-            class="rounded block"
-          >
-            <PListItem
-              class="px-4!"
-              icon="i-tabler-settings"
-              :active="$route.path === '/settings'"
-              :title="$t('common.settings')"
-            />
-          </RouterLink>
+        <div class="border-t border-border-subtle">
+          <SyncStatus />
+          <div class="p-2">
+            <RouterLink
+              to="/settings"
+              class="rounded block"
+            >
+              <PListItem
+                class="px-4!"
+                icon="i-tabler-settings"
+                :active="$route.path === '/settings'"
+                :title="$t('common.settings')"
+              />
+            </RouterLink>
+          </div>
         </div>
       </Pane>
       <Pane class="relative">

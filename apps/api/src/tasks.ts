@@ -36,14 +36,46 @@ import { tasksDbPath } from './paths.js'
 const HOUR_MS = 3_600_000
 const RETENTION = { succeeded: HOUR_MS, failed: 24 * HOUR_MS, canceled: 24 * HOUR_MS } as const
 
-let handle: CairnQ | null = null
+// 缓存的是 Promise 而不是句柄：并发的首批调用共用同一次开库；失败则清空，下一次调用
+// 重新开 —— 不留一个没连上的句柄给后面的人。失败**不在这里重试**：交互端点要的是快速
+// 失败，调度器的启动重试在 `index.ts`。
+let handle: Promise<CairnQ> | null = null
+let connected: CairnQ | null = null
 
-export async function getTasks(): Promise<CairnQ> {
-  if (!handle) {
-    // retention 随句柄启停：谁打开队列谁维护它。挂在 index.ts 的调度开关下不行：
-    // PICTORIA_SCHEDULER=0 的进程照样通过交互端点往 tasks.sqlite 塞大 payload。
-    handle = CairnQ.sqlite(tasksDbPath(), { retention: { olderThanMs: RETENTION } })
-    await handle.connect()
+async function connect(): Promise<CairnQ> {
+  // retention 随句柄启停：谁打开队列谁维护它。挂在 index.ts 的调度开关下不行：
+  // PICTORIA_SCHEDULER=0 的进程照样通过交互端点往 tasks.sqlite 塞大 payload。
+  const tasks = CairnQ.sqlite(tasksDbPath(), { retention: { olderThanMs: RETENTION } })
+  try {
+    await tasks.connect()
+    return tasks
   }
+  catch (err) {
+    await tasks.close().catch(() => {})
+    throw err
+  }
+}
+
+export function getTasks(): Promise<CairnQ> {
+  handle ??= connect().then(
+    (tasks) => {
+      connected = tasks
+      return tasks
+    },
+    (err: unknown) => {
+      handle = null
+      throw err
+    },
+  )
   return handle
+}
+
+/**
+ * 已经连上的句柄，没连上就是 `null` —— 绝不触发开库。
+ *
+ * 给只读的状态展示用：一个每几秒轮询一次的状态接口不该替调度器去开库，更不该在
+ * 开库撞锁时跟着等 busy_timeout。
+ */
+export function peekTasks(): CairnQ | null {
+  return connected
 }

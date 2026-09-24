@@ -120,6 +120,40 @@ function writeFloor(sqlite: BetterSqlite3.Database, key: string, floor: number):
   per.set(key, floor)
 }
 
+interface FloorScan {
+  /** 水位线的键。六条循环各存各的，见 `scanFloor`。 */
+  key: string
+  /** `post_process_failures` 的 worker 列值。 */
+  workerKey: string
+  /** 可选的 JOIN 片段，接在 `FROM posts p` 之后。 */
+  join?: string
+  /** 这条循环自己的"算待办"条件，与下界和公共过滤 AND 在一起。 */
+  where: string
+  /**
+   * `where` 里 `?` 的实参，按出现顺序。
+   *
+   * 位置是定死的：`p.id >= ? AND p.id < ?` 在前，`where` 在中间，黑名单的 `f.worker = ?`
+   * 在后 —— 所以参数数组也必须是这个顺序。加占位符就得在这里给值，漏了的表现是
+   * better-sqlite3 抛 "too few parameter values"（不是静默错结果）。
+   */
+  whereParams?: unknown[]
+}
+
+/**
+ * `FROM … WHERE …` —— 扫描（`scanByFloor`）和计数（`countByFloor`）共用这一份，于是
+ * "什么算待办"只有一处定义，两者不会漂开。id 区间 `[floor, below)` 两端总是绑定的
+ * （不需要上界时绑 `Number.MAX_SAFE_INTEGER`），所以同一条循环的 SQL 文本是固定的，
+ * 计数可以只 prepare 一次、逐块换参数。
+ */
+function floorSql(scan: FloorScan): string {
+  return `FROM posts p ${scan.join ?? ''}`
+    + `WHERE p.id >= ? AND p.id < ? AND ${scan.where} AND ${IMAGE_EXT_WHERE} AND ${notFailedClause('p')} `
+}
+
+function floorParams(scan: FloorScan, floor: number, below = Number.MAX_SAFE_INTEGER): unknown[] {
+  return [floor, below, ...(scan.whereParams ?? []), scan.workerKey]
+}
+
 /**
  * 带水位线的待办扫描 —— `listWaifuPending` / `listTaggerPending` / `listBasicsPending`
  * 共用的那一半。
@@ -132,48 +166,64 @@ function writeFloor(sqlite: BetterSqlite3.Database, key: string, floor: number):
  */
 function scanByFloor<R extends { id: number }>(
   sqlite: BetterSqlite3.Database,
+  scan: FloorScan,
   opts: {
-    /** 水位线的键。六条循环各存各的，见 `scanFloor`。 */
-    key: string
-    /** `post_process_failures` 的 worker 列值。 */
-    workerKey: string
     /** `SELECT` 之后、`FROM posts p` 之前的列清单。 */
     columns: string
-    /** 可选的 JOIN 片段，接在 `FROM posts p` 之后。 */
-    join?: string
-    /** 这条循环自己的"算待办"条件，与下界和公共过滤 AND 在一起。 */
-    where: string
-    /**
-     * `where` 里 `?` 的实参，按出现顺序。
-     *
-     * 位置是定死的：`p.id >= ?` 在前，`where` 在中间，黑名单的 `f.worker = ?` 在后 ——
-     * 所以参数数组也必须是这个顺序。加占位符就得在这里给值，漏了的表现是
-     * better-sqlite3 抛 "too few parameter values"（不是静默错结果）。
-     */
-    whereParams?: unknown[]
     limit?: number
     force: boolean
   },
 ): R[] {
-  const floor = readFloor(sqlite, opts.key, opts.force)
+  const floor = readFloor(sqlite, scan.key, opts.force)
   // 必须在查询**之前**读，理由见 `scanFloor` 的注释。
   const maxId = maxPostId(sqlite)
 
-  const sql
-    = `SELECT ${opts.columns} FROM posts p ${opts.join ?? ''}`
-      + `WHERE p.id >= ? AND ${opts.where} AND ${IMAGE_EXT_WHERE} AND ${notFailedClause('p')} `
-      + `ORDER BY p.id${opts.limit === undefined ? '' : ' LIMIT ?'}`
-  const params: unknown[] = [
-    floor,
-    ...(opts.whereParams ?? []),
-    opts.workerKey,
-    ...(opts.limit === undefined ? [] : [opts.limit]),
-  ]
+  const sql = `SELECT ${opts.columns} ${floorSql(scan)}ORDER BY p.id${opts.limit === undefined ? '' : ' LIMIT ?'}`
+  const params = [...floorParams(scan, floor), ...(opts.limit === undefined ? [] : [opts.limit])]
   const rows = sqlite.prepare<unknown[], R>(sql).all(...params)
 
-  writeFloor(sqlite, opts.key, rows[0]?.id ?? maxId + 1)
+  writeFloor(sqlite, scan.key, rows[0]?.id ?? maxId + 1)
   return rows
 }
+
+/**
+ * 水位线以上还有多少条待办，**分块**给出 —— 给前端的进度显示用，调度本身不需要它。
+ *
+ * 为什么是生成器：代价与积压成正比。稳态下水位线在表尾，一块、扫 0 行；整库重打标时
+ * tagger 的积压是十几万行，一次数完实测 1.6 秒 —— 那 1.6 秒里事件循环上的一切都停着。
+ * 所以从水位线起按 `chunkRows` 行一块切 id 区间、每块 yield 一个计数，调用方在块与块
+ * 之间让出事件循环（见 `apps/api/src/queue-status.ts`）。不传 `chunkRows` 就一块数完。
+ *
+ * 只读水位线、不写：计数不是一次"扫描证明"（它不按 id 顺序停在第一个候选上），
+ * 推进水位线是扫描的事。从水位线往上数是准确的，因为待办不变式说它以下没有待办
+ * （`force` 待兑现的那些老 post 除外 —— 它们会在下一轮被扫到，届时计数自然跟上）。
+ */
+function* countByFloor(sqlite: BetterSqlite3.Database, scan: FloorScan, chunkRows?: number): Generator<number, void, undefined> {
+  const count = sqlite.prepare<unknown[], number>(`SELECT COUNT(*) ${floorSql(scan)}`).pluck()
+  // 从 `from` 起第 `chunkRows` 行的 id —— 这一块的上界；不足一块就数到表尾。主键跳跃定位。
+  const boundary = sqlite.prepare<[number, number], number>('SELECT id FROM posts WHERE id >= ? ORDER BY id LIMIT 1 OFFSET ?').pluck()
+  for (let from = readFloor(sqlite, scan.key, false); ;) {
+    const to = chunkRows === undefined ? undefined : boundary.get(from, chunkRows)
+    yield count.get(...floorParams(scan, from, to))!
+    if (to === undefined)
+      return
+    from = to
+  }
+}
+
+/**
+ * "这个 post 有 SigLIP2 向量"。
+ *
+ * 不直接问 vec0：它是虚表，`post_id` 上的条件不走索引，逐行探一次就是一次全扫。但
+ * sqlite-vec 给每个 vec0 表维护一张**普通**影子表 `<表名>_rowids`，它的 rowid 就是
+ * `post_id`（`INTEGER PRIMARY KEY` 声明的那一列），在它上面是主键点查。真实库上核对过
+ * 两边逐行一致（30.2 万行，0 条对不上）。
+ *
+ * ⚠️ 影子表是 sqlite-vec 的内部结构。`backfill.test.ts` 的"计数等于待办查询条数"用例
+ * 拿它和直接扫 vec0 的 `listEmbeddingPending` / `listSilvaPending` 对拍，换 sqlite-vec
+ * 版本时那里会先红。
+ */
+const HAS_VECTOR = `EXISTS (SELECT 1 FROM ${SIGLIP2_TABLE}_rowids r WHERE r.rowid = p.id)`
 
 /**
  * 有 SigLIP2 向量、但还没有 `scorer` 分数的 post id，按 id 升序。
@@ -309,16 +359,24 @@ export function listWaifuPending(
   limit?: number,
   { force = false }: PendingScanOpts = {},
 ): PendingImage[] {
-  const rows = scanByFloor<{ id: number, full_path: string }>(sqlite, {
-    key: 'waifu',
-    workerKey: WAIFU_WORKER_KEY,
+  const rows = scanByFloor<{ id: number, full_path: string }>(sqlite, WAIFU_SCAN, {
     columns: 'p.id, p.full_path',
-    join: 'LEFT JOIN post_waifu_scores pws ON pws.post_id = p.id ',
-    where: 'pws.post_id IS NULL',
     limit,
     force,
   })
   return rows.map(r => ({ postId: r.id, path: `${targetDir}/${r.full_path}` }))
+}
+
+const WAIFU_SCAN: FloorScan = {
+  key: 'waifu',
+  workerKey: WAIFU_WORKER_KEY,
+  join: 'LEFT JOIN post_waifu_scores pws ON pws.post_id = p.id ',
+  where: 'pws.post_id IS NULL',
+}
+
+/** `listWaifuPending` 不限量时会返回的条数，分块给出。见 `countByFloor`。 */
+export function countWaifuPending(sqlite: BetterSqlite3.Database, chunkRows?: number): Generator<number, void, undefined> {
+  return countByFloor(sqlite, WAIFU_SCAN, chunkRows)
 }
 
 /** 批量写入 waifu 分数。一个事务里的多条 upsert。 */
@@ -424,17 +482,27 @@ export function listTaggerPending(
   limit?: number,
   { force = false }: PendingScanOpts = {},
 ): PendingImage[] {
-  const rows = scanByFloor<{ id: number, full_path: string }>(sqlite, {
-    key: 'tagger',
-    workerKey: TAGGER_WORKER_KEY,
+  const rows = scanByFloor<{ id: number, full_path: string }>(sqlite, taggerScan(model), {
     columns: 'p.id, p.full_path',
-    where: '(p.tagger IS NOT ? '
-      + 'OR NOT EXISTS (SELECT 1 FROM post_has_tag pht WHERE pht.post_id = p.id AND pht.is_auto = 1))',
-    whereParams: [model],
     limit,
     force,
   })
   return rows.map(r => ({ postId: r.id, path: `${targetDir}/${r.full_path}` }))
+}
+
+function taggerScan(model: string): FloorScan {
+  return {
+    key: 'tagger',
+    workerKey: TAGGER_WORKER_KEY,
+    where: '(p.tagger IS NOT ? '
+      + 'OR NOT EXISTS (SELECT 1 FROM post_has_tag pht WHERE pht.post_id = p.id AND pht.is_auto = 1))',
+    whereParams: [model],
+  }
+}
+
+/** `listTaggerPending` 不限量时会返回的条数，分块给出。见 `countByFloor`。 */
+export function countTaggerPending(sqlite: BetterSqlite3.Database, model: string, chunkRows?: number): Generator<number, void, undefined> {
+  return countByFloor(sqlite, taggerScan(model), chunkRows)
 }
 
 /** 确保五个规范 tag 组存在，返回 `{组名: id}`，键序即 `CANONICAL_TAG_GROUPS` 的优先级序。 */
@@ -647,6 +715,33 @@ export function listEmbeddingPending(
   return slice.map(r => ({ postId: r.id, path: `${targetDir}/${r.full_path}` }))
 }
 
+const EMBEDDING_SCAN: FloorScan = {
+  key: 'embedding',
+  workerKey: EMBEDDING_WORKER_KEY,
+  where: `NOT ${HAS_VECTOR}`,
+}
+
+/** `listEmbeddingPending` 不限量时会返回的条数，分块给出。见 `countByFloor`。 */
+export function countEmbeddingPending(sqlite: BetterSqlite3.Database, chunkRows?: number): Generator<number, void, undefined> {
+  return countByFloor(sqlite, EMBEDDING_SCAN, chunkRows)
+}
+
+/**
+ * `listSilvaPending` 不限量时会返回的条数，分块给出：水位线以上、有向量、还没有这个
+ * scorer 分数的。还没有向量的候选不算 —— 它们要先等 embedding，算进来 ETA 就是错的。
+ *
+ * 比 `listSilvaPending` 多一条扩展名过滤（`floorSql` 带的），结果不变：有向量就意味着
+ * 过了 embedding 那一关，而那一关本来就只收图片扩展名。
+ */
+export function countSilvaPending(sqlite: BetterSqlite3.Database, scorer: string, chunkRows?: number): Generator<number, void, undefined> {
+  return countByFloor(sqlite, {
+    key: `silva:${scorer}`,
+    workerKey: aestheticWorkerKey(scorer),
+    where: `NOT EXISTS (SELECT 1 FROM ${AESTHETIC_SCORES_TABLE} pas WHERE pas.post_id = p.id AND pas.scorer = ?) AND ${HAS_VECTOR}`,
+    whereParams: [scorer],
+  }, chunkRows)
+}
+
 /**
  * 把这条连接上**所有**循环的水位线清零，等价于下一次每条都 `{ force: true }`。
  *
@@ -734,11 +829,8 @@ export function listBasicsPending(
     sha256: string | null
     arthash: string | null
     dominant_color: Buffer | null
-  }>(sqlite, {
-    key: 'basics',
-    workerKey: BASICS_WORKER_KEY,
+  }>(sqlite, BASICS_SCAN, {
     columns: 'p.id, p.full_path, p.sha256, p.arthash, p.dominant_color',
-    where: `(p.sha256 = '' OR p.arthash IS NULL OR p.arthash = '' OR p.dominant_color IS NULL)`,
     limit,
     force,
   })
@@ -751,6 +843,17 @@ export function listBasicsPending(
       hasArthash: !!r.arthash,
       hasColor: r.dominant_color !== null,
     }))
+}
+
+const BASICS_SCAN: FloorScan = {
+  key: 'basics',
+  workerKey: BASICS_WORKER_KEY,
+  where: `(p.sha256 = '' OR p.arthash IS NULL OR p.arthash = '' OR p.dominant_color IS NULL)`,
+}
+
+/** `listBasicsPending` 不限量时会返回的条数，分块给出。见 `countByFloor`。 */
+export function countBasicsPending(sqlite: BetterSqlite3.Database, chunkRows?: number): Generator<number, void, undefined> {
+  return countByFloor(sqlite, BASICS_SCAN, chunkRows)
 }
 
 /** worker 回传的一行 basics。 */
