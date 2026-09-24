@@ -31,6 +31,14 @@ so it never stacks with existing shadows. Exceptions:
   to the visible box (`:focus-visible + .p-checkbox__box`).
 - **Virtual-scroll rows** (`PTreeList`, sidebar) use
   `focus-visible:[outline-offset:-2px]` so the ring insets and isn't clipped.
+- **Layer containers** (`PPopover` content, `PMenu`, `PFloatWindow`) take
+  programmatic focus only as a fallback when they hold nothing focusable; they
+  suppress the ring on themselves — their items carry it.
+
+Overlays move focus in and give it back: dialogs trap it (initial focus =
+confirm, or Cancel for `danger`); popovers, menus and float windows move it in
+without trapping and return it to the trigger / invoker on Escape, Tab-out or
+selection. An outside click never steals focus back from what was clicked.
 
 Don't write ad-hoc focus styles on new interactive components — let the global
 rule cover them.
@@ -40,7 +48,10 @@ rule cover them.
 Floating layers share two transitions, both defined in `style.css` (global, not
 scoped, because content Teleports to `<body>`):
 
-- **`p-float`** — fade + 2px rise. Used by `PPopover`, `PMenu`, `PDialog`.
+- **`p-float`** — fade + 2px rise. Used by `PPopover`, `PTooltip`, `PMenu`, `PDialog`.
+  Floating content is positioned with floating-ui using `top`/`left` (not
+  `transform`), so the rise transition doesn't fight the placement; it stays
+  `visibility: hidden` until the first position is computed.
 - **`p-float-fade`** — fade only, for scrims (`POverlay`) that must not shift.
 
 Timing/easing come only from `--p-duration-*` / `--p-ease`. `PDialog` and
@@ -142,11 +153,12 @@ reference in `PSelectArea`.
 | `PListItem`        | Interactive list row                 | `type` (normal/checkbox)                                    |
 | `PEmpty`           | Empty state (no border / card)       | `icon`; default slot = text (caller passes `$t`), `action` slot |
 | `PEdgeNavRail`     | Edge prev/next rail over an image    | `side` (left/right), `shown` (pair with `useEdgeProximity`)  |
-| `PMenu`            | Context / click menu                 | `items` (label/divider/item roles), `trigger` (contextmenu/click) |
-| `PPopover`         | Anchored popover                     | `trigger` (hover/click), `position` (12 placements), `zIndex` (default `var(--p-z-popup)`) |
-| `POverlay`         | Scrim                                | scrim props                                                 |
-| `PDialog`          | Modal dialog (tracks `openDialogCount`) | `variant` (primary/danger)                               |
-| `PFloatWindow`     | Draggable floating window            | position / bounds props                                     |
+| `PMenu`            | Context / click menu (APG menu): right click at the cursor, Shift+F10 / ContextMenu key at the focused element; roving focus, typeahead, label rows → `role=group`; Escape / Tab close and return focus | `data` (label/divider/item roles, `disabled` → `aria-disabled`, still focusable), `trigger` (contextmenu/click), `ariaLabel`; emits `select` |
+| `PPopover`         | Anchored non-modal popover, teleported + floating-ui (flip/shift). Trigger = first focusable in the default slot, wired with `aria-haspopup/expanded/controls`; toggles on `click`; focus moves in on open; Escape / inside close return focus to the trigger; Tab past the end closes and continues after the trigger | `v-model`, `position` (12 floating-ui placements), `zIndex` (default `var(--p-z-popup)`), `offset`, `overlay`, `popupRole` (dialog/menu/listbox), `ariaLabel`; `trigger="hover"` = legacy alias for `PTooltip` |
+| `PTooltip`         | Tooltip (hover after 400 ms, keyboard focus immediately; hoverable; Escape hides; never takes focus; `aria-describedby` on the trigger) | `content` or `#content` slot, `position`, `openDelay`, `closeDelay`, `disabled`, `as` |
+| `POverlay`         | Purely visual scrim, teleported to `<body>` (so the modal inside it can inert the page) | `opacity`, `inline` (render in place — loses inert) |
+| `PDialog`          | Modal dialog: `modal` layer (Escape → `cancel`, page inert when wrapped in `POverlay`), focus trap + return, `aria-labelledby`/`aria-describedby`; `danger` → `role=alertdialog` with Cancel focused first; Enter confirms only from non-interactive content | `title`, `confirmLabel`, `cancelLabel`, `variant` (primary/danger), `#header` / `#footer` slots |
+| `PFloatWindow`     | Non-modal draggable floating window: opens at the cursor, or below the focused element after a key press; Escape always closes, outside click closes unless pinned; focus in on open, back on close; drag from `[data-drag-handle]` (whole window if none) | `v-model`, `pinned` (provided as `'pinned'`), `role` (default dialog), `ariaLabel`, `safeMargin`; exposes `toggle()` |
 | `PSurface`         | Surface container                    | `level` (base/1/2/3), `bordered`, `rounded`, `padded`, `shadow` (none/sm/md/lg) |
 | `PAspectRatio`     | Aspect-ratio box                     | ratio props                                                 |
 | `PScrollArea`      | Custom scroll container              | scroll props                                                |
@@ -159,8 +171,15 @@ reference in `PSelectArea`.
 | `PSchemeSwitch`    | Dark/light/auto picker               | (wired to `data-scheme`)                                    |
 
 `src/ui/index.ts` also re-exports `modal.ts` (`openDialogCount`,
-`isAnyDialogOpen`) — a shared counter `PDialog` increments on mount so pages can
-gate their window-level hotkeys while any dialog is open.
+`isAnyDialogOpen`) so pages can gate their window-level hotkeys while any dialog
+is open. `PDialog` no longer touches the counter — its `modal` layer feeds
+`isAnyDialogOpen` through `hasModalLayer`.
+
+**Modal layering.** A modal is `<POverlay>` (scrim, teleported to `<body>`)
+wrapping `<PDialog>` (the `modal: true` layer). Because the scrim subtree is a
+direct `<body>` child, the layer stack can set `inert` on `#app` and every
+other body child while the dialog is on top; Escape reaches only the top
+layer. Keep scrim click-to-dismiss at the call site (`@click.self`).
 
 #### Icon-only buttons
 

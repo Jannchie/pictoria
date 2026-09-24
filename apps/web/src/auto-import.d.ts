@@ -9,13 +9,17 @@
 export {}
 declare global {
   const EffectScope: typeof import('vue').EffectScope
+  const FACET_OPTION_SELECTOR: typeof import('./composables/useFacetFilter').FACET_OPTION_SELECTOR
+  const GALLERY_GRID_ATTR: typeof import('./composables/useGalleryGrid').GALLERY_GRID_ATTR
   const KEY_ROWS: typeof import('./composables/useAnnotationKeymap').KEY_ROWS
   const SUPPORTED_LOCALES: typeof import('./locale/index').SUPPORTED_LOCALES
   const UNCATEGORISED: typeof import('./composables/useTagTree').UNCATEGORISED
+  const activateOptionOnKey: typeof import('./composables/useFacetFilter').activateOptionOnKey
   const activeKeys: typeof import('./composables/useAnnotationKeymap').activeKeys
   const asyncComputed: typeof import('@vueuse/core').asyncComputed
   const autoResetRef: typeof import('@vueuse/core').autoResetRef
   const buildTagTree: typeof import('./composables/useTagTree').buildTagTree
+  const choiceBindings: typeof import('./composables/useAnnotationKeymap').choiceBindings
   const computed: typeof import('vue').computed
   const computedAsync: typeof import('@vueuse/core').computedAsync
   const computedEager: typeof import('@vueuse/core').computedEager
@@ -43,6 +47,8 @@ declare global {
   const eagerComputed: typeof import('@vueuse/core').eagerComputed
   const effectScope: typeof import('vue').effectScope
   const extendRef: typeof import('@vueuse/core').extendRef
+  const facetOptionLabel: typeof import('./composables/useFacetFilter').facetOptionLabel
+  const facetTriggerLabel: typeof import('./composables/useFacetFilter').facetTriggerLabel
   const filterTagTree: typeof import('./composables/useTagTree').filterTagTree
   const firstRovingIndex: typeof import('./composables/useRovingIndex').firstRovingIndex
   const formatDate: typeof import('./locale/index').formatDate
@@ -50,17 +56,21 @@ declare global {
   const formatNumber: typeof import('./locale/index').formatNumber
   const formatPct: typeof import('./composables/useFacetFilter').formatPct
   const formatRelativeTime: typeof import('./locale/index').formatRelativeTime
+  const galleryGridKey: typeof import('./composables/useGalleryGrid').galleryGridKey
   const gatedCountOptions: typeof import('./composables/useFacetFilter').gatedCountOptions
   const getCurrentInstance: typeof import('vue').getCurrentInstance
   const getCurrentScope: typeof import('vue').getCurrentScope
   const getCurrentWatcher: typeof import('vue').getCurrentWatcher
+  const gridItemDomId: typeof import('./composables/useGalleryGrid').gridItemDomId
   const h: typeof import('vue').h
   const handleHotkey: typeof import('./composables/useHotkey').handleHotkey
   const i18n: typeof import('./locale/index').i18n
   const ignorableWatch: typeof import('@vueuse/core').ignorableWatch
+  const initialOptionIndex: typeof import('./composables/useFacetFilter').initialOptionIndex
   const inject: typeof import('vue').inject
   const injectLocal: typeof import('@vueuse/core').injectLocal
   const isDefined: typeof import('@vueuse/core').isDefined
+  const isForeignComposite: typeof import('./composables/useAnnotationKeymap').isForeignComposite
   const isProxy: typeof import('vue').isProxy
   const isReactive: typeof import('vue').isReactive
   const isReadonly: typeof import('vue').isReadonly
@@ -73,8 +83,10 @@ declare global {
   const makeDestructurable: typeof import('@vueuse/core').makeDestructurable
   const markRaw: typeof import('vue').markRaw
   const matchTypeahead: typeof import('./composables/useTypeahead').matchTypeahead
+  const moveItem: typeof import('./composables/useAnnotationKeymap').moveItem
   const nextRovingIndex: typeof import('./composables/useRovingIndex').nextRovingIndex
   const nextTick: typeof import('vue').nextTick
+  const noLayerOpen: typeof import('./composables/useAnnotationKeymap').noLayerOpen
   const notUsingInput: typeof import('./composables/useKeyScope').notUsingInput
   const onActivated: typeof import('vue').onActivated
   const onBeforeMount: typeof import('vue').onBeforeMount
@@ -122,6 +134,8 @@ declare global {
   const shallowReadonly: typeof import('vue').shallowReadonly
   const shallowRef: typeof import('vue').shallowRef
   const shouldHandleHotkey: typeof import('./composables/useHotkey').shouldHandleHotkey
+  const sortableIntent: typeof import('./composables/useAnnotationKeymap').sortableIntent
+  const sortableTarget: typeof import('./composables/useAnnotationKeymap').sortableTarget
   const stepIndex: typeof import('./composables/useRovingFocus').stepIndex
   const syncRef: typeof import('@vueuse/core').syncRef
   const syncRefs: typeof import('@vueuse/core').syncRefs
@@ -209,6 +223,7 @@ declare global {
   const useEventSource: typeof import('@vueuse/core').useEventSource
   const useEyeDropper: typeof import('@vueuse/core').useEyeDropper
   const useFacetFilter: typeof import('./composables/useFacetFilter').useFacetFilter
+  const useFacetListbox: typeof import('./composables/useFacetFilter').useFacetListbox
   const useFavicon: typeof import('@vueuse/core').useFavicon
   const useFetch: typeof import('@vueuse/core').useFetch
   const useFileDialog: typeof import('@vueuse/core').useFileDialog
@@ -220,6 +235,7 @@ declare global {
   const useFocusedPost: typeof import('./composables/useFocusedPost').useFocusedPost
   const useFps: typeof import('@vueuse/core').useFps
   const useFullscreen: typeof import('@vueuse/core').useFullscreen
+  const useGalleryGrid: typeof import('./composables/useGalleryGrid').useGalleryGrid
   const useGamepad: typeof import('@vueuse/core').useGamepad
   const useGeolocation: typeof import('@vueuse/core').useGeolocation
   const useGlobalUndoRedo: typeof import('./composables/useGlobalUndoRedo').useGlobalUndoRedo
@@ -255,6 +271,7 @@ declare global {
   const useOffsetPagination: typeof import('@vueuse/core').useOffsetPagination
   const useOnline: typeof import('@vueuse/core').useOnline
   const usePageLeave: typeof import('@vueuse/core').usePageLeave
+  const usePaneSplitters: typeof import('./composables/usePaneSplitters').usePaneSplitters
   const useParallax: typeof import('@vueuse/core').useParallax
   const useParentElement: typeof import('@vueuse/core').useParentElement
   const usePerformanceObserver: typeof import('@vueuse/core').usePerformanceObserver
@@ -264,6 +281,7 @@ declare global {
   const usePointerSwipe: typeof import('@vueuse/core').usePointerSwipe
   const usePostGroupEvidenceQuery: typeof import('./composables/usePostGroupEvidenceQuery').usePostGroupEvidenceQuery
   const usePostGroupQuery: typeof import('./composables/usePostGroupQuery').usePostGroupQuery
+  const usePostNavAnnounce: typeof import('./composables/usePostNavigation').usePostNavAnnounce
   const usePostNavigation: typeof import('./composables/usePostNavigation').usePostNavigation
   const usePostQuery: typeof import('./composables/usePostQuery').usePostQuery
   const usePreferredColorScheme: typeof import('@vueuse/core').usePreferredColorScheme
@@ -273,6 +291,7 @@ declare global {
   const usePreferredReducedMotion: typeof import('@vueuse/core').usePreferredReducedMotion
   const usePreferredReducedTransparency: typeof import('@vueuse/core').usePreferredReducedTransparency
   const usePrevious: typeof import('@vueuse/core').usePrevious
+  const useProgressAnnouncer: typeof import('./composables/useAnnotationKeymap').useProgressAnnouncer
   const useRafFn: typeof import('@vueuse/core').useRafFn
   const useRefHistory: typeof import('@vueuse/core').useRefHistory
   const useResizeObserver: typeof import('@vueuse/core').useResizeObserver
@@ -366,7 +385,7 @@ declare global {
   export type { FilterChip } from './composables/useActiveFilters'
   import('./composables/useActiveFilters')
   // @ts-ignore
-  export type { KeyChoice } from './composables/useAnnotationKeymap'
+  export type { KeyChoice, ChoiceBinding, SortableIntent } from './composables/useAnnotationKeymap'
   import('./composables/useAnnotationKeymap')
   // @ts-ignore
   export type { UseElementOffsetOptions, UseElementBoundingReturn } from './composables/useElementOffset'
@@ -381,11 +400,17 @@ declare global {
   export type { FocusMode } from './composables/useFocusedPost'
   import('./composables/useFocusedPost')
   // @ts-ignore
+  export type { GalleryGridContext, UseGalleryGridOptions, GalleryGrid } from './composables/useGalleryGrid'
+  import('./composables/useGalleryGrid')
+  // @ts-ignore
   export type { HotkeyOptions } from './composables/useHotkey'
   import('./composables/useHotkey')
   // @ts-ignore
   export type { KeyScope, KeyScopeInputs, ScoreScope } from './composables/useKeyScope'
   import('./composables/useKeyScope')
+  // @ts-ignore
+  export type { SidePaneSpec } from './composables/usePaneSplitters'
+  import('./composables/usePaneSplitters')
   // @ts-ignore
   export type { GroupEvidenceItem } from './composables/usePostGroupEvidenceQuery'
   import('./composables/usePostGroupEvidenceQuery')

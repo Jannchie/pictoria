@@ -13,7 +13,9 @@ export {}
 declare module 'vue' {
   export interface GlobalComponents {
     AbsoluteAnnotationSession: typeof import('./components/annotate/AbsoluteAnnotationSession.vue')['default']
+    AnnotationChoiceGroup: typeof import('./components/annotate/AnnotationChoiceGroup.vue')['default']
     AnnotationHistory: typeof import('./components/AnnotationHistory.vue')['default']
+    AnnotationKeyHints: typeof import('./components/annotate/AnnotationKeyHints.vue')['default']
     AnnotationReviewBanner: typeof import('./components/annotate/AnnotationReviewBanner.vue')['default']
     AnnotationTimeline: typeof import('./components/annotate/AnnotationTimeline.vue')['default']
     ArthashPlaceholder: typeof import('./components/ArthashPlaceholder.vue')['default']
@@ -63,6 +65,7 @@ declare module 'vue' {
     PTag: typeof import('./ui/PTag.vue')['default']
     PToast: typeof import('./ui/PToast.vue')['default']
     PToastContainer: typeof import('./ui/PToastContainer.vue')['default']
+    PTooltip: typeof import('./ui/PTooltip.vue')['default']
     PTreeList: typeof import('./ui/PTreeList.vue')['default']
     PVirtualScroll: typeof import('./ui/PVirtualScroll.vue')['default']
     RatingFilter: typeof import('./components/RatingFilter.vue')['default']
@@ -91,7 +94,9 @@ declare module 'vue' {
 // For TSX support
 declare global {
   const AbsoluteAnnotationSession: typeof import('./components/annotate/AbsoluteAnnotationSession.vue')['default']
+  const AnnotationChoiceGroup: typeof import('./components/annotate/AnnotationChoiceGroup.vue')['default']
   const AnnotationHistory: typeof import('./components/AnnotationHistory.vue')['default']
+  const AnnotationKeyHints: typeof import('./components/annotate/AnnotationKeyHints.vue')['default']
   const AnnotationReviewBanner: typeof import('./components/annotate/AnnotationReviewBanner.vue')['default']
   const AnnotationTimeline: typeof import('./components/annotate/AnnotationTimeline.vue')['default']
   const ArthashPlaceholder: typeof import('./components/ArthashPlaceholder.vue')['default']
@@ -141,6 +146,7 @@ declare global {
   const PTag: typeof import('./ui/PTag.vue')['default']
   const PToast: typeof import('./ui/PToast.vue')['default']
   const PToastContainer: typeof import('./ui/PToastContainer.vue')['default']
+  const PTooltip: typeof import('./ui/PTooltip.vue')['default']
   const PTreeList: typeof import('./ui/PTreeList.vue')['default']
   const PVirtualScroll: typeof import('./ui/PVirtualScroll.vue')['default']
   const RatingFilter: typeof import('./components/RatingFilter.vue')['default']
