@@ -353,14 +353,17 @@ async function confirmDelete() {
     </div>
     <PScrollArea
       ref="scrollAreaRef"
-      class="flex flex-grow flex-basis-0 flex-col gap-4 h-full w-full relative"
+      class="flex flex-grow flex-basis-0 flex-col h-full w-full relative"
     >
+      <!-- No flex gap here: PSelectArea renders an empty 0-height box, and a
+           gap would count it as an item — a blank band above the image. The
+           spacing below matches the image's 8px side gutter instead. -->
       <PSelectArea
         :target="scrollAreaRef"
         @select-change="onSelectChange"
         @select-end="onSelectEnd"
       />
-      <div class="pt-3">
+      <div class="pt-2">
         <!-- 舞台的高度就是图片的高度（上边距提到外层），所以贴着它上下拉满的
              翻页竖条正好与画面平齐，同时落在图两侧的留白里而不压住画面。 -->
         <div ref="imageStageRef" class="px-2 flex justify-center relative">
@@ -425,7 +428,7 @@ async function confirmDelete() {
       <SimilarPosts
         v-if="scrollAreaRef"
         ref="similarPostsRef"
-        class="w-full"
+        class="mt-2 w-full"
         :post-id="post.id"
         :scroll-element="scrollAreaRef"
       />
