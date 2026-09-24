@@ -1,17 +1,27 @@
 <script setup lang="ts">
 import type { PostSimplePublic } from '@/api'
 import { useElementBounding, useMouse } from '@vueuse/core'
-import { computed, ref, watch, watchEffect } from 'vue'
+import { computed, nextTick, onMounted, ref, useId, watch, watchEffect } from 'vue'
 import { useRouter } from 'vue-router'
 import { useAdjacentImagePreload } from '@/composables/useAdjacentImagePreload'
 import { useEdgeProximity } from '@/composables/useEdgeProximity'
+import { useFocusReturn } from '@/composables/useFocusTrap'
+import { useHotkey } from '@/composables/useHotkey'
 import { useKeyScope } from '@/composables/useKeyScope'
-import { usePostNavigation } from '@/composables/usePostNavigation'
-import { showPostDetail } from '@/shared'
+import { usePostNavAnnounce, usePostNavigation } from '@/composables/usePostNavigation'
+import { isAnyDialogOpen, lastViewedPostId, showPostDetail, useLayer } from '@/shared'
 import { getPostImageURL, getPostThumbnailURL } from '@/utils'
+import { focusElement } from '@/utils/focus'
+import { isValueWidgetTarget } from '@/utils/keyboard'
+import { allowsViewKeys, clampScale, PAN_SHORTCUTS, panOffset } from '@/utils/postViewerKeys'
 
 const props = defineProps<{
   post: PostSimplePublic
+  /**
+   * 关闭时焦点的兜底去处 —— 打开前焦点在 `<body>`（例如键盘在空白处按 Enter）
+   * 或原元素已不在文档里时用它。详情页传主图。
+   */
+  returnFocus?: () => HTMLElement | null | undefined
 }>()
 
 const router = useRouter()
@@ -105,8 +115,8 @@ function onWheel(e: WheelEvent) {
 
   // 更新缩放比例
   const delta = e.deltaY
-  const newScale = Math.max(0.1, Math.min(8, scale.value * (1 - delta / 1000)))
-  scale.value = Math.round(newScale * 100) / 100
+  const newScale = clampScale(scale.value * (1 - delta / 1000))
+  scale.value = newScale
 
   // 计算缩放后图片左上角的位置
   x.value = mx.value - offsetX * newScale
@@ -212,20 +222,27 @@ function toggleFlipHorizontal() {
   flipHorizontal.value = !flipHorizontal.value
 }
 
-onKeyStroke('Escape', () => {
+/**
+ * 关闭查看器。记下正在看的这张，回到画廊时网格据此恢复选中和焦点
+ * （见 `lastViewedPostId`）。
+ */
+function close() {
+  lastViewedPostId.value = post.value.id
   showPostDetail.value = null
-})
+}
 
 // 指针贴近画布左右边缘时才浮出翻页按钮。
 const nearEdge = useEdgeProximity(imgWrapperRef)
 
-const { canPrev, canNext, neighbor } = usePostNavigation(() => post.value.id)
+const { index, total, canPrev, canNext, neighbor } = usePostNavigation(() => post.value.id)
+const announceNav = usePostNavAnnounce()
 
 function navigateDetail(delta: -1 | 1) {
   const next = neighbor(delta)
   if (!next) {
     return
   }
+  const position = index.value + delta + 1
   showPostDetail.value = next
   // Keep the underlying detail route in sync so the right-panel sidebar,
   // selection and the page behind the overlay all follow the viewed image
@@ -233,135 +250,96 @@ function navigateDetail(delta: -1 | 1) {
   if (next?.id !== undefined) {
     router.replace(`/post/${next.id}`)
   }
+  announceNav(next, position, total.value)
+  // 翻到头时对应那侧的竖条会被 v-if 拿掉；焦点若正停在它上面会掉回 <body>，
+  // 这里把它接回画布。
+  nextTick(() => {
+    const active = document.activeElement
+    if (!active || active === document.body || !active.isConnected) {
+      focusElement(imgWrapperRef.value, { preventScroll: true })
+    }
+  })
 }
 
 function zoomBy(factor: number) {
   const mouseX = imgWrapperWidth.value / 2
   const mouseY = imgWrapperHeight.value / 2
-  const newScale = Math.max(0.1, Math.min(8, scale.value * factor))
-  const rounded = Math.round(newScale * 100) / 100
+  const rounded = clampScale(scale.value * factor)
   adjustForScaling(rounded, mouseX, mouseY)
   scale.value = rounded
 }
 
-// While the overlay is mounted (showPostDetail is set), 'detailOverlay' is the
-// active scope exactly when focus isn't in a text field — matching the old
-// notUsingInputDetail guard, and standing the grid/page hotkeys down.
-const activeKeyScope = useKeyScope()
-
-onKeyStroke(['ArrowLeft', 'ArrowRight'], (e) => {
-  if (activeKeyScope.value !== 'detailOverlay') {
-    return
+function panBy(key: string) {
+  const offset = panOffset(key, imgWrapperWidth.value, imgWrapperHeight.value)
+  if (offset) {
+    x.value += offset.dx
+    y.value += offset.dy
   }
-  e.preventDefault()
-  navigateDetail(e.key === 'ArrowRight' ? 1 : -1)
-})
-
-onKeyStroke(['+', '='], (e) => {
-  if (activeKeyScope.value !== 'detailOverlay') {
-    return
-  }
-  e.preventDefault()
-  zoomBy(1.1)
-})
-
-onKeyStroke('-', (e) => {
-  if (activeKeyScope.value !== 'detailOverlay') {
-    return
-  }
-  e.preventDefault()
-  zoomBy(1 / 1.1)
-})
-
-onKeyStroke('0', (e) => {
-  if (activeKeyScope.value !== 'detailOverlay') {
-    return
-  }
-  e.preventDefault()
-  toInit()
-})
-
-onKeyStroke('\\', (e) => {
-  if (activeKeyScope.value !== 'detailOverlay') {
-    return
-  }
-  e.preventDefault()
-  to1x()
-})
-
-onKeyStroke(['f', 'F'], (e) => {
-  if (activeKeyScope.value !== 'detailOverlay') {
-    return
-  }
-  e.preventDefault()
-  toggleFlipHorizontal()
-})
+}
 
 const dialogRef = ref<HTMLElement | null>(null)
-const previouslyFocused = ref<HTMLElement | null>(null)
 
-const FOCUSABLE_SELECTOR = [
-  'a[href]',
-  'button:not([disabled])',
-  'input:not([disabled])',
-  'select:not([disabled])',
-  'textarea:not([disabled])',
-  '[tabindex]:not([tabindex="-1"])',
-  '[role="slider"]:not([aria-disabled="true"])',
-].join(',')
-
-function getFocusable(): HTMLElement[] {
-  if (!dialogRef.value) {
-    return []
-  }
-  return [...dialogRef.value.querySelectorAll<HTMLElement>(FOCUSABLE_SELECTOR)]
-    .filter(el => !el.hasAttribute('inert') && el.offsetParent !== null)
-}
-
-function onDialogKeyDown(e: KeyboardEvent) {
-  if (e.key !== 'Tab') {
-    return
-  }
-  const focusables = getFocusable()
-  if (focusables.length === 0) {
-    e.preventDefault()
-    dialogRef.value?.focus()
-    return
-  }
-  const first = focusables[0]
-  const last = focusables.at(-1)!
-  const active = document.activeElement as HTMLElement | null
-  if (e.shiftKey) {
-    if (active === first || active === dialogRef.value) {
-      e.preventDefault()
-      last.focus()
-    }
-  }
-  else if (active === last) {
-    e.preventDefault()
-    first.focus()
-  }
-}
-
+// 非模态：覆盖层只盖住中间栏，右侧面板照常可用（打分、改标签），所以不设
+// aria-modal、不锁 Tab、不 inert 页面其余部分；它仍是图层栈上的一层 ——
+// Escape 只关它（上面若还有弹层，先关弹层），点外面（右侧面板）不关。
+useLayer(true, {
+  el: () => dialogRef.value,
+  onEscape: close,
+})
+// 关闭时把焦点还给打开它的元素（缩略图 / 主图），不在了就用调用方给的兜底。
+useFocusReturn(true, {
+  container: () => dialogRef.value,
+  returnFocus: () => props.returnFocus?.(),
+})
 onMounted(() => {
-  previouslyFocused.value = document.activeElement instanceof HTMLElement ? document.activeElement : null
-  dialogRef.value?.focus()
+  // 焦点落在画布上：它不是控件，所有查看器热键在这里都生效，读屏读出图名。
+  focusElement(imgWrapperRef.value, { preventScroll: true })
 })
-onUnmounted(() => {
-  previouslyFocused.value?.focus?.()
-})
+
+// While the overlay is mounted (showPostDetail is set), 'detailOverlay' is the
+// active scope exactly when focus isn't in a text field. A modal dialog above
+// (e.g. a delete confirm) also stands the viewer's keys down.
+const activeKeyScope = useKeyScope()
+const canHandleKeys = () => activeKeyScope.value === 'detailOverlay' && !isAnyDialogOpen.value
+
+// ←→ / Shift+方向键：焦点在控件上时让位（缩放滑块的方向键只调缩放），但本
+// 查看器自己的普通按钮（翻页竖条、工具栏按钮）放行 —— 点完「下一张」再按 →
+// 应该继续翻。见 `allowsViewKeys`。
+const viewKeyOptions = {
+  when: canHandleKeys,
+  allowInWidgets: true,
+  ignore: (e: KeyboardEvent) => !allowsViewKeys(e.target, dialogRef.value),
+}
+// 字符键（缩放 / 翻转）没有控件会用，只避开数值控件（数字键属于它们）。
+const charKeyOptions = {
+  when: canHandleKeys,
+  allowInWidgets: true,
+  ignore: (e: KeyboardEvent) => isValueWidgetTarget(e.target),
+}
+
+useHotkey(['ArrowLeft', 'ArrowRight'], (e) => {
+  navigateDetail(e.key === 'ArrowRight' ? 1 : -1)
+}, viewKeyOptions)
+useHotkey(PAN_SHORTCUTS, e => panBy(e.key), viewKeyOptions)
+useHotkey(['+', '='], () => zoomBy(1.1), charKeyOptions)
+useHotkey('-', () => zoomBy(1 / 1.1), charKeyOptions)
+useHotkey('0', toInit, charKeyOptions)
+useHotkey('\\', to1x, charKeyOptions)
+useHotkey(['f', 'Shift+F'], toggleFlipHorizontal, { ...charKeyOptions, repeat: false })
+
+const hintId = useId()
+const fileLabel = computed(() => `${post.value.fileName}.${post.value.extension}`)
 </script>
 
 <template>
+  <!-- 非模态对话框：只盖住中间栏，Tab 可以离开它去右侧面板（见 script 里的 useLayer）。 -->
   <div
     ref="dialogRef"
     role="dialog"
-    aria-modal="true"
-    :aria-label="$t('post.viewerAria', { name: `${post.fileName}.${post.extension}` })"
+    :aria-label="$t('post.viewerAria', { name: fileLabel })"
     tabindex="-1"
     class="bg-bg flex flex-col inset-0 absolute z-[var(--p-z-popup)] focus:outline-none"
     style="overscroll-behavior: contain;"
-    @keydown="onDialogKeyDown"
   >
     <header class="px-2 py-2 border-b border-border-default flex gap-2 items-center justify-between">
       <div class="flex flex-1 basis-0 gap-2 items-center overflow-hidden">
@@ -374,7 +352,8 @@ onUnmounted(() => {
             size="sm"
             variant="ghost"
             :aria-label="$t('post.closeViewer')"
-            @click="showPostDetail = null"
+            aria-keyshortcuts="Escape"
+            @click="close"
           >
             <i class="i-tabler-arrow-left" aria-hidden="true" />
           </PButton>
@@ -390,11 +369,11 @@ onUnmounted(() => {
           </template>
         </PPopover>
         <span class="text-sm text-fg-muted truncate">
-          {{ `${post.fileName}.${post.extension}` }}
+          {{ fileLabel }}
         </span>
       </div>
       <div class="flex gap-2 items-center justify-center">
-        <div class="text-xs text-fg-muted font-mono w-32px tabular-nums">
+        <div class="text-xs text-fg-muted font-mono w-32px tabular-nums" aria-hidden="true">
           {{ scaleStr }}%
         </div>
         <PSlider
@@ -416,6 +395,7 @@ onUnmounted(() => {
             icon
             size="sm"
             :aria-label="$t('post.fitToViewport')"
+            aria-keyshortcuts="0"
             @click="toInit"
           >
             <i class="i-tabler-focus-centered" aria-hidden="true" />
@@ -434,6 +414,7 @@ onUnmounted(() => {
           icon
           size="sm"
           :aria-label="$t('post.actualSize')"
+          aria-keyshortcuts="\"
           @click="to1x"
         >
           <i class="i-tabler-multiplier-1x" aria-hidden="true" />
@@ -443,6 +424,7 @@ onUnmounted(() => {
           size="sm"
           :aria-label="$t('post.flipHorizontal')"
           :aria-pressed="flipHorizontal"
+          aria-keyshortcuts="F"
           @click="toggleFlipHorizontal"
         >
           <i class="i-tabler-flip-vertical" aria-hidden="true" />
@@ -450,9 +432,15 @@ onUnmounted(() => {
       </div>
       <div class="flex-1 basis-0" />
     </header>
+    <!-- 画布本身可聚焦（打开时焦点落在这里）：role=img 让读屏读出图名和缩放，
+         操作说明挂在 aria-describedby 上。 -->
     <div
       ref="imgWrapperRef"
-      class="flex-grow h-full w-full relative overflow-hidden"
+      tabindex="0"
+      role="img"
+      :aria-label="$t('post.viewerCanvas', { name: fileLabel, zoom: scaleStr })"
+      :aria-describedby="hintId"
+      class="viewer-canvas flex-grow h-full w-full relative overflow-hidden"
       style="touch-action: none;"
       @pointerdown.stop="onPointerDown"
       @pointermove.stop="onPointermove"
@@ -482,7 +470,7 @@ onUnmounted(() => {
       <img
         class="absolute object-contain"
         :class="{ 'opacity-0': !mainLoaded }"
-        :alt="`${post.fileName}.${post.extension}`"
+        :alt="fileLabel"
         :draggable="false"
         :width="imgContentWidth"
         :height="imgContentHeight"
@@ -505,18 +493,22 @@ onUnmounted(() => {
         v-if="canPrev"
         side="left"
         :shown="nearEdge === 'left'"
-        :aria-label="$t('post.previous')"
+        :label="$t('post.previous')"
+        aria-keyshortcuts="ArrowLeft"
         @click.stop="navigateDetail(-1)"
       />
       <PEdgeNavRail
         v-if="canNext"
         side="right"
         :shown="nearEdge === 'right'"
-        :aria-label="$t('post.next')"
+        :label="$t('post.next')"
+        aria-keyshortcuts="ArrowRight"
         @click.stop="navigateDetail(1)"
       />
+      <!-- 小地图只是指针的快捷平移（键盘用 Shift+方向键），对读屏是装饰。 -->
       <div
         ref="miniMapRef"
+        aria-hidden="true"
         class="border border-border-strong rounded bg-bg shadow-md bottom-4 left-4 absolute z-1 overflow-hidden"
         @pointerdown.stop="onMiniMapPointerDown"
         @pointerup.stop="onMiniMapPointerUp"
@@ -555,5 +547,15 @@ onUnmounted(() => {
         </div>
       </div>
     </div>
+    <p :id="hintId" class="sr-only">
+      {{ $t('post.viewerHint') }}
+    </p>
   </div>
 </template>
+
+<style scoped>
+/* 画布贴满容器且 overflow:hidden，焦点环收进内侧才看得见。 */
+.viewer-canvas:focus-visible {
+  outline-offset: -2px;
+}
+</style>

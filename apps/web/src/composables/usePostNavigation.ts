@@ -1,6 +1,9 @@
 import type { MaybeRefOrGetter } from 'vue'
+import { useDebounceFn } from '@vueuse/core'
 import { computed, toRaw, toValue } from 'vue'
+import { useI18n } from 'vue-i18n'
 import { currentPostList } from '@/shared'
+import { announce } from '@/shared/announce'
 
 /**
  * 在当前浏览列表里前后翻一张。
@@ -24,6 +27,9 @@ export function usePostNavigation(postId: MaybeRefOrGetter<number | undefined>) 
     return toRaw(currentPostList.value).findIndex(p => p.id === id)
   })
 
+  /** 列表长度，用于「n / total」式的播报。 */
+  const total = computed(() => currentPostList.value.length)
+
   const canPrev = computed(() => index.value > 0)
   const canNext = computed(() => index.value >= 0 && index.value < currentPostList.value.length - 1)
 
@@ -35,5 +41,20 @@ export function usePostNavigation(postId: MaybeRefOrGetter<number | undefined>) 
     return currentPostList.value[index.value + delta]
   }
 
-  return { index, canPrev, canNext, neighbor }
+  return { index, total, canPrev, canNext, neighbor }
+}
+
+/** 连按 ←→ 时只播报停下来的那一张。 */
+const NAV_ANNOUNCE_DELAY = 250
+
+/**
+ * 翻页后的读屏播报：「n / total — 文件名」（polite，防抖）。详情页和全屏查看器
+ * 共用；两者同时挂载时只有真正执行翻页的那一方调用它，不会重复播报。
+ */
+export function usePostNavAnnounce() {
+  const { t } = useI18n()
+  return useDebounceFn((post: { fileName: string, extension: string }, position: number, total: number) => {
+    const name = `${post.fileName}.${post.extension}`
+    announce(t('post.navAnnounce', { n: position, total, name }))
+  }, NAV_ANNOUNCE_DELAY)
 }

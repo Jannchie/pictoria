@@ -1,18 +1,22 @@
 <script setup lang="ts">
 import { useQueryClient } from '@tanstack/vue-query'
 import { useI18n } from 'vue-i18n'
-import { useRoute, useRouter } from 'vue-router'
+import { onBeforeRouteLeave, useRoute, useRouter } from 'vue-router'
 import { v2TouchPost } from '@/api'
 import ArthashPlaceholder from '@/components/ArthashPlaceholder.vue'
 import PostDetail from '@/components/PostDetail.vue'
 import { useEdgeProximity } from '@/composables/useEdgeProximity'
+import { useHotkey } from '@/composables/useHotkey'
 import { useKeyScope } from '@/composables/useKeyScope'
-import { usePostNavigation } from '@/composables/usePostNavigation'
-import { bottomBarInfo, clear as clearSelection, deletePosts, enableArthash, enableFancyPlaceholder, isCommittedSelected, selectedIdList, selectOnly, showPostDetail, similarPostList } from '@/shared'
+import { usePostNavAnnounce, usePostNavigation } from '@/composables/usePostNavigation'
+import { announce, bottomBarInfo, clear as clearSelection, deletePosts, enableArthash, enableFancyPlaceholder, isCommittedSelected, lastViewedPostId, selectedIdList, selectOnly, showPostDetail, similarPostList } from '@/shared'
+import { useToast } from '@/shared/toast'
 import { POverlay } from '@/ui'
 import PDialog from '@/ui/PDialog.vue'
 import { getPostImageURL } from '@/utils'
 import { colorNumToHex } from '@/utils/color'
+import { focusElement } from '@/utils/focus'
+import { allowsViewKeys, isInteractiveTarget } from '@/utils/postViewerKeys'
 
 const { t } = useI18n()
 const route = useRoute()
@@ -154,6 +158,16 @@ watchEffect(() => {
 // 取消），否则 Enter 会顺手打开大图、Escape 会退回上一页。侧边栏目录树
 // 行获得焦点、或全屏覆盖层打开时同样让位——全部收敛进共享的作用域判定。
 const activeKeyScope = useKeyScope()
+const onPage = () => activeKeyScope.value === 'postPage'
+
+// 页面根（本页 chrome：返回按钮、翻页竖条都在里面）与主图。
+const pageRootRef = ref<HTMLElement | null>(null)
+const mainImageRef = ref<HTMLElement | null>(null)
+const hintId = useId()
+
+function focusMainImage() {
+  focusElement(mainImageRef.value, { preventScroll: true })
+}
 
 function openOverlay() {
   const p = post.value
@@ -168,52 +182,89 @@ function openOverlay() {
 const imageStageRef = ref<HTMLElement | null>(null)
 const nearEdge = useEdgeProximity(imageStageRef)
 
-const { canPrev, canNext, neighbor } = usePostNavigation(postId)
+const { index, total, canPrev, canNext, neighbor } = usePostNavigation(postId)
+const announceNav = usePostNavAnnounce()
 
 function navigatePost(delta: -1 | 1) {
   const next = neighbor(delta)
-  if (next?.id !== undefined) {
-    router.replace(`/post/${next.id}`)
+  if (next?.id === undefined) {
+    return
   }
+  const position = index.value + delta + 1
+  router.replace(`/post/${next.id}`)
+  announceNav(next, position, total.value)
+  // 翻到头时那一侧的竖条被 v-if 拿掉，停在它上面的焦点会掉回 <body>；接回主图。
+  nextTick(() => {
+    const active = document.activeElement
+    if (!active || active === document.body || !active.isConnected) {
+      focusMainImage()
+    }
+  })
 }
 
-onKeyStroke('Escape', (e) => {
-  if (activeKeyScope.value !== 'postPage') {
-    return
-  }
-  e.preventDefault()
+// 离开详情页（返回、侧栏跳目录……）时记下正在看的这张，画廊据此恢复选中和
+// 焦点。删掉了当前图再返回时改记它的邻居（见 confirmDelete）。
+let returnToId: number | undefined
+onBeforeRouteLeave(() => {
+  const id = returnToId ?? postId.value
+  lastViewedPostId.value = Number.isFinite(id) ? id : null
+})
+
+// ←→ / Escape：焦点在控件上时让位（相似图缩略图、评分、滑块……），但本页自己的
+// 普通按钮（返回、翻页竖条）放行 —— 点完「下一张」竖条再按 → 应该继续翻。
+const viewKeyOptions = {
+  when: onPage,
+  allowInWidgets: true,
+  ignore: (e: KeyboardEvent) => !allowsViewKeys(e.target, pageRootRef.value),
+}
+
+useHotkey('Escape', () => {
   router.back()
-})
+}, viewKeyOptions)
 
-onKeyStroke(['ArrowLeft', 'ArrowRight'], (e) => {
-  if (activeKeyScope.value !== 'postPage') {
-    return
-  }
-  e.preventDefault()
+useHotkey(['ArrowLeft', 'ArrowRight'], (e) => {
   navigatePost(e.key === 'ArrowRight' ? 1 : -1)
-})
+}, viewKeyOptions)
 
-onKeyStroke([' ', 'Enter'], (e) => {
-  if (activeKeyScope.value !== 'postPage') {
-    return
-  }
-  e.preventDefault()
-  openOverlay()
+// Enter / 空格看大图：任何按钮、缩略图等控件获得焦点时都让位（它们自己的
+// Enter/空格优先），只在主图或页面空白处生效。
+useHotkey([' ', 'Enter'], openOverlay, {
+  when: onPage,
+  repeat: false,
+  ignore: e => isInteractiveTarget(e.target),
 })
 
 // Delete 删除选中的相似图。详情页此前只有列表瀑布流(MainSection)能按 Delete，
 // 相似图网格没接，所以这里补上——复用统一的 deletePosts（会刷新 similarPosts 缓存）。
+// 选区为空而焦点在主图上时删主图本身（等价于先点主图再按 Delete）。
 const queryClient = useQueryClient()
+const { pushToast } = useToast()
 const showDeleteConfirm = ref(false)
 const isDeleting = ref(false)
-const pendingDeleteIds = selectedIdList
+const pendingDeleteIds = ref<number[]>([])
 
-onKeyStroke('Delete', (e) => {
-  if (activeKeyScope.value !== 'postPage' || pendingDeleteIds.value.length === 0) {
-    return
+function deleteTargets(e: KeyboardEvent): number[] {
+  if (selectedIdList.value.length > 0) {
+    return [...selectedIdList.value]
   }
-  e.preventDefault()
+  const main = mainImageRef.value
+  if (main && e.target instanceof Node && main.contains(e.target) && Number.isFinite(postId.value)) {
+    return [postId.value]
+  }
+  return []
+}
+
+// 控件上也生效（选中相似图后焦点就在缩略图上），只是不抢文本框和目录树（后者
+// 有自己的删除目录）。
+useHotkey('Delete', (e) => {
+  pendingDeleteIds.value = deleteTargets(e)
   showDeleteConfirm.value = true
+}, {
+  when: onPage,
+  allowInWidgets: true,
+  repeat: false,
+  ignore: e => deleteTargets(e).length === 0
+    || (e.target instanceof Element && e.target.closest('[role=tree]') !== null),
 })
 
 async function confirmDelete() {
@@ -226,19 +277,42 @@ async function confirmDelete() {
     return
   }
   isDeleting.value = true
+  let removingCurrent = false
   try {
     // 选区可能含当前正在看的大图（点了主图）；删掉它后这个详情页就空了，删完返回
     // 上一页。只删相似图时留在原地，列表由 deletePosts 自动刷新。
-    const removingCurrent = ids.includes(postId.value)
+    removingCurrent = ids.includes(postId.value)
+    if (removingCurrent) {
+      // 在 deletePosts 把它从列表缓存里拿掉之前先找好邻居，画廊回来时落在它上面。
+      returnToId = (neighbor(1) ?? neighbor(-1))?.id
+    }
     await deletePosts(queryClient, ids)
     clearSelection()
+    announce(t('post.deleted', { n: ids.length }, ids.length))
     if (removingCurrent) {
       router.back()
     }
   }
+  catch {
+    returnToId = undefined
+    removingCurrent = false
+    // 错误 toast 自带 role=alert，不再另行 announce。
+    pushToast({ type: 'error', message: t('post.deleteFailed'), duration: 5000, closeable: true })
+  }
   finally {
     isDeleting.value = false
     showDeleteConfirm.value = false
+    pendingDeleteIds.value = []
+  }
+  if (!removingCurrent) {
+    // 被删的缩略图带着焦点一起没了；等对话框自己的焦点归还（微任务）结束后，
+    // 焦点若仍无处可去就落回主图。
+    setTimeout(() => {
+      const active = document.activeElement
+      if (!active || active === document.body || !active.isConnected) {
+        focusMainImage()
+      }
+    }, 0)
   }
 }
 </script>
@@ -247,10 +321,15 @@ async function confirmDelete() {
   <PostDetail
     v-if="showPostDetail"
     :post="showPostDetail"
+    :return-focus="() => mainImageRef"
   />
+  <!-- 全屏查看器打开时它盖住整页：页面本身 inert，Tab 从查看器直接走到右侧面板，
+       不会钻进被盖住的按钮和缩略图。 -->
   <div
     v-if="post"
+    ref="pageRootRef"
     class="flex flex-col h-full"
+    :inert="showPostDetail != null"
   >
     <div
       class="px-2 py-1 border-b border-border-default bg-bg flex gap-2 items-center justify-between"
@@ -290,28 +369,38 @@ async function confirmDelete() {
             v-if="canPrev"
             side="left"
             :shown="nearEdge === 'left'"
-            :aria-label="$t('post.previous')"
+            :label="$t('post.previous')"
+            aria-keyshortcuts="ArrowLeft"
             @click="navigatePost(-1)"
           />
           <PEdgeNavRail
             v-if="canNext"
             side="right"
             :shown="nearEdge === 'right'"
-            :aria-label="$t('post.next')"
+            :label="$t('post.next')"
+            aria-keyshortcuts="ArrowRight"
             @click="navigatePost(1)"
           />
+          <!-- 主图可聚焦但不是控件（role=img）：焦点在它上面时页面热键照常生效 ——
+               Enter/空格看大图、Delete 删它、←→ 翻页。 -->
           <div
+            ref="mainImageRef"
+            tabindex="0"
+            role="img"
+            :aria-label="post.fileName"
+            :aria-describedby="hintId"
+            aria-keyshortcuts="Enter Space"
             class="main-post-image rounded-lg cursor-pointer relative overflow-hidden"
             :class="{ 'main-post-selected': isCommittedSelected(postId) }"
             :style="containerStyle"
             @click="selectOnly(postId)"
-            @dblclick="showPostDetail = { ...post, width: post.width ?? 0, height: post.height ?? 0 }"
+            @dblclick="openOverlay"
           >
             <img
               :key="post.id"
               ref="imgRef"
               :src="getPostImageURL(post)"
-              :alt="post.fileName"
+              alt=""
               :width="post.width ?? undefined"
               :height="post.height ?? undefined"
               fetchpriority="high"
@@ -327,6 +416,9 @@ async function confirmDelete() {
               :fancy="enableFancyPlaceholder"
             />
           </div>
+          <p :id="hintId" class="sr-only">
+            {{ $t('post.mainImageHint') }}
+          </p>
         </div>
       </div>
       <SimilarPosts
@@ -367,6 +459,11 @@ async function confirmDelete() {
   transition:
     outline-color var(--p-transition-fast),
     box-shadow var(--p-transition-fast);
+}
+/* 上面那条透明 outline 的特异性盖过了全局 :focus-visible，这里把焦点环接回来。 */
+.main-post-image:focus-visible {
+  outline: var(--p-focus-ring);
+  outline-offset: 2px;
 }
 .main-post-selected {
   outline-color: var(--p-primary);
