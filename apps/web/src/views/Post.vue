@@ -28,6 +28,10 @@ const postId = computed(() => Number.parseInt(route.params.postId as string))
 useAdjacentImagePreload(postId)
 const postQuery = usePostQuery(postId)
 const post = computed(() => postQuery.data.value)
+// Settled without a post: a 404 surfaces as an error (the client hands back
+// no data) — or the id wasn't a number, in which case the query never runs.
+const postMissing = computed(() => Number.isNaN(postId.value)
+  || (!post.value && (postQuery.isError.value || postQuery.isSuccess.value)))
 const scrollAreaRef = ref<HTMLElement>()
 
 // Drag-box selection over the similar-posts grid, unified with the list
@@ -433,6 +437,26 @@ async function confirmDelete() {
         :scroll-element="scrollAreaRef"
       />
     </PScrollArea>
+  </div>
+  <!-- A deleted post (or a mistyped id) used to leave the pane blank. -->
+  <div
+    v-else-if="postMissing"
+    class="flex h-full items-center justify-center"
+  >
+    <PEmpty icon="i-tabler-photo-off">
+      {{ $t('post.notFound') }}
+      <template #action>
+        <PButton
+          size="sm"
+          variant="secondary"
+          class="mt-2"
+          @click="$router.push('/')"
+        >
+          <i class="i-tabler-arrow-left" aria-hidden="true" />
+          {{ $t('common.backToGallery') }}
+        </PButton>
+      </template>
+    </PEmpty>
   </div>
   <POverlay
     v-if="showDeleteConfirm"

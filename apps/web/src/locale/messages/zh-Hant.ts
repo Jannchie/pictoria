@@ -17,6 +17,9 @@ const zhHant: MessageSchema = {
     settings: '設定',
     skipToMain: '跳到主內容',
     close: '關閉',
+    notFoundTitle: '這裡什麼都沒有',
+    notFoundBody: '這個頁面不存在。',
+    backToGallery: '回到圖庫',
   },
   nav: {
     all: '全部',
@@ -198,6 +201,7 @@ const zhHant: MessageSchema = {
     mixed: '混合：所選圖片的值不一致',
   },
   post: {
+    notFound: '這張圖已經不在圖庫裡了。',
     bottomInfo: '圖片 ID：{id}，檔案名：{name}',
     deleteDialogTitle: '刪除選中的圖片？',
     deleteDialogConfirm: '刪除 {n}',
@@ -739,6 +743,7 @@ const zhHant: MessageSchema = {
     documentTitle: '{title} — Pictoria',
     navigated: '已前往 {title}',
     home: '圖庫',
+    notFound: '找不到頁面',
     all: '全部圖片',
     random: '隨機',
     recently: '最近瀏覽',

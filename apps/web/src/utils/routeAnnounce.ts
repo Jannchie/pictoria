@@ -55,6 +55,8 @@ export function routeTitle(route: RouteLike, postName?: string | null): RouteTit
     }
     case 'settings': { return { key: 'route.settings' }
     }
+    case 'notFound': { return { key: 'route.notFound' }
+    }
     case 'post': {
       return postName
         ? { key: null, text: postName }

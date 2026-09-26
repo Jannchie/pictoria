@@ -20,6 +20,9 @@ const en = {
     settings: 'Settings',
     skipToMain: 'Skip to main content',
     close: 'Close',
+    notFoundTitle: 'Nothing here',
+    notFoundBody: 'There is no page at this address.',
+    backToGallery: 'Back to the gallery',
   },
   nav: {
     all: 'All',
@@ -201,6 +204,7 @@ const en = {
     mixed: 'Mixed: the selected posts have different values',
   },
   post: {
+    notFound: 'This image is no longer in the library.',
     bottomInfo: 'Post ID: {id}, File Name: {name}',
     deleteDialogTitle: 'Delete selected posts?',
     deleteDialogConfirm: 'Delete {n}',
@@ -742,6 +746,7 @@ const en = {
     documentTitle: '{title} — Pictoria',
     navigated: 'Navigated to {title}',
     home: 'Library',
+    notFound: 'Not found',
     all: 'All images',
     random: 'Random',
     recently: 'Recently viewed',

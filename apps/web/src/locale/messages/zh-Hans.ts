@@ -17,6 +17,9 @@ const zhHans: MessageSchema = {
     settings: '设置',
     skipToMain: '跳到主内容',
     close: '关闭',
+    notFoundTitle: '这里什么都没有',
+    notFoundBody: '这个页面不存在。',
+    backToGallery: '回到图库',
   },
   nav: {
     all: '全部',
@@ -198,6 +201,7 @@ const zhHans: MessageSchema = {
     mixed: '混合：所选图片的值不一致',
   },
   post: {
+    notFound: '这张图已经不在图库里了。',
     bottomInfo: '图片 ID：{id}，文件名：{name}',
     deleteDialogTitle: '删除选中的图片？',
     deleteDialogConfirm: '删除 {n}',
@@ -739,6 +743,7 @@ const zhHans: MessageSchema = {
     documentTitle: '{title} — Pictoria',
     navigated: '已前往 {title}',
     home: '图库',
+    notFound: '找不到页面',
     all: '全部图片',
     random: '随机',
     recently: '最近浏览',

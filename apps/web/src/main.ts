@@ -83,6 +83,7 @@ const routes: RouteRecordRaw[] = [
   { path: '/post/:postId', component: () => import('./views/Post.vue'), name: 'post' },
   { path: '/annotate', component: () => import('./views/Annotate.vue'), name: 'annotate' },
   { path: '/settings', component: () => import('./views/Settings.vue'), name: 'settings' },
+  { path: '/:pathMatch(.*)*', component: () => import('./views/NotFound.vue'), name: 'notFound' },
 ]
 
 const router = createRouter({

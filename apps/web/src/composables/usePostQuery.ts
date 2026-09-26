@@ -1,5 +1,6 @@
 import type { MaybeRef } from 'vue'
 import { useQuery } from '@tanstack/vue-query'
+import { isAxiosError } from 'axios'
 import { v2GetPost } from '@/api'
 import { resolvedLocale } from '@/locale'
 import { queryKeys } from '@/shared/queryKeys'
@@ -20,8 +21,19 @@ export function usePostQuery(id: MaybeRef<number | undefined>) {
         if (!isValidId(post_id)) {
           return null
         }
-        const resp = await v2GetPost({ path: { post_id }, query: { lang: resolvedLocale.value } })
-        return resp.data
+        try {
+          const resp = await v2GetPost({ path: { post_id }, query: { lang: resolvedLocale.value } })
+          return resp.data
+        }
+        catch (error) {
+          // A deleted / unknown post is an answer, not a failure (the client
+          // throws on every non-2xx): resolve to null at once instead of
+          // retrying for ~7 s while the post page sits blank.
+          if (isAxiosError(error) && error.response?.status === 404) {
+            return null
+          }
+          throw error
+        }
       },
       enabled: () => isValidId(unref(id)),
     },
