@@ -1,6 +1,6 @@
 import type { QueryClient } from '@tanstack/vue-query'
 import type { PostSimplePublic } from '@/api'
-import { keepPreviousData, useInfiniteQuery, useQuery } from '@tanstack/vue-query'
+import { keepPreviousData, useInfiniteQuery, useQuery, useQueryClient } from '@tanstack/vue-query'
 import { useDebounce } from '@vueuse/core'
 import { converter, parse } from 'culori'
 import { computed } from 'vue'
@@ -209,7 +209,47 @@ export function useCurrentFolder() {
   })
 }
 
+// The folder tree takes ~5 s to build server-side (a walk of every library
+// directory plus a score aggregate) and is ~5 MB of JSON, so every reload used
+// to sit on the sidebar skeleton that long. The last good tree is kept in Cache
+// Storage (localStorage's 5 MB quota can't hold it) and seeded into the query
+// as already-stale data: the sidebar paints immediately, and the normal fetch
+// still runs and replaces it.
+const FOLDERS_CACHE = 'pictoria-folders'
+const FOLDERS_CACHE_URL = '/__pictoria/folders.json'
+
+async function rememberFolders(data: unknown): Promise<void> {
+  try {
+    const cache = await caches.open(FOLDERS_CACHE)
+    await cache.put(FOLDERS_CACHE_URL, Response.json(data))
+  }
+  catch {
+    // No Cache Storage (insecure origin, private mode): just no warm start.
+  }
+}
+
+let foldersSeeded = false
+function seedFoldersFromCache(queryClient: QueryClient): void {
+  if (foldersSeeded) {
+    return
+  }
+  foldersSeeded = true
+  void (async () => {
+    try {
+      const cache = await caches.open(FOLDERS_CACHE)
+      const hit = await cache.match(FOLDERS_CACHE_URL)
+      const data = await hit?.json()
+      // Only fill an empty slot — never overwrite a fetch that beat us here.
+      if (data && queryClient.getQueryData(queryKeys.folders) === undefined) {
+        queryClient.setQueryData(queryKeys.folders, data, { updatedAt: 0 })
+      }
+    }
+    catch {}
+  })()
+}
+
 export function useFoldersQuery() {
+  seedFoldersFromCache(useQueryClient())
   return useQuery({
     queryKey: queryKeys.folders,
     queryFn: async () => {
@@ -217,6 +257,7 @@ export function useFoldersQuery() {
       if (resp.error) {
         throw resp.error
       }
+      void rememberFolders(resp.data)
       return resp.data
     },
     staleTime: 1000 * 60 * 60,
