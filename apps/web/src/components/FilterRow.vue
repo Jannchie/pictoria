@@ -62,13 +62,17 @@ async function onClearAll() {
       <!-- Right cluster, in two groups: finding things (search + sort), then
            how densely they are laid out. The divider keeps the density slider
            from reading as a third search control. -->
-      <div class="ml-auto flex gap-2 items-center">
+      <!-- min-w-0 + a shrinkable search button: with both side panels open
+           the middle pane can be ~400px, and a fixed-width cluster pushed the
+           density slider out over the right panel. The search label truncates
+           first, then the slider narrows. -->
+      <div class="ml-auto flex gap-2 min-w-0 items-center justify-end">
         <!-- Search is no longer a box in the corner: it's the palette, which is
              also where the filter expression and the commands live. -->
         <button
           ref="searchButton"
           type="button"
-          class="text-sm text-fg-muted px-2 rounded-md flex gap-2 h-7 min-w-60 transition-colors items-center hover:text-fg hover:bg-surface-1"
+          class="text-sm text-fg-muted px-2 rounded-md flex flex-shrink gap-2 h-7 min-w-32 w-60 transition-colors items-center hover:text-fg hover:bg-surface-1"
           :aria-label="$t('command.title')"
           :aria-keyshortcuts="paletteAriaShortcut"
           @click="openCommandPalette()"
@@ -86,7 +90,7 @@ async function onClearAll() {
         />
         <!-- Grid density: the same value Ctrl+wheel drives (see Home.vue). -->
         <div
-          class="text-fg-subtle flex gap-1.5 w-36 items-center"
+          class="text-fg-subtle flex flex-shrink gap-1.5 min-w-20 w-36 items-center"
           :title="$t('gallery.columnsValue', { n: waterfallRowCount })"
         >
           <i class="i-tabler-grid-dots text-sm shrink-0" aria-hidden="true" />
