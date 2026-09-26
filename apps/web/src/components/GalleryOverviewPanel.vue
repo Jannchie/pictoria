@@ -24,7 +24,9 @@ const route = useRoute()
 const currentFolder = useCurrentFolder()
 const { chips, isFiltered, clearAll } = useActiveFilters()
 
-const inGalleryView = computed(() => route.name === 'all' || route.name === 'dir' || route.path === '/recently' || route.path === '/random' || route.path === '/unrated-artists')
+// Every gallery route carries `meta.gallery` (main.ts). A hand-kept list of
+// names missed `/`, which has no name — the landing page never fetched stats.
+const inGalleryView = computed(() => route.meta.gallery === true)
 
 const scopeLabel = computed(() => {
   const folder = currentFolder.value
@@ -79,7 +81,12 @@ function fmtAvg(value: number | null | undefined): string {
 </script>
 
 <template>
-  <PScrollArea class="text-xs h-full overflow-x-hidden overflow-y-auto">
+  <!-- Outside the gallery (tags, settings) there is no "current view" to read;
+       a bare "All" heading there claimed a scope that didn't exist. -->
+  <PScrollArea
+    v-if="inGalleryView"
+    class="text-xs h-full overflow-x-hidden overflow-y-auto"
+  >
     <div class="px-3 flex flex-col">
       <!-- Scope -->
       <div class="pb-3 pt-3 p-divider flex gap-2 items-center">
