@@ -35,6 +35,7 @@ import {
   recordFailures,
   resetScanFloors,
   upsertAestheticScores,
+  upsertBasics,
   upsertVectors,
   upsertWaifuScores,
 } from './backfill.js'
@@ -217,14 +218,15 @@ describe('分数落库', () => {
     expect(sqlite.prepare<[], { n: number }>('SELECT COUNT(*) AS n FROM post_aesthetic_scores').get()!.n).toBe(0)
   })
 
-  it('一批里有一条违反外键时整批回滚', () => {
-    // post 999 不存在 —— 事务的意义就在这里：不能落下半批分数，让待办查询
-    // 下次只看到剩下的一半。
-    expect(() => upsertAestheticScores(sqlite, 'silva', [
+  // 曾经是"整批回滚"：怕落下半批分数，让待办查询下次只看到剩下的一半。但已删的
+  // post 永远不会再进待办，跳过它不留半批；回滚反而让同批活的 post 白算一轮。
+  it('一批里有已删除的 post 时跳过它，其余照写', () => {
+    upsertAestheticScores(sqlite, 'silva', [
       { postId: 1, score: 0.25 },
       { postId: 999, score: 0.5 },
-    ])).toThrow()
-    expect(sqlite.prepare<[], { n: number }>('SELECT COUNT(*) AS n FROM post_aesthetic_scores').get()!.n).toBe(0)
+    ])
+    expect(sqlite.prepare('SELECT post_id, score FROM post_aesthetic_scores').all())
+      .toEqual([{ post_id: 1, score: 0.25 }])
   })
 })
 
@@ -758,5 +760,50 @@ describe('待办计数', () => {
     upsertWaifuScores(sqlite, [1, 2, 3, 4].map(postId => ({ postId, score: 5 })))
     listWaifuPending(sqlite, '/lib') // 水位线落在第一个待办 5 上
     expect([...countWaifuPending(sqlite, 1)]).toEqual([1, 1])
+  })
+})
+
+// 与上面 `upsertVectors` 同一个竞态，落在有外键的表上：任务算的这段时间里 sync 把
+// post 删了，结果回来一插就是 `FOREIGN KEY constraint failed` —— 而且整批在一个事务里，
+// 一条死掉的 post 连累同批十几条活的一起回滚，下一轮再算一遍。
+describe('结果回来时 post 已被删除', () => {
+  beforeEach(() => {
+    for (const t of ['post_has_tag', 'post_waifu_scores', 'post_has_color', 'tags', 'tag_groups']) sqlite.exec(`DELETE FROM ${t}`)
+    insertPost(1)
+  })
+
+  function count(table: string): number {
+    return sqlite.prepare<[], { n: number }>(`SELECT COUNT(*) AS n FROM ${table}`).get()!.n
+  }
+
+  it('silva 分只写还在的 post', () => {
+    upsertAestheticScores(sqlite, 'silva', [{ postId: 1, score: 0.5 }, { postId: 999, score: 0.6 }])
+    expect(count('post_aesthetic_scores')).toBe(1)
+  })
+
+  it('waifu 分只写还在的 post', () => {
+    upsertWaifuScores(sqlite, [{ postId: 999, score: 6 }, { postId: 1, score: 7 }])
+    expect(count('post_waifu_scores')).toBe(1)
+  })
+
+  it('拉黑只记还在的 post', () => {
+    recordFailures(sqlite, 'waifu', [{ postId: 999, error: 'x' }, { postId: 1, error: 'y' }])
+    expect(count('post_process_failures')).toBe(1)
+  })
+
+  it('tagger 结果只落还在的 post，也不为死 post 建标签', () => {
+    const shadowed = persistTaggerResults(sqlite, [
+      taggerRow(999, { general: ['only_on_dead'] }),
+      taggerRow(1, { general: ['1girl'] }),
+    ], ensureCanonicalTagGroups(sqlite), MODEL)
+    expect(shadowed).toEqual([])
+    expect(sqlite.prepare('SELECT post_id, tag_name FROM post_has_tag').all()).toEqual([{ post_id: 1, tag_name: '1girl' }])
+    expect(sqlite.prepare('SELECT name FROM tags WHERE name = ?').get('only_on_dead')).toBeUndefined()
+  })
+
+  it('basics 的调色板只写还在的 post', () => {
+    const row = { sha256: null, size: null, arthash: null, width: 10, height: 10, colors: [1, 2], dominantLab: null }
+    upsertBasics(sqlite, [{ postId: 999, ...row }, { postId: 1, ...row }])
+    expect(count('post_has_color')).toBe(2)
   })
 })

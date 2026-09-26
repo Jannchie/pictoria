@@ -309,6 +309,18 @@ export function fetchEmbeddingBlobs(
 }
 
 /**
+ * 只留下 post 还在的那些行。
+ *
+ * 待办查询选中一批 → 任务算几秒到几分钟 → 这期间 sync 可能已经把其中的 post 删了
+ * （`upsertVectors` 那里记着同一个竞态）。结果回来照写，在有外键的表上就是
+ * `FOREIGN KEY constraint failed`，而且一批在一个事务里：一条死 post 连累同批活的
+ * 一起回滚，下一轮整批重算。在写入的那个事务里调用。
+ */
+function livePosts<T extends { postId: number }>(sqlite: BetterSqlite3.Database, rows: T[]): T[] {
+  return rows.filter(r => postExists(sqlite, r.postId))
+}
+
+/**
  * 批量写入某个 scorer 的分数。一个事务里的多条 upsert。
  *
  * 这是 worker 算完之后唯一的落库点。Python 侧一行都不写 —— 它甚至不持有到这个
@@ -326,7 +338,7 @@ export function upsertAestheticScores(
     + `ON CONFLICT (post_id, scorer) DO UPDATE SET score = excluded.score`,
   )
   sqlite.transaction(() => {
-    for (const r of rows) stmt.run(r.postId, scorer, r.score)
+    for (const r of livePosts(sqlite, rows)) stmt.run(r.postId, scorer, r.score)
   })()
 }
 
@@ -391,7 +403,7 @@ export function upsertWaifuScores(
     + 'ON CONFLICT (post_id) DO UPDATE SET score = excluded.score',
   )
   sqlite.transaction(() => {
-    for (const r of rows) stmt.run(r.postId, r.score)
+    for (const r of livePosts(sqlite, rows)) stmt.run(r.postId, r.score)
   })()
 }
 
@@ -412,7 +424,7 @@ export function recordFailures(
     'INSERT OR IGNORE INTO post_process_failures (post_id, worker, error) VALUES (?, ?, ?)',
   )
   sqlite.transaction(() => {
-    for (const r of rows) stmt.run(r.postId, worker, r.error)
+    for (const r of livePosts(sqlite, rows)) stmt.run(r.postId, worker, r.error)
   })()
 }
 
@@ -616,8 +628,6 @@ export function persistTaggerResults(
   if (!rows.length)
     return []
 
-  const { byGroup, links } = flattenTaggerTags(rows)
-
   const clearAuto = sqlite.prepare('DELETE FROM post_has_tag WHERE post_id = ? AND is_auto = 1')
   // 已有 group_id 的标签不被改组：手工归过组的不该被模型的猜测覆盖
   const upsertTag = sqlite.prepare(
@@ -635,12 +645,15 @@ export function persistTaggerResults(
   const stamp = sqlite.prepare('UPDATE posts SET tagger = ? WHERE id = ?')
 
   sqlite.transaction(() => {
-    for (const r of rows) clearAuto.run(r.postId)
+    // 已删的 post 连标签都不建：否则留下一批 post_count = 0 的孤儿标签。
+    const live = livePosts(sqlite, rows)
+    const { byGroup, links } = flattenTaggerTags(live)
+    for (const r of live) clearAuto.run(r.postId)
     for (const [group, names] of byGroup) {
       for (const name of names) upsertTag.run(name, groups[group])
     }
     for (const [postId, name] of links) link.run(postId, name)
-    for (const r of rows) {
+    for (const r of live) {
       const rating = ratingToInt(r.rating)
       if (rating !== 0 || overwriteRating)
         setRating.run(rating, r.postId)
@@ -902,7 +915,8 @@ export function upsertBasics(
       if (r.dominantLab)
         dom.run(Buffer.from(new Float32Array(r.dominantLab).buffer), r.postId)
     }
-    for (const r of rows) {
+    // 两条 UPDATE 碰到已删的 post 只是 0 行，post_has_color 的 INSERT 才有外键。
+    for (const r of livePosts(sqlite, rows)) {
       if (!r.colors.length)
         continue
       clearColors.run(r.postId)
