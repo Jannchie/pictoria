@@ -176,6 +176,7 @@ const commands = computed<CommandDef[]>(() => {
     { id: 'nav-all', section: 'navigate', label: t('nav.all'), icon: 'i-tabler-photo', keywords: 'gallery home', run: go('/all') },
     { id: 'nav-recently', section: 'navigate', label: t('nav.recently'), icon: 'i-tabler-clock', run: go('/recently') },
     { id: 'nav-random', section: 'navigate', label: t('nav.random'), icon: 'i-tabler-arrows-cross', run: go('/random') },
+    { id: 'nav-unrated-artists', section: 'navigate', label: t('nav.unratedArtists'), icon: 'i-tabler-user-question', run: go('/unrated-artists') },
     { id: 'nav-tags', section: 'navigate', label: t('nav.tagManager'), icon: 'i-tabler-bookmarks', run: go('/tags') },
     { id: 'nav-annotate', section: 'navigate', label: t('nav.annotate'), icon: 'i-tabler-checklist', run: go('/annotate') },
     { id: 'nav-settings', section: 'navigate', label: t('common.settings'), icon: 'i-tabler-settings', run: go('/settings') },

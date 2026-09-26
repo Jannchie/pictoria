@@ -31,6 +31,9 @@ const heading = computed(() => {
   if (route.name === 'recently') {
     return t('nav.recently')
   }
+  if (route.name === 'unratedArtists') {
+    return t('nav.unratedArtists')
+  }
   if (route.path === '/random') {
     return t('nav.random')
   }

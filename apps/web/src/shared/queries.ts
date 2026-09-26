@@ -5,7 +5,7 @@ import { useDebounce } from '@vueuse/core'
 import { converter, parse } from 'culori'
 import { computed } from 'vue'
 import { useRoute } from 'vue-router'
-import { v2GetFolders, v2SearchPosts } from '@/api'
+import { v2GetFolders, v2SearchPosts, v2UnratedArtistPicks } from '@/api'
 import { queryKeys } from './queryKeys'
 import { postFilter, postSort, postSortColor, postSortOrder, randomSeed } from './state'
 
@@ -45,6 +45,9 @@ export function useInfinityPostsQuery() {
 
   const isRandomPage = computed(() => route.path === '/random')
   const isRecentlyPage = computed(() => route.path === '/recently')
+  // 「未评分画师」：服务端算好的固定清单（每位未评分画师一张代表图），与画廊的
+  // postFilter / 排序无关，所以不带 requestBody —— 筛选条件在这个视图上不生效。
+  const isUnratedArtistsPage = computed(() => route.path === '/unrated-artists')
 
   const order = computed<'asc' | 'desc' | 'random'>(() => {
     if (isRandomPage.value) {
@@ -108,8 +111,16 @@ export function useInfinityPostsQuery() {
   })
 
   return useInfiniteQuery({
-    queryKey: queryKeys.posts(requestBody),
+    queryKey: computed(() => isUnratedArtistsPage.value
+      ? queryKeys.unratedArtistPicks
+      : queryKeys.posts(requestBody.value)),
     queryFn: async ({ pageParam = 0 }) => {
+      if (isUnratedArtistsPage.value) {
+        // offset 0 让服务端重算清单快照（约 1–2 s），后续页只切快照 —— 边翻边打分
+        // 时清单在服务端缩短，也不会因为 offset 前移而跳过画师。
+        const resp = await v2UnratedArtistPicks({ query: { offset: pageParam, limit } })
+        return resp.data
+      }
       const resp = await v2SearchPosts({
         body: requestBody.value,
         query: { offset: pageParam, limit },
@@ -121,7 +132,8 @@ export function useInfinityPostsQuery() {
       || route.name === 'dir'
       || route.path === '/'
       || route.path === '/random'
-      || route.path === '/recently',
+      || route.path === '/recently'
+      || route.path === '/unrated-artists',
     ),
     initialPageParam: 0,
     staleTime: 1000 * 60 * 60,

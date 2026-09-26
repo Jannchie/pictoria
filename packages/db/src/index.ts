@@ -41,3 +41,4 @@ export { getAestheticScore, getPostPath, getWaifuScore, isImagePath, persistAuto
 export type { CommandPost } from './repositories/commands.js'
 export { listImportedDanbooruIds, persistPostsWithTags } from './repositories/import-persist.js'
 export type { NormalizedRow } from './repositories/import-persist.js'
+export { PLACEHOLDER_ARTIST_TAGS, unratedArtistPickIds } from './queries/unrated-artists.js'

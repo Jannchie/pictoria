@@ -184,8 +184,16 @@ function onContextmenu(e: MouseEvent) {
 // show it the same way text search shows its similarity percentage. The
 // /recently page forces orderBy=last_accessed_at regardless of postSort
 // (mirrors useInfinityPostsQuery), so derive the effective column the same way.
+// /unrated-artists has no sort column at all (a fixed server-side order), so no
+// badge there — otherwise the `sortValue` that writeScore patches in when the
+// global sort is `score` would make a badge pop up on just-rated tiles.
 const route = useRoute()
-const effectiveSort = computed(() => route.path === '/recently' ? 'last_accessed_at' : postSort.value)
+const effectiveSort = computed(() => {
+  if (route.path === '/recently') {
+    return 'last_accessed_at'
+  }
+  return route.path === '/unrated-artists' ? 'id' : postSort.value
+})
 interface SortBadge {
   text?: string
   icon?: string

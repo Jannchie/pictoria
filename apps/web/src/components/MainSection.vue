@@ -191,6 +191,9 @@ const gridName = computed(() => {
   if (route.name === 'recently') {
     return t('nav.recently')
   }
+  if (route.name === 'unratedArtists') {
+    return t('nav.unratedArtists')
+  }
   return route.path === '/random' ? t('nav.random') : t('nav.all')
 })
 const gridLabel = computed(() => isTextSearchActive.value

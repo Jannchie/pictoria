@@ -3119,6 +3119,34 @@ export type V2SearchPostsResponses = {
 
 export type V2SearchPostsResponse = V2SearchPostsResponses[keyof V2SearchPostsResponses];
 
+export type V2UnratedArtistPicksData = {
+    body?: never;
+    path?: never;
+    query?: {
+        limit?: number;
+        offset?: number;
+    };
+    url: '/v2/posts/unrated-artist-picks';
+};
+
+export type V2UnratedArtistPicksErrors = {
+    /**
+     * Bad Request
+     */
+    400: ErrorBody;
+};
+
+export type V2UnratedArtistPicksError = V2UnratedArtistPicksErrors[keyof V2UnratedArtistPicksErrors];
+
+export type V2UnratedArtistPicksResponses = {
+    /**
+     * OK
+     */
+    200: Array<PostSimplePublic>;
+};
+
+export type V2UnratedArtistPicksResponse = V2UnratedArtistPicksResponses[keyof V2UnratedArtistPicksResponses];
+
 export type V2SearchPostsByTextData = {
     body: TextSearchRequest;
     path?: never;

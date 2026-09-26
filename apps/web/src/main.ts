@@ -77,6 +77,7 @@ const routes: RouteRecordRaw[] = [
   { path: '/dir/:folder*', component: () => import('./views/Home.vue'), name: 'dir', meta: { gallery: true } },
   { path: '/random', component: () => import('./views/Home.vue'), meta: { gallery: true } },
   { path: '/recently', component: () => import('./views/Home.vue'), name: 'recently', meta: { gallery: true } },
+  { path: '/unrated-artists', component: () => import('./views/Home.vue'), name: 'unratedArtists', meta: { gallery: true } },
   { path: '/tags', component: () => import('./views/Tags.vue'), name: 'tags' },
   { path: '/test', component: () => import('./views/Test.vue'), name: 'test' },
   { path: '/post/:postId', component: () => import('./views/Post.vue'), name: 'post' },

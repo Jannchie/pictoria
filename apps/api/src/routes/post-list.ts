@@ -3,7 +3,7 @@
  */
 import { createRoute, OpenAPIHono, z } from '@hono/zod-openapi'
 import { decodeVector, INTERACTIVE_QUEUE, textEmbedTask } from '@pictoria/contracts'
-import { listPaginated, searchByTextVector, searchPosts, type PostFilter as DbPostFilter, type PostFilterWithOrder } from '@pictoria/db'
+import { listPaginated, listSimpleByIdsPreservingOrder, searchByTextVector, searchPosts, unratedArtistPickIds, type PostFilter as DbPostFilter, type PostFilterWithOrder } from '@pictoria/db'
 import { getDb } from '../db.js'
 import { PostFilterWithOrderSchema, TextSearchRequestSchema as TextSearchRequest } from '../filter-schema.js'
 import { OK, errors, zodErrorHook } from '../openapi.js'
@@ -76,6 +76,48 @@ postListRoutes.openapi(
     const { limit, offset } = c.req.valid('query')
     const f = c.req.valid('json') as PostFilterWithOrder
     return c.json(searchPosts(getDb().sqlite, f, { limit, offset }).map(toPostSimple), 200)
+  },
+)
+
+/**
+ * 「未评分画师」的有序代表图 id 快照。
+ *
+ * 为什么要快照而不是每页重算：
+ * - 用户在这个视图里就是在逐张打分，每打一张，那位画师就不再"未评分"，列表随之缩短。
+ *   每页都现算的话 offset 会整体前移，第二页开头的若干画师被跳过、永远看不到。
+ * - 整条查询在真库上约 1.3 s（阻塞事件循环），一次访问只付一次。
+ * `offset === 0`（前端重新进入视图 / 刷新列表）时重算；翻页只切快照。
+ */
+let unratedArtistSnapshot: number[] | null = null
+
+postListRoutes.openapi(
+  createRoute({
+    method: 'get',
+    path: '/v2/posts/unrated-artist-picks',
+    operationId: 'v2UnratedArtistPicks',
+    summary: 'UnratedArtistPicks',
+    description: 'One representative post (highest SILVA score) per artist tag that has no user-scored post. '
+      + 'Ignores post filters. Offset 0 recomputes the ordered list; later pages slice that snapshot so rating while paging does not skip items.',
+    request: {
+      query: z.object({
+        limit: z.coerce.number().int().min(1).default(100)
+          .openapi({ param: { name: 'limit', in: 'query', required: false }, type: 'integer', default: 100 }),
+        offset: z.coerce.number().int().min(0).default(0)
+          .openapi({ param: { name: 'offset', in: 'query', required: false }, type: 'integer', default: 0 }),
+      }),
+    },
+    responses: {
+      200: { description: OK, content: { 'application/json': { schema: z.array(PostSimplePublic) } } },
+      ...errors(400),
+    },
+  }),
+  (c) => {
+    const { limit, offset } = c.req.valid('query')
+    const { sqlite } = getDb()
+    if (offset === 0 || unratedArtistSnapshot === null)
+      unratedArtistSnapshot = unratedArtistPickIds(sqlite)
+    const ids = unratedArtistSnapshot.slice(offset, offset + limit)
+    return c.json(listSimpleByIdsPreservingOrder(sqlite, ids).map(toPostSimple), 200)
   },
 )
 

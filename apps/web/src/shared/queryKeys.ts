@@ -17,6 +17,14 @@ export type CountKind = 'rating' | 'score' | 'extension' | 'waifu' | 'silva' | '
 export const queryKeys = {
   /** Infinite gallery list, keyed by the full request body. */
   posts: (body: unknown) => ['posts', body] as const,
+  /**
+   * The `/unrated-artists` gallery list (one pick per never-scored artist). Its
+   * second element is an object on purpose: `patchPostsInListCache` patches any
+   * `['posts', <object>]` list, so a star given here updates the tile in place
+   * instead of refetching (which would drop the now-rated artist and shift the
+   * list under the cursor). Also covered by `postsRoot` invalidation.
+   */
+  unratedArtistPicks: ['posts', { view: 'unratedArtists' }] as const,
   /** Prefix that matches every `posts` query (list + stats) for invalidation. */
   postsRoot: ['posts'] as const,
   /** Footer aggregate stats for a filter. */

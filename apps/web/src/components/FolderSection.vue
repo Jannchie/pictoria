@@ -14,7 +14,7 @@ const foldersQuery = useFoldersQuery()
 
 // /random and /recently resolve to the root folder too, but they are views
 // over the whole library, not a place in the tree — no sub-folder shortcuts.
-const isFolderView = computed(() => route.path !== '/random' && route.path !== '/recently')
+const isFolderView = computed(() => route.path !== '/random' && route.path !== '/recently' && route.path !== '/unrated-artists')
 
 // shallowRef + explicit watch: the folder tree can hold tens of thousands of
 // nodes; deep reactivity over it is pure overhead for a read-only lookup.

@@ -7,7 +7,7 @@
 //   • it isn't the initial load (never steal focus on page open);
 //   • the path changed (query-only changes are filter/sort edits);
 //   • it isn't post → post (arrow-key browsing on the post page);
-//   • it isn't gallery → gallery (folder / All / Recently / Random switches from
+//   • it isn't gallery → gallery (folder / All / Recently / Random / Unrated artists switches from
 //     the sidebar — the user is working the tree/nav and must stay there);
 //   • at run time, focus is not already inside <main> (the new page placed it
 //     itself, e.g. the grid restoring the last viewed thumbnail).
@@ -44,6 +44,8 @@ export function routeTitle(route: RouteLike, postName?: string | null): RouteTit
       return name ? { key: null, text: name } : { key: 'route.home' }
     }
     case 'recently': { return { key: 'route.recently' }
+    }
+    case 'unratedArtists': { return { key: 'route.unratedArtists' }
     }
     case 'tags': { return { key: 'route.tags' }
     }

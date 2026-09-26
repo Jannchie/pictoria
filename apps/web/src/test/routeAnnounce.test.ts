@@ -12,6 +12,7 @@ describe('routetitle', () => {
     expect(routeTitle(home)).toEqual({ key: 'route.home' })
     expect(routeTitle(tags)).toEqual({ key: 'route.tags' })
     expect(routeTitle({ path: '/random', meta: { gallery: true } })).toEqual({ key: 'route.random' })
+    expect(routeTitle({ path: '/unrated-artists', name: 'unratedArtists', meta: { gallery: true } })).toEqual({ key: 'route.unratedArtists' })
   })
 
   it('names a folder by its last segment', () => {

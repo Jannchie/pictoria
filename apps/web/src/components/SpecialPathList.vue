@@ -11,6 +11,7 @@ const items: { path: string, icon: string, labelKey: string, keepQuery: boolean 
   { path: '/tags', icon: 'i-tabler-bookmarks', labelKey: 'nav.tagManager', keepQuery: false },
   { path: '/recently', icon: 'i-tabler-clock', labelKey: 'nav.recently', keepQuery: true },
   { path: '/random', icon: 'i-tabler-arrows-cross', labelKey: 'nav.random', keepQuery: true },
+  { path: '/unrated-artists', icon: 'i-tabler-user-question', labelKey: 'nav.unratedArtists', keepQuery: true },
   { path: '/annotate', icon: 'i-tabler-checklist', labelKey: 'nav.annotate', keepQuery: false },
 ]
 

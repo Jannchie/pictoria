@@ -24,7 +24,7 @@ const route = useRoute()
 const currentFolder = useCurrentFolder()
 const { chips, isFiltered, clearAll } = useActiveFilters()
 
-const inGalleryView = computed(() => route.name === 'all' || route.name === 'dir' || route.path === '/recently' || route.path === '/random')
+const inGalleryView = computed(() => route.name === 'all' || route.name === 'dir' || route.path === '/recently' || route.path === '/random' || route.path === '/unrated-artists')
 
 const scopeLabel = computed(() => {
   const folder = currentFolder.value
