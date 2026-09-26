@@ -678,7 +678,6 @@ const zhHant: MessageSchema = {
   },
   syncStatus: {
     working: '處理中 · {n} 項',
-    allDone: '全部處理完成',
     schedulerDown: '背景排程未執行',
     schedulerDownHint: '重新啟動 API 後才會恢復背景處理。錯誤：{error}',
     counting: '正在統計…',

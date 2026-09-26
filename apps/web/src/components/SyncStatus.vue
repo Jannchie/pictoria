@@ -10,8 +10,7 @@ import { queryKeys } from '@/shared/queryKeys'
 
 // Sidebar "sync status": what the backfill loops (basics / scorers / tagger /
 // embedding) and the cairnq queues are doing right now. Only busy loops get a
-// row — six "done" lines would be noise — so an idle library collapses to one
-// "all caught up" line.
+// row — six "done" lines would be noise — and an idle library shows nothing.
 
 const { t } = useI18n()
 const detailsId = useId()
@@ -130,10 +129,10 @@ const rows = computed(() => active.value.map((loop) => {
 </script>
 
 <template>
-  <div v-if="status" class="px-2 pt-2">
+  <div v-if="status && (schedulerDown || active.length > 0)" class="px-2 pt-2">
     <button
       type="button"
-      class="text-xs px-2 py-1 rounded flex gap-2 w-full transition-colors items-center hover:bg-surface-2"
+      class="text-xs px-4 rounded flex gap-2 min-h-7 w-full transition-colors items-center hover:bg-surface-1"
       :aria-expanded="expanded"
       :aria-controls="detailsId"
       :title="t('syncStatus.toggle')"
@@ -141,23 +140,17 @@ const rows = computed(() => active.value.map((loop) => {
     >
       <i
         v-if="schedulerDown || hasError"
-        class="i-tabler-alert-triangle text-danger shrink-0"
-        aria-hidden="true"
-      />
-      <i
-        v-else-if="active.length > 0"
-        class="i-svg-spinners-90-ring-with-bg text-primary shrink-0"
+        class="i-tabler-alert-triangle text-danger shrink-0 h-4 w-4"
         aria-hidden="true"
       />
       <i
         v-else
-        class="i-tabler-circle-check text-success shrink-0"
+        class="i-svg-spinners-90-ring-with-bg text-primary shrink-0 h-4 w-4"
         aria-hidden="true"
       />
       <span class="text-fg-muted text-left flex-1 truncate">
         <template v-if="schedulerDown">{{ t('syncStatus.schedulerDown') }}</template>
-        <template v-else-if="active.length > 0">{{ t('syncStatus.working', { n: active.length }, active.length) }}</template>
-        <template v-else>{{ t('syncStatus.allDone') }}</template>
+        <template v-else>{{ t('syncStatus.working', { n: active.length }, active.length) }}</template>
       </span>
       <span
         v-if="!expanded && overallEta !== null"
@@ -173,7 +166,7 @@ const rows = computed(() => active.value.map((loop) => {
     <div
       v-show="expanded"
       :id="detailsId"
-      class="px-2 pb-1 flex flex-col gap-2"
+      class="px-4 pb-1 pt-1 flex flex-col gap-2"
     >
       <p
         v-if="schedulerDown && status.scheduler.error"

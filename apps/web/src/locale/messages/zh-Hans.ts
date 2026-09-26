@@ -678,7 +678,6 @@ const zhHans: MessageSchema = {
   },
   syncStatus: {
     working: '处理中 · {n} 项',
-    allDone: '全部处理完成',
     schedulerDown: '后台调度未运行',
     schedulerDownHint: '重启 API 后才会恢复后台处理。错误：{error}',
     counting: '正在统计…',

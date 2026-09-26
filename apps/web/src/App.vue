@@ -795,7 +795,7 @@ function splitHighlight(text: string, filter: string): HighlightPart[] {
               </div>
             </PMenu>
           </div>
-          <div class="border-t border-border-subtle">
+          <div>
             <SyncStatus />
             <div class="p-2">
               <RouterLink

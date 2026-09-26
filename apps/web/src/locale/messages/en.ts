@@ -681,7 +681,6 @@ const en = {
   },
   syncStatus: {
     working: 'Processing · {n} task | Processing · {n} tasks',
-    allDone: 'All caught up',
     schedulerDown: 'Background scheduler is not running',
     schedulerDownHint: 'Restart the API to resume background processing. Error: {error}',
     counting: 'Counting…',
