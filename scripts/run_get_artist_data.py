@@ -22,9 +22,7 @@ from __future__ import annotations
 import argparse
 import asyncio
 import json
-import os
 import sys
-import tempfile
 import time
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
@@ -51,7 +49,9 @@ from rich.progress import (
 
 LOCAL_API = "http://localhost:4777/v2/cmd/download-from-danbooru"
 TAGS_FILE = Path(__file__).parent / "tags.txt"
-STATE_FILE = Path(__file__).parent / ".run_get_artist_data_state.json"
+STATE_FILE = Path(__file__).parent / ".run_get_artist_data_state.jsonl"
+#: 整份重写的旧格式；存在就读一次作为底，不再写入。
+LEGACY_STATE_FILE = Path(__file__).parent / ".run_get_artist_data_state.json"
 
 # 读超时不会取消服务端的工作——那个 import 仍在跑同一个 tag。隔 2 秒重发只会让
 # 两个 import 抢同一个目录，并把服务端 pool-wide 的 CDN 配额劈成两半，于是双方
@@ -80,26 +80,38 @@ class Totals:
 class TagState:
     """每个 tag 上次成功导入的时间，用来跳过冷却期内的 tag。
 
-    只记成功：失败的 tag 不写入，所以下次运行必定重试。每次 ``mark_ok`` 立刻
-    落盘，所以哪怕被 SIGKILL 也只丢掉正在跑的那个 tag；写盘走临时文件 +
-    ``os.replace``，中断不会留下半个 JSON 让下次运行整份状态失效。
+    只记成功：失败的 tag 不写入，所以下次运行必定重试。每次 ``mark_ok`` 往
+    jsonl 末尾追加一行 ``{"tag", "at"}`` 并 flush，所以哪怕被 SIGKILL 也只丢掉
+    正在跑的那个 tag。被截断的半行会和下一次追加的行粘成一行坏行，读取时跳过——
+    代价只是这两个 tag 下一轮重跑，不会让整份状态失效。同一个 tag 出现多行时
+    后写的赢。
 
-    落盘是整份重写，实测 723 个 tag 一轮共约 3s（单次 4ms，主要花在 mkstemp +
-    replace 两个 syscall 上，不是序列化）。相对一轮至少 12 分钟的运行可以忽略，
-    但它是 O(n²) 的写放大：tag 列表若涨到数千，改成 append-only 的 jsonl。
+    曾经是每次整份重写 JSON：O(n²) 的写放大，tag 池涨到几万个后一轮光重写
+    状态就是几十 GB。旧格式的 ``.json`` 若还在，启动时读一次作为底，之后只写
+    jsonl。追加的行会越积越多（每轮一行一个 tag），加载时合并；真嫌大了删掉
+    文件，代价只是下一轮不跳过任何 tag。
     """
 
-    def __init__(self, path: Path) -> None:
+    def __init__(self, path: Path, legacy_path: Path | None = None) -> None:
         self.path = path
         self._last_ok: dict[str, str] = {}
-        if path.exists():
+        if legacy_path is not None and legacy_path.exists():
             try:
-                raw = json.loads(path.read_text(encoding="utf-8"))
+                raw = json.loads(legacy_path.read_text(encoding="utf-8"))
             except (OSError, ValueError):
-                return  # 坏掉的状态文件等价于「没有状态」，全部重跑即可
-            loaded = raw.get("last_ok")
+                raw = {}  # 坏掉的旧状态等价于「没有状态」
+            loaded = raw.get("last_ok") if isinstance(raw, dict) else None
             if isinstance(loaded, dict):
                 self._last_ok = {k: v for k, v in loaded.items() if isinstance(v, str)}
+        if path.exists():
+            with path.open(encoding="utf-8") as f:
+                for line in f:
+                    try:
+                        entry = json.loads(line)
+                    except ValueError:
+                        continue  # 被中断的半行
+                    if isinstance(entry, dict) and isinstance(entry.get("tag"), str) and isinstance(entry.get("at"), str):
+                        self._last_ok[entry["tag"]] = entry["at"]
 
     def is_fresh(self, tag: str, now: datetime, max_age_days: float) -> bool:
         """这个 tag 是否还在冷却期内。无记录或时间戳坏掉都算「不新鲜」，即照常跑。"""
@@ -113,16 +125,10 @@ class TagState:
         return (now - when).total_seconds() / 86400.0 < max_age_days
 
     def mark_ok(self, tag: str, now: datetime) -> None:
-        self._last_ok[tag] = now.isoformat(timespec="seconds")
-        payload = json.dumps({"last_ok": self._last_ok}, indent=1, sort_keys=True)
-        fd, tmp = tempfile.mkstemp(dir=str(self.path.parent), suffix=".tmp")
-        try:
-            with os.fdopen(fd, "w", encoding="utf-8") as f:
-                f.write(payload)
-            os.replace(tmp, self.path)
-        except OSError:
-            Path(tmp).unlink(missing_ok=True)
-            raise
+        stamp = now.isoformat(timespec="seconds")
+        self._last_ok[tag] = stamp
+        with self.path.open("a", encoding="utf-8", newline="\n") as f:
+            f.write(json.dumps({"tag": tag, "at": stamp}, ensure_ascii=False) + "\n")
 
 
 @dataclass
@@ -256,7 +262,7 @@ async def main() -> None:
         console.print(f"[red]No tags found in {args.tags_file}[/]")
         return
 
-    state = TagState(args.state_file)
+    state = TagState(args.state_file, legacy_path=LEGACY_STATE_FILE)
     totals = Totals()
     if args.full or args.skip_recent <= 0:
         pending = tags
