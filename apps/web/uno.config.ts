@@ -24,6 +24,10 @@ export default defineConfig({
       extraProperties: {
         'display': 'inline-block',
         'vertical-align': 'middle',
+        // An icon has no text content, so as a flex item its min-content width
+        // is 0 and a long label beside it squeezes it to a sliver (the annotate
+        // mode cards did exactly that). Icons never shrink.
+        'flex-shrink': '0',
       },
     }),
   ],
