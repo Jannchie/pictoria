@@ -288,7 +288,7 @@ const sectionTitleClass
           <span>{{ $t('post.ratings') }}</span>
         </h3>
         <div
-          class="gap-x-3 gap-y-1 grid grid-cols-[auto_1fr] items-center children:break-words odd:children:text-fg-muted"
+          class="gap-y-1 p-kv-grid items-center odd:children:text-fg-muted"
         >
           <div :id="ratingLabelId">
             {{ $t('post.ratingLabel') }}
@@ -484,7 +484,7 @@ const sectionTitleClass
         :default-open="false"
       >
         <div
-          class="gap-x-3 gap-y-1 grid grid-cols-[auto_1fr] children:break-words odd:children:text-fg-muted"
+          class="gap-y-1 p-kv-grid odd:children:text-fg-muted"
         >
           <template v-if="post.size > 0">
             <div>{{ $t('post.size') }}</div>

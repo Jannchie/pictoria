@@ -580,7 +580,7 @@ const sectionTitleClass
           <span>{{ $t('multiSelect.files') }}</span>
         </h3>
         <div
-          class="gap-x-3 gap-y-2 grid grid-cols-[auto_1fr] children:break-words odd:children:text-fg-subtle"
+          class="gap-y-2 p-kv-grid odd:children:text-fg-subtle"
         >
           <div>{{ $t('multiSelect.format') }}</div>
           <div class="flex flex-wrap gap-1">
