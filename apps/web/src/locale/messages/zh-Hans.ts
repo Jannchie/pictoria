@@ -560,6 +560,7 @@ const zhHans: MessageSchema = {
     },
     start: '开始标注',
     startHint: '全键盘操作 · {esc} 随时退出 · {space} 跳过',
+    unratedArtistsHint: '每位还没评过分的画师各取一张，在画廊里直接打星',
     queue: {
       toggle: '固定批次队列',
       toggleNote: '— 形态对比实验 / 复测用',

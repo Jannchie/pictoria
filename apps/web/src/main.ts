@@ -68,6 +68,12 @@ declare module 'vue-router' {
      * URL query on these routes (see useSyncFilterWithUrl in shared/state.ts).
      */
     gallery?: boolean
+    /**
+     * Sidebar entry this page lives under when it has no entry of its own
+     * (e.g. /unrated-artists is reached from the annotate page); SpecialPathList
+     * lights that entry up.
+     */
+    navParent?: string
   }
 }
 
@@ -77,7 +83,7 @@ const routes: RouteRecordRaw[] = [
   { path: '/dir/:folder*', component: () => import('./views/Home.vue'), name: 'dir', meta: { gallery: true } },
   { path: '/random', component: () => import('./views/Home.vue'), meta: { gallery: true } },
   { path: '/recently', component: () => import('./views/Home.vue'), name: 'recently', meta: { gallery: true } },
-  { path: '/unrated-artists', component: () => import('./views/Home.vue'), name: 'unratedArtists', meta: { gallery: true } },
+  { path: '/unrated-artists', component: () => import('./views/Home.vue'), name: 'unratedArtists', meta: { gallery: true, navParent: '/annotate' } },
   { path: '/tags', component: () => import('./views/Tags.vue'), name: 'tags' },
   { path: '/test', component: () => import('./views/Test.vue'), name: 'test' },
   { path: '/post/:postId', component: () => import('./views/Post.vue'), name: 'post' },

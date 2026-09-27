@@ -418,6 +418,22 @@ async function generateQueue() {
         </template>
       </i18n-t>
 
+      <!-- 其他打分入口：未评分画师（画廊视图，每位画师一张，直接打星） -->
+      <section class="mt-10">
+        <RouterLink to="/unrated-artists" class="annotate-queue-row">
+          <i class="i-tabler-user-question text-lg shrink-0" aria-hidden="true" />
+          <div class="flex-1 min-w-0">
+            <div class="text-sm font-medium">
+              {{ $t('nav.unratedArtists') }}
+            </div>
+            <div class="text-xs text-fg-muted mt-0.5">
+              {{ $t('annotate.unratedArtistsHint') }}
+            </div>
+          </div>
+          <i class="i-tabler-chevron-right text-fg-subtle shrink-0" aria-hidden="true" />
+        </RouterLink>
+      </section>
+
       <!-- 队列：固定批次工具 -->
       <section class="mt-10">
         <button

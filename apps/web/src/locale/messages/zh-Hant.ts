@@ -560,6 +560,7 @@ const zhHant: MessageSchema = {
     },
     start: '開始標註',
     startHint: '全鍵盤操作 · {esc} 隨時退出 · {space} 跳過',
+    unratedArtistsHint: '每位還沒評過分的畫師各取一張，在畫廊裡直接打星',
     queue: {
       toggle: '固定批次佇列',
       toggleNote: '— 形態對比實驗 / 複測用',

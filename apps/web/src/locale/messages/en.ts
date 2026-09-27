@@ -563,6 +563,7 @@ const en = {
     },
     start: 'Start annotating',
     startHint: 'Keyboard only · {esc} exits at any time · {space} skips',
+    unratedArtistsHint: 'One pick per artist you haven\'t scored yet — star them straight from the gallery',
     queue: {
       toggle: 'Fixed-batch queues',
       toggleNote: '— for format experiments / retests',

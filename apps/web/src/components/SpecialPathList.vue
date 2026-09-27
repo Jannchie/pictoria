@@ -6,12 +6,12 @@ import { queryKeys } from '@/shared/queryKeys'
 
 // Label keys (not resolved strings) so a locale switch re-renders them. The
 // gallery views carry the current filter query along; the others start clean.
+// A route whose `meta.navParent` names an entry lights that entry up too.
 const items: { path: string, icon: string, labelKey: string, keepQuery: boolean }[] = [
   { path: '/all', icon: 'i-tabler-photo', labelKey: 'nav.all', keepQuery: true },
   { path: '/tags', icon: 'i-tabler-bookmarks', labelKey: 'nav.tagManager', keepQuery: false },
   { path: '/recently', icon: 'i-tabler-clock', labelKey: 'nav.recently', keepQuery: true },
   { path: '/random', icon: 'i-tabler-arrows-cross', labelKey: 'nav.random', keepQuery: true },
-  { path: '/unrated-artists', icon: 'i-tabler-user-question', labelKey: 'nav.unratedArtists', keepQuery: true },
   { path: '/annotate', icon: 'i-tabler-checklist', labelKey: 'nav.annotate', keepQuery: false },
 ]
 
@@ -45,7 +45,7 @@ const { data: allCount } = useQuery({
           :icon="item.icon"
           :title="$t(item.labelKey)"
           :extra-info="item.path === '/all' && allCount != null ? formatNumber(allCount) : undefined"
-          :active="$route.path === item.path"
+          :active="$route.path === item.path || $route.meta.navParent === item.path"
         />
       </RouterLink>
     </li>
