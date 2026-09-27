@@ -3,12 +3,12 @@ import type { PostSimplePublic } from '@/api'
 import { useElementBounding, useMouse } from '@vueuse/core'
 import { computed, nextTick, onMounted, ref, useId, watch, watchEffect } from 'vue'
 import { useRouter } from 'vue-router'
-import { useAdjacentImagePreload } from '@/composables/useAdjacentImagePreload'
 import { useEdgeProximity } from '@/composables/useEdgeProximity'
 import { useFocusReturn } from '@/composables/useFocusTrap'
 import { useHotkey } from '@/composables/useHotkey'
 import { useKeyScope } from '@/composables/useKeyScope'
 import { usePostNavAnnounce, usePostNavigation } from '@/composables/usePostNavigation'
+import { useAdjacentPostPrefetch } from '@/composables/usePostPrefetch'
 import { isAnyDialogOpen, lastViewedPostId, showPostDetail, useLayer } from '@/shared'
 import { getPostImageURL, getPostThumbnailURL } from '@/utils'
 import { focusElement } from '@/utils/focus'
@@ -37,10 +37,6 @@ watch(imgSrc, () => {
   mainLoaded.value = false
 })
 
-// 预载相邻原图（和 views/Post.vue 同一个 composable）。这个覆盖层是列表里
-// ←→ 浏览的主路径，此前只有 /post/:id 独立页有预载 —— 在这里切图每张都是
-// 冷加载，大图要等一拍。
-useAdjacentImagePreload(() => post.value.id)
 const imgWrapperRef = ref<HTMLDivElement | null>(null)
 const { width: imgWrapperWidth, height: imgWrapperHeight, left: imgWrapperLeft, top: imgWrapperTop } = useElementBounding(imgWrapperRef)
 const imgContentWidth = computed(() => {
@@ -235,6 +231,10 @@ function close() {
 const nearEdge = useEdgeProximity(imgWrapperRef)
 
 const { index, total, canPrev, canNext, neighbor } = usePostNavigation(() => post.value.id)
+// 预取相邻两张的原图和详情请求（和 views/Post.vue 同一个 composable）。这个
+// 覆盖层是列表里 ←→ 浏览的主路径，此前只有 /post/:id 独立页有预载 —— 在这里
+// 切图每张都是冷加载，大图要等一拍。
+useAdjacentPostPrefetch(index)
 const announceNav = usePostNavAnnounce()
 
 function navigateDetail(delta: -1 | 1) {

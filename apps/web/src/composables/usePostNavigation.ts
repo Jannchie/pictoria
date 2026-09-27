@@ -10,7 +10,7 @@ import { announce } from '@/shared/announce'
  *
  * ←→ 热键、详情页的翻页竖条、全屏查看器的翻页竖条，此前各自写了一遍「在
  * `currentPostList` 里 findIndex，然后 ±1 并夹住两端」—— 加上
- * [[useAdjacentImagePreload]] 里的第四份。判定散在四处的直接后果是它们会各自
+ * [[useAdjacentPostPrefetch]] 里的第四份。判定散在四处的直接后果是它们会各自
  * 漂移：按钮的可用性和真正能不能翻，靠的是两段独立写出来的边界条件。
  *
  * 列表最多有二十多万条，`currentPostList` 又是深层 `ref`，所以扫描走 `toRaw`

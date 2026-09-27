@@ -110,6 +110,9 @@ declare global {
   const onWatcherCleanup: typeof import('vue').onWatcherCleanup
   const pausableWatch: typeof import('@vueuse/core').pausableWatch
   const pickLocale: typeof import('./locale/index').pickLocale
+  const prefetchPost: typeof import('./composables/usePostPrefetch').prefetchPost
+  const prefetchPostData: typeof import('./composables/usePostPrefetch').prefetchPostData
+  const preloadImage: typeof import('./composables/usePostPrefetch').preloadImage
   const provide: typeof import('vue').provide
   const provideLocal: typeof import('@vueuse/core').provideLocal
   const reactify: typeof import('@vueuse/core').reactify
@@ -160,7 +163,7 @@ declare global {
   const useAPIError: typeof import('./composables/useAPIError').useAPIError
   const useActiveElement: typeof import('@vueuse/core').useActiveElement
   const useActiveFilters: typeof import('./composables/useActiveFilters').useActiveFilters
-  const useAdjacentImagePreload: typeof import('./composables/useAdjacentImagePreload').useAdjacentImagePreload
+  const useAdjacentPostPrefetch: typeof import('./composables/usePostPrefetch').useAdjacentPostPrefetch
   const useAnimate: typeof import('@vueuse/core').useAnimate
   const useAnnotationReview: typeof import('./composables/useAnnotationReview').useAnnotationReview
   const useArrayDifference: typeof import('@vueuse/core').useArrayDifference

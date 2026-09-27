@@ -12,6 +12,7 @@ import { choiceBindings, isForeignComposite, KEY_ROWS, noLayerOpen, useProgressA
 import { useAnnotationReview } from '@/composables/useAnnotationReview'
 import { useAPIError } from '@/composables/useAPIError'
 import { useHotkey } from '@/composables/useHotkey'
+import { preloadImage } from '@/composables/usePostPrefetch'
 import { formatNumber } from '@/locale'
 import { announce, endReview, flagGlyph, prependEntry, pushCommand, removeEntries } from '@/shared'
 import { dimensionMeta } from '@/shared/annotationTypes'
@@ -70,17 +71,11 @@ let shownAt = performance.now()
 const elapsed = ref<Record<string, number>>({})
 
 // 预热 buffer 中接下来几张的原图：标注当前图的几秒钟里，下一张已进
-// 浏览器缓存，切图即显示（同 useAdjacentImagePreload 的思路）。
+// 浏览器缓存，切图即显示（同 useAdjacentPostPrefetch 的思路）。
 const PRELOAD_AHEAD = 3
-const preloaded = new Set<string>()
 function preloadAhead() {
   for (const item of buffer.value.slice(1, 1 + PRELOAD_AHEAD)) {
-    const url = postURL(item.post)
-    if (!preloaded.has(url)) {
-      preloaded.add(url)
-      const img = new Image()
-      img.src = url
-    }
+    preloadImage(postURL(item.post))
   }
 }
 

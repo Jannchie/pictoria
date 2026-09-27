@@ -10,6 +10,7 @@ import { isForeignComposite, moveItem, noLayerOpen, sortableIntent, sortableTarg
 import { useAPIError } from '@/composables/useAPIError'
 import { useFocusTrap } from '@/composables/useFocusTrap'
 import { useHotkey } from '@/composables/useHotkey'
+import { preloadImage } from '@/composables/usePostPrefetch'
 import { useRovingFocus } from '@/composables/useRovingFocus'
 import { formatNumber } from '@/locale'
 import { announce, prependEntry, pushCommand, removeEntries, useLayer } from '@/shared'
@@ -120,16 +121,10 @@ function imgURL(p: QueueItemPostPublic) {
 }
 
 // 预热下一组：排当前组的十几秒里，下一组已进浏览器缓存。
-const preloaded = new Set<string>()
 function preloadAhead() {
   for (const item of buffer.value.slice(1, 2)) {
     for (const p of item.posts) {
-      const url = imgURL(p)
-      if (!preloaded.has(url)) {
-        preloaded.add(url)
-        const img = new Image()
-        img.src = url
-      }
+      preloadImage(imgURL(p))
     }
   }
 }

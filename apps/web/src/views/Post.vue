@@ -9,6 +9,7 @@ import { useEdgeProximity } from '@/composables/useEdgeProximity'
 import { useHotkey } from '@/composables/useHotkey'
 import { useKeyScope } from '@/composables/useKeyScope'
 import { usePostNavAnnounce, usePostNavigation } from '@/composables/usePostNavigation'
+import { useAdjacentPostPrefetch } from '@/composables/usePostPrefetch'
 import { announce, bottomBarInfo, clear as clearSelection, deletePosts, enableArthash, enableFancyPlaceholder, isCommittedSelected, lastViewedPostId, selectedIdList, selectOnly, showPostDetail, similarPostList } from '@/shared'
 import { shortcuts } from '@/shared/shortcuts'
 import { useToast } from '@/shared/toast'
@@ -23,9 +24,6 @@ const { t } = useI18n()
 const route = useRoute()
 const router = useRouter()
 const postId = computed(() => Number.parseInt(route.params.postId as string))
-// Preload the neighbouring originals so ←→ navigation (page and fullscreen
-// overlay) swaps images instantly from cache.
-useAdjacentImagePreload(postId)
 const postQuery = usePostQuery(postId)
 const post = computed(() => postQuery.data.value)
 // Settled without a post: a 404 surfaces as an error (the client hands back
@@ -188,6 +186,9 @@ const imageStageRef = ref<HTMLElement | null>(null)
 const nearEdge = useEdgeProximity(imageStageRef)
 
 const { index, total, canPrev, canNext, neighbor } = usePostNavigation(postId)
+// Prefetch the neighbours' originals and detail requests (post, group, similar,
+// history) so ←→ navigation (page and fullscreen overlay) renders from cache.
+useAdjacentPostPrefetch(index)
 const announceNav = usePostNavAnnounce()
 
 function navigatePost(delta: -1 | 1) {

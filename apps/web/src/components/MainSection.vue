@@ -2,7 +2,7 @@
 import type { PostSimplePublic } from '@/api'
 import type { PMenuItem } from '@/ui'
 import { useQuery, useQueryClient } from '@tanstack/vue-query'
-import { refDebounced } from '@vueuse/core'
+import { refDebounced, watchDebounced } from '@vueuse/core'
 import { useI18n } from 'vue-i18n'
 import { onBeforeRouteLeave, useRoute, useRouter } from 'vue-router'
 import { Waterfall } from 'vue-wf'
@@ -10,7 +10,8 @@ import { v2SearchPostsByText } from '@/api'
 import { useGalleryGrid } from '@/composables/useGalleryGrid'
 import { useHotkey } from '@/composables/useHotkey'
 import { useKeyScope, useScoreHotkeys } from '@/composables/useKeyScope'
-import { announce, clear as clearSelection, commitRotate, commitScore, currentPostList, deletePosts, galleryScrollPositions, gridCursorId, lastViewedPostId, postFilter, queryKeys, selectedCount, selectedIdList, selectOnly, setGridCursor, textSearchQuery, useInfinityPostsQuery, waterfallRowCount } from '@/shared'
+import { prefetchPost } from '@/composables/usePostPrefetch'
+import { announce, clear as clearSelection, commitRotate, commitScore, currentPostList, deletePosts, galleryScrollPositions, gridCursorId, lastViewedPostId, postFilter, queryKeys, selectedCount, selectedIdList, selectOnly, setGridCursor, soleSelectedId, textSearchQuery, useInfinityPostsQuery, waterfallRowCount } from '@/shared'
 import { GRID_GAP, GRID_PAD } from '@/shared/gridLayout'
 import { useToast } from '@/shared/toast'
 import { POverlay } from '@/ui'
@@ -206,6 +207,16 @@ const gridSetSize = computed(() => (!isTextSearchActive.value && infinityPostsQu
 // stays mutually exclusive with the detail page's per-post scoring.
 const queryClient = useQueryClient()
 const { pushToast } = useToast()
+
+// 单选停在一张上时，下一步多半是回车 / 双击打开它：提前把原图和详情页的请求
+// （相似图等；详情、分组、标注历史右侧栏已经在拉）发掉。停稳才发 —— 方向键扫
+// 过去的那些不值得各拉一张原图。
+watchDebounced(soleSelectedId, (id) => {
+  const post = id === undefined ? undefined : toRaw(posts.value).find(p => p.id === id)
+  if (post) {
+    prefetchPost(queryClient, post)
+  }
+}, { debounce: 300 })
 
 async function applyScoreToSelection(score: number) {
   const ids = selectedIdList.value

@@ -1,23 +1,12 @@
 <script setup lang="ts">
 import { useQuery } from '@tanstack/vue-query'
 import { computed } from 'vue'
-import { v2PostHistory } from '@/api'
 import { flagGlyph, winnerLabel } from '@/shared'
-import { queryKeys } from '@/shared/queryKeys'
+import { postAnnotationsQueryOptions } from '@/shared/postQueries'
 
 const props = defineProps<{ postId: number }>()
 
-// Reactive ref in the key (via the factory) so navigating between posts
-// refetches this post's history instead of reusing the first-loaded one.
-const postId = computed(() => props.postId)
-
-const { data } = useQuery({
-  queryKey: queryKeys.annotations(postId),
-  queryFn: async () => {
-    const resp = await v2PostHistory({ path: { post_id: props.postId } })
-    return resp.data
-  },
-})
+const { data } = useQuery(postAnnotationsQueryOptions(computed(() => props.postId)))
 
 const hasAny = computed(() =>
   (data.value?.absolute?.length ?? 0) > 0

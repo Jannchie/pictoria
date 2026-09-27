@@ -11,6 +11,7 @@ import { isForeignComposite, noLayerOpen, useProgressAnnouncer } from '@/composa
 import { useAnnotationReview } from '@/composables/useAnnotationReview'
 import { useAPIError } from '@/composables/useAPIError'
 import { useHotkey } from '@/composables/useHotkey'
+import { preloadImage } from '@/composables/usePostPrefetch'
 import { formatNumber } from '@/locale'
 import { announce, endReview, prependEntry, pushCommand, removeEntries, winnerLabel } from '@/shared'
 import { dimensionMeta } from '@/shared/annotationTypes'
@@ -93,16 +94,10 @@ function imgURL(p: QueueItemPostPublic) {
 
 // 预热接下来几对的原图：判断当前对的几秒钟里，下一对已进浏览器缓存。
 const PRELOAD_AHEAD = 2
-const preloaded = new Set<string>()
 function preloadAhead() {
   for (const item of buffer.value.slice(1, 1 + PRELOAD_AHEAD)) {
-    for (const url of [imgURL(item.postA), imgURL(item.postB)]) {
-      if (!preloaded.has(url)) {
-        preloaded.add(url)
-        const img = new Image()
-        img.src = url
-      }
-    }
+    preloadImage(imgURL(item.postA))
+    preloadImage(imgURL(item.postB))
   }
 }
 
