@@ -72,9 +72,32 @@ def create_thumbnail_by_image(img: Image.Image, output_image_path: Path, max_wid
     img.save(output_image_path)
 
 
-def from_rating_to_int(rating: str) -> int:
-    """0=Not Rated, 1=general, 2=sensitive, 3=questionable, 4=explicit."""
-    return {"general": 1, "sensitive": 2, "questionable": 3, "explicit": 4}.get(rating, 0)
+#: File extensions an importer keeps. Anything else in a listing (videos, zips,
+#: ugoira) can never become a post, so the importers skip it before download.
+SUPPORTED_IMAGE_EXTS: frozenset[str] = frozenset(
+    {"jpg", "jpeg", "png", "gif", "webp", "avif", "bmp", "tiff", "tif", "svg"},
+)
+
+#: ``posts.rating``: 0 = not rated, then general / sensitive / questionable /
+#: explicit. Spelled-out form (gallery-dl's full-word ratings).
+_RATING_WORDS: dict[str, int] = {"general": 1, "sensitive": 2, "questionable": 3, "explicit": 4}
+
+#: The one-letter booru form: the Danbooru API's ``rating``, gallery-dl's booru
+#: metadata, the danbooru2026 archive. moebooru (yande.re / konachan) uses
+#: ``s`` for *safe*; it lands on sensitive here -- a harmless over-tag.
+_RATING_LETTERS: dict[str, int] = {"g": 1, "s": 2, "q": 3, "e": 4}
+
+
+def rating_to_int(raw: object) -> int:
+    """Any upstream rating spelling -> the ``posts.rating`` int (0 when unknown).
+
+    The single Python copy of this map. It used to exist three times, and the
+    word-only one silently sent the Danbooru API's one-letter ratings to 0.
+    """
+    if not isinstance(raw, str) or not raw:
+        return 0
+    key = raw.lower()
+    return (_RATING_LETTERS if len(key) == 1 else _RATING_WORDS).get(key, 0)
 
 
 def resolve_source(raw_source: str | None, fallback_url: str) -> str:

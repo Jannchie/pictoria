@@ -12,7 +12,7 @@ same model as the library's ``silva`` scorer, so re-scoring on the GPU would
 only reproduce the parquet.
 
 It is a maintenance script, not an endpoint: it runs once per mirror refresh
-and never from the UI, so it sits next to ``clean_truncated_images.py`` and
+and never from the UI, so it lives under ``scripts/`` and
 opens ``pictoria.sqlite`` directly — the same way every script in this
 directory does. The write shape is a transcript of ``persistPostsWithTags``
 (``packages/db/src/repositories/import-persist.ts``): tags in one short

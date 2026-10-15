@@ -5,8 +5,9 @@ Run it next to the API:
     cd server && uv run ./src/worker/main.py
 
 The library root comes from `$PICTORIA_TARGET_DIR` (same variable, same default,
-same repo-root anchor as `paths.ts`) so the API and this process cannot be pointed
-at different directories. `--target_dir` is an explicit override for one-off runs.
+same repo-root anchor as `paths.ts`, resolved once in ``paths.target_dir()``) so
+the API and this process cannot be pointed at different directories.
+`--target_dir` is an explicit override for one-off runs.
 
 Two things about this process are deliberate and worth keeping:
 
@@ -22,6 +23,10 @@ Two things about this process are deliberate and worth keeping:
 ``concurrency=1`` on the GPU queue replaces ``processors/gpu_pressure.py``: one
 batch is in VRAM at a time and the queue holds the rest, rather than the API
 process tracking pressure and shrinking batches itself.
+
+Importing this module has no side effects (no dotenv, no logging setup, no
+faulthandler) -- those happen in :func:`main` -- so ``tests/test_task_contracts.py``
+can read :data:`TASKS` without configuring the process.
 """
 
 from __future__ import annotations
@@ -31,12 +36,12 @@ import asyncio
 import faulthandler
 import logging
 from pathlib import Path
+from typing import TYPE_CHECKING, Any
 
 from cairnq import SQLiteStore, Worker
 from dotenv import load_dotenv
 
-from paths import DEFAULT_TARGET_DIR, tasks_db_path
-from paths import target_dir as _target_dir
+from paths import DEFAULT_TARGET_DIR, target_dir, tasks_db_path
 from worker.handlers import (
     handle_basics,
     handle_caption,
@@ -53,25 +58,12 @@ from worker.handlers import (
 )
 from worker.importers import handle_danbooru_import, handle_url_download, handle_url_scan
 
-#: The importers need DANBOORU_API_KEY / DANBOORU_USER_NAME out of server/.env —
-#: the same file bootstrap.py loads for the API process.
-load_dotenv()
+if TYPE_CHECKING:
+    from collections.abc import Awaitable, Callable
 
-logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
+    Handler = Callable[[dict[str, Any]], Awaitable[dict[str, Any]]]
+
 log = logging.getLogger("worker")
-
-# A native crash in this process leaves *nothing* behind by default: the GPU stack
-# is C++ and CUDA, so an access violation kills the interpreter without an
-# exception, without a traceback and without a Windows event-log entry. The
-# symptom is a bare "Command failed with exit code 3221225477" from pnpm, and the
-# only way to find out which handler was in the middle of it is to go read what
-# cairnq left marked ``running``.
-#
-# faulthandler catches SIGSEGV / SIGABRT / SIGFPE / SIGILL and dumps every
-# thread's Python stack first. It costs nothing until something crashes, which is
-# exactly the trade this process wants: a rare crash 40 minutes into a 16-hour
-# backfill is expensive to reproduce and cheap to instrument for.
-faulthandler.enable()
 
 #: Queue for background backfill. Its poll interval is cairnq's default 500 ms
 #: on purpose — a backfill task that starts half a second late costs nothing,
@@ -106,28 +98,70 @@ CPU_QUEUE = "cpu"
 #: box's cores at full tilt, leaving the rest to the GPU worker's decoding.
 CPU_CONCURRENCY = 2
 
+#: Every task this process serves: name -> (queue, handler). The names are the
+#: ``defineTask`` strings in ``packages/contracts/src/tasks.ts``; the contract
+#: fixtures under ``packages/contracts/fixtures/tasks/`` pin both columns from
+#: the TS side, and ``tests/test_task_contracts.py`` checks this table against
+#: them.
+#:
+#: ``silva`` serves both heads (``silva`` and ``silva_luna`` are the same code
+#: path with different learnt weights; the payload says which). ``dedup`` is
+#: not a backfill worker — it is one whole-library pass, kicked off by
+#: /v2/cmd/group-duplicates or by the embedding scheduler after it writes new
+#: vectors — but it shares the GPU queue on purpose: it wants the GPU
+#: exclusively.
+TASKS: dict[str, tuple[str, Handler]] = {
+    "silva": (GPU_QUEUE, handle_silva),
+    "waifu": (GPU_QUEUE, handle_waifu),
+    "tagger": (GPU_QUEUE, handle_tagger),
+    "embedding": (GPU_QUEUE, handle_embedding),
+    "dedup": (GPU_QUEUE, handle_dedup),
+    "text-embed": (INTERACTIVE_QUEUE, handle_text_embed),
+    "lpips-verify": (CPU_QUEUE, handle_lpips_verify),
+    "thumbnail": (IO_QUEUE, handle_thumbnail),
+    "rotate": (IO_QUEUE, handle_rotate),
+    "caption": (IO_QUEUE, handle_caption),
+    "basics": (IO_QUEUE, handle_basics),
+    "danbooru-import": (IO_QUEUE, handle_danbooru_import),
+    "url-scan": (IO_QUEUE, handle_url_scan),
+    "url-download": (IO_QUEUE, handle_url_download),
+}
 
-def target_dir() -> Path:
-    """The image library root. Mirrors ``paths.ts``'s ``targetDir()`` exactly.
 
-    Both halves have to land on the same directory or the failure is silent:
-    the API submits to one ``tasks.sqlite`` while the worker polls another, so
-    every ``tasks.call`` just runs out its timeout (60 s for a thumbnail, 60 min
-    for a danbooru import) with nothing logged. A mismatched *root* is worse --
-    ``_resolve_inside`` rejects the payload paths as escaping it, which is a
-    *per-item* failure, so TS writes every post into ``post_process_failures``,
-    a permanent blacklist that fixing the config does not undo.
+def _adapt(handler: Handler) -> Callable[[Any, dict[str, Any]], Awaitable[dict[str, Any]]]:
+    """cairnq's ``(ctx, payload)`` convention around a payload-only handler.
 
-    That is why the env var, the default, and the repo-root anchor are all
-    duplicated from ``paths.ts`` rather than the worker taking a required
-    ``--target_dir``: a flag that only one of the two processes reads is exactly
-    how the two drift apart. The Python half of that duplication lives once, in
-    ``paths.py`` -- the scripts under ``server/scripts/`` read the same one.
+    A real ``async def`` rather than a lambda returning the coroutine: cairnq
+    runs a non-async callable on a worker thread first, a pointless hop here.
     """
-    return _target_dir()
+
+    async def run(_ctx: Any, payload: dict[str, Any]) -> dict[str, Any]:
+        return await handler(payload)
+
+    return run
+
+
+def _configure_process() -> None:
+    """Process-wide setup, kept out of import time (see the module docstring)."""
+    # The importers need DANBOORU_API_KEY / DANBOORU_USER_NAME out of server/.env.
+    load_dotenv()
+    logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
+    # A native crash in this process leaves *nothing* behind by default: the GPU
+    # stack is C++ and CUDA, so an access violation kills the interpreter without
+    # an exception, without a traceback and without a Windows event-log entry.
+    # The symptom is a bare "Command failed with exit code 3221225477" from pnpm,
+    # and the only way to find out which handler was in the middle of it is to
+    # go read what cairnq left marked ``running``.
+    #
+    # faulthandler catches SIGSEGV / SIGABRT / SIGFPE / SIGILL and dumps every
+    # thread's Python stack first. It costs nothing until something crashes,
+    # which is exactly the trade this process wants: a rare crash 40 minutes into
+    # a 16-hour backfill is expensive to reproduce and cheap to instrument for.
+    faulthandler.enable()
 
 
 async def main() -> None:
+    _configure_process()
     parser = argparse.ArgumentParser(description="pictoria cairnq worker")
     parser.add_argument(
         "--target_dir",
@@ -148,59 +182,37 @@ async def main() -> None:
     log.info("tasks db: %s", db_path)
 
     store = SQLiteStore(str(db_path))
-    worker = Worker(store, queues=[GPU_QUEUE], concurrency=1)
-    # A second Worker rather than a second queue on the same one: with
-    # concurrency=1 a single worker would still make a search wait out
-    # whatever batch is in flight.
-    interactive = Worker(
-        store,
-        queues=[INTERACTIVE_QUEUE],
-        concurrency=1,
-        poll_interval_ms=INTERACTIVE_POLL_MS,
-    )
-    io_worker = Worker(
-        store,
-        queues=[IO_QUEUE],
-        concurrency=IO_CONCURRENCY,
-        poll_interval_ms=INTERACTIVE_POLL_MS,
-    )
-    # Default poll interval: arbitration arrives in batches during a rebuild and
-    # nobody is watching the clock on any one of them.
-    cpu_worker = Worker(store, queues=[CPU_QUEUE], concurrency=CPU_CONCURRENCY)
+    workers: dict[str, Worker] = {
+        GPU_QUEUE: Worker(store, queues=[GPU_QUEUE], concurrency=1),
+        # A second Worker rather than a second queue on the same one: with
+        # concurrency=1 a single worker would still make a search wait out
+        # whatever batch is in flight.
+        INTERACTIVE_QUEUE: Worker(
+            store,
+            queues=[INTERACTIVE_QUEUE],
+            concurrency=1,
+            poll_interval_ms=INTERACTIVE_POLL_MS,
+        ),
+        IO_QUEUE: Worker(
+            store,
+            queues=[IO_QUEUE],
+            concurrency=IO_CONCURRENCY,
+            poll_interval_ms=INTERACTIVE_POLL_MS,
+        ),
+        # Default poll interval: arbitration arrives in batches during a rebuild
+        # and nobody is watching the clock on any one of them.
+        CPU_QUEUE: Worker(store, queues=[CPU_QUEUE], concurrency=CPU_CONCURRENCY),
+    }
 
     # Payload paths are resolved inside this root and nowhere else.
     set_root(root)
 
-    # ``silva`` and ``silva_luna`` are the same code path with different learnt
-    # weights, so one handler serves both names and the payload says which head.
-    worker.task("silva")(lambda _ctx, payload: handle_silva(payload))
-    worker.task("waifu")(lambda _ctx, payload: handle_waifu(payload))
-    worker.task("tagger")(lambda _ctx, payload: handle_tagger(payload))
-    worker.task("embedding")(lambda _ctx, payload: handle_embedding(payload))
-    # dedup is not a backfill worker — it is one whole-library pass, kicked off by
-    # /v2/cmd/group-duplicates or by the embedding scheduler after it writes new
-    # vectors. Same queue on purpose: it wants the GPU exclusively.
-    worker.task("dedup")(lambda _ctx, payload: handle_dedup(payload))
-    interactive.task("text-embed")(lambda _ctx, payload: handle_text_embed(payload))
-    cpu_worker.task("lpips-verify")(lambda _ctx, payload: handle_lpips_verify(payload))
-    io_worker.task("thumbnail")(lambda _ctx, payload: handle_thumbnail(payload))
-    io_worker.task("rotate")(lambda _ctx, payload: handle_rotate(payload))
-    io_worker.task("caption")(lambda _ctx, payload: handle_caption(payload))
-    io_worker.task("basics")(lambda _ctx, payload: handle_basics(payload))
-    io_worker.task("danbooru-import")(lambda _ctx, payload: handle_danbooru_import(payload))
-    io_worker.task("url-scan")(lambda _ctx, payload: handle_url_scan(payload))
-    io_worker.task("url-download")(lambda _ctx, payload: handle_url_download(payload))
+    for name, (queue, handler) in TASKS.items():
+        workers[queue].task(name)(_adapt(handler))
 
-    log.info(
-        "worker up: silva, waifu, tagger, embedding, dedup on %s; text-embed on %s; "
-        "thumbnail + rotate + caption + basics + import on %s; lpips-verify on %s  db=%s",
-        GPU_QUEUE,
-        INTERACTIVE_QUEUE,
-        IO_QUEUE,
-        CPU_QUEUE,
-        db_path,
-    )
-    await asyncio.gather(worker.run(), interactive.run(), io_worker.run(), cpu_worker.run())
+    for queue in workers:
+        log.info("worker up on %s: %s", queue, ", ".join(n for n, (q, _) in TASKS.items() if q == queue))
+    await asyncio.gather(*(w.run() for w in workers.values()))
 
 
 if __name__ == "__main__":

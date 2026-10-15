@@ -112,7 +112,7 @@ def load_tree(path: str | None) -> dict[str, dict[str, str]]:
         text = pathlib.Path(path).read_text(encoding="utf-8")
     else:
         print(f"downloading {TREE_URL}")
-        with urllib.request.urlopen(TREE_URL) as resp:  # noqa: S310
+        with urllib.request.urlopen(TREE_URL) as resp:
             text = resp.read().decode("utf-8")
     data = yaml.safe_load(text)
     # Keys are "tag.<name>" / "category.<path>"; tag names may themselves

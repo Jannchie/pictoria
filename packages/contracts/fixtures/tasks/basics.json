@@ -1,0 +1,52 @@
+{
+  "name": "basics",
+  "queue": "io",
+  "payload": {
+    "items": [
+      {
+        "postId": 1,
+        "path": "/library/art/1.png",
+        "thumbnailPath": "/library/.pictoria/thumbnails/art/1.png",
+        "hasSha256": false,
+        "hasArthash": false,
+        "hasColor": false
+      },
+      {
+        "postId": 2,
+        "path": "/library/art/2.png",
+        "thumbnailPath": "/library/.pictoria/thumbnails/art/2.png",
+        "hasSha256": true,
+        "hasArthash": true,
+        "hasColor": true
+      }
+    ]
+  },
+  "result": {
+    "rows": [
+      {
+        "postId": 1,
+        "sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+        "size": 1234,
+        "arthash": "AAEC",
+        "width": 600,
+        "height": 800,
+        "colors": [
+          16711680,
+          65280
+        ],
+        "dominantLab": [
+          53.24,
+          80.09,
+          67.2
+        ],
+        "colorError": null
+      }
+    ],
+    "failures": [
+      {
+        "postId": 2,
+        "error": "compute failed: cannot identify image file"
+      }
+    ]
+  }
+}

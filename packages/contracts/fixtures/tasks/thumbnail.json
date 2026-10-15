@@ -1,0 +1,12 @@
+{
+  "name": "thumbnail",
+  "queue": "io",
+  "payload": {
+    "originalPath": "/library/art/1.png",
+    "thumbnailPath": "/library/.pictoria/thumbnails/art/1.png"
+  },
+  "result": {
+    "ok": false,
+    "error": "cannot identify image file"
+  }
+}

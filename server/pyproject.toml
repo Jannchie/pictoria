@@ -84,13 +84,24 @@ ignore = [
     "INP001",
     "CPY001",
 ]
+# The worker never opens pictoria.sqlite -- all database writes happen in TS
+# (CLAUDE.md, "the one rule"). Banning the module under src/ turns that rule
+# from a convention into a lint error. scripts/ and tests/ are exempt below:
+# one-off maintenance scripts open the library directly by design, and tests
+# build throwaway SQLite fixtures.
+[tool.ruff.lint.flake8-tidy-imports.banned-api]
+"sqlite3".msg = "src/ must not open SQLite: the worker computes, TS writes (see CLAUDE.md). One-off DB work belongs in scripts/."
+
 [tool.ruff.lint.per-file-ignores]
 "**/test/**/*" = ["S101"]
 # pytest suite: asserts, magic values, missing annotations and private-member
 # access are all idiomatic in tests; mock lambdas leave args unused (ARG),
 # test exceptions use string literals (EM) and pass booleans positionally
-# (FBT), and raw SQL in fixtures is intentional.
+# (FBT), and raw SQL in fixtures is intentional. Imports inside a test body
+# (PLC0415) keep a heavy or optional dependency from failing collection of
+# the whole file.
 "tests/**/*" = [
+    "PLC0415",
     "S101",
     "PLR2004",
     "ANN",
@@ -100,9 +111,12 @@ ignore = [
     "ARG",
     "EM",
     "FBT",
+    "TID251",
 ]
-# CLI scripts: print is the output mechanism, ANN/DOC noise unhelpful here.
+# CLI scripts: print is the output mechanism, ANN/DOC noise unhelpful here, and
+# a one-off ``main`` reads top to bottom rather than splitting for C901.
 "scripts/**/*" = [
+    "C901",
     "T201",
     "T203",
     "ANN001",
@@ -115,6 +129,7 @@ ignore = [
     "B007",
     "E501",
     "TC003",
+    "TID251",
 ]
 
 [tool.uv]

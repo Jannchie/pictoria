@@ -139,13 +139,17 @@ def _render_groups(con: sqlite3.Connection, thumbs: Path, args) -> int:
     ).fetchall()
 
     parts = [
-        f"<style>{STYLE}.member{{width:120px}}.member img{{width:120px;height:120px;"
-        "object-fit:contain;background:#0d0d0f;border-radius:3px}"
-        ".group{background:#1d1d21;border-radius:6px;padding:10px;margin-bottom:14px}"
-        ".members{display:flex;flex-wrap:wrap;gap:6px}</style>",
+        (
+            f"<style>{STYLE}.member{{width:120px}}.member img{{width:120px;height:120px;"
+            "object-fit:contain;background:#0d0d0f;border-radius:3px}"
+            ".group{background:#1d1d21;border-radius:6px;padding:10px;margin-bottom:14px}"
+            ".members{display:flex;flex-wrap:wrap;gap:6px}</style>"
+        ),
         "<h1>largest groups</h1>",
-        "<p class='note'>一个真实的差分集（表情差分、配色差分）整组看上去是连贯的；"  # noqa: RUF001
-        "被一条坏边串起来的两坨，中间有明显的接缝。翻到有接缝的，把 canonical id 告诉我。</p>",  # noqa: RUF001
+        (
+            "<p class='note'>一个真实的差分集（表情差分、配色差分）整组看上去是连贯的；"  # noqa: RUF001
+            "被一条坏边串起来的两坨，中间有明显的接缝。翻到有接缝的，把 canonical id 告诉我。</p>"  # noqa: RUF001
+        ),
     ]
     for canonical, n in groups:
         rows = con.execute(

@@ -1,10 +1,17 @@
-"""Compare distribution of waifu-scorer vs SigLIP aesthetic scores.
+"""Compare the distribution of waifu-scorer vs a SILVA head's scores.
 
 Reads the live SQLite DB (read-only). All percentile / histogram math runs in
 Python to avoid SQLite extension dependencies.
+
+    uv run python scripts/compare_scores.py [--db PATH] [--scorer silva|silva_luna]
+
+``--db`` defaults to ``paths.db_path()`` (``DB_PATH`` or the default library).
+SILVA scores are native [0, 1]; they are shown x10 so both histograms share the
+waifu scorer's 0-10 axis.
 """
 from __future__ import annotations
 
+import argparse
 import math
 import sqlite3
 import sys
@@ -14,11 +21,23 @@ from pathlib import Path
 if hasattr(sys.stdout, "reconfigure"):
     sys.stdout.reconfigure(encoding="utf-8", errors="replace")
 
-DB_PATH = sys.argv[1] if len(sys.argv) > 1 else r"E:\pictoria\server\illustration\images\.pictoria\pictoria.sqlite"
-print(f"Inspecting: {DB_PATH}")
-print(f"Size: {Path(DB_PATH).stat().st_size} bytes\n")
+SERVER_ROOT = Path(__file__).resolve().parent.parent
+sys.path.insert(0, str(SERVER_ROOT / "src"))
 
-con = sqlite3.connect(f"file:{DB_PATH}?mode=ro", uri=True, timeout=10.0)
+from ai.silva_scorer import REPO_IDS
+from paths import db_path
+
+ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+ap.add_argument("--db", type=Path, default=None, help="pictoria.sqlite (default: paths.db_path())")
+ap.add_argument("--scorer", choices=sorted(REPO_IDS), default="silva", help="which SILVA head to compare")
+args = ap.parse_args()
+
+DB_PATH: Path = (args.db or db_path()).resolve()
+SCORER: str = args.scorer
+print(f"Inspecting: {DB_PATH}")
+print(f"Size: {DB_PATH.stat().st_size} bytes\n")
+
+con = sqlite3.connect(f"{DB_PATH.as_uri()}?mode=ro", uri=True, timeout=10.0)
 
 
 def fetch_scores(query: str) -> list[float]:
@@ -40,8 +59,8 @@ def summarise(label: str, vals: list[float]) -> None:
         if n == 1:
             return s[0]
         k = q * (n - 1)
-        lo = int(math.floor(k))
-        hi = int(math.ceil(k))
+        lo = math.floor(k)
+        hi = math.ceil(k)
         if lo == hi:
             return s[lo]
         return s[lo] + (s[hi] - s[lo]) * (k - lo)
@@ -81,29 +100,30 @@ def histogram(label: str, vals: list[float], lo: float, hi: float, bins: int) ->
 
 
 waifu = fetch_scores("SELECT score FROM post_waifu_scores")
-siglip = fetch_scores("SELECT score FROM post_aesthetic_scores WHERE scorer = 'siglip-v2-5'")
+# x10: SILVA is native [0, 1], displayed on the waifu scorer's 0-10 scale.
+silva = [10 * float(r[0]) for r in con.execute("SELECT score FROM post_aesthetic_scores WHERE scorer = ?", (SCORER,))]
 
 summarise("Waifu Scorer v3 (post_waifu_scores.score)", waifu)
-summarise("SigLIP Aesthetic v2.5 (post_aesthetic_scores 'siglip-v2-5')", siglip)
+summarise(f"{SCORER} x10 (post_aesthetic_scores '{SCORER}')", silva)
 
-# Match the upstream score ranges: waifu ~0-10, siglip nominally 1-10 (5.5 = strong).
 histogram("Waifu Scorer v3", waifu, 0.0, 10.0, 20)
-histogram("SigLIP Aesthetic v2.5", siglip, 0.0, 10.0, 20)
+histogram(f"{SCORER} x10", silva, 0.0, 10.0, 20)
 
 
 print("\n--- Joint coverage / correlation ---")
 rows = con.execute(
     """
-    SELECT w.score, s.score
+    SELECT w.score, s.score * 10
     FROM post_waifu_scores w
     JOIN post_aesthetic_scores s
-      ON s.post_id = w.post_id AND s.scorer = 'siglip-v2-5'
+      ON s.post_id = w.post_id AND s.scorer = ?
     """,
+    (SCORER,),
 ).fetchall()
 n_both = len(rows)
 print(f"  posts scored by both : {n_both}")
 print(f"  waifu-only           : {len(waifu) - n_both}")
-print(f"  siglip-only          : {len(siglip) - n_both}")
+print(f"  silva-only           : {len(silva) - n_both}")
 
 if n_both >= 2:
     wx = [float(w) for w, _ in rows]
@@ -142,7 +162,7 @@ if n_both >= 2:
     print(f"  Pearson  r           : {pearson:.3f}")
     print(f"  Spearman rho         : {spearman:.3f}")
     print(f"  waifu  mean+-sd      : {mw:.3f} +- {sw:.3f}")
-    print(f"  siglip mean+-sd      : {ms:.3f} +- {ss:.3f}")
+    print(f"  silva  mean+-sd      : {ms:.3f} +- {ss:.3f}")
 
     # 2D bucket grid: 5x5 over the [p05, p95] range of each metric.
     def grid_edges(xs: list[float]) -> list[float]:
@@ -169,9 +189,9 @@ if n_both >= 2:
     for a, b in zip(wx, sy, strict=True):
         grid[bucket(a, we)][bucket(b, se)] += 1
 
-    print("\n--- 5x5 joint bucket counts (rows=waifu p05..p95, cols=siglip p05..p95) ---")
+    print("\n--- 5x5 joint bucket counts (rows=waifu p05..p95, cols=silva p05..p95) ---")
     print("  waifu edges : " + " ".join(f"{x:.2f}" for x in we))
-    print("  siglip edges: " + " ".join(f"{x:.2f}" for x in se))
+    print("  silva edges : " + " ".join(f"{x:.2f}" for x in se))
     header = "          " + "".join(f"  s{c+1:>3}" for c in range(5))
     print(header)
     for r in range(5):
@@ -188,11 +208,11 @@ if n_both >= 2:
             )
             for a, b in zip(wx, sy, strict=True)
         )
-        print("\n--- 5 posts SigLIP loves but Waifu hates (largest +gap) ---")
+        print("\n--- 5 posts SILVA loves but Waifu hates (largest +gap) ---")
         for gap, a, b in gaps[-5:][::-1]:
-            print(f"  waifu={a:5.2f}  siglip={b:5.2f}  z-gap={gap:+.2f}")
-        print("\n--- 5 posts Waifu loves but SigLIP hates (largest -gap) ---")
+            print(f"  waifu={a:5.2f}  silva={b:5.2f}  z-gap={gap:+.2f}")
+        print("\n--- 5 posts Waifu loves but SILVA hates (largest -gap) ---")
         for gap, a, b in gaps[:5]:
-            print(f"  waifu={a:5.2f}  siglip={b:5.2f}  z-gap={gap:+.2f}")
+            print(f"  waifu={a:5.2f}  silva={b:5.2f}  z-gap={gap:+.2f}")
 
 con.close()

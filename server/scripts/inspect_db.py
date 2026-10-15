@@ -1,4 +1,10 @@
-"""Quick inspection of an existing Pictoria SQLite DB file."""
+"""Quick inspection of an existing Pictoria SQLite DB file.
+
+    uv run python scripts/inspect_db.py [PATH]
+
+``PATH`` defaults to ``paths.db_path()`` (``DB_PATH`` or the default library).
+Opened read-only: the API is the database's only writer.
+"""
 import sqlite3
 import sys
 from pathlib import Path
@@ -8,11 +14,16 @@ import sqlite_vec
 if hasattr(sys.stdout, "reconfigure"):
     sys.stdout.reconfigure(encoding="utf-8", errors="replace")
 
-DB_PATH = sys.argv[1] if len(sys.argv) > 1 else r"E:\pictoria\server\illustration\images\.pictoria\pictoria.sqlite"
-print(f"Inspecting: {DB_PATH}")
-print(f"Size: {Path(DB_PATH).stat().st_size} bytes\n")
+SERVER_ROOT = Path(__file__).resolve().parent.parent
+sys.path.insert(0, str(SERVER_ROOT / "src"))
 
-con = sqlite3.connect(DB_PATH, timeout=10.0)
+from paths import db_path
+
+DB_PATH = (Path(sys.argv[1]) if len(sys.argv) > 1 else db_path()).resolve()
+print(f"Inspecting: {DB_PATH}")
+print(f"Size: {DB_PATH.stat().st_size} bytes\n")
+
+con = sqlite3.connect(f"{DB_PATH.as_uri()}?mode=ro", uri=True, timeout=10.0)
 con.enable_load_extension(True)
 sqlite_vec.load(con)
 con.enable_load_extension(False)
@@ -53,10 +64,11 @@ try:
     ).fetchone()[0]
     waifu_done = total - needs_waifu
 
+    # post_vectors_siglip2 is a vec0 virtual table with post_id as its rowid
+    # (migration 0006); the CLIP-era post_vectors table is gone (0007).
     needs_embedding = con.execute(
         "SELECT count(*) FROM posts p "
-        "LEFT JOIN post_vectors pv ON pv.post_id = p.id "
-        "WHERE pv.post_id IS NULL",
+        "WHERE NOT EXISTS (SELECT 1 FROM post_vectors_siglip2 v WHERE v.post_id = p.id)",
     ).fetchone()[0]
     embedding_done = total - needs_embedding
 
@@ -72,7 +84,7 @@ try:
     print(f"  total posts:        {total}")
     _row("metadata", needs_metadata, metadata_done)
     _row("waifu score", needs_waifu, waifu_done)
-    _row("clip embedding", needs_embedding, embedding_done)
+    _row("siglip2 embedding", needs_embedding, embedding_done)
     _row("dominant color", needs_dom_color, dom_color_done)
 except Exception as e:
     print(f"  error: {e}")

@@ -1,0 +1,44 @@
+{
+  "name": "lpips-verify",
+  "queue": "cpu",
+  "payload": {
+    "pairs": [
+      {
+        "a": {
+          "postId": 1,
+          "path": "/library/.pictoria/thumbnails/art/1.png"
+        },
+        "b": {
+          "postId": 2,
+          "path": "/library/.pictoria/thumbnails/art/2.png"
+        }
+      },
+      {
+        "a": {
+          "postId": 1,
+          "path": "/library/.pictoria/thumbnails/art/1.png"
+        },
+        "b": {
+          "postId": 3,
+          "path": "/library/.pictoria/thumbnails/art/3.png"
+        }
+      }
+    ]
+  },
+  "result": {
+    "results": [
+      {
+        "a": 1,
+        "b": 2,
+        "distance": 0.145
+      }
+    ],
+    "failures": [
+      {
+        "a": 1,
+        "b": 3,
+        "error": "cannot identify image file"
+      }
+    ]
+  }
+}

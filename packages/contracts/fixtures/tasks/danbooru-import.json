@@ -1,0 +1,46 @@
+{
+  "name": "danbooru-import",
+  "queue": "io",
+  "payload": {
+    "tags": "some_artist",
+    "limit": 5000,
+    "fullScan": false,
+    "importedIds": [
+      "1234000"
+    ],
+    "saveDir": "/library/danbooru/some_artist",
+    "filePathStr": "danbooru/some_artist",
+    "typeToGroupId": {
+      "artist": 1,
+      "character": 2,
+      "copyright": 3,
+      "general": 4,
+      "meta": 5
+    }
+  },
+  "result": {
+    "rows": [
+      {
+        "filePath": "danbooru/some_artist",
+        "fileName": "1234567",
+        "extension": "png",
+        "source": "https://danbooru.donmai.us/posts/1234567",
+        "rating": 1,
+        "publishedAt": "2026-01-02T03:04:05+00:00",
+        "tags": {
+          "some_artist": 1,
+          "1girl": 4
+        }
+      }
+    ],
+    "stats": {
+      "total": 2,
+      "with_url": 2,
+      "filtered": 2,
+      "downloaded": 1,
+      "skipped": 1,
+      "failed": 0,
+      "early_stopped": false
+    }
+  }
+}

@@ -24,7 +24,7 @@ from typing import Any
 
 import numpy as np
 
-from scorers import SCORERS
+from paths import pictoria_dir
 from worker.codec import decode_vector, encode_vector
 from worker.ladder import run_with_fallback
 
@@ -44,22 +44,23 @@ async def handle_silva(payload: dict[str, Any]) -> dict[str, Any]:
     of per-worker rule the refactor exists to remove. ``SILVA_TASK_BATCH`` (64)
     is sized for that — see the TS side for the payload-size arithmetic.
     """
-    # 用注册表本身校验，而不是手抄一份名单：payload 跨进程而来，是输入不是常量，
-    # 任意字符串不能进文件系统路径。手抄的那份会是第三处要同步的地方，漏掉的表现
-    # 是任务提交成功、worker 运行时才拒。
+    # Imported here rather than at module scope, and still cheap: ``ai.silva_scorer``
+    # defers torch and the head weights (seconds and gigabytes of VRAM) to the
+    # first real forward, so an empty batch — and the connectivity check that
+    # submits one — costs only numpy.
+    from ai.silva_scorer import REPO_IDS, score_embeddings  # noqa: PLC0415
+
+    # 用加载权重的那张表本身校验，而不是手抄一份名单：payload 跨进程而来，是输入
+    # 不是常量，任意字符串不能进文件系统路径。手抄的那份会是又一处要同步的地方，
+    # 漏掉的表现是任务提交成功、worker 运行时才拒。
     scorer = payload["scorer"]
-    if scorer not in SCORERS:
+    if scorer not in REPO_IDS:
         msg = f"unknown scorer: {scorer!r}"
         raise ValueError(msg)
 
     items = payload["items"]
     if not items:
         return {"scores": []}
-
-    # Imported here rather than at module scope so an empty batch — and the
-    # connectivity check that submits one — costs nothing: torch and the head
-    # weights are seconds and gigabytes of VRAM.
-    from ai.silva_scorer import score_embeddings  # noqa: PLC0415
 
     # Stacked into one [N, 1152] array rather than handed over as a list of
     # arrays: that is the shape the head wants anyway, and it makes the width
@@ -94,27 +95,62 @@ def set_root(root: Path) -> None:
 
 
 def library_root() -> Path:
-    """The configured library root. Raises if ``set_root`` never ran."""
+    """The configured library root. Raises if ``set_root`` never ran.
+
+    This is the root the process was *started with* (``--target_dir`` can
+    override the env var). Anything laid out under it goes through
+    ``paths.pictoria_dir(library_root())`` -- the layout itself lives only in
+    ``paths.py``.
+    """
     if _ROOT is None:
         msg = "worker root not configured"
         raise RuntimeError(msg)
     return _ROOT
 
 
-def pictoria_dir() -> Path:
-    """The library's private directory — both sqlite files, thumbnails, the API key.
+class PayloadContractError(TypeError):
+    """A payload that does not match ``packages/contracts/src/tasks.ts``.
 
-    Kept next to ``library_root`` rather than inlined at the two call sites for
-    the same reason the TS side has ``paths.ts``: this layout is duplicated
-    across two processes (``paths.ts`` for the API, here for the worker), and a
-    mismatch is silent — thumbnails land where nobody reads them.
+    Raised *before* any per-item work, so it fails the whole task instead of
+    coming back as per-item ``failures``. That distinction is the point: TS
+    writes failures into ``post_process_failures``, a permanent blacklist, and a
+    renamed field is a bug in the code, not in the images -- one deploy with a
+    typo must not blacklist every post the scheduler offers.
+
+    A ``TypeError`` rather than a ``ValueError`` on purpose: the per-item paths
+    below catch ``ValueError`` (an escaping path), and a contract error must
+    never be swallowed by one of those.
     """
-    return library_root() / ".pictoria"
 
 
-def thumbnails_root() -> Path:
-    """Where thumbnails go. Mirrors ``paths.ts``'s ``thumbnailsDir``."""
-    return pictoria_dir() / "thumbnails"
+#: A contract field's accepted JSON type(s), as Python types.
+FieldTypes = type | tuple[type, ...]
+
+
+def _require(item: object, fields: dict[str, FieldTypes], *, where: str) -> None:
+    """Check ``item`` carries every contract field with the right JSON type.
+
+    ``bool`` is a subclass of ``int`` in Python, so an ``int`` field rejects
+    booleans explicitly -- ``{"postId": true}`` is a contract error, not post 1.
+    Extra keys are allowed: an additive change on the TS side must not take the
+    worker down before it is redeployed.
+    """
+    if not isinstance(item, dict):
+        msg = f"{where}: expected an object, got {type(item).__name__}"
+        raise PayloadContractError(msg)
+    for key, expected in fields.items():
+        if key not in item:
+            msg = f"{where}: missing field {key!r}"
+            raise PayloadContractError(msg)
+        value = item[key]
+        accepted = expected if isinstance(expected, tuple) else (expected,)
+        if not isinstance(value, accepted) or (isinstance(value, bool) and bool not in accepted):
+            msg = f"{where}: field {key!r} has type {type(value).__name__}"
+            raise PayloadContractError(msg)
+
+
+#: ``ImageItem`` in ``tasks.ts``.
+_IMAGE_ITEM: dict[str, FieldTypes] = {"postId": int, "path": str}
 
 
 def _resolve_inside(raw: str) -> Path:
@@ -143,6 +179,11 @@ def _resolve_items(
     So the count is logged here, and ``scheduler.ts`` treats an all-empty result
     as "no progress" and backs off.
     """
+    # Contract first, all of it: a missing ``path`` must fail the task, never
+    # land half the batch in ``failures`` (see ``PayloadContractError``).
+    for i, item in enumerate(items_in):
+        _require(item, _IMAGE_ITEM, where=f"items[{i}]")
+
     items: list[tuple[int, Path]] = []
     failures: list[dict[str, Any]] = []
     missing = 0
@@ -324,6 +365,11 @@ def _resolve_pairs(
     simply gone is dropped and left to sync. The unit here is the *pair*: one
     missing file takes the pair with it, because a distance needs both sides.
     """
+    for i, item in enumerate(pairs_in):
+        _require(item, {"a": dict, "b": dict}, where=f"pairs[{i}]")
+        _require(item["a"], _IMAGE_ITEM, where=f"pairs[{i}].a")
+        _require(item["b"], _IMAGE_ITEM, where=f"pairs[{i}].b")
+
     pairs: list[tuple[int, int, Path, Path]] = []
     failures: list[dict[str, Any]] = []
     missing = 0
@@ -495,7 +541,7 @@ async def handle_caption(payload: dict[str, Any]) -> dict[str, Any]:
     HTTP layer words for itself, not a worker failure to retry.
     """
     image = _resolve_inside(payload["imagePath"])
-    key_file = pictoria_dir() / "OPENAI_API_KEY"
+    key_file = pictoria_dir(library_root()) / "OPENAI_API_KEY"
     if not key_file.is_file():
         return {"configured": False, "caption": ""}
     api_key = key_file.read_text().strip()
@@ -509,12 +555,37 @@ async def handle_caption(payload: dict[str, Any]) -> dict[str, Any]:
     return {"configured": True, "caption": caption}
 
 
-def _compute_basics(item: dict[str, Any], thumbs_root: Path) -> dict[str, Any]:
+#: ``BasicsItem`` in ``tasks.ts``. Checked for the whole batch before any image
+#: is opened -- see ``PayloadContractError``.
+_BASICS_ITEM: dict[str, FieldTypes] = {
+    "postId": int,
+    "path": str,
+    "thumbnailPath": str,
+    "hasSha256": bool,
+    "hasArthash": bool,
+    "hasColor": bool,
+}
+
+#: What counts as a *per-item* failure (one-shot blacklisted by TS) once the
+#: payload has passed the contract check: any ``Exception`` out of one image's
+#: decode/compute. PIL plugins raise a zoo of types on malformed files (OSError,
+#: ValueError, SyntaxError, struct.error, IndexError...), and an exception type
+#: we failed to list would fail the whole task -- and since the pending query is
+#: id-ordered, the next tick selects the same batch and the loop is stuck
+#: forever. Contract bugs (``KeyError`` on a renamed field) are what must fail the
+#: task, and those are caught *before* this point by ``_resolve_basics``.
+_IMAGE_ERRORS: tuple[type[BaseException], ...] = (Exception,)
+
+
+def _compute_basics(item: dict[str, Any], path: Path, thumb_path: Path) -> dict[str, Any]:
     """One image, one decode: sha256 / arthash / dimensions / palette / thumbnail.
 
     Ported from ``processors/basics.py::_compute_basics_for``. The five outputs
     stay bundled because they all ride the same file open + PIL decode —
     splitting them would decode the same image up to four times.
+
+    ``item`` has passed :func:`_require` and both paths ``_resolve_inside``, so
+    nothing here can fail on the payload's shape -- only on the file.
     """
     import numpy as np  # noqa: PLC0415
     from PIL import Image  # noqa: PLC0415
@@ -523,7 +594,6 @@ def _compute_basics(item: dict[str, Any], thumbs_root: Path) -> dict[str, Any]:
     from tools.colors import get_palette, rgb2int  # noqa: PLC0415
     from utils import calculate_arthash, calculate_sha256, create_thumbnail_by_image  # noqa: PLC0415
 
-    path = _resolve_inside(item["path"])
     needs_sha256 = not item["hasSha256"]
     needs_arthash = not item["hasArthash"]
     needs_color = not item["hasColor"]
@@ -541,7 +611,6 @@ def _compute_basics(item: dict[str, Any], thumbs_root: Path) -> dict[str, Any]:
         with Image.open(f) as img:
             width, height = img.size
 
-            thumb_path = thumbs_root / item["relPath"]
             if not thumb_path.exists():
                 thumb_path.parent.mkdir(parents=True, exist_ok=True)
                 create_thumbnail_by_image(img, thumb_path)
@@ -571,31 +640,68 @@ def _compute_basics(item: dict[str, Any], thumbs_root: Path) -> dict[str, Any]:
     }
 
 
+def _resolve_basics(
+    items: list[dict[str, Any]],
+) -> tuple[list[tuple[dict[str, Any], Path, Path]], list[dict[str, Any]]]:
+    """The contract and containment tiers of :func:`handle_basics`.
+
+    Every item is checked before any is resolved, so a contract error raises
+    with nothing half-done; an escaping path is then a per-item failure.
+    """
+    for i, item in enumerate(items):
+        _require(item, _BASICS_ITEM, where=f"items[{i}]")
+
+    resolved: list[tuple[dict[str, Any], Path, Path]] = []
+    failures: list[dict[str, Any]] = []
+    for item in items:
+        try:
+            path = _resolve_inside(item["path"])
+            thumb_path = _resolve_inside(item["thumbnailPath"])
+        except ValueError as exc:
+            failures.append({"postId": item["postId"], "error": str(exc)})
+        else:
+            resolved.append((item, path, thumb_path))
+    return resolved, failures
+
+
 async def handle_basics(payload: dict[str, Any]) -> dict[str, Any]:
     """Compute basics for a batch, one image per thread.
 
-    Failures are per-item and come back as data: one unreadable file must not
-    cost the other 31 in the batch. A successful decode whose palette step
-    failed still returns its row *and* a failure — the row carries the other
-    columns, the failure one-shot blacklists the post so ``dominant_color IS
-    NULL`` stops re-selecting it forever.
-    """
-    items = payload["items"]
-    if not items:
-        return {"rows": [], "failures": []}
-    thumbs = thumbnails_root()
+    Three tiers, decided in this order:
 
-    async def _one(item: dict[str, Any]) -> dict[str, Any] | BaseException:
+    * **Contract** -- every item is checked against ``BasicsItem`` before any
+      file is opened. A missing or mistyped field raises
+      :class:`PayloadContractError` and fails the whole task: no rows, no
+      failures, nothing blacklisted. cairnq records it, and the batch is offered
+      again once the code is fixed.
+    * **Containment** -- a path outside the library root is a per-item failure,
+      the same policy as ``_resolve_items``.
+    * **The image** -- one unreadable file must not cost the other 31 in the
+      batch, so any ``Exception`` from one image comes back as a per-item
+      failure (see :data:`_IMAGE_ERRORS` for why this is deliberately broad).
+
+    A successful decode whose palette step failed still returns its row *and* a
+    failure — the row carries the other columns, the failure one-shot
+    blacklists the post so ``dominant_color IS NULL`` stops re-selecting it
+    forever.
+
+    The thumbnail path arrives in the payload (TS's ``thumbnailPathFor``), as it
+    does for ``thumbnail`` and ``rotate``: thumbnail layout is TS knowledge.
+    """
+    resolved, failures = _resolve_basics(payload["items"])
+    rows: list[dict[str, Any]] = []
+    if not resolved:
+        return {"rows": rows, "failures": failures}
+
+    async def _one(item: dict[str, Any], path: Path, thumb_path: Path) -> dict[str, Any] | BaseException:
         try:
-            return await asyncio.to_thread(_compute_basics, item, thumbs)
-        except BaseException as exc:  # reported per item, never fails the whole batch
+            return await asyncio.to_thread(_compute_basics, item, path, thumb_path)
+        except _IMAGE_ERRORS as exc:  # the file's fault: reported per item
             return exc
 
-    results = await asyncio.gather(*[_one(item) for item in items])
+    results = await asyncio.gather(*[_one(*r) for r in resolved])
 
-    rows: list[dict[str, Any]] = []
-    failures: list[dict[str, Any]] = []
-    for item, result in zip(items, results, strict=True):
+    for (item, _, _), result in zip(resolved, results, strict=True):
         if isinstance(result, BaseException):
             failures.append({"postId": item["postId"], "error": f"compute failed: {result}"})
             continue

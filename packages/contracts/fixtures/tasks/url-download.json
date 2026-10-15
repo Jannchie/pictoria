@@ -1,0 +1,51 @@
+{
+  "name": "url-download",
+  "queue": "io",
+  "payload": {
+    "items": [
+      {
+        "downloadUrl": "https://files.yande.re/image/abc/yande.re%20123.png",
+        "fileName": "123",
+        "extension": "png",
+        "source": "https://yande.re/post/show/123",
+        "category": "yandere",
+        "creator": "some_artist",
+        "rating": 2,
+        "publishedAt": "2026-01-02T03:04:05",
+        "tagsByCategory": {
+          "general": [
+            "1girl",
+            "solo"
+          ]
+        }
+      }
+    ],
+    "saveDir": "/library/yandere/some_artist",
+    "filePathStr": "yandere/some_artist",
+    "typeToGroupId": {
+      "artist": 1,
+      "character": 2,
+      "copyright": 3,
+      "general": 4,
+      "meta": 5
+    }
+  },
+  "result": {
+    "rows": [
+      {
+        "filePath": "yandere/some_artist",
+        "fileName": "123",
+        "extension": "png",
+        "source": "https://yande.re/post/show/123",
+        "rating": 1,
+        "publishedAt": "2026-01-02T03:04:05+00:00",
+        "tags": {
+          "1girl": 4,
+          "solo": 4
+        }
+      }
+    ],
+    "downloaded": 1,
+    "failed": 0
+  }
+}

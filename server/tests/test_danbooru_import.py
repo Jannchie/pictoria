@@ -1,4 +1,4 @@
-"""Unit tests for the pure pieces of the Danbooru import workflow.
+"""Unit tests for the pure pieces of the Danbooru importer (``worker.importers``).
 
 The orchestration needs a live ``DanbooruClient``, but the tag-mapping and the
 filename sanitiser are pure — they used to be buried in the controller and now
@@ -9,7 +9,8 @@ from __future__ import annotations
 
 from types import SimpleNamespace
 
-from services.danbooru_import import _build_tag_to_group, _settled_page_stopper
+from utils import rating_to_int
+from worker.importers import _build_tag_to_group, _row_for, _settled_page_stopper
 
 
 def _post(post_id: int, *, ext: str = "jpg", url: str | None = "https://cdn/x") -> SimpleNamespace:
@@ -71,3 +72,19 @@ def test_an_empty_import_history_never_settles_a_page() -> None:
     stop = _settled_page_stopper(set(), streak=1)
 
     assert stop([_post(1), _post(2)]) is False
+
+
+def test_rating_accepts_every_upstream_spelling() -> None:
+    # One-letter booru form (Danbooru API, gallery-dl booru metadata, the
+    # danbooru2026 archive) and gallery-dl's spelled-out words.
+    assert [rating_to_int(r) for r in ("g", "s", "q", "e")] == [1, 2, 3, 4]
+    assert [rating_to_int(r) for r in ("general", "sensitive", "questionable", "explicit")] == [1, 2, 3, 4]
+    assert rating_to_int("E") == 4
+    assert [rating_to_int(r) for r in ("", None, "x", "unknown", 3)] == [0, 0, 0, 0, 0]
+
+
+def test_danbooru_rows_carry_the_api_one_letter_rating() -> None:
+    # The Danbooru API sends ``rating: "q"``; a word-only map sent every
+    # imported post to 0 ("not rated").
+    post = SimpleNamespace(id=7, file_ext="png", source="", rating="q", created_at=None)
+    assert _row_for(post, "danbooru/x", {})["rating"] == 3

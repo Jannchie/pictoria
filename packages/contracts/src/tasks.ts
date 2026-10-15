@@ -10,6 +10,12 @@
  *
  * 于是每个 payload 都必须自带 worker 需要的全部输入（路径、向量），每个 result 都是
  * 纯数据 —— worker 不碰 `pictoria.sqlite`，一行都不读、一行都不写。
+ *
+ * 两侧对这份契约的共识由 `fixtures/tasks/<name>.json` 钉住：每个任务一份示例
+ * payload / result。`tasks.test.ts` 断言它们的键集合与这里的接口**完全一致**，
+ * `server/tests/test_task_contracts.py` 断言 worker 注册了同名同队列的 handler、
+ * handler 只读 fixture 里有的键、返回值的键集合与 fixture 相同。改接口就要改
+ * fixture，改了 fixture 两边的测试都会跑到。
  */
 import { defineTask } from 'cairnq'
 
@@ -31,8 +37,9 @@ export interface ScoreItem {
  * 加载权重，两侧对不上的表现是任务提交成功后被 worker 以 `unknown scorer` 拒掉。
  *
  * 放在 contracts 而不是 `packages/db`，是因为需要它的不止数据层：调度循环要遍历，
- * scheduler 要收窄参数类型。Python 侧的对应物是 `server/src/scorers.py` 的 `SCORERS`，
- * 那是这条缝在另一侧的唯一定义。
+ * scheduler 要收窄参数类型。Python 侧的对应物是 `server/src/ai/silva_scorer.py` 的
+ * `REPO_IDS`（名字 → 权重仓库），那是这条缝在另一侧的唯一定义；两者由
+ * `fixtures/silva-scorers.json` 在两侧测试里各对一次。
  */
 export const SILVA_SCORERS = ['silva', 'silva_luna'] as const
 
@@ -99,14 +106,14 @@ export interface WaifuResult {
 export const waifuTask = defineTask<WaifuPayload, WaifuResult>('waifu')
 
 /**
- * 一批的大小，与 Python 侧的 `WAIFU_BATCH_SIZE` 同值。
+ * 一批的大小。批大小只在这一侧定义 —— worker 收到多少算多少。
  *
  * 这里不像 silva 那样需要缩小 —— payload 里只有路径，32 条也就几 KB。它的上限
  * 是显存，不是队列。
  */
 export const WAIFU_TASK_BATCH = 32
 
-/** `post_process_failures.worker` 里 waifu 用的桶名。与 Python 侧同值。 */
+/** `post_process_failures.worker` 里 waifu 用的桶名。 */
 export const WAIFU_WORKER_KEY = 'waifu'
 
 /**
@@ -228,7 +235,7 @@ export interface EmbeddingResult {
  */
 export const embeddingTask = defineTask<EmbeddingPayload, EmbeddingResult>('embedding')
 
-/** so400m 是比 CLIP-L/14 更大的 ViT，bf16 下 16 张正好放进 12 GB。与 Python 侧同值。 */
+/** so400m 是比 CLIP-L/14 更大的 ViT，bf16 下 16 张正好放进 12 GB。 */
 export const EMBEDDING_TASK_BATCH = 16
 
 /** `post_process_failures.worker` 里 embedding 用的桶名。注意带表名后缀。 */
@@ -286,7 +293,8 @@ export interface DedupResult {
 export const dedupTask = defineTask<DedupPayload, DedupResult>('dedup')
 
 /**
- * 判定"同一张图"的余弦距离上限。与 Python 侧 `DEFAULT_DEDUP_THRESHOLD` 同值。
+ * 判定"同一张图"的余弦距离上限。随 `DedupPayload.threshold` 传给 worker，worker
+ * 自己没有默认值。
  *
  * vec0 的 siglip2 表用 cosine，所以完全相同的图约 0，无关的图接近 1。0.01
  * （相似度 ≥ 0.99）能抓住分辨率变体和近似差分，又不至于把"只是画风像"的收进来。
@@ -354,7 +362,6 @@ export const lpipsVerifyTask = defineTask<LpipsVerifyPayload, LpipsVerifyResult>
  *
  * 批内按路径去重特征（同一个 post 常常和它的好几个邻居成对），所以 64 对最坏是
  * 128 张唯一图。一张图的五层特征约 6.4 MB，Python 侧再按 16 张分子批走，峰值可控。
- * 与 Python 侧同值。
  */
 export const LPIPS_TASK_BATCH = 64
 
@@ -490,8 +497,11 @@ export const captionTask = defineTask<CaptionPayload, CaptionResult>('caption')
 export interface BasicsItem {
   postId: number
   path: string
-  /** 相对图库根的路径 —— worker 据此算出缩略图该写到哪儿。 */
-  relPath: string
+  /**
+   * 缩略图要写到哪儿（绝对路径，父目录由 worker 建）。由 TS 的 `thumbnailPathFor`
+   * 算好传过去 —— 和 thumbnail / rotate 任务一样，缩略图布局只在 TS 侧有一份。
+   */
+  thumbnailPath: string
   hasSha256: boolean
   hasArthash: boolean
   hasColor: boolean
@@ -536,7 +546,7 @@ export interface BasicsResult {
  */
 export const basicsTask = defineTask<BasicsPayload, BasicsResult>('basics')
 
-/** 与 Python 侧 `BASICS_BATCH_SIZE` 同值。 */
+/** 一批 32 张。批大小只在这一侧定义，worker 收到多少算多少。 */
 export const BASICS_TASK_BATCH = 32
 
 /** `post_process_failures.worker` 里 basics 用的桶名。 */
@@ -601,7 +611,8 @@ export interface DanbooruImportResult {
 export const danbooruImportTask = defineTask<DanbooruImportPayload, DanbooruImportResult>('danbooru-import')
 
 /**
- * 一次标签列表最多翻多少条。与 Python 侧 `_DEFAULT_LISTING_LIMIT` 同值。
+ * 一次标签列表最多翻多少条。随 `DanbooruImportPayload.limit` 传给 worker，worker
+ * 自己没有默认值。
  *
  * 原本是 99999，也就是最多约 500 页串行请求。绝大多数画师标签在第一页就短路了，
  * 但大的版权/角色标签会在一次调用里翻上几分钟 —— 而客户端的读超时是关掉的，

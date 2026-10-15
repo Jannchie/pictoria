@@ -24,9 +24,18 @@ Outputs ``[0, 1]``; the frontend multiplies by 10 for display.
 
 Two heads ship here — ``silva`` and ``silva_luna`` — identical in architecture
 and output domain but distilled from *different* judges, so they are two tastes
-rather than two quality tiers. Each is keyed by its registry
-:class:`~scorers.ScorerSpec` name and cached independently, so a library can
-carry both scores and be sorted or filtered by either.
+rather than two quality tiers. Each is keyed by its scorer name -- the
+``post_aesthetic_scores.scorer`` value -- and cached independently, so a library
+can carry both scores and be sorted or filtered by either.
+
+:data:`REPO_IDS` is the Python side's only list of scorer names: the worker
+validates payloads against it, and ``tests/test_task_contracts.py`` pins it to
+``SILVA_SCORERS`` in ``packages/contracts`` (via ``fixtures/silva-scorers.json``).
+Bucket edges and the 1-5 affine map are query-side knowledge and live only in
+``packages/db/src/scorers.ts``.
+
+``torch`` is imported inside the functions, not here, so the handler can check a
+scorer name against :data:`REPO_IDS` without paying for the ML stack.
 """
 
 from __future__ import annotations
@@ -35,10 +44,6 @@ from functools import cache
 from typing import TYPE_CHECKING
 
 import numpy as np
-import torch
-
-from ai.torch_runtime import DEVICE
-from scorers import SILVA, SILVA_LUNA
 
 if TYPE_CHECKING:
     from collections.abc import Sequence
@@ -46,12 +51,12 @@ if TYPE_CHECKING:
     from silva import EmbeddingAestheticModel
 
 
-SCORER_NAME = SILVA.name
-LUNA_SCORER_NAME = SILVA_LUNA.name
+SCORER_NAME = "silva"
+LUNA_SCORER_NAME = "silva_luna"
 
-# Registry scorer name -> published head. Both are ~7 MB ordinal heads over the
-# same frozen SigLIP2 backbone, so a process can hold both resident.
-_REPO_IDS: dict[str, str] = {
+#: Scorer name -> published head. Both are ~7 MB ordinal heads over the same
+#: frozen SigLIP2 backbone, so a process can hold both resident.
+REPO_IDS: dict[str, str] = {
     SCORER_NAME: "Jannchie/silva-aesthetic",
     LUNA_SCORER_NAME: "Jannchie/silva-luna",
 }
@@ -61,7 +66,9 @@ _REPO_IDS: dict[str, str] = {
 def _load_head(scorer: str) -> EmbeddingAestheticModel:
     from silva import EmbeddingAestheticModel  # noqa: PLC0415  # lazy: defer ML stack load
 
-    return EmbeddingAestheticModel.from_pretrained(_REPO_IDS[scorer]).to(DEVICE).eval()
+    from ai.torch_runtime import DEVICE  # noqa: PLC0415  # lazy: pulls torch
+
+    return EmbeddingAestheticModel.from_pretrained(REPO_IDS[scorer]).to(DEVICE).eval()
 
 
 def score_embeddings(
@@ -73,13 +80,17 @@ def score_embeddings(
     ``embeddings`` is ``[N, 1152]``. The stored, L2-normalised vectors are fine
     as-is — the head's leading LayerNorm cancels the normalisation, so no
     re-scaling is needed here. ``scorer`` picks which published head to run;
-    it is a registry name (``silva`` / ``silva_luna``), not caller input.
+    it is a :data:`REPO_IDS` key (``silva`` / ``silva_luna``), not caller input.
     """
     arr = np.asarray(embeddings, dtype=np.float32)
     if arr.ndim == 1:
         arr = arr[None, :]
     if arr.size == 0:
         return []
+    import torch  # noqa: PLC0415  # lazy: see the module docstring
+
+    from ai.torch_runtime import DEVICE  # noqa: PLC0415
+
     head = _load_head(scorer)
     with torch.inference_mode():
         x = torch.from_numpy(arr).to(DEVICE)

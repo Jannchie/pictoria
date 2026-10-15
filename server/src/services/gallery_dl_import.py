@@ -1,10 +1,10 @@
-"""Fetch a creator/tag page's metadata via gallery-dl, download images, persist.
+"""Fetch a creator/tag page's metadata via gallery-dl and download the images.
 
 gallery-dl is used purely as a multi-site metadata extractor: `gallery-dl -j`
 dumps every entry's metadata to stdout (nothing written to disk). We filter to
-images, dedupe against the DB, download the new ones ourselves (httpx, into
-target_dir/<category>/<creator>/), then persist posts + tags reusing the
-danbooru_import transaction skeleton. (Original design doc:
+images and download the new ones ourselves (httpx, into
+target_dir/<category>/<creator>/). Deduping against the library and persisting
+posts + tags happen in TS -- ``worker/importers.py`` is the seam. (Original design doc:
 2026-06-03-gallery-dl-creator-fetch-design.md, retired from docs/ once
 implemented -- recover it from git history if needed.)
 """
@@ -20,9 +20,8 @@ from typing import TYPE_CHECKING, Any
 
 import httpx
 
-from services.danbooru_import import SUPPORTED_IMAGE_EXTS
 from shared import logger
-from utils import from_rating_to_int, resolve_source
+from utils import SUPPORTED_IMAGE_EXTS, rating_to_int, resolve_source
 
 if TYPE_CHECKING:
     from collections.abc import Sequence
@@ -77,20 +76,6 @@ _BOORU_TAG_FIELDS: dict[str, str] = {
     "tags_general": "general",
     "tags_metadata": "meta",
 }
-
-# Booru single-letter rating -> Pictoria rating int. Danbooru uses g/s/q/e
-# (general/sensitive/questionable/explicit); moebooru uses s/q/e where "s"=safe,
-# mapped to sensitive here (a harmless over-tag — rating isn't load-bearing).
-# Full-word ratings fall through to from_rating_to_int.
-_BOORU_RATING: dict[str, int] = {"g": 1, "s": 2, "q": 3, "e": 4}
-
-
-def _rating_to_int(raw: Any) -> int:
-    if not isinstance(raw, str) or not raw:
-        return 0
-    if len(raw) == 1:
-        return _BOORU_RATING.get(raw.lower(), 0)
-    return from_rating_to_int(raw)
 
 
 @dataclass
@@ -148,7 +133,7 @@ def parse_entry(download_url: str, meta: dict, *, fallback_url: str) -> GalleryD
         source=resolve_source(meta.get("source"), fallback_url),
         category=str(meta.get("category", "misc")),
         creator=creator,
-        rating=_rating_to_int(meta.get("rating")),
+        rating=rating_to_int(meta.get("rating")),
         published_at=meta.get("date") or meta.get("created_at"),
         tags_by_category=tags_by_category,
     )

@@ -1,0 +1,29 @@
+{
+  "name": "url-scan",
+  "queue": "io",
+  "payload": {
+    "url": "https://yande.re/post?tags=some_artist"
+  },
+  "result": {
+    "fetched": 2,
+    "filePath": "yandere/some_artist",
+    "items": [
+      {
+        "downloadUrl": "https://files.yande.re/image/abc/yande.re%20123.png",
+        "fileName": "123",
+        "extension": "png",
+        "source": "https://yande.re/post/show/123",
+        "category": "yandere",
+        "creator": "some_artist",
+        "rating": 2,
+        "publishedAt": "2026-01-02T03:04:05",
+        "tagsByCategory": {
+          "general": [
+            "1girl",
+            "solo"
+          ]
+        }
+      }
+    ]
+  }
+}

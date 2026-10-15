@@ -1,0 +1,49 @@
+{
+  "name": "tagger",
+  "queue": "gpu",
+  "payload": {
+    "items": [
+      {
+        "postId": 1,
+        "path": "/library/art/1.png"
+      },
+      {
+        "postId": 2,
+        "path": "/library/art/2.png"
+      }
+    ]
+  },
+  "result": {
+    "model": "pixai-tagger-v1.0",
+    "results": [
+      {
+        "postId": 1,
+        "tags": {
+          "general": [
+            "1girl",
+            "solo"
+          ],
+          "character": [
+            "hatsune_miku"
+          ],
+          "copyright": [
+            "vocaloid"
+          ],
+          "style": [
+            "some_artist"
+          ],
+          "meta": [
+            "highres"
+          ]
+        },
+        "rating": "general"
+      }
+    ],
+    "failures": [
+      {
+        "postId": 2,
+        "error": "no auto tags produced"
+      }
+    ]
+  }
+}

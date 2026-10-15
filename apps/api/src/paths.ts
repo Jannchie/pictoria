@@ -6,9 +6,10 @@
  * 一致：API 和 cairnq 一旦解析到不同目录，提交的任务会安静地躺在另一个
  * `tasks.sqlite` 里直到超时，不报错，只是不动。
  *
- * 只覆盖 TS 侧。Python worker 有自己的一份（`worker/handlers.py` 的 `library_root()` /
- * `pictoria_dir()` / `thumbnails_root()`，根由 `--target_dir` 传入），逐个对应本文件的
- * 导出；两边对不上时同样是静默的，所以改这里就要去那边同步改。
+ * 只覆盖 TS 侧。Python 侧的对应物是 `server/src/paths.py`（根由 `--target_dir` 传入）；
+ * 但 worker 需要的具体路径（缩略图等）一律由这里算好放进任务 payload，Python 只做
+ * `_resolve_inside` 包含检查。相对的覆盖值（`PICTORIA_TARGET_DIR`/`DB_PATH`/
+ * `TASKS_DB_PATH`）两边都锚到仓库根，与各进程的 cwd 无关。
  */
 import process from 'node:process'
 import path from 'node:path'
@@ -77,8 +78,14 @@ export function thumbnailPathFor(relPath: string): string {
  *
  * ⚠️ 是环境变量，不是 `.env` —— `apps/api` 不加载任何 dotenv（唯一读 `server/.env`
  * 的是 `s3.ts`，它解析进函数局部变量，从不写回 `process.env`）。写在 `.env` 里静默无效。
+ * 相对路径锚到仓库根（同 `TASKS_DB_PATH`）：`pnpm --filter` 下 API 的 cwd 是 `apps/api`，
+ * 脚本的 cwd 是 `server/`，原样交给 better-sqlite3 会让两边打开不同的文件。
  */
-export const dbPath = once(() => process.env.DB_PATH ?? path.resolve(pictoriaDir(), 'pictoria.sqlite'))
+export const dbPath = once(() =>
+  process.env.DB_PATH
+    ? path.resolve(REPO_ROOT, process.env.DB_PATH)
+    : path.resolve(pictoriaDir(), 'pictoria.sqlite'),
+)
 
 /**
  * cairnq 的队列库。与 Python worker 的 `tasks_db_path()` 同规则。

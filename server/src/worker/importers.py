@@ -23,12 +23,16 @@ from __future__ import annotations
 
 import asyncio
 import os
-from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
+from paths import pictoria_dir
+from utils import SUPPORTED_IMAGE_EXTS
 from worker.handlers import _resolve_inside, library_root
 
 if TYPE_CHECKING:
+    from collections.abc import Callable
+    from pathlib import Path
+
     from danbooru import DanbooruPost
 
 #: Cached across calls so httpx keeps the TCP/TLS connection to
@@ -50,16 +54,92 @@ def _get_danbooru_client() -> Any:
     return _danbooru_client
 
 
+# ─── Danbooru ─────────────────────────────────────────────────────────────
+
+#: How many consecutive listing pages must hold nothing left to import before
+#: pagination gives up. Pages arrive newest-id-first, so one such page already
+#: means we're in history; two is cheap insurance against a page that only
+#: looks settled (e.g. a batch whose files failed to download last run and were
+#: since deleted upstream).
+_SETTLED_PAGE_STREAK = 2
+
+
+def _is_importable(post: DanbooruPost) -> bool:
+    """Would this listing entry ever produce a file we keep?
+
+    The single definition of what this importer accepts — the ``filtered``
+    narrowing and the pagination stopper both go through it. Entries that fail
+    it (deleted/banned posts with no ``file_url``, videos, zips) can never be
+    imported, so the stopper must not count them as "still pending", or a
+    single upstream video would keep a settled page looking unfinished and
+    defeat early termination forever.
+    """
+    return bool(post.file_url) and bool(post.file_ext) and post.file_ext.lower() in SUPPORTED_IMAGE_EXTS
+
+
+def _is_pending(post: DanbooruPost, imported_ids: set[str]) -> bool:
+    """Is this post one we still have to fetch?
+
+    The whole dedup rule in one place. The stopper and the ``to_persist``
+    filter must agree on it exactly: a stopper that counts a still-wanted post
+    as settled stops paging over posts the importer would have taken.
+    """
+    return _is_importable(post) and str(post.id) not in imported_ids
+
+
+def _settled_page_stopper(
+    imported_ids: set[str],
+    streak: int = _SETTLED_PAGE_STREAK,
+) -> Callable[[list[DanbooruPost]], bool]:
+    """Build the ``stop_paging`` predicate for ``DanbooruClient.get_posts``.
+
+    A page is *settled* when it holds at least one post we've already imported
+    with tags and none that still need importing. ``streak`` settled pages in a
+    row ends pagination. Requiring a positive already-imported hit is what
+    separates "we've caught up with history" from "this page happens to be all
+    videos" — the latter neither advances nor resets the streak.
+
+    Any pending post resets the streak, so gaps (a download that failed last
+    run, a bare row awaiting its tags) still get walked past and retried.
+    """
+    settled_run = 0
+
+    def _stop(page: list[DanbooruPost]) -> bool:
+        nonlocal settled_run
+        if any(_is_pending(p, imported_ids) for p in page):
+            settled_run = 0
+            return False
+        if any(str(p.id) in imported_ids for p in page):
+            settled_run += 1
+        return settled_run >= streak
+
+    return _stop
+
+
+def _build_tag_to_group(d_post: DanbooruPost, type_to_group_id: dict[str, int]) -> dict[str, int]:
+    """Collect (tag_name → group_id) from a Danbooru post's tag_string_* fields.
+
+    `type_to_group_id` is ordered by priority; setdefault keeps the first
+    (highest-priority) group when a tag appears under multiple types.
+    """
+    tag_to_group: dict[str, int] = {}
+    for t, gid in type_to_group_id.items():
+        # str.split() with no args also drops empty entries
+        for tag_str in getattr(d_post, f"tag_string_{t}").split():
+            tag_to_group.setdefault(tag_str, gid)
+    return tag_to_group
+
+
 def _row_for(post: DanbooruPost, file_path_str: str, tag_map: dict[str, int]) -> dict[str, Any]:
     """One Danbooru post as the ``posts`` table's own terms (+ its tag map)."""
-    from utils import from_rating_to_int, resolve_source  # noqa: PLC0415
+    from utils import rating_to_int, resolve_source  # noqa: PLC0415
 
     return {
         "filePath": file_path_str,
         "fileName": str(post.id),
         "extension": post.file_ext,
         "source": resolve_source(post.source, f"https://danbooru.donmai.us/posts/{post.id}"),
-        "rating": from_rating_to_int(post.rating),
+        "rating": rating_to_int(post.rating),
         # ISO string rather than a datetime: it has to survive a JSON hop.
         "publishedAt": None if post.created_at is None else post.created_at.isoformat(),
         "tags": tag_map,
@@ -69,21 +149,14 @@ def _row_for(post: DanbooruPost, file_path_str: str, tag_map: dict[str, int]) ->
 async def handle_danbooru_import(payload: dict[str, Any]) -> dict[str, Any]:
     """Fetch a Danbooru tag listing, download the new files, return rows.
 
-    Everything up to (but not including) the database write, lifted out of
-    ``services/danbooru_import.py``. That module's helpers are reused rather
-    than re-derived — the pagination stopper in particular is subtle and tuned
-    (see its docstring), and a second implementation would drift.
+    Everything up to (but not including) the database write. The pagination
+    stopper is the subtle part — see :func:`_settled_page_stopper`.
     """
-    from services.danbooru_import import (  # noqa: PLC0415
-        _build_tag_to_group,
-        _is_importable,
-        _is_pending,
-        _settled_page_stopper,
-    )
-
     client = _get_danbooru_client()
     tags = payload["tags"]
-    save_dir = Path(payload["saveDir"])
+    # Same containment rule as every other payload path: the importer writes
+    # files, and a ``saveDir`` outside the library is not somewhere it may.
+    save_dir = _resolve_inside(payload["saveDir"])
     file_path_str = payload["filePathStr"]
     imported_ids = set(payload["importedIds"])
     type_to_group_id = payload["typeToGroupId"]
@@ -145,7 +218,7 @@ async def handle_danbooru_import(payload: dict[str, Any]) -> dict[str, Any]:
 
 def _gallery_dl_conf(root: Path) -> str | None:
     """Optional gallery-dl.conf (kemono cookies / UA) at ``<root>/.pictoria/``."""
-    conf = root / ".pictoria" / "gallery-dl.conf"
+    conf = pictoria_dir(root) / "gallery-dl.conf"
     return str(conf) if conf.is_file() else None
 
 

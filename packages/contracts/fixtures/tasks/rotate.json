@@ -1,0 +1,16 @@
+{
+  "name": "rotate",
+  "queue": "io",
+  "payload": {
+    "originalPath": "/library/art/1.png",
+    "thumbnailPath": "/library/.pictoria/thumbnails/art/1.png",
+    "clockwise": true
+  },
+  "result": {
+    "sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+    "size": 1234,
+    "width": 600,
+    "height": 800,
+    "arthash": "AAEC"
+  }
+}

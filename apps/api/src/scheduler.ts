@@ -35,6 +35,7 @@ import {
   WAIFU_TASK_BATCH,
   WAIFU_WORKER_KEY,
   waifuTask,
+  type BasicsItem,
   type SilvaScorer,
 } from '@pictoria/contracts'
 import { Buffer } from 'node:buffer'
@@ -58,7 +59,7 @@ import {
   upsertVectors,
   upsertWaifuScores,
 } from '@pictoria/db'
-import { targetDir } from './paths.js'
+import { targetDir, thumbnailPathFor } from './paths.js'
 import { type PendingCounter, registerLoop } from './queue-status.js'
 
 /** better-sqlite3 的连接类型，从 `getDb()` 借出来 —— apps/api 不直接依赖那个包。 */
@@ -446,10 +447,21 @@ export function startBasicsBackfill(
 ): BackfillHandle {
   const root = targetDir()
   return loop('basics', IO_QUEUE, rows => countBasicsPending(sqlite, rows), async ({ force }) => {
-    const items = listBasicsPending(sqlite, root, BASICS_TASK_BATCH, { force })
-    if (!items.length)
+    const pending = listBasicsPending(sqlite, root, BASICS_TASK_BATCH, { force })
+    if (!pending.length)
       return null
 
+    // 缩略图路径在这一侧算好再交给 worker（和 thumbnail / rotate 任务同一个出处），
+    // 缩略图布局只在 `paths.ts` 有一份。逐字段拼而不是展开，免得待办行上多出来的
+    // 列（`relPath`）混进跨进程契约。
+    const items: BasicsItem[] = pending.map(p => ({
+      postId: p.postId,
+      path: p.path,
+      thumbnailPath: thumbnailPathFor(p.relPath),
+      hasSha256: p.hasSha256,
+      hasArthash: p.hasArthash,
+      hasColor: p.hasColor,
+    }))
     const result = await tasks.call(basicsTask, { items }, {
       queue: IO_QUEUE,
       key: batchKey('basics', items.map(i => i.postId)),

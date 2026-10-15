@@ -12,9 +12,7 @@ from functools import cache
 from transformers import AutoModel, AutoProcessor
 
 from ai.hf_loader import load_local_first
-from ai.torch_runtime import patch_features_to_tensor
-
-device = "cuda"
+from ai.torch_runtime import DEVICE, patch_features_to_tensor
 
 
 @cache
@@ -22,7 +20,7 @@ def get_clip_model() -> AutoModel:
     model = load_local_first(
         AutoModel.from_pretrained,
         "openai/clip-vit-large-patch14",
-        device_map=device,
+        device_map=DEVICE,
     )
     # transformers 5.x changed `CLIPModel.get_{image,text}_features` to return
     # a `BaseModelOutputWithPooling` instead of the bare projected-pooled tensor

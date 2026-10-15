@@ -179,7 +179,7 @@ def main() -> None:
                 "parent": parent,
                 "depth": path.count("."),
                 "names": localized,
-            }
+            },
         )
 
     payload = {

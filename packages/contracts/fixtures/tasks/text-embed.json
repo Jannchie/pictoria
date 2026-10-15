@@ -1,0 +1,12 @@
+{
+  "name": "text-embed",
+  "queue": "gpu-interactive",
+  "payload": {
+    "prompt": "a girl under cherry blossoms"
+  },
+  "result": {
+    "embedding": "AAAAAAAAgD8AAIC/AAAAPwAAAL///39/AACAAA==",
+    "scale": 117.3,
+    "bias": -12.9
+  }
+}

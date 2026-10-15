@@ -11,7 +11,7 @@ Files land where the tag importer would have put them — ``danbooru/<artist>/
 <post_id>.webp`` — so the two sources merge into one tree and dedup is a
 lookup on the post id.
 
-This module is the fetch/parse half, same split as ``danbooru_import.py``: it
+This module is the fetch/parse half, same split as ``worker/importers.py``: it
 reads the parquet, the metadata SQLite (read-only — it is **not**
 ``pictoria.sqlite``) and copies bytes into the library, then hands back rows
 in the ``posts`` table's own terms. The database write lives with the caller —
@@ -24,7 +24,7 @@ re-scoring every image on the GPU.
 from __future__ import annotations
 
 import shutil
-import sqlite3
+import sqlite3  # noqa: TID251 -- reads the external Danbooru metadata archive (read-only), never pictoria.sqlite
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any
 
@@ -41,11 +41,6 @@ TOP_THRESHOLD = 0.80
 #: Everything in the tars is WebP (danbooru2026 re-encodes), whatever the
 #: original ``file_ext`` in the metadata says.
 IMAGE_EXT = "webp"
-
-#: ``rating`` in the metadata archive is the API's one-letter form. Same map as
-#: ``gallery_dl_import._BOORU_RATING``; ``utils.from_rating_to_int`` wants the
-#: spelled-out words and would send all of these to 0 ("not rated").
-_RATING: dict[str, int] = {"g": 1, "s": 2, "q": 3, "e": 4}
 
 #: The ``tag_string_*`` columns, in the order the importer reads them. The
 #: caller's ``type_to_group_id`` decides priority; this just names what exists.
@@ -67,8 +62,7 @@ LIBRARY_DIR = "danbooru"
 NO_ARTIST_DIR = "_no_artist"
 
 #: Windows forbids these in a path component; ``re:rin`` would otherwise
-#: fail mkdir. Same set as ``danbooru_import._FS_ILLEGAL_CHARS`` and the TS
-#: ``safeDirName``.
+#: fail mkdir. Same set as the TS ``safeDirName``.
 _FS_ILLEGAL_CHARS: frozenset[str] = frozenset('<>:"/\\|?*')
 
 
@@ -189,7 +183,7 @@ def artist_dir(tag_strings: dict[str, str]) -> str:
 def build_tag_to_group(tag_strings: dict[str, str], type_to_group_id: dict[str, int]) -> dict[str, int]:
     """``{tag_name: group_id}`` from the per-type tag strings.
 
-    Same rule as ``danbooru_import._build_tag_to_group``: ``type_to_group_id``
+    Same rule as ``worker.importers._build_tag_to_group``: ``type_to_group_id``
     is ordered by priority and ``setdefault`` keeps the first group a tag is
     seen under.
     """
@@ -210,14 +204,14 @@ def build_row(
     ``score`` is None for an image the parquet does not vouch for (missing or
     ``ok=false``); the row still imports and the backfill scores it later.
     """
-    from utils import resolve_source  # noqa: PLC0415
+    from utils import rating_to_int, resolve_source  # noqa: PLC0415
 
     return {
         "filePath": f"{LIBRARY_DIR}/{artist_dir(meta.tag_strings)}",
         "fileName": str(meta.post_id),
         "extension": IMAGE_EXT,
         "source": resolve_source(meta.source, f"https://danbooru.donmai.us/posts/{meta.post_id}"),
-        "rating": _RATING.get(meta.rating, 0),
+        "rating": rating_to_int(meta.rating),
         "publishedAt": meta.created_at,
         "tags": build_tag_to_group(meta.tag_strings, type_to_group_id),
         "silvaScore": score,

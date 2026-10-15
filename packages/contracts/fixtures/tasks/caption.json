@@ -1,0 +1,11 @@
+{
+  "name": "caption",
+  "queue": "io",
+  "payload": {
+    "imagePath": "/library/art/1.png"
+  },
+  "result": {
+    "configured": true,
+    "caption": "A girl standing under cherry blossoms."
+  }
+}

@@ -1,0 +1,30 @@
+{
+  "name": "embedding",
+  "queue": "gpu",
+  "payload": {
+    "items": [
+      {
+        "postId": 1,
+        "path": "/library/art/1.png"
+      },
+      {
+        "postId": 2,
+        "path": "/library/art/2.png"
+      }
+    ]
+  },
+  "result": {
+    "embeddings": [
+      {
+        "postId": 1,
+        "embedding": "AAAAAAAAgD8AAIC/AAAAPwAAAL///39/AACAAA=="
+      }
+    ],
+    "failures": [
+      {
+        "postId": 2,
+        "error": "OSError: image file is truncated"
+      }
+    ]
+  }
+}
