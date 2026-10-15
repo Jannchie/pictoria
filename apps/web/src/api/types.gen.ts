@@ -2128,6 +2128,10 @@ export type V2AutoTagsErrors = {
      * Not Found
      */
     404: ErrorBody;
+    /**
+     * Internal Server Error
+     */
+    500: ErrorBody;
 };
 
 export type V2AutoTagsError = V2AutoTagsErrors[keyof V2AutoTagsErrors];

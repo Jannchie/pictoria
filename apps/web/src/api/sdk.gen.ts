@@ -55,7 +55,7 @@ export const v2GetFolders = <ThrowOnError extends boolean = false>(options?: Opt
  * Delete a library folder: its posts (DB + files + thumbnails) and the dir tree.
  *
  * Refuses the library root and anything resolving outside the library
- * (or into ``.pictoria``). DB rows go through ``PostRepo.delete_many`` so
+ * (or into ``.pictoria``). DB rows go through ``deleteManyReturningPaths`` so
  * the FK cascade, the manual vec0 cascade and the per-file unlink all
  * apply; the remaining tree (non-image files, empty dirs) is then removed
  * from disk. If the disk removal partially fails, the next sync re-imports
