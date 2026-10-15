@@ -1,14 +1,14 @@
 /** `/v2/statistics` —— waifu 分数直方图。 */
-import { createRoute, OpenAPIHono, z } from '@hono/zod-openapi'
+import { createRoute, z } from '@hono/zod-openapi'
 import { waifuScoreDistribution } from '@pictoria/db'
-import { getDb } from '../db.js'
-import { OK, zodErrorHook } from '../openapi.js'
+import { newRoutes } from '../env.js'
+import { OK } from '../openapi.js'
 
 const WaifuScoreResult = z
   .object({ bucket: z.string(), count: z.int() })
   .openapi('WaifuScoreResult')
 
-export const statisticsRoutes = new OpenAPIHono({ defaultHook: zodErrorHook })
+export const statisticsRoutes = newRoutes()
 
 statisticsRoutes.openapi(
   createRoute({
@@ -22,7 +22,7 @@ statisticsRoutes.openapi(
     },
   }),
   (c) => {
-    const { sqlite } = getDb()
+    const sqlite = c.var.db
     // 标签形如 "0~1" … "9~10"。
     const body = waifuScoreDistribution(sqlite).map(({ bucket, count }) => ({
       bucket: `${bucket}~${bucket + 1}`,

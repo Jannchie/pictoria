@@ -1,15 +1,14 @@
 /**
  * posts 的列表、过滤搜索与文搜图。图搜图（`/similar`）在 `post-reads.ts`。
  */
-import { createRoute, OpenAPIHono, z } from '@hono/zod-openapi'
+import { createRoute, z } from '@hono/zod-openapi'
 import { decodeVector, INTERACTIVE_QUEUE, textEmbedTask } from '@pictoria/contracts'
 import { listPaginated, listSimpleByIdsPreservingOrder, searchByTextVector, searchPosts, unratedArtistPickIds, type PostFilter as DbPostFilter, type PostFilterWithOrder } from '@pictoria/db'
-import { getDb } from '../db.js'
+import { newRoutes } from '../env.js'
 import { PostFilterWithOrderSchema, TextSearchRequestSchema as TextSearchRequest } from '../filter-schema.js'
-import { OK, errors, zodErrorHook } from '../openapi.js'
+import { OK, errors } from '../openapi.js'
 import { PostDetailPublic, PostSimplePublic, toPostDetail, toPostSimple } from '../schemas.js'
 import { translateTag } from '../tag-i18n.js'
-import { getTasks } from '../tasks.js'
 
 const CursorResponse = z
   .object({
@@ -18,7 +17,7 @@ const CursorResponse = z
   })
   .openapi('CursorResponse')
 
-export const postListRoutes = new OpenAPIHono({ defaultHook: zodErrorHook })
+export const postListRoutes = newRoutes()
 
 postListRoutes.openapi(
   createRoute({
@@ -46,7 +45,7 @@ postListRoutes.openapi(
   }),
   (c) => {
     const { start, limit, lang } = c.req.valid('query')
-    const { items, nextCursor } = listPaginated(getDb().sqlite, start, limit, n => translateTag(n, lang))
+    const { items, nextCursor } = listPaginated(c.var.db, start, limit, n => translateTag(n, lang))
     return c.json({ items: items.map(toPostDetail), nextCursor }, 200)
   },
 )
@@ -75,7 +74,7 @@ postListRoutes.openapi(
   (c) => {
     const { limit, offset } = c.req.valid('query')
     const f = c.req.valid('json') as PostFilterWithOrder
-    return c.json(searchPosts(getDb().sqlite, f, { limit, offset }).map(toPostSimple), 200)
+    return c.json(searchPosts(c.var.db, f, { limit, offset }).map(toPostSimple), 200)
   },
 )
 
@@ -113,7 +112,7 @@ postListRoutes.openapi(
   }),
   (c) => {
     const { limit, offset } = c.req.valid('query')
-    const { sqlite } = getDb()
+    const sqlite = c.var.db
     if (offset === 0 || unratedArtistSnapshot === null)
       unratedArtistSnapshot = unratedArtistPickIds(sqlite)
     const ids = unratedArtistSnapshot.slice(offset, offset + limit)
@@ -153,7 +152,7 @@ postListRoutes.openapi(
     if (!prompt)
       return c.json([], 200)
 
-    const tasks = await getTasks()
+    const tasks = await c.var.tasks.get()
     const { embedding, scale, bias } = await tasks.call(textEmbedTask, { prompt }, {
       queue: INTERACTIVE_QUEUE,
       // 同一个 prompt 复用同一个任务：连打字带防抖也会重复提交同一串。
@@ -169,7 +168,7 @@ postListRoutes.openapi(
       maxAttempts: 1,
     })
 
-    const rows = searchByTextVector(getDb().sqlite, decodeVector(embedding), data as DbPostFilter, { limit })
+    const rows = searchByTextVector(c.var.db, decodeVector(embedding), data as DbPostFilter, { limit })
     // SigLIP 官方的打分方式：sigmoid(scale * cos + bias)。向量在源头就已 L2 归一化
     // （ai/siglip_embed.py），所以 vec0 的余弦距离恰好是 (1 - cos)，能直接反推 cos。
     for (const r of rows) {

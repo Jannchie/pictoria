@@ -2,19 +2,18 @@
  * posts 的写：标量字段（score / rating / caption / source / touch / 批量）加上四个
  * 碰文件系统的（delete / rotate / upload）。
  */
-import { createRoute, OpenAPIHono, z } from '@hono/zod-openapi'
+import { createRoute, z } from '@hono/zod-openapi'
 import fs from 'node:fs'
 import path from 'node:path'
 import { IO_QUEUE, rotateTask } from '@pictoria/contracts'
 import { Buffer } from 'node:buffer'
 import { bulkUpdateField, clearCanonical, createPost, getPostPath, groupHeadOf, groupTogether, makeCanonical, markDifferent, postExists, touchAccessed, updateField, updateForRotate } from '@pictoria/db'
-import { getDb } from '../db.js'
+import { type AppEnv, newRoutes } from '../env.js'
 import type { Context } from 'hono'
-import { boolQuery, CREATED, OK, errors, fail, postNotFound, validationError, zodErrorHook } from '../openapi.js'
+import { boolQuery, CREATED, OK, errors, fail, postNotFound, validationError } from '../openapi.js'
 import { PostDetailPublic } from '../schemas.js'
 import { isInside, postAbsPath, targetDir, thumbnailPathFor } from '../paths.js'
 import { deletePostFiles } from '../post-files.js'
-import { getTasks } from '../tasks.js'
 import { postDetailResponse, postIdParam } from './post-shared.js'
 
 const MAX_POST_SCORE = 5
@@ -41,11 +40,11 @@ const ScoreUpdate = z
   .object({ score: z.int().min(0).max(MAX_POST_SCORE).describe('Score from 0 to 5.') })
   .openapi('ScoreUpdate')
 
-export const postWritesRoutes = new OpenAPIHono({ defaultHook: zodErrorHook })
+export const postWritesRoutes = newRoutes()
 
 /** 更新一个标量列后回读详情。 */
-function updateAndReturnDetail(c: Context<any, any, any>, postId: number, field: string, value: unknown) {
-  if (!updateField(getDb().sqlite, postId, field, value))
+function updateAndReturnDetail(c: Context<AppEnv, any, any>, postId: number, field: string, value: unknown) {
+  if (!updateField(c.var.db, postId, field, value))
     return postNotFound(postId)
   return postDetailResponse(c, postId)
 }
@@ -90,7 +89,7 @@ for (const b of bulkUpdates) {
     (c) => {
       const q = c.req.valid('query') as Record<string, unknown>
       const ids = (Array.isArray(q.ids) ? q.ids : [q.ids]) as number[]
-      bulkUpdateField(getDb().sqlite, ids, b.field, q[b.field] as number)
+      bulkUpdateField(c.var.db, ids, b.field, q[b.field] as number)
       return c.body(null, 204)
     },
   )
@@ -169,7 +168,7 @@ postWritesRoutes.openapi(
   }),
   (c) => {
     const { post_id: postId } = c.req.valid('param')
-    if (!touchAccessed(getDb().sqlite, postId))
+    if (!touchAccessed(c.var.db, postId))
       return postNotFound(postId)
     return c.body(null, 204)
   },
@@ -204,7 +203,7 @@ for (const op of groupOps) {
     }),
     (c) => {
       const { post_id: postId } = c.req.valid('param')
-      const { sqlite } = getDb()
+      const sqlite = c.var.db
       if (!postExists(sqlite, postId))
         return postNotFound(postId)
       op.run(sqlite, postId)
@@ -247,7 +246,7 @@ postWritesRoutes.openapi(
   }),
   (c) => {
     const { ids, canonicalId } = c.req.valid('json')
-    const { sqlite } = getDb()
+    const sqlite = c.var.db
     const head = canonicalId ?? undefined
     for (const id of head == null ? ids : [...ids, head]) {
       if (!postExists(sqlite, id))
@@ -288,7 +287,7 @@ postWritesRoutes.openapi(
   }),
   (c) => {
     const { post_id: postId, other_id: otherId } = c.req.valid('param')
-    const { sqlite } = getDb()
+    const sqlite = c.var.db
     if (!postExists(sqlite, postId))
       return postNotFound(postId)
     if (!postExists(sqlite, otherId))
@@ -322,7 +321,7 @@ postWritesRoutes.openapi(
   (c) => {
     const raw = c.req.queries('ids') ?? []
     const ids = raw.map(Number).filter(n => Number.isInteger(n))
-    const { sqlite } = getDb()
+    const sqlite = c.var.db
     deletePostFiles(sqlite, ids)
     return c.body(null, 204)
   },
@@ -350,12 +349,12 @@ postWritesRoutes.openapi(
     const { post_id: postId } = c.req.valid('param')
     const { clockwise } = c.req.valid('query')
 
-    const { sqlite } = getDb()
+    const sqlite = c.var.db
     const post = getPostPath(sqlite, postId)
     if (!post)
       return postNotFound(postId)
 
-    const tasks = await getTasks()
+    const tasks = await c.var.tasks.get()
     const result = await tasks.call(rotateTask, {
       originalPath: postAbsPath(post.fullPath),
       thumbnailPath: thumbnailPathFor(post.fullPath),
@@ -446,7 +445,7 @@ postWritesRoutes.openapi(
     const nameWithExt = relPosix.slice(lastSlash + 1)
     const dot = nameWithExt.lastIndexOf('.')
 
-    createPost(getDb().sqlite, {
+    createPost(c.var.db, {
       filePath: dir,
       fileName: dot === -1 ? nameWithExt : nameWithExt.slice(0, dot),
       extension: dot === -1 ? '' : nameWithExt.slice(dot + 1),

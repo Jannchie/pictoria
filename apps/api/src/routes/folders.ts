@@ -3,12 +3,12 @@
  */
 import fs from 'node:fs'
 import path from 'node:path'
-import { createRoute, OpenAPIHono, z } from '@hono/zod-openapi'
+import { createRoute, z } from '@hono/zod-openapi'
 import { addAgg, emptyAgg, folderScoreAggregates, listIdsInFolder, SCORERS, type AestheticScorer, type AestheticScorerKey, type FolderScoreAgg } from '@pictoria/db'
-import { getDb } from '../db.js'
+import { newRoutes } from '../env.js'
 import { isInside, pictoriaDir, targetDir, thumbnailPathFor } from '../paths.js'
 import { deletePostFiles } from '../post-files.js'
-import { OK, errors, fail, zodErrorHook } from '../openapi.js'
+import { OK, errors, fail } from '../openapi.js'
 import { Result } from '../schemas.js'
 
 /** 每个打分器一个 `<key>Avg` 字段（`silvaAvg`、`silvaLunaAvg`），由 `SCORERS` 生成。 */
@@ -36,8 +36,13 @@ interface DirectorySummary extends ScorerAvgFields {
 /**
  * walk 跳过的目录名。按**名字**比，任意深度都跳。从 pictoriaDir() 取而不是写死
  * 字面量，这样 `.pictoria` 改名时只有 paths.ts 一处要动。
+ *
+ * 惰性求值而不是模块顶层常量：顶层调 `pictoriaDir()` 会在 import 时刻锁死
+ * `PICTORIA_TARGET_DIR`（`paths.ts` 的 `once()`），测试就没法在 import 之后指向临时库。
  */
-const IGNORED_DIR_NAME = path.basename(pictoriaDir())
+function ignoredDirName(): string {
+  return path.basename(pictoriaDir())
+}
 
 const scorerAvgSchemas = Object.fromEntries(
   SCORERS.map(s => [avgField(s), z.number().nullable()]),
@@ -135,8 +140,9 @@ async function walk(
   if (!entry) {
     let fileCount = 0
     const subdirs: string[] = []
+    const ignored = ignoredDirName()
     for (const dirent of await fs.promises.readdir(absDir, { withFileTypes: true })) {
-      if (dirent.name === IGNORED_DIR_NAME)
+      if (dirent.name === ignored)
         continue
       if (dirent.isDirectory())
         subdirs.push(dirent.name)
@@ -210,7 +216,7 @@ function requireDirectory(abs: string, label: string) {
   return null
 }
 
-export const foldersRoutes = new OpenAPIHono({ defaultHook: zodErrorHook })
+export const foldersRoutes = newRoutes()
 
 foldersRoutes.openapi(
   createRoute({
@@ -235,7 +241,7 @@ foldersRoutes.openapi(
     const next = new Map<string, DirCacheEntry>()
     const summary = await walk(base, base, next)
     dirCache = next
-    attachStats(summary, folderScoreAggregates(getDb().sqlite))
+    attachStats(summary, folderScoreAggregates(c.var.db))
     return c.json(summary, 200)
   },
 )
@@ -288,7 +294,7 @@ foldersRoutes.openapi({ ...deleteFolderRoute, path: '/v2/folders/{folder_path{.+
   if (bad)
     return bad
 
-  const { sqlite } = getDb()
+  const sqlite = c.var.db
   const ids = listIdsInFolder(sqlite, folder)
   deletePostFiles(sqlite, ids)
 

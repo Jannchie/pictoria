@@ -1,9 +1,9 @@
 /** `/v2/queues/status` —— 后台队列的完成情况、速度与剩余时间，给侧栏的同步状态区。 */
-import { createRoute, OpenAPIHono, z } from '@hono/zod-openapi'
+import { createRoute, z } from '@hono/zod-openapi'
 import { CPU_QUEUE, GPU_QUEUE, INTERACTIVE_QUEUE, IO_QUEUE } from '@pictoria/contracts'
-import { OK, zodErrorHook } from '../openapi.js'
+import { OK } from '../openapi.js'
 import { BACKFILL_LOOP_KEYS, schedulerStatus } from '../queue-status.js'
-import { peekTasks } from '../tasks.js'
+import { newRoutes } from '../env.js'
 
 const LoopStatus = z
   .object({
@@ -44,7 +44,7 @@ const QueuesStatus = z
 /** 显示顺序：批处理的 GPU 队列、交互式 GPU 队列、IO、CPU。 */
 const QUEUE_NAMES = [GPU_QUEUE, INTERACTIVE_QUEUE, IO_QUEUE, CPU_QUEUE] as const
 
-export const queuesRoutes = new OpenAPIHono({ defaultHook: zodErrorHook })
+export const queuesRoutes = newRoutes()
 
 queuesRoutes.openapi(
   createRoute({
@@ -59,7 +59,7 @@ queuesRoutes.openapi(
   }),
   async (c) => {
     const { running, error, loops } = schedulerStatus()
-    const tasks = peekTasks()
+    const tasks = c.var.tasks.peek()
     // 按队列问，不问整张表：不带参数的 `stats()` 要把 retention 留着的全部终态行
     // （succeeded 1 小时、failed 24 小时）聚合一遍，而带队列名的走 (queue, status) 索引前缀。
     const queues = tasks

@@ -4,7 +4,7 @@
  * 每个都有存在性校验：目标不存在是 404，引用的 group 不存在是 422（体是合法的，
  * 只是指向了不存在的东西），状态冲突（已存在 / 不在 post 上）是 409。
  */
-import { createRoute, OpenAPIHono, z } from '@hono/zod-openapi'
+import { createRoute, z } from '@hono/zod-openapi'
 import {
   addTagToPost,
   createTag,
@@ -16,8 +16,8 @@ import {
   removeTagFromPost,
   updateTagGroup,
 } from '@pictoria/db'
-import { getDb } from '../db.js'
-import { CREATED, OK, errors, fail, postNotFound, zodErrorHook } from '../openapi.js'
+import { newRoutes } from '../env.js'
+import { CREATED, OK, errors, fail, postNotFound } from '../openapi.js'
 import { PostDetailPublic, Result, TagGroupPublic } from '../schemas.js'
 import { translateTag } from '../tag-i18n.js'
 import { postDetailResponse, postIdParam } from './post-shared.js'
@@ -42,7 +42,7 @@ const TagBatchDelete = z
   .object({ names: z.array(z.string().min(1).max(MAX_TAG_LENGTH)).min(1) })
   .openapi('TagBatchDelete')
 
-export const tagWritesRoutes = new OpenAPIHono({ defaultHook: zodErrorHook })
+export const tagWritesRoutes = newRoutes()
 
 tagWritesRoutes.openapi(
   createRoute({
@@ -60,7 +60,7 @@ tagWritesRoutes.openapi(
   (c) => {
     const data = c.req.valid('json')
     const name = data.name.trim()
-    const { sqlite } = getDb()
+    const sqlite = c.var.db
     if (getTag(sqlite, name))
       return fail(409, 'TagNameExistsError', `Tag '${name}' already exists.`)
     if (data.groupId && !getTagGroup(sqlite, data.groupId))
@@ -96,7 +96,7 @@ tagWritesRoutes.openapi(
     const { name } = c.req.valid('param')
     const { lang } = c.req.valid('query')
     const data = c.req.valid('json')
-    const { sqlite } = getDb()
+    const sqlite = c.var.db
     if (!getTag(sqlite, name))
       return fail(404, 'TagNameNotFoundError', `Tag '${name}' does not exist.`)
     if (data.groupId && !getTagGroup(sqlite, data.groupId))
@@ -129,7 +129,7 @@ tagWritesRoutes.openapi(
   }),
   (c) => {
     // FK 级联可能剥掉很多图的最后一个自动标签 —— `deleteTag` 自己发重新待办信号。
-    deleteTag(getDb().sqlite, c.req.valid('param').name)
+    deleteTag(c.var.db, c.req.valid('param').name)
     return c.body(null, 204)
   },
 )
@@ -145,7 +145,7 @@ tagWritesRoutes.openapi(
     responses: { 204: { description: 'No Content' }, ...errors(400) },
   }),
   (c) => {
-    deleteTags(getDb().sqlite, c.req.valid('json').names)
+    deleteTags(c.var.db, c.req.valid('json').names)
     return c.body(null, 204)
   },
 )
@@ -170,7 +170,7 @@ tagWritesRoutes.openapi(
   }),
   (c) => {
     const { post_id: postId, tag_name: tagName } = c.req.valid('param')
-    const { sqlite } = getDb()
+    const sqlite = c.var.db
     if (!postExists(sqlite, postId))
       return postNotFound(postId)
     if (!addTagToPost(sqlite, postId, tagName))
@@ -193,7 +193,7 @@ tagWritesRoutes.openapi(
   }),
   (c) => {
     const { post_id: postId, tag_name: tagName } = c.req.valid('param')
-    const { sqlite } = getDb()
+    const sqlite = c.var.db
     if (!postExists(sqlite, postId))
       return postNotFound(postId)
     // 摘掉的若是这张图最后一个 `is_auto = 1` 行，它就重新是 tagger 待办了 ——

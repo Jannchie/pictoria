@@ -2,7 +2,7 @@
  * `/v2/posts/count*` 与 `/v2/posts/stats` —— 过滤后的计数与聚合。
  * 全是 `POST` + `PostFilter` 请求体、只读、无副作用。
  */
-import { createRoute, OpenAPIHono, z } from '@hono/zod-openapi'
+import { createRoute, z } from '@hono/zod-openapi'
 import {
   aggregateStats,
   countByColumn,
@@ -15,9 +15,9 @@ import {
   WAIFU,
   type PostFilter as DbPostFilter,
 } from '@pictoria/db'
-import { getDb } from '../db.js'
+import { newRoutes } from '../env.js'
 import { PostFilterSchema as PostFilter, TagCountRequestSchema as TagCountRequest } from '../filter-schema.js'
-import { OK, errors, zodErrorHook } from '../openapi.js'
+import { OK, errors } from '../openapi.js'
 import { searchTagsByTranslation, translateTag } from '../tag-i18n.js'
 
 const CountPostsResponse = z.object({ count: z.int() }).openapi('CountPostsResponse')
@@ -43,7 +43,7 @@ const PostStatsResponse = z
   })
   .openapi('PostStatsResponse')
 
-export const postCountsRoutes = new OpenAPIHono({ defaultHook: zodErrorHook })
+export const postCountsRoutes = newRoutes()
 
 function filterBody() {
   return { required: true, content: { 'application/json': { schema: PostFilter } } }
@@ -66,7 +66,7 @@ postCountsRoutes.openapi(
     request: { body: filterBody() },
     responses: jsonOk(CountPostsResponse),
   }),
-  c => c.json({ count: countPosts(getDb().sqlite, c.req.valid('json') as DbPostFilter) }, 200),
+  c => c.json({ count: countPosts(c.var.db, c.req.valid('json') as DbPostFilter) }, 200),
 )
 
 /** rating / score / extension 三个都是同一条 GROUP BY，只是列不同。 */
@@ -87,7 +87,7 @@ for (const facet of columnFacets) {
       request: { body: filterBody() },
       responses: jsonOk(z.array(facet.schema)),
     }),
-    c => c.json(countByColumn(getDb().sqlite, facet.column, c.req.valid('json') as DbPostFilter), 200),
+    c => c.json(countByColumn(c.var.db, facet.column, c.req.valid('json') as DbPostFilter), 200),
   )
 }
 
@@ -119,7 +119,7 @@ for (const facet of bucketFacets) {
       request: { body: filterBody() },
       responses: jsonOk(z.array(facet.schema)),
     }),
-    c => c.json(countByScorerBucket(getDb().sqlite, c.req.valid('json') as DbPostFilter, facet.scorer), 200),
+    c => c.json(countByScorerBucket(c.var.db, c.req.valid('json') as DbPostFilter, facet.scorer), 200),
   )
 }
 
@@ -134,7 +134,7 @@ postCountsRoutes.openapi(
     responses: jsonOk(PostStatsResponse),
   }),
   (c) => {
-    const s = aggregateStats(getDb().sqlite, c.req.valid('json') as DbPostFilter)
+    const s = aggregateStats(c.var.db, c.req.valid('json') as DbPostFilter)
     return c.json({
       total: s.total,
       avgScore: s.avg_score,
@@ -166,7 +166,7 @@ postCountsRoutes.openapi(
   }),
   (c) => {
     const data = c.req.valid('json')
-    const rows = countByTag(getDb().sqlite, data as DbPostFilter, {
+    const rows = countByTag(c.var.db, data as DbPostFilter, {
       query: data.query ?? '',
       limit: data.limit ?? 50,
       extraNames: searchTagsByTranslation(data.query ?? '', data.lang ?? 'zh-Hans'),

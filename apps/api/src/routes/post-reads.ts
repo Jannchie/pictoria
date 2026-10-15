@@ -1,14 +1,14 @@
 /**
  * posts 的按 id 读取：详情、同组成员、差分证据、图搜图。
  */
-import { createRoute, OpenAPIHono, z } from '@hono/zod-openapi'
+import { createRoute, z } from '@hono/zod-openapi'
 import { getGroupMembers, groupHeadOf, knn, listEdgesFor, listSimpleByIdsPreservingOrder } from '@pictoria/db'
-import { getDb } from '../db.js'
-import { OK, errors, zodErrorHook } from '../openapi.js'
+import { newRoutes } from '../env.js'
+import { OK, errors } from '../openapi.js'
 import { PostDetailPublic, PostSimplePublic, toPostSimple } from '../schemas.js'
 import { postDetailResponse, postIdParam } from './post-shared.js'
 
-export const postReadsRoutes = new OpenAPIHono({ defaultHook: zodErrorHook })
+export const postReadsRoutes = newRoutes()
 
 postReadsRoutes.openapi(
   createRoute({
@@ -52,7 +52,7 @@ postReadsRoutes.openapi(
   }),
   (c) => {
     const { post_id: postId } = c.req.valid('param')
-    return c.json(getGroupMembers(getDb().sqlite, postId).map(toPostSimple), 200)
+    return c.json(getGroupMembers(c.var.db, postId).map(toPostSimple), 200)
   },
 )
 
@@ -90,7 +90,7 @@ postReadsRoutes.openapi(
   }),
   (c) => {
     const { post_id: postId } = c.req.valid('param')
-    return c.json(listEdgesFor(getDb().sqlite, postId).map(e => ({
+    return c.json(listEdgesFor(c.var.db, postId).map(e => ({
       memberId: e.postA === postId ? e.postB : e.postA,
       siglipDist: e.siglipDist,
       lpipsDist: e.lpipsDist,
@@ -120,7 +120,7 @@ postReadsRoutes.openapi(
   (c) => {
     const { post_id: postId } = c.req.valid('param')
     const { limit } = c.req.valid('query')
-    const { sqlite } = getDb()
+    const sqlite = c.var.db
 
     // 排除的是种子**所在的整个组**，不只是种子自己。
     //

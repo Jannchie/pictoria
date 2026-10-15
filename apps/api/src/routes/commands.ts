@@ -6,7 +6,7 @@
  */
 import type { Context } from 'hono'
 import type { CairnQ } from 'cairnq'
-import { createRoute, OpenAPIHono, z } from '@hono/zod-openapi'
+import { createRoute, z } from '@hono/zod-openapi'
 import {
   captionTask,
   DANBOORU_LISTING_LIMIT,
@@ -26,20 +26,20 @@ import {
   listFileNamesInDir,
   listImportedDanbooruIds,
   persistPostsWithTags,
+  type SqliteHandle,
   updateField,
 } from '@pictoria/db'
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import { DEDUP_THRESHOLD, isRebuilding, rebuildGroups } from '../dedup.js'
-import { getDb } from '../db.js'
-import { boolQuery, CREATED, OK, errors, fail, postNotFound, zodErrorHook } from '../openapi.js'
+import { type AppEnv, newRoutes, type TaskSource } from '../env.js'
+import { boolQuery, CREATED, OK, errors, fail, postNotFound } from '../openapi.js'
 import { postDetailResponse, postIdParam } from './post-shared.js'
 import { PostDetailPublic, Result } from '../schemas.js'
 import { wakeAllBackfills } from '../scheduler.js'
 import { postAbsPath, targetDir } from '../paths.js'
 import { startSync } from '../sync.js'
-import { getTasks } from '../tasks.js'
 import { embeddingSpec, runOneShot, silvaSpecs, taggerSpec, waifuSpec } from '../workers.js'
 
 const SnapshotResult = z.object({ path: z.string(), dir: z.string() }).openapi('SnapshotResult')
@@ -56,14 +56,14 @@ const DanbooruDownloadStats = z
   })
   .openapi('DanbooruDownloadStats')
 
-export const commandsRoutes = new OpenAPIHono({ defaultHook: zodErrorHook })
+export const commandsRoutes = newRoutes()
 
 /**
  * 即时命令共用的两道守卫：post 不存在 → 404，不是图片 → 400。
  * 先查存在再判类型，所以一个不存在的 id 永远是 404 而不是 400。
  */
-function requireImage(postId: number) {
-  const post = getPostPath(getDb().sqlite, postId)
+function requireImage(sqlite: SqliteHandle, postId: number) {
+  const post = getPostPath(sqlite, postId)
   if (!post)
     return { ok: false as const, response: postNotFound(postId) }
   if (!isImagePath(post.fullPath))
@@ -126,7 +126,7 @@ commandsRoutes.openapi(
     // ⚠️ 必须在忙检查**之前** await。检查和启动之间夹一个 await，两个几乎同时到达
     // 的请求就会双双通过检查，然后排成两次全量重算 —— 一次分钟级的 GPU 白烧。
     // 先把这个 await 做掉，检查和启动就都落在同一个同步片段里。
-    const tasks = await getTasks()
+    const tasks = await c.var.tasks.get()
 
     // 忙就报忙，不排队。
     if (isRebuilding())
@@ -145,7 +145,7 @@ commandsRoutes.openapi(
     }
     // fire-and-forget：请求立刻返回，结果打进日志。失败在这里吞掉并记下 ——
     // 没有人在等这个 promise，未处理的 rejection 会让整个进程退出。
-    void rebuildGroups(getDb().sqlite, tasks, opts)
+    void rebuildGroups(c.var.db, tasks, opts)
       .catch((err: unknown) => console.warn(`[dedup] 重建失败：${String(err)}`))
 
     const thr = threshold ?? DEDUP_THRESHOLD
@@ -176,16 +176,16 @@ commandsRoutes.openapi(
   }),
   async (c) => {
     const { post_id: postId } = c.req.valid('param')
-    const guard = requireImage(postId)
+    const guard = requireImage(c.var.db, postId)
     if (!guard.ok)
       return guard.response
 
-    const { sqlite } = getDb()
+    const sqlite = c.var.db
     const existing = getWaifuScore(sqlite, postId)
     if (existing !== null)
       return c.json(existing, 200)
 
-    const tasks: CairnQ = await getTasks()
+    const tasks: CairnQ = await c.var.tasks.get()
     await runOneShot(sqlite, tasks, waifuSpec, [guard.item])
 
     const score = getWaifuScore(sqlite, postId)
@@ -202,18 +202,18 @@ commandsRoutes.openapi(
  * 拿到结果，而不是"请稍后再试"。
  */
 function silvaOneShot(scorer: AestheticScorerName) {
-  return async (c: Context<any, any, any>) => {
+  return async (c: Context<AppEnv, any, any>) => {
     const { post_id: postId } = c.req.valid('param') as { post_id: number }
-    const guard = requireImage(postId)
+    const guard = requireImage(c.var.db, postId)
     if (!guard.ok)
       return guard.response
 
-    const { sqlite } = getDb()
+    const sqlite = c.var.db
     const existing = getAestheticScore(sqlite, postId, scorer)
     if (existing !== null)
       return c.json(existing, 200)
 
-    const tasks: CairnQ = await getTasks()
+    const tasks: CairnQ = await c.var.tasks.get()
     if (!fetchEmbeddingBlobs(sqlite, [postId]).has(postId))
       await runOneShot(sqlite, tasks, embeddingSpec, [guard.item])
     // 向量算不出来 = 这张图读不进来。和 waifu 一样报 400。（silva 的 payload 组装
@@ -281,12 +281,12 @@ commandsRoutes.openapi(
   }),
   async (c) => {
     const { post_id: postId } = c.req.valid('param')
-    const { sqlite } = getDb()
+    const sqlite = c.var.db
     const post = getPostPath(sqlite, postId)
     if (!post)
       return postNotFound(postId)
 
-    const tasks: CairnQ = await getTasks()
+    const tasks: CairnQ = await c.var.tasks.get()
     // 落库走 tagger 规格的交互模式：rating 无条件覆盖，被手工标签遮住的不拉黑
     // （见 `workers.ts` 的 `taggerSpec`）。没有结果时落库是空操作。
     const result = (await runOneShot(sqlite, tasks, taggerSpec, [{ postId, relPath: post.fullPath }]))!
@@ -321,12 +321,12 @@ commandsRoutes.openapi(
   }),
   async (c) => {
     const { post_id: postId } = c.req.valid('param')
-    const { sqlite } = getDb()
+    const sqlite = c.var.db
     const post = getPostPath(sqlite, postId)
     if (!post)
       return postNotFound(postId)
 
-    const tasks: CairnQ = await getTasks()
+    const tasks: CairnQ = await c.var.tasks.get()
     const result = await tasks.call(captionTask, {
       imagePath: postAbsPath(post.fullPath),
     }, { queue: IO_QUEUE, timeoutMs: 120_000, pollMs: 20, maxPollMs: 50, maxAttempts: 1 })
@@ -360,7 +360,7 @@ commandsRoutes.openapi(
     const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'pictoria-snapshot-'))
     const snapPath = path.join(tmpDir, 'snapshot.sqlite')
     // 路径由服务端生成（mkdtemp），不含单引号，所以直接内插是安全的。
-    getDb().sqlite.exec(`VACUUM INTO '${snapPath.split(path.sep).join('/')}'`)
+    c.var.db.exec(`VACUUM INTO '${snapPath.split(path.sep).join('/')}'`)
     console.warn(`[pictoria-api] 已生成快照 ${snapPath}`)
     return c.json({ path: snapPath, dir: tmpDir }, 201)
   },
@@ -392,7 +392,7 @@ commandsRoutes.openapi(
   }),
   (c) => {
     const { allow_mass_delete: allowMassDelete } = c.req.valid('query')
-    const started = startSync(getDb().sqlite, (r) => {
+    const started = startSync(c.var.db, (r) => {
       console.warn(`[sync] 完成：新增 ${r.added}，删除 ${r.removed}`)
       // 新行的空列由 backfill 循环去填：把空转的循环叫醒。
       wakeAllBackfills()
@@ -443,11 +443,11 @@ commandsRoutes.openapi(
   async (c) => {
     const { tags, full_scan: fullScan } = c.req.valid('query')
 
-    const { sqlite } = getDb()
+    const sqlite = c.var.db
     const filePathStr = `danbooru/${safeDirName(tags)}`
     const saveDir = path.resolve(targetDir(), filePathStr)
 
-    const tasks: CairnQ = await getTasks()
+    const tasks: CairnQ = await c.var.tasks.get()
     const result = await tasks.call(danbooruImportTask, {
       tags,
       limit: DANBOORU_LISTING_LIMIT,
@@ -525,10 +525,10 @@ let urlImportStatus: {
  * （读库）→ 下载 + 落库。gallery-dl 是个 Python 工具，所以扫描和下载只能在
  * worker；去重是数据库读，所以只能在这里。
  */
-async function runUrlImport(url: string): Promise<void> {
+async function runUrlImport(sqlite: SqliteHandle, tasks: TaskSource, url: string): Promise<void> {
   const status = urlImportStatus
   try {
-    await importOnce(url, status)
+    await importOnce(sqlite, tasks, url, status)
   }
   catch (err) {
     status.state = 'failed'
@@ -542,7 +542,7 @@ async function runUrlImport(url: string): Promise<void> {
   // 新图需要向量 / 分数 / 自动标签（kemono 的帖子根本不带标签）—— 踢一脚既有的
   // backfill 流程。⚠️ 必须在 state='done' **之后**，因为 done 是前端停止轮询的信号，
   // 而 syncTriggered 是它要读的最后一个字段。
-  status.syncTriggered = startSync(getDb().sqlite, () => wakeAllBackfills())
+  status.syncTriggered = startSync(sqlite, () => wakeAllBackfills())
 }
 
 /**
@@ -552,9 +552,8 @@ async function runUrlImport(url: string): Promise<void> {
  * 外面那句 `state = 'done'` —— 第一版把两者写在一起，结果空结果的导入永远停在
  * `running`，前端会一直转圈。
  */
-async function importOnce(url: string, status: typeof urlImportStatus): Promise<void> {
-  const { sqlite } = getDb()
-  const tasks: CairnQ = await getTasks()
+async function importOnce(sqlite: SqliteHandle, source: TaskSource, url: string, status: typeof urlImportStatus): Promise<void> {
+  const tasks: CairnQ = await source.get()
 
   const scan = await tasks.call(urlScanTask, { url }, {
     queue: IO_QUEUE,
@@ -622,7 +621,7 @@ commandsRoutes.openapi(
       finishedAt: null,
       syncTriggered: false,
     }
-    void runUrlImport(url)
+    void runUrlImport(c.var.db, c.var.tasks, url)
     return c.json({ msg: 'Import started' }, 201)
   },
 )

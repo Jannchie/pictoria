@@ -2,7 +2,7 @@
  * `/v2/annotations` —— 提交、撤回、更正、timeline、按 post 查历史、pairwise 计数，
  * 以及两个无队列的 `sample-*` 流式取样。
  */
-import { createRoute, OpenAPIHono, z } from '@hono/zod-openapi'
+import { createRoute, z } from '@hono/zod-openapi'
 import {
   countPairwise,
   editAnnotation,
@@ -26,8 +26,8 @@ import {
   samplePostIds,
   timelinePage,
 } from '@pictoria/db'
-import { getDb } from '../db.js'
-import { CREATED, OK, errors, invalidRequest, validationError, zodErrorHook } from '../openapi.js'
+import { newRoutes } from '../env.js'
+import { CREATED, OK, errors, invalidRequest, validationError } from '../openapi.js'
 import { toIsoDateTime } from '../schemas.js'
 import {
   QueueItemPostPublic,
@@ -168,7 +168,7 @@ const PostAnnotationsPublic = z
   })
   .openapi('PostAnnotationsPublic')
 
-export const annotationsRoutes = new OpenAPIHono({ defaultHook: zodErrorHook })
+export const annotationsRoutes = newRoutes()
 
 annotationsRoutes.openapi(
   createRoute({
@@ -184,7 +184,7 @@ annotationsRoutes.openapi(
     },
   }),
   (c) => {
-    const ids = recordAbsolute(getDb().sqlite, c.req.valid('json'))
+    const ids = recordAbsolute(c.var.db, c.req.valid('json'))
     return c.json({ inserted: ids.length, ids }, 201)
   },
 )
@@ -203,7 +203,7 @@ annotationsRoutes.openapi(
     },
   }),
   (c) => {
-    const rowId = recordPairwise(getDb().sqlite, c.req.valid('json'))
+    const rowId = recordPairwise(c.var.db, c.req.valid('json'))
     return c.json({ inserted: 1, ids: [rowId] }, 201)
   },
 )
@@ -222,7 +222,7 @@ annotationsRoutes.openapi(
     },
   }),
   (c) => {
-    const rowId = recordListwise(getDb().sqlite, c.req.valid('json'))
+    const rowId = recordListwise(c.var.db, c.req.valid('json'))
     return c.json({ inserted: 1, ids: [rowId] }, 201)
   },
 )
@@ -242,7 +242,7 @@ annotationsRoutes.openapi(
   }),
   (c) => {
     const data = c.req.valid('json')
-    return c.json({ inserted: 1, ids: [insertContentFlag(getDb().sqlite, data)] }, 201)
+    return c.json({ inserted: 1, ids: [insertContentFlag(c.var.db, data)] }, 201)
   },
 )
 
@@ -260,7 +260,7 @@ annotationsRoutes.openapi(
     },
   }),
   (c) => {
-    const deleted = retractAnnotations(getDb().sqlite, c.req.valid('json'))
+    const deleted = retractAnnotations(c.var.db, c.req.valid('json'))
     return c.json({ deleted }, 200)
   },
 )
@@ -292,7 +292,7 @@ annotationsRoutes.openapi(
       return validationError(`invalid winner: ${JSON.stringify(verdict)}`)
     if (kind === 'absolute' && !(typeof verdict === 'number' && Number.isInteger(verdict) && verdict >= 1))
       return validationError(`invalid value: ${JSON.stringify(verdict)}`)
-    const changed = editAnnotation(getDb().sqlite, { kind, annotationId, verdict })
+    const changed = editAnnotation(c.var.db, { kind, annotationId, verdict })
     return c.json({ updated: changed ? 1 : 0 }, 200)
   },
 )
@@ -317,7 +317,7 @@ annotationsRoutes.openapi(
   }),
   (c) => {
     const { dimension } = c.req.valid('query')
-    return c.json(countPairwise(getDb().sqlite, dimension), 200)
+    return c.json(countPairwise(c.var.db, dimension), 200)
   },
 )
 
@@ -341,7 +341,7 @@ annotationsRoutes.openapi(
   }),
   (c) => {
     const { post_id: postId } = c.req.valid('param')
-    const { sqlite } = getDb()
+    const sqlite = c.var.db
     const flag = latestContentFlag(sqlite, postId)
     return c.json({
       absolute: listAbsoluteForPost(sqlite, postId).map(a => ({
@@ -423,7 +423,7 @@ annotationsRoutes.openapi(
     if (cursor === 'malformed')
       return validationError(`malformed cursor: ${JSON.stringify(before)}`)
 
-    const { entries, nextCursor } = timelinePage(getDb().sqlite, { limit, before: cursor })
+    const { entries, nextCursor } = timelinePage(c.var.db, { limit, before: cursor })
     return c.json({
       items: entries.map(r => ({
         kind: r.kind,
@@ -475,7 +475,7 @@ annotationsRoutes.openapi(
   }),
   (c) => {
     const { dimensions, strategy, limit } = c.req.valid('query')
-    const { sqlite } = getDb()
+    const sqlite = c.var.db
     const ids = samplePostIds(sqlite, { count: limit, strategy, dimensions })
     return c.json(postsInOrder(sqlite, ids).map(p => toQueuePost(p)), 200)
   },
@@ -505,7 +505,7 @@ annotationsRoutes.openapi(
   }),
   (c) => {
     const { limit, strategy, dimension } = c.req.valid('query')
-    const { sqlite } = getDb()
+    const sqlite = c.var.db
     const pairs = samplePairs(sqlite, { count: limit, strategy, dimension })
     return c.json(
       pairsWithPosts(sqlite, pairs).map(([a, b]) => ({ postA: toQueuePost(a), postB: toQueuePost(b) })),
@@ -558,7 +558,7 @@ annotationsRoutes.openapi(
   }),
   (c) => {
     const { limit, size, dimension, repeat } = c.req.valid('query')
-    const { sqlite } = getDb()
+    const sqlite = c.var.db
     const groups = sampleGroups(sqlite, { count: limit, size, dimension, repeatShare: repeat })
     return c.json(
       groupsWithSilva(sqlite, groups).map(g => ({ posts: g.posts.map(p => toQueuePost(p)), silva: g.silva })),
@@ -616,7 +616,7 @@ annotationsRoutes.get('/v2/annotations/listwise/export', (c) => {
   if (!parsed.success)
     return invalidRequest(c, parsed.error)
   const q = parsed.data
-  const rows = expandListwiseAnnotations(getDb().sqlite, {
+  const rows = expandListwiseAnnotations(c.var.db, {
     maxCandidatesPerSlot: q.max_candidates_per_slot,
     maxVariantsPerAnnotation: q.max_variants_per_annotation,
     ...(q.max_lpips == null ? {} : { maxLpips: q.max_lpips }),

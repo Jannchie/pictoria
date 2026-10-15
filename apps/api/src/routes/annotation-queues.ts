@@ -4,7 +4,7 @@
  * 两个 `generate-*` 先跑采样器（PairGraph、并查集、多样性子集、重访池，见
  * `@pictoria/db` 的 sampling.ts）再把抽出来的 id / 对写成一个队列。
  */
-import { createRoute, OpenAPIHono, z } from '@hono/zod-openapi'
+import { createRoute, z } from '@hono/zod-openapi'
 import {
   createAbsoluteQueue,
   createListwiseQueue,
@@ -19,8 +19,8 @@ import {
   samplePairs,
   samplePostIds,
 } from '@pictoria/db'
-import { getDb } from '../db.js'
-import { CREATED, OK, errors, fail, zodErrorHook } from '../openapi.js'
+import { newRoutes } from '../env.js'
+import { CREATED, OK, errors, fail } from '../openapi.js'
 import {
   QueueItemPostPublic,
   toQueuePost,
@@ -90,7 +90,7 @@ const ListwiseQueueItemPublic = z
   .object({ position: z.int(), posts: z.array(QueueItemPostPublic) })
   .openapi('ListwiseQueueItemPublic')
 
-export const annotationQueuesRoutes = new OpenAPIHono({ defaultHook: zodErrorHook })
+export const annotationQueuesRoutes = newRoutes()
 
 annotationQueuesRoutes.openapi(
   createRoute({
@@ -107,7 +107,7 @@ annotationQueuesRoutes.openapi(
   }),
   (c) => {
     const d = c.req.valid('json')
-    const id = createAbsoluteQueue(getDb().sqlite, {
+    const id = createAbsoluteQueue(c.var.db, {
       name: d.name,
       dimensions: d.dimensions,
       scale: d.scale,
@@ -132,7 +132,7 @@ annotationQueuesRoutes.openapi(
   }),
   (c) => {
     const d = c.req.valid('json')
-    const id = createPairwiseQueue(getDb().sqlite, {
+    const id = createPairwiseQueue(c.var.db, {
       name: d.name,
       dimensions: d.dimensions,
       pairs: d.pairs as Array<[number, number]>,
@@ -156,7 +156,7 @@ annotationQueuesRoutes.openapi(
   }),
   (c) => {
     const d = c.req.valid('json')
-    const id = createListwiseQueue(getDb().sqlite, {
+    const id = createListwiseQueue(c.var.db, {
       name: d.name,
       dimensions: d.dimensions,
       groups: d.groups,
@@ -178,7 +178,7 @@ annotationQueuesRoutes.openapi(
   }),
   c => c.json(
     // dimensions / scale / strategy 在写入时都经过了 enum 校验，读回来只需断言。
-    listQueues(getDb().sqlite).map(({ queue, total, done }): QueueSummary => ({
+    listQueues(c.var.db).map(({ queue, total, done }): QueueSummary => ({
       id: queue.id,
       name: queue.name,
       kind: queue.kind,
@@ -217,7 +217,7 @@ annotationQueuesRoutes.openapi(
     const { queue_id: queueId } = c.req.valid('param')
     const { limit } = c.req.valid('query')
     return c.json(
-      nextAbsoluteItems(getDb().sqlite, queueId, limit).map(r => ({
+      nextAbsoluteItems(c.var.db, queueId, limit).map(r => ({
         position: r.position,
         post: toQueuePost(r),
       })),
@@ -246,7 +246,7 @@ annotationQueuesRoutes.openapi(
     const { queue_id: queueId } = c.req.valid('param')
     const { limit } = c.req.valid('query')
     return c.json(
-      nextPairwiseItems(getDb().sqlite, queueId, limit).map(r => ({
+      nextPairwiseItems(c.var.db, queueId, limit).map(r => ({
         position: r.position,
         postA: toQueuePost(r, 'a_'),
         postB: toQueuePost(r, 'b_'),
@@ -275,7 +275,7 @@ annotationQueuesRoutes.openapi(
   (c) => {
     const { queue_id: queueId } = c.req.valid('param')
     const { limit } = c.req.valid('query')
-    const { sqlite } = getDb()
+    const sqlite = c.var.db
     const items = nextListwiseItems(sqlite, queueId, limit)
     // 一次取齐所有成员的图片行；已删除的图从组里静默消失，剩下的仍然可排。
     const posts = postsById(sqlite, items.flatMap(i => i.post_ids))
@@ -332,7 +332,7 @@ annotationQueuesRoutes.openapi(
   }),
   (c) => {
     const d = c.req.valid('json')
-    const { sqlite } = getDb()
+    const sqlite = c.var.db
     const postIds = samplePostIds(sqlite, { count: d.count, strategy: d.strategy, dimensions: d.dimensions })
     if (!postIds.length)
       return noCandidates('no eligible candidates (need posts with embeddings, not yet annotated or queued)')
@@ -365,7 +365,7 @@ annotationQueuesRoutes.openapi(
   }),
   (c) => {
     const d = c.req.valid('json')
-    const { sqlite } = getDb()
+    const sqlite = c.var.db
     const pairs = samplePairs(sqlite, { count: d.count, strategy: d.strategy, dimension: d.dimension })
     if (!pairs.length)
       return noCandidates('no eligible candidates (need posts with embeddings, not already queued)')
@@ -399,7 +399,7 @@ annotationQueuesRoutes.openapi(
   }),
   (c) => {
     const d = c.req.valid('json')
-    const { sqlite } = getDb()
+    const sqlite = c.var.db
     const groups = sampleGroups(sqlite, { count: d.count, size: d.size, dimension: d.dimension })
     if (!groups.length)
       return noCandidates('no eligible candidates (need silva-scored posts with an absolute score and embeddings)')

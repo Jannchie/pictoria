@@ -4,7 +4,7 @@
 import type { Context } from 'hono'
 import { z } from '@hono/zod-openapi'
 import { getDetail } from '@pictoria/db'
-import { getDb } from '../db.js'
+import type { AppEnv } from '../env.js'
 import { postNotFound } from '../openapi.js'
 import { toPostDetail } from '../schemas.js'
 import { translateTag } from '../tag-i18n.js'
@@ -17,8 +17,8 @@ export const postIdParam = z.coerce.number().int()
  * 写完 / 算完之后回读整个详情 —— 命令端点和写端点成功时一律返回最新的
  * `PostDetailPublic`。行在写和读之间被删掉就是 404。
  */
-export function postDetailResponse(c: Context<any, any, any>, postId: number, lang?: string) {
-  const detail = getDetail(getDb().sqlite, postId, n => translateTag(n, lang))
+export function postDetailResponse(c: Context<AppEnv, any, any>, postId: number, lang?: string) {
+  const detail = getDetail(c.var.db, postId, n => translateTag(n, lang))
   if (!detail)
     return postNotFound(postId)
   return c.json(toPostDetail(detail), 200)

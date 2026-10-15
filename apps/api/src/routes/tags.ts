@@ -1,10 +1,10 @@
 /**
  * `/v2/tags` 的读端点（list / tree / groups）；写端点在 `tag-writes.ts`。
  */
-import { createRoute, OpenAPIHono, z } from '@hono/zod-openapi'
+import { createRoute, z } from '@hono/zod-openapi'
 import { listTagGroups, listTagsWithCounts } from '@pictoria/db'
-import { getDb } from '../db.js'
-import { OK, errors, zodErrorHook } from '../openapi.js'
+import { newRoutes } from '../env.js'
+import { OK, errors } from '../openapi.js'
 import { TagGroupPublic } from '../schemas.js'
 import { translateTag } from '../tag-i18n.js'
 import { tagTree } from '../tag-tree.js'
@@ -18,7 +18,7 @@ const TagWithCountPublic = z
   })
   .openapi('TagWithCountPublic')
 
-export const tagsRoutes = new OpenAPIHono({ defaultHook: zodErrorHook })
+export const tagsRoutes = newRoutes()
 
 tagsRoutes.openapi(
   createRoute({
@@ -49,7 +49,7 @@ tagsRoutes.openapi(
   }),
   (c) => {
     const { prev, limit, lang } = c.req.valid('query')
-    const rows = listTagsWithCounts(getDb().sqlite, { prev, limit })
+    const rows = listTagsWithCounts(c.var.db, { prev, limit })
     return c.json(
       rows.map(r => ({
         name: r.name,
@@ -110,5 +110,5 @@ tagsRoutes.openapi(
       200: { description: OK, content: { 'application/json': { schema: z.array(TagGroupPublic) } } },
     },
   }),
-  c => c.json(listTagGroups(getDb().sqlite)),
+  c => c.json(listTagGroups(c.var.db)),
 )

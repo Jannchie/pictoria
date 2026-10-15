@@ -23,9 +23,12 @@ export function getDb() {
  * 查询上，离原因很远。
  *
  * ⚠️ 刻意**不**放在 `getDb()` 里。放进去的话它就变成"谁先碰库谁触发 DDL"：
- * `PICTORIA_SCHEDULER=0` 时启动路径根本不碰库，迁移会落到第一个请求里；更糟的是
- * `routes/statistics.test.ts` 经 `getDb()` 连的是**生产库**，于是 `pnpm test` 会对
- * 22 万行的真实库执行 DDL。schema 变更必须是一个有人明确发起的启动步骤。
+ * `PICTORIA_SCHEDULER=0` 时启动路径根本不碰库，迁移会落到第一个请求里；任何顺手
+ * `getDb()` 的脚本或测试都会对 22 万行的真实库执行 DDL。schema 变更必须是一个有人
+ * 明确发起的启动步骤。
+ *
+ * 路由不调 `getDb()`：`index.ts` 把它的结果交给 `createApp({ db })`，路由经
+ * `c.var.db` 拿（`env.ts`）。测试用 `createTestDb()` 的内存库，不碰这个单例。
  *
  * 幂等，已应用的版本记在 `_schema_versions`。
  */

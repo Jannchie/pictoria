@@ -12,20 +12,19 @@
  *    sharp 意味着新旧两批字节不同；交给 worker 的 io 队列既守住 §D1，也让
  *    basics worker 之后能复用同一段。
  */
-import { createRoute, OpenAPIHono, z } from '@hono/zod-openapi'
+import { createRoute, z } from '@hono/zod-openapi'
 import { IO_QUEUE, thumbnailTask } from '@pictoria/contracts'
 import { getPostPath } from '@pictoria/db'
 import fs from 'node:fs'
 import path from 'node:path'
 import { Readable } from 'node:stream'
-import { getDb } from '../db.js'
+import { newRoutes, type TaskSource } from '../env.js'
 import { postIdParam } from './post-shared.js'
-import { errors, fail, zodErrorHook } from '../openapi.js'
+import { errors, fail } from '../openapi.js'
 import { presignGetObject } from '../s3.js'
 import { postAbsPath, resolveInside, targetDir, thumbnailPathFor, thumbnailsDir } from '../paths.js'
-import { getTasks } from '../tasks.js'
 
-export const imagesRoutes = new OpenAPIHono({ defaultHook: zodErrorHook })
+export const imagesRoutes = newRoutes()
 
 /**
  * 前端的图片 URL 用 `?hash=<sha256>` 做内容寻址，所以一个 URL 永远对应同一串字节。
@@ -110,11 +109,10 @@ function fileResponse(absPath: string): Response {
  * 0 字节或损坏的原图会让 PIL 抛 `UnidentifiedImageError`（截断文件则是 `OSError`）。
  * 那是**数据**问题不是服务故障，所以翻译成 404 而不是让它冒成 500。
  */
-async function ensureThumbnail(originalPath: string, thumbPath: string): Promise<Response | null> {
+async function ensureThumbnail(tasks: TaskSource, originalPath: string, thumbPath: string): Promise<Response | null> {
   if (fs.existsSync(thumbPath))
     return null
-  const tasks = await getTasks()
-  const result = await tasks.call(thumbnailTask, {
+  const result = await (await tasks.get()).call(thumbnailTask, {
     originalPath,
     thumbnailPath: thumbPath,
   }, {
@@ -169,7 +167,7 @@ imagesRoutes.openapi(
   }),
   async (c) => {
     const { post_id: postId } = c.req.valid('param')
-    const post = getPostPath(getDb().sqlite, postId)
+    const post = getPostPath(c.var.db, postId)
     if (!post)
       return notFound(`Post with id ${postId} not found`)
 
@@ -208,7 +206,7 @@ imagesRoutes.openapi(
   }),
   async (c) => {
     const { post_id: postId } = c.req.valid('param')
-    const post = getPostPath(getDb().sqlite, postId)
+    const post = getPostPath(c.var.db, postId)
     if (!post)
       return notFound(`Post with id ${postId} not found`)
 
@@ -217,7 +215,7 @@ imagesRoutes.openapi(
       return notFound(`Original image for post ${postId} not found`)
 
     const thumbPath = thumbnailPathFor(post.fullPath)
-    const failed = await ensureThumbnail(originalPath, thumbPath)
+    const failed = await ensureThumbnail(c.var.tasks, originalPath, thumbPath)
     return failed ?? fileResponse(thumbPath)
   },
 )
@@ -285,6 +283,6 @@ imagesRoutes.openapi({ ...thumbnailByPathRoute, path: '/v2/images/thumbnails/{po
   if (!fs.existsSync(originalPath))
     return notFound('Original image not found')
 
-  const failed = await ensureThumbnail(originalPath, thumbPath)
+  const failed = await ensureThumbnail(c.var.tasks, originalPath, thumbPath)
   return failed ?? fileResponse(thumbPath)
 })
