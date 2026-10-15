@@ -41,9 +41,6 @@ import {
 
 const here = path.dirname(fileURLToPath(import.meta.url))
 
-/** backfill 的那种落库：被遮住的当场拉黑。 */
-const BL = { onShadowed: 'blacklist' } as const
-
 
 let sqlite: Database.Database
 let tmpDir: string
@@ -343,7 +340,7 @@ describe('tagger 落库', () => {
     const g = groups()
     persistTaggerResults(sqlite, [
       taggerRow(1, { general: ['1girl'], character: ['hatsune_miku'] }, 'general'),
-    ], g, MODEL, BL)
+    ], g, MODEL)
 
     const rows = sqlite
       .prepare<[], { name: string, group_id: number }>('SELECT name, group_id FROM tags ORDER BY name')
@@ -359,7 +356,7 @@ describe('tagger 落库', () => {
     const g = groups()
     // 手工把 1girl 归进 artist 组（人为的，但足以说明规则）
     sqlite.prepare('INSERT INTO tags(name, group_id) VALUES (?, ?)').run('1girl', g.artist)
-    persistTaggerResults(sqlite, [taggerRow(1, { general: ['1girl'] })], g, MODEL, BL)
+    persistTaggerResults(sqlite, [taggerRow(1, { general: ['1girl'] })], g, MODEL)
 
     const row = sqlite.prepare<[], { group_id: number }>("SELECT group_id FROM tags WHERE name = '1girl'").get()!
     expect(row.group_id).toBe(g.artist)
@@ -373,7 +370,7 @@ describe('tagger 落库', () => {
     persistTaggerResults(sqlite, [
       taggerRow(1, { general: ['a'] }, 'sensitive'),
       taggerRow(2, { general: ['a'] }, 'general'),
-    ], g, MODEL, BL)
+    ], g, MODEL)
 
     const rows = sqlite.prepare<[], { id: number, rating: number }>('SELECT id, rating FROM posts ORDER BY id').all()
     // 1 从未评级 → 写入 2；2 是人工评的 4 → 不动
@@ -382,7 +379,7 @@ describe('tagger 落库', () => {
 
   it('rating 字符串认不出来时不写', () => {
     insertPost(1)
-    persistTaggerResults(sqlite, [taggerRow(1, { general: ['a'] })], groups(), MODEL, BL)
+    persistTaggerResults(sqlite, [taggerRow(1, { general: ['a'] })], groups(), MODEL)
     expect(sqlite.prepare<[], { rating: number }>('SELECT rating FROM posts WHERE id = 1').get()!.rating).toBe(0)
     expect(ratingToInt('bogus')).toBe(0)
   })
@@ -395,12 +392,12 @@ describe('tagger 落库', () => {
     sqlite.prepare('INSERT INTO tags(name) VALUES (?)').run('1girl')
     sqlite.prepare("INSERT INTO post_has_tag(post_id, tag_name, is_auto) VALUES (1, '1girl', 0)").run()
 
-    // 'repend'（单张重打标的落法）：不拉黑，于是它还留在待办里，下面那句才看得见。
+    // 拉黑是调用方的事（backfill 的 runBatch），这里不拉黑，于是它还留在待办里，下面那句才看得见。
     const shadowed = persistTaggerResults(sqlite, [
       taggerRow(1, { general: ['1girl'] }),
       taggerRow(2, { general: ['1girl'] }),
-    ], g, MODEL, { onShadowed: 'repend' })
-    expect(shadowed).toEqual([1])
+    ], g, MODEL)
+    expect(shadowed.map(f => f.postId)).toEqual([1])
     // post 2 正常拿到自动标签，只剩 1 还在待办里 —— 它被盖了章（所以第一条待办不选它）
     // 但一行 is_auto 都没有（所以第二条选它）。两条待办的分工就在这一句里。
     expect(listTaggerPending(sqlite, MODEL).map(p => p.postId)).toEqual([1])
@@ -413,7 +410,7 @@ describe('tagger 落库', () => {
     // 只有手工标签 → 仍然是待办
     expect(listTaggerPending(sqlite, MODEL).map(p => p.postId)).toEqual([1])
 
-    persistTaggerResults(sqlite, [taggerRow(1, { general: ['auto'] })], groups(), MODEL, BL)
+    persistTaggerResults(sqlite, [taggerRow(1, { general: ['auto'] })], groups(), MODEL)
     expect(listTaggerPending(sqlite, MODEL)).toEqual([])
   })
 
@@ -423,7 +420,7 @@ describe('tagger 落库', () => {
     persistTaggerResults(sqlite, [
       taggerRow(1, { general: ['shared', 'a'] }),
       taggerRow(2, { general: ['shared', 'b'] }),
-    ], groups(), MODEL, BL)
+    ], groups(), MODEL)
     expect(sqlite.prepare<[], { n: number }>('SELECT COUNT(*) AS n FROM tags').get()!.n).toBe(3)
     expect(sqlite.prepare<[], { n: number }>('SELECT COUNT(*) AS n FROM post_has_tag').get()!.n).toBe(4)
   })
@@ -437,7 +434,7 @@ describe('tagger 落库', () => {
       copyright: ['vocaloid'],
       style: ['some_artist'],
       meta: ['highres'],
-    })], g, MODEL, BL)
+    })], g, MODEL)
 
     const rows = sqlite
       .prepare<[], { name: string, group_id: number }>('SELECT name, group_id FROM tags ORDER BY name')
@@ -455,8 +452,8 @@ describe('tagger 落库', () => {
   it('重打是替换而不是并集：旧的自动标签被删掉', () => {
     insertPost(1)
     const g = groups()
-    persistTaggerResults(sqlite, [taggerRow(1, { general: ['old_tag', 'kept_tag'] })], g, 'old-model', BL)
-    persistTaggerResults(sqlite, [taggerRow(1, { general: ['kept_tag', 'new_tag'] })], g, MODEL, BL)
+    persistTaggerResults(sqlite, [taggerRow(1, { general: ['old_tag', 'kept_tag'] })], g, 'old-model')
+    persistTaggerResults(sqlite, [taggerRow(1, { general: ['kept_tag', 'new_tag'] })], g, MODEL)
 
     const names = sqlite
       .prepare<[], { tag_name: string }>('SELECT tag_name FROM post_has_tag WHERE post_id = 1 ORDER BY tag_name')
@@ -473,8 +470,8 @@ describe('tagger 落库', () => {
     const g = groups()
     sqlite.prepare('INSERT INTO tags(name) VALUES (?)').run('by_hand')
     sqlite.prepare("INSERT INTO post_has_tag(post_id, tag_name, is_auto) VALUES (1, 'by_hand', 0)").run()
-    persistTaggerResults(sqlite, [taggerRow(1, { general: ['auto'] })], g, MODEL, BL)
-    persistTaggerResults(sqlite, [taggerRow(1, { general: ['auto2'] })], g, MODEL, BL)
+    persistTaggerResults(sqlite, [taggerRow(1, { general: ['auto'] })], g, MODEL)
+    persistTaggerResults(sqlite, [taggerRow(1, { general: ['auto2'] })], g, MODEL)
 
     const rows = sqlite
       .prepare<[], { tag_name: string, is_auto: number }>(
@@ -490,7 +487,7 @@ describe('tagger 落库', () => {
     insertPost(1)
     insertPost(2)
     const g = groups()
-    persistTaggerResults(sqlite, [taggerRow(1, { general: ['a'] })], g, 'old-model', BL)
+    persistTaggerResults(sqlite, [taggerRow(1, { general: ['a'] })], g, 'old-model')
     // post 2 模拟存量行：有自动标签，但 tagger 是 NULL
     sqlite.prepare('INSERT INTO tags(name) VALUES (?) ON CONFLICT DO NOTHING').run('a')
     sqlite.prepare("INSERT INTO post_has_tag(post_id, tag_name, is_auto) VALUES (2, 'a', 1)").run()
@@ -498,7 +495,7 @@ describe('tagger 落库', () => {
     expect(listTaggerPending(sqlite, MODEL, undefined, { force: true }).map(p => p.postId))
       .toEqual([1, 2])
     // 换成当前模型之后就都不是待办了
-    persistTaggerResults(sqlite, [taggerRow(1, { general: ['a'] }), taggerRow(2, { general: ['a'] })], g, MODEL, BL)
+    persistTaggerResults(sqlite, [taggerRow(1, { general: ['a'] }), taggerRow(2, { general: ['a'] })], g, MODEL)
     expect(listTaggerPending(sqlite, MODEL, undefined, { force: true })).toEqual([])
   })
 
@@ -506,7 +503,7 @@ describe('tagger 落库', () => {
     insertPost(1)
     sqlite.prepare('INSERT INTO tags(name) VALUES (?)').run('1girl')
     sqlite.prepare("INSERT INTO post_has_tag(post_id, tag_name, is_auto) VALUES (1, '1girl', 0)").run()
-    persistTaggerResults(sqlite, [taggerRow(1, { general: ['1girl'] })], groups(), MODEL, BL)
+    persistTaggerResults(sqlite, [taggerRow(1, { general: ['1girl'] })], groups(), MODEL)
     expect(sqlite.prepare<[], { tagger: string | null }>('SELECT tagger FROM posts WHERE id = 1').get())
       .toEqual({ tagger: MODEL })
   })
@@ -516,11 +513,11 @@ describe('tagger 落库', () => {
     const g = groups()
     expect(() => persistTaggerResults(sqlite, [
       { postId: 1, tags: { future: ['x'] } as unknown as TaggerCategories, rating: '' },
-    ], g, MODEL, BL)).toThrow(/unknown tag category/)
+    ], g, MODEL)).toThrow(/unknown tag category/)
   })
 
   it('空列表是空操作', () => {
-    expect(persistTaggerResults(sqlite, [], groups(), MODEL, BL)).toEqual([])
+    expect(persistTaggerResults(sqlite, [], groups(), MODEL)).toEqual([])
   })
 })
 
@@ -798,7 +795,7 @@ describe('结果回来时 post 已被删除', () => {
     const shadowed = persistTaggerResults(sqlite, [
       taggerRow(999, { general: ['only_on_dead'] }),
       taggerRow(1, { general: ['1girl'] }),
-    ], ensureCanonicalTagGroups(sqlite), MODEL, BL)
+    ], ensureCanonicalTagGroups(sqlite), MODEL)
     expect(shadowed).toEqual([])
     expect(sqlite.prepare('SELECT post_id, tag_name FROM post_has_tag').all()).toEqual([{ post_id: 1, tag_name: '1girl' }])
     expect(sqlite.prepare('SELECT name FROM tags WHERE name = ?').get('only_on_dead')).toBeUndefined()

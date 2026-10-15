@@ -5,7 +5,7 @@ import fs from 'node:fs'
 import path from 'node:path'
 import { createRoute, z } from '@hono/zod-openapi'
 import { addAgg, emptyAgg, folderScoreAggregates, listIdsInFolder, SCORERS, type AestheticScorer, type AestheticScorerKey, type FolderScoreAgg } from '@pictoria/db'
-import { newRoutes } from '../env.js'
+import { newRoutes, openapiCatchAll } from '../env.js'
 import { isInside, pictoriaDir, targetDir, thumbnailPathFor } from '../paths.js'
 import { deletePostFiles } from '../post-files.js'
 import { OK, errors, fail } from '../openapi.js'
@@ -254,14 +254,7 @@ foldersRoutes.openapi(
  * 剩下的树（非图片文件、空目录）再从磁盘上删掉。磁盘那一步部分失败也不要紧 ——
  * 下一次 sync 会把幸存下来的重新导入，两种情况下都不会留下孤儿 DB 行。
  *
- * 路由用 `:folder_path{.+}` 而不是 `createRoute` 生成的 `:folder_path` —— 目录名
- * 里有斜杠，普通参数不吃斜杠（和 images 那两条同一个理由）。
- *
- * 路由定义只有 `deleteFolderRoute` 一份：OpenAPI 文档登记它本身（路径
- * `{folder_path}`），Hono 挂载的是同一个对象换了路径、`hide: true` 的副本 ——
- * `@hono/zod-openapi` 把 `{x}` 懒惰地换成 `:x`，于是 `{folder_path{.+}}` 落成
- * `:folder_path{.+}`。这样 handler 的入参校验和返回类型仍然挂在这份定义上，而不是
- * 像 `registerPath` + 普通 handler 那样两边各写各的。
+ * 目录名里有斜杠，所以经 `openapiCatchAll`（`env.ts`）挂载。
  */
 const deleteFolderRoute = createRoute({
   method: 'delete',
@@ -281,9 +274,7 @@ const deleteFolderRoute = createRoute({
   },
 })
 
-foldersRoutes.openAPIRegistry.registerPath(deleteFolderRoute)
-
-foldersRoutes.openapi({ ...deleteFolderRoute, path: '/v2/folders/{folder_path{.+}}', hide: true }, (c) => {
+openapiCatchAll(foldersRoutes, deleteFolderRoute, (c) => {
   const folder = c.req.valid('param').folder_path.replace(/^\/+|\/+$/g, '')
   const base = targetDir()
   const target = path.resolve(base, folder)

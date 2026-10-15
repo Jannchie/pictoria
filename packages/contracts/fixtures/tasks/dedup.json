@@ -1,5 +1,4 @@
 {
-  "name": "dedup",
   "queue": "gpu",
   "payload": {
     "matrixPath": "/library/.pictoria/dedup-0.f32",

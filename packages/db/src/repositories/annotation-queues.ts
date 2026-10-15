@@ -6,6 +6,7 @@
  */
 import type BetterSqlite3 from 'better-sqlite3'
 import type { MutableKind, QueueItemPost } from './annotations.js'
+import { aliasedPostCols, ITEM_TABLES } from './annotations.js'
 
 /** 图片列加前缀：一行里带两张图的查询（pairwise 的 `a_` / `b_`）用。 */
 export type PrefixedPost<P extends string> = { [K in keyof QueueItemPost as `${P}${K}`]: QueueItemPost[K] }
@@ -14,24 +15,6 @@ export type AbsoluteQueueItemRow = { position: number } & QueueItemPost
 export type PairwiseQueueItemRow = { position: number } & PrefixedPost<'a_'> & PrefixedPost<'b_'>
 
 export const QUEUE_COLUMNS = 'id, name, kind, dimensions, scale, created_at, strategy'
-
-/** 队列项表 —— 代码级白名单，值会进 SQL。 */
-const ITEM_TABLES: Record<string, string> = {
-  absolute: 'absolute_queue_items',
-  pairwise: 'pairwise_queue_items',
-  listwise: 'listwise_queue_items',
-}
-
-/** timeline / 队列取件共用的七个图片列。 */
-const POST_COLS = ['id', 'file_path', 'file_name', 'extension', 'sha256', 'width', 'height'] as const
-
-/** `pa.id AS a_post_id, pa.file_path AS a_file_path, …` */
-function aliasedPostCols(tableAlias: string, outPrefix: string): string {
-  return [
-    `${tableAlias}.id AS ${outPrefix}post_id`,
-    ...POST_COLS.slice(1).map(c => `${tableAlias}.${c} AS ${outPrefix}${c}`),
-  ].join(', ')
-}
 
 export interface AnnotationQueueRow {
   id: number
@@ -140,7 +123,7 @@ export function nextAbsoluteItems(
 ): AbsoluteQueueItemRow[] {
   return sqlite
     .prepare<[number, number], AbsoluteQueueItemRow>(
-      'SELECT i.position, p.id AS post_id, p.file_path, p.file_name, p.extension, p.sha256, p.width, p.height '
+      `SELECT i.position, ${aliasedPostCols('p', '')} `
       + 'FROM absolute_queue_items i JOIN posts p ON p.id = i.post_id '
       + 'WHERE i.queue_id = ? AND i.done = 0 ORDER BY i.position LIMIT ?',
     )

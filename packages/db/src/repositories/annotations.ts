@@ -81,15 +81,6 @@ export interface AbsoluteEventIn {
   elapsedMs?: number | null
 }
 
-export function insertAbsolute(sqlite: BetterSqlite3.Database, e: AbsoluteEventIn): number {
-  const { lastInsertRowid } = sqlite
-    .prepare(
-      'INSERT INTO absolute_annotations (post_id, dimension, scale, value, rubric_version, session_id, elapsed_ms) VALUES (?, ?, ?, ?, ?, ?, ?)',
-    )
-    .run(e.postId, e.dimension, e.scale, e.value, e.rubricVersion, e.sessionId, e.elapsedMs ?? null)
-  return Number(lastInsertRowid)
-}
-
 export interface PairwiseEventIn {
   postA: number
   postB: number
@@ -181,8 +172,13 @@ export function recordAbsolute(
   sqlite: BetterSqlite3.Database,
   { events, ...queue }: { events: AbsoluteEventIn[] } & QueueRef,
 ): number[] {
+  const insert = sqlite.prepare(
+    'INSERT INTO absolute_annotations (post_id, dimension, scale, value, rubric_version, session_id, elapsed_ms) VALUES (?, ?, ?, ?, ?, ?, ?)',
+  )
   return sqlite.transaction(() => {
-    const ids = events.map(e => insertAbsolute(sqlite, e))
+    const ids = events.map(e => Number(
+      insert.run(e.postId, e.dimension, e.scale, e.value, e.rubricVersion, e.sessionId, e.elapsedMs ?? null).lastInsertRowid,
+    ))
     advanceQueue(sqlite, queue, 'absolute', true)
     return ids
   })()
@@ -505,8 +501,8 @@ export function countPairwise(
   return { total: decisive + tie, decisive, tie, skip: by.get('skip') ?? 0 }
 }
 
-/** 队列项表 —— 与 `_ITEM_TABLES` 对应，同样是代码级白名单（值会进 SQL）。 */
-const ITEM_TABLES: Record<string, string> = {
+/** 队列项表 —— 代码级白名单，值会进 SQL。`annotation-queues.ts` 也用它。 */
+export const ITEM_TABLES: Record<string, string> = {
   absolute: 'absolute_queue_items',
   pairwise: 'pairwise_queue_items',
   listwise: 'listwise_queue_items',
@@ -528,8 +524,16 @@ export function markQueueItemDone(
   )
 }
 
-/** timeline / 采样都要的那七个图片列。 */
+/** timeline / 采样 / 队列取件共用的七个图片列。 */
 const POST_COLS = ['id', 'file_path', 'file_name', 'extension', 'sha256', 'width', 'height'] as const
+
+/** `pa.id AS a_post_id, pa.file_path AS a_file_path, …` —— 一行 `QueueItemPost`（可带前缀）。 */
+export function aliasedPostCols(tableAlias: string, outPrefix: string): string {
+  return [
+    `${tableAlias}.id AS ${outPrefix}post_id`,
+    ...POST_COLS.slice(1).map(c => `${tableAlias}.${c} AS ${outPrefix}${c}`),
+  ].join(', ')
+}
 
 export interface QueueItemPost {
   post_id: number
@@ -555,10 +559,9 @@ export function postsById(
   const out = new Map<number, QueueItemPost>()
   if (!unique.length)
     return out
-  const cols = ['p.id AS post_id', ...POST_COLS.slice(1).map(c => `p.${c} AS ${c}`)].join(', ')
   for (const row of sqlite
     .prepare<unknown[], QueueItemPost>(
-      `SELECT ${cols} FROM posts p WHERE p.id IN (${placeholders(unique.length)})`,
+      `SELECT ${aliasedPostCols('p', '')} FROM posts p WHERE p.id IN (${placeholders(unique.length)})`,
     )
     .all(...unique))
     out.set(row.post_id, row)

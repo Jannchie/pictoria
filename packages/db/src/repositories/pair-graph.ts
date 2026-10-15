@@ -130,26 +130,21 @@ export function connectedBlocks(edges: Array<[number, number]>, score: number): 
  * 一轮采样的边簿记：什么已经问过，以及每张图被用了几次。
  *
  * 它存在是为了让配对那几趟和搭桥那一趟共享同一个"已花费"的概念，而不是各自拎着 `out` /
- * `emitted` / `degrees` / `cap` 这些散参数。`saturated` 是增量维护的，不是每个种子从
- * `degrees` 重算一遍。
+ * `emitted` / `degrees` / `cap` 这些散参数。
  */
 export class PairGraph {
   readonly degrees = new Map<number, number>()
   readonly emitted = new Set<string>()
-  readonly saturated = new Set<number>()
   /** 每张图的决定性战绩，用来找出评分还无界的那些。 */
   readonly wins = new Map<number, number>()
   readonly losses = new Map<number, number>()
-  /**
-   * `emitted` 从历史载入后的最大连通分量 —— 也就是值得生长的那部分图，因为排序只能在
-   * 一个分量内部推出来。**故意不被** `claim` 更新：它描述的是已经收集到的东西，而那正是
-   * 下一批要挂靠的对象。
-   */
-  component = new Set<number>()
-
   constructor(readonly degree: number) {}
 
-  /** `emitted` 的最大连通分量的成员。 */
+  /**
+   * `emitted` 的最大连通分量的成员 —— 值得生长的那部分图，因为排序只能在一个分量内部推出来。
+   * 调用方在历史载入后、`claim` 之前取一次快照：它描述的是已经收集到的东西，而那正是下一批
+   * 要挂靠的对象。
+   */
   mainComponent(): Set<number> {
     const edges = [...this.emitted].map((key) => {
       const [a, b] = key.split(':')
@@ -170,11 +165,18 @@ export class PairGraph {
     return this.degreeOf(pid) >= this.degree
   }
 
-  /** 度数 +1，够了就进 `saturated`。 */
+  /** 此刻度数已达上限的图片 —— 一份快照，之后的 `claim` 不会改它。 */
+  saturated(): Set<number> {
+    const out = new Set<number>()
+    for (const [pid, d] of this.degrees) {
+      if (d >= this.degree)
+        out.add(pid)
+    }
+    return out
+  }
+
   bump(pid: number): void {
     this.degrees.set(pid, this.degreeOf(pid) + 1)
-    if (this.spent(pid))
-      this.saturated.add(pid)
   }
 
   /**

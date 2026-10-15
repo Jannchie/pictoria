@@ -14,7 +14,7 @@ let sqlite: Database.Database
 let cleanup: () => void
 
 beforeAll(() => {
-  const temp = createTempDb('listwise-expand')
+  const temp = createTempDb()
   sqlite = temp.sqlite
   cleanup = temp.cleanup
 })

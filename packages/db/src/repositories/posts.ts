@@ -5,6 +5,7 @@ import { placeholders } from '../sql.js'
 import type BetterSqlite3 from 'better-sqlite3'
 import { BULK_UPDATABLE_FIELDS, UPDATABLE_FIELDS } from '../filters.js'
 import { notifyRepending } from '../repending.js'
+import { BACKFILL_WORKERS } from '../workers.js'
 import { setUserVerdict } from './variant-edges.js'
 import { SIGLIP2_TABLE } from './vectors.js'
 
@@ -461,7 +462,7 @@ export function updateForRotate(
     )
     .run(v.sha256, v.size, v.width, v.height, v.arthash, postId)
   if (info.changes && (!v.arthash || !v.sha256))
-    notifyRepending(sqlite, 'basics')
+    notifyRepending(sqlite, 'basics', postId)
 }
 
 /**
@@ -476,7 +477,10 @@ export function createPost(
   const info = sqlite
     .prepare('INSERT INTO posts(file_path, file_name, extension, source) VALUES (?, ?, ?, ?)')
     .run(v.filePath, v.fileName, v.extension, v.source ?? '')
-  return Number(info.lastInsertRowid)
+  const id = Number(info.lastInsertRowid)
+  // 新行等 backfill 去填：叫醒空转的循环（见 `../repending.ts`）。
+  notifyRepending(sqlite, BACKFILL_WORKERS, id)
+  return id
 }
 
 /**
@@ -517,31 +521,39 @@ export function getPostPath(
 /** `(相对目录, 文件名主干, 扩展名)` —— posts 行在磁盘上的身份，sync 对账的键。 */
 export type PostTriple = [filePath: string, fileName: string, extension: string]
 
-/** 全库每一行的 id 和路径三元组。sync 对账拿它和磁盘求差。 */
-export function listPostTriples(
-  sqlite: BetterSqlite3.Database,
-): Array<{ id: number, filePath: string, fileName: string, extension: string }> {
+/** `listPostTriples` 的一行 —— 原样的列名，不做 camelCase 转换。 */
+export interface PostTripleRow {
+  id: number
+  file_path: string
+  file_name: string
+  extension: string
+}
+
+/**
+ * 全库每一行的 id 和路径三元组。sync 对账拿它和磁盘求差。
+ *
+ * 原样返回驱动给的行：全库十几万行，每次对账再逐行拷成 camelCase 对象纯属白分配。
+ */
+export function listPostTriples(sqlite: BetterSqlite3.Database): PostTripleRow[] {
   return sqlite
-    .prepare<[], { id: number, file_path: string, file_name: string, extension: string }>(
-      'SELECT id, file_path, file_name, extension FROM posts',
-    )
+    .prepare<[], PostTripleRow>('SELECT id, file_path, file_name, extension FROM posts')
     .all()
-    .map(r => ({ id: r.id, filePath: r.file_path, fileName: r.file_name, extension: r.extension }))
 }
 
 /**
  * 按路径三元组批量建行（一个事务），其余列吃 schema 默认值、等 backfill 去填。
  *
- * 新行的 id 在每条待办水位线**之上**，不需要 `notifyRepending` —— 调用方照常把空转的
- * 循环叫醒即可（`wakeAllBackfills`）。
+ * 新行的 id 在每条待办水位线**之上**，信号只是把空转的循环叫醒（见 `../repending.ts`）。
  */
 export function insertPostTriples(sqlite: BetterSqlite3.Database, triples: readonly PostTriple[]): void {
   if (!triples.length)
     return
   const ins = sqlite.prepare('INSERT INTO posts(file_path, file_name, extension) VALUES (?, ?, ?)')
-  sqlite.transaction(() => {
-    for (const t of triples) ins.run(t[0], t[1], t[2])
+  const firstId = sqlite.transaction(() => {
+    const ids = triples.map(t => Number(ins.run(t[0], t[1], t[2]).lastInsertRowid))
+    return ids[0]!
   })()
+  notifyRepending(sqlite, BACKFILL_WORKERS, firstId)
 }
 
 /** 一个目录（`posts.file_path` 精确相等，不含子目录）下已有的 `file_name`。 */

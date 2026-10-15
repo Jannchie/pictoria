@@ -1,5 +1,4 @@
 {
-  "name": "waifu",
   "queue": "gpu",
   "payload": {
     "items": [

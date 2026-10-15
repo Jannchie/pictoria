@@ -144,11 +144,11 @@ describe('PairGraph', () => {
     const g = new PairGraph(2)
     g.claim(1, 2)
     expect(g.spent(1)).toBe(false)
-    expect(g.saturated.has(1)).toBe(false)
+    expect(g.saturated().has(1)).toBe(false)
     g.claim(1, 3)
     expect(g.spent(1)).toBe(true)
-    expect(g.saturated.has(1)).toBe(true)
-    expect(g.saturated.has(2)).toBe(false)
+    expect(g.saturated().has(1)).toBe(true)
+    expect(g.saturated().has(2)).toBe(false)
   })
 
   it('unbounded：决定性判决不足两条是 0；全胜 +1、全败 -1、有胜有负 0', () => {

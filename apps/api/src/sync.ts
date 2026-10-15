@@ -4,8 +4,9 @@
  * 两步：
  *
  * 1. 走一遍磁盘，和库里的 `(file_path, file_name, extension)` 三元组求差；
- * 2. 少的删、多的建，然后叫醒各个 backfill 循环去填新行的空列 —— 活是 worker
- *    干的，不占着这个请求（这个端点本来就是 fire-and-forget）。
+ * 2. 少的删、多的建。建行的 `insertPostTriples` 自己叫醒各个 backfill 循环去填新行的
+ *    空列（`@pictoria/db` 的 `repending.ts`）—— 活是 worker 干的，不占着这个请求（这个
+ *    端点本来就是 fire-and-forget）。
  */
 import { insertPostTriples, listPostTriples, type PostTriple, type SqliteHandle } from '@pictoria/db'
 import fs from 'node:fs'
@@ -188,7 +189,7 @@ export async function syncMetadata(
   log.info(`[sync] 扫描 ${onDisk.length} 个文件，${((Date.now() - t0) / 1000).toFixed(2)}s`)
 
   const key = (t: FileTriple) => `${t[0]}\0${t[1]}\0${t[2]}`
-  const dbByKey = new Map(listPostTriples(sqlite).map(r => [key([r.filePath, r.fileName, r.extension]), r]))
+  const dbByKey = new Map(listPostTriples(sqlite).map(r => [key([r.file_path, r.file_name, r.extension]), r]))
   // 一趟走完 22.3 万个文件：key 只拼一次，两个产物同时出来。分成 `map` + `filter`
   // 会多留一个和 `onDisk` 靠下标对齐的平行数组 —— 以后谁给 `onDisk` 加一次
   // filter/sort 就会静默错位。
@@ -205,7 +206,7 @@ export async function syncMetadata(
   const deleted: Array<{ id: number, dir: string }> = []
   for (const [k, row] of dbByKey) {
     if (!diskKeys.has(k))
-      deleted.push({ id: row.id, dir: row.filePath })
+      deleted.push({ id: row.id, dir: row.file_path })
   }
 
   // 闸门一：读不动的目录按子树豁免。`'.'`（库根读不动）盖住一切。
@@ -285,7 +286,7 @@ let pendingRerun = false
  */
 export function startSync(
   sqlite: SqliteHandle,
-  onDone: (r: SyncResult) => void,
+  onDone?: (r: SyncResult) => void,
   { log = console, allowMassDelete = false }: { log?: Log, allowMassDelete?: boolean } = {},
 ): boolean {
   if (running) {
@@ -296,7 +297,8 @@ export function startSync(
   // fire-and-forget：请求立刻返回，扫描在后台跑。
   void (async () => {
     try {
-      onDone(await syncMetadata(sqlite, { log, allowMassDelete }))
+      const result = await syncMetadata(sqlite, { log, allowMassDelete })
+      onDone?.(result)
     }
     catch (err) {
       log.warn(`[sync] 失败：${String(err)}`)
@@ -333,7 +335,6 @@ export interface AutoSyncHandle {
 
 export function startAutoSync(
   sqlite: SqliteHandle,
-  onSynced: () => void,
   { log = console }: { log?: Log } = {},
 ): AutoSyncHandle {
   const root = targetDir()
@@ -345,7 +346,6 @@ export function startAutoSync(
         log.info(`[sync/${label}] 新增 ${r.added}，删除 ${r.removed}`)
       if (r.skippedDeletes)
         log.warn(`[sync/${label}] 有 ${r.skippedDeletes} 个删除判定被跳过`)
-      onSynced()
     }, { log })
   }
 

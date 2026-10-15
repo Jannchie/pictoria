@@ -13,6 +13,8 @@
  * 这个模块处在那个顺序的下游 —— 它收到的行，字节都已经在磁盘上了。
  */
 import type BetterSqlite3 from 'better-sqlite3'
+import { notifyRepending } from '../repending.js'
+import { BACKFILL_WORKERS } from '../workers.js'
 
 export interface NormalizedRow {
   filePath: string
@@ -86,6 +88,11 @@ export function persistPostsWithTags(
       for (const name of Object.keys(row.tags)) insLink.run(got.id, name)
     }
   })()
+  // 新行只有路径三元组和手工标签，其余列等 backfill 去填：叫醒空转的循环（见
+  // `../repending.ts`）。冲突那一支补的是已有行的 source / 手工标签，不制造待办，
+  // 带上它们的 id 只是让水位线多退一点。
+  if (ids.length)
+    notifyRepending(sqlite, BACKFILL_WORKERS, Math.min(...ids))
   return ids
 }
 

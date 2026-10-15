@@ -1,5 +1,4 @@
 {
-  "name": "caption",
   "queue": "io",
   "payload": {
     "imagePath": "/library/art/1.png"

@@ -46,10 +46,6 @@ import {
 } from './sampling-queries.js'
 import type { AnchoredMember, IdScoreRow } from './sampling-queries.js'
 
-// 这两个曾经定义在本文件里，sampling-*.test.ts 仍从这里拿。index.ts 直接指向新位置。
-export { flipPair } from './sampling-random.js'
-export { isRepeatMeasurement } from './sampling-queries.js'
-
 // ─── similar 策略的可调参数 ─────────────────────────────────────────
 //
 // 24 = floor(SIMILAR_KNN_K / 2)，也就是一个邻域被榨干。similar 严格不相交配对，所以
@@ -269,8 +265,6 @@ const CALIBRATION_GAP: readonly [number, number] = [0.15, 0.25]
 /** 有需求时占一批的比例。 */
 const CALIBRATION_SHARE = 0.2
 
-// CALIBRATION_MIN_DECISIVE 在 pair-graph.ts —— 只有 PairGraph.unbounded 用它。
-
 export class Sampler {
   constructor(private readonly sqlite: BetterSqlite3.Database) {}
 
@@ -488,7 +482,7 @@ export class Sampler {
     // 与 samplePairsClose 同一个「已花费」概念：这一批已经拿走的图，**加上**纵观全部历史
     // 已经达到度数的图。漏掉后半截的话，窗口候选这条路径就永远不让任何人退役 —— 重访席位
     // 那条路径修好了也没用，同一张图照样能作为普通成员被反复抽中。
-    const spent = new Set(graph.saturated)
+    const spent = graph.saturated()
     // 重测组的成员也算已花费：它们多半早已饱和（一次 listwise 就 +n−1 度），但"多半"
     // 不是保证，而同一批里让一张图既进重测组又进新组，两边都不干净。
     for (const g of repeats) for (const pid of g) spent.add(pid)
@@ -859,7 +853,6 @@ export class Sampler {
       for (const pid of JSON.parse(postIds) as number[])
         for (let i = 0; i < LISTWISE_APPEARANCE_DEGREE; i++) graph.bump(pid)
     }
-    graph.component = graph.mainComponent()
     return graph
   }
 
@@ -874,8 +867,8 @@ export class Sampler {
    * 优先取那个分量里比较次数最少的成员 —— 它们才是还需要边的，于是一次抽取既连通了这一批又
    * 加厚了图。候选切片有上界，因为它会变成绑定变量列表。
    */
-  private drawAnchors(graph: PairGraph, n: number): IdScoreRow[] {
-    const pool = [...graph.component].filter(pid => !graph.spent(pid))
+  private drawAnchors(graph: PairGraph, component: Set<number>, n: number): IdScoreRow[] {
+    const pool = [...component].filter(pid => !graph.spent(pid))
     if (!pool.length)
       return []
     const candidates = nSmallest(ANCHOR_CANDIDATES, pool, pid => graph.degreeOf(pid))
@@ -893,9 +886,9 @@ export class Sampler {
    * 这些边在结构上不花钱 —— 一个端点已经深在图里 —— 而且它们把这批拽出单一视觉口袋，因为搭档
    * 来自分数区间的另一部分而不是种子的邻域。
    */
-  private calibrationBlocks(graph: PairGraph, budget: number): Block[] {
+  private calibrationBlocks(graph: PairGraph, component: Set<number>, budget: number): Block[] {
     const needy: Array<[number, number]> = []
-    for (const pid of graph.component) {
+    for (const pid of component) {
       if (graph.spent(pid))
         continue
       const direction = graph.unbounded(pid)
@@ -944,13 +937,15 @@ export class Sampler {
    */
   private samplePairsClose(count: number, dimension = 'overall'): Array<[number, number]> {
     const graph = this.judgedGraph(dimension)
+    // 在任何 claim 之前取：锚点和定界都挂靠在**已经收集到的**主分量上（见 mainComponent）。
+    const component = graph.mainComponent()
     // 锚点自己不带边；它们存在只是为了让桥落在一张已经在图里的图片上。interleaveWithBridges
     // 里的排序会把每个锚点放在分数上离它最近的块旁边。
-    const blocks: Block[] = this.drawAnchors(graph, CLOSE_ANCHORS).map(a => [[], [a.id, a.score]] as Block)
-    blocks.push(...this.calibrationBlocks(graph, Math.max(1, Math.round(count * CALIBRATION_SHARE))))
+    const blocks: Block[] = this.drawAnchors(graph, component, CLOSE_ANCHORS).map(a => [[], [a.id, a.score]] as Block)
+    blocks.push(...this.calibrationBlocks(graph, component, Math.max(1, Math.round(count * CALIBRATION_SHARE))))
     // **这一批**的已花费：一个窗口不能再提供前一个窗口拿走的图片，也不能把预算花在一张纵观
     // 全部历史已经达到度数的图片上。
-    const spent = new Set(graph.saturated)
+    const spent = graph.saturated()
     const revisit = this.revisitPool(graph, dimension)
     const seeds = windowSeeds(this.sqlite, CLOSE_SEED_DRAW)
     let seedIdx = 0

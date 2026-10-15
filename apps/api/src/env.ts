@@ -9,6 +9,7 @@
  * 类型经 `OpenAPIHono<AppEnv>` 传进每个 handler 的 `c`：每个路由文件都用 `newRoutes()`
  * 建实例，忘了泛型的话 `c.var.db` 直接编译不过，而不是在运行期拿到 `undefined`。
  */
+import type { RouteConfig, RouteHandler } from '@hono/zod-openapi'
 import type { CairnQ } from 'cairnq'
 import type { SqliteHandle } from '@pictoria/db'
 import { OpenAPIHono } from '@hono/zod-openapi'
@@ -39,4 +40,25 @@ export interface AppEnv {
 /** 一个路由文件的实例：带上 `AppEnv`，挂上统一的 zod 错误翻译。 */
 export function newRoutes() {
   return new OpenAPIHono<AppEnv>({ defaultHook: zodErrorHook })
+}
+
+/**
+ * 挂一条**末段参数吃斜杠**的路由（`/v2/folders/{folder_path}`、`/v2/images/original/{post_path}`）。
+ *
+ * `@hono/zod-openapi` 把 `{x}` 转成 `:x`，而 Hono 的普通参数**不吃斜杠** ——
+ * `danbooru/wlop/x.jpg` 会匹配不上。做法是路由定义只有 `route` 一份：OpenAPI 文档登记
+ * 它本身（路径 `{x}`），Hono 挂载的是同一个对象换了路径、`hide: true` 的副本 —— `{x}`
+ * 被懒惰地换成 `:x`，于是 `{x{.+}}` 落成 `:x{.+}`。这样 handler 的入参校验和返回类型
+ * 仍然挂在这份定义上，而不是像 `registerPath` + 普通 handler 那样文档和路由两边各写各的。
+ */
+export function openapiCatchAll<R extends RouteConfig>(
+  routes: OpenAPIHono<AppEnv>,
+  route: R,
+  handler: RouteHandler<R, AppEnv>,
+): void {
+  const path = route.path.replace(/\{(\w+)\}$/, '{$1{.+}}')
+  if (path === route.path)
+    throw new Error(`openapiCatchAll: ${route.path} 不以路径参数结尾`)
+  routes.openAPIRegistry.registerPath(route)
+  routes.openapi({ ...route, path, hide: true }, handler as never)
 }

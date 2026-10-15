@@ -1,5 +1,4 @@
 {
-  "name": "embedding",
   "queue": "gpu",
   "payload": {
     "items": [

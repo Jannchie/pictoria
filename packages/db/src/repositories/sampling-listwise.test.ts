@@ -47,7 +47,7 @@ const IDS = Array.from({ length: 200 }, (_, i) => i + 1)
 const REVISITABLE = IDS.slice(0, 20)
 
 beforeAll(() => {
-  ({ sqlite, cleanup } = createTempDb('sampling-listwise'))
+  ({ sqlite, cleanup } = createTempDb())
   for (const id of IDS) eligiblePost(sqlite, id, 0.50 + (id % 5) * 0.001)
 })
 
@@ -183,8 +183,8 @@ it('资格过滤：重复图与排队中的图不会被抽到', () => {
 interface ScenarioPost { id: number, silva?: number, graded?: number, tags?: string[] }
 
 /** 只为一个用例存在的库。 */
-function withScenario(label: string, posts: ScenarioPost[], run: (db: import('better-sqlite3').Database) => void): void {
-  const { sqlite: db, cleanup: done } = createTempDb(`listwise-${label}`)
+function withScenario(posts: ScenarioPost[], run: (db: import('better-sqlite3').Database) => void): void {
+  const { sqlite: db, cleanup: done } = createTempDb()
   try {
     for (const p of posts)
       eligiblePost(db, p.id, p.silva ?? 0.50, { graded: p.graded ?? 3, tags: p.tags ?? [] })
@@ -223,7 +223,6 @@ it('形态优先级只由 FORMAT_TAGS 的数组序决定', () => {
 it('没有人工绝对分的图永远不入组', () => {
   // 它在 silva 的联合拟合里是个被丢弃的自由参数 —— 贡献严格为零，不是「弱」。
   withScenario(
-    'ungraded',
     Array.from({ length: 60 }, (_, i) => i + 1).map(id => ({ id, silva: 0.50 + (id % 5) * 0.001, graded: id % 2 === 1 ? 3 : 0 })),
     (db) => {
       const drafted = draftCounts(db)
@@ -236,7 +235,6 @@ it('没有人工绝对分的图永远不入组', () => {
 
 it('一组只排同一种形态', () => {
   withScenario(
-    'pure',
     Array.from({ length: 130 }, (_, i) => i + 1).map(id => ({
       id,
       silva: 0.50 + (id % 5) * 0.001,
@@ -256,7 +254,6 @@ it('重访席位也守形态 —— 否则六张里有两张能漏进来', () =>
   // CLOSE_REVISIT_MEMBERS = 2 是一组的三分之一。revisitSeeds 不收 admit 的话，
   // 「同形态」就只是普通席位的性质，重访那条路径照样把 comic 塞进 illust 组。
   withScenario(
-    'revisit-format',
     Array.from({ length: 130 }, (_, i) => i + 1).map(id => ({
       id,
       silva: 0.50 + (id % 5) * 0.001,
@@ -276,7 +273,6 @@ it('基带凑不齐人就放宽窗口到 LISTWISE_BAND_RELAXED', () => {
   // 8 张 comic：4 张在 0.500、4 张在 0.560。任何中心的 ±0.05 半带只罩得住其中 4 张，
   // 而 ±0.075 两拨都罩得住。
   withScenario(
-    'relax-band',
     Array.from({ length: 8 }, (_, i) => ({ id: i + 1, silva: i < 4 ? 0.500 : 0.560, tags: COMIC })),
     (db) => {
       const groups = sampleBatches(db, { count: 1 })
@@ -293,7 +289,6 @@ it('基带凑不齐人就放宽窗口到 LISTWISE_BAND_RELAXED', () => {
 it('形态池不够就缩组，缩到 LISTWISE_MIN_GROUP 以下就换种子', () => {
   const illust = Array.from({ length: 40 }, (_, i) => ({ id: i + 100, silva: 0.50 + (i % 5) * 0.001 }))
   withScenario(
-    'shrink-5',
     [...Array.from({ length: 5 }, (_, i) => ({ id: i + 1, silva: 0.50, tags: COMIC })), ...illust],
     (db) => {
       const comic = sampleBatches(db).filter(g => formatsOf(db, g).has('comic'))
@@ -302,7 +297,6 @@ it('形态池不够就缩组，缩到 LISTWISE_MIN_GROUP 以下就换种子', ()
     },
   )
   withScenario(
-    'shrink-3',
     [...Array.from({ length: 3 }, (_, i) => ({ id: i + 1, silva: 0.50, tags: COMIC })), ...illust],
     (db) => {
       expect(sampleBatches(db).some(g => formatsOf(db, g).has('comic')), '3 张也排了组').toBe(false)
@@ -312,7 +306,6 @@ it('形态池不够就缩组，缩到 LISTWISE_MIN_GROUP 以下就换种子', ()
 
 it('形态永远不放宽：小池子宁可不产组，也不混进别的形态', () => {
   withScenario(
-    'never-mix',
     [
       { id: 1, silva: 0.50, tags: COMIC },
       { id: 2, silva: 0.50, tags: COMIC },
@@ -330,7 +323,6 @@ it('形态永远不放宽：小池子宁可不产组，也不混进别的形态'
 it('全库都没有绝对分时交回空批，而不是抛', () => {
   // generate-listwise 那条 400（"no eligible candidates"）依赖这个返回值。
   withScenario(
-    'empty-pool',
     Array.from({ length: 20 }, (_, i) => ({ id: i + 1, silva: 0.50, graded: 0 })),
     (db) => {
       expect(new Sampler(db).sampleGroups({ count: 3, size: 6, dimension: 'overall', repeatShare: 0, seedMinStars: 1 })).toEqual([])

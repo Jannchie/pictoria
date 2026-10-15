@@ -7,28 +7,23 @@
  * 不变量：扫空返回 `null` 而不是 `{0, 0}`、拉黑策略按规格走（silva 不拉黑）、tagger 被
  * 遮住的计入 `failed`、`force` 真的清水位线、批次 key 和 conflict 的形状。
  */
-import fs from 'node:fs'
-import os from 'node:os'
 import path from 'node:path'
 import { TAGGER_MODEL } from '@pictoria/contracts'
 import {
   BACKFILL_WORKERS,
-  createDb,
+  createTestDb,
   failureKey,
-  MIGRATIONS_DIR,
   notifyRepending,
-  runMigrations,
   type SqliteHandle,
   upsertVectors,
 } from '@pictoria/db'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { runBatch, startBackfill } from './scheduler.js'
-import { BACKFILL_SPECS, basicsSpec, silvaSpecs, taggerSpec, waifuSpec, type WorkerSpec } from './workers.js'
+import { BACKFILL_SPECS, basicsSpec, runOneShot, silvaSpecs, taggerSpec, waifuSpec, type WorkerSpec } from './workers.js'
 import { thumbnailPathFor } from './paths.js'
 
 const quiet = { info: () => {}, warn: () => {} }
 
-let tmp: string
 let sqlite: SqliteHandle
 
 /** 记下每一次提交，按脚本回结果。 */
@@ -56,14 +51,11 @@ function failures(): Array<{ post_id: number, worker: string }> {
 }
 
 beforeEach(() => {
-  tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'pictoria-scheduler-'))
-  sqlite = createDb({ path: path.join(tmp, 'db.sqlite') }).sqlite
-  runMigrations(sqlite, MIGRATIONS_DIR)
+  sqlite = createTestDb()
 })
 
 afterEach(() => {
   sqlite.close()
-  fs.rmSync(tmp, { recursive: true, force: true })
 })
 
 describe('规格表', () => {
@@ -143,7 +135,7 @@ describe('runBatch', () => {
       listPending: () => [{ postId: 1 }],
     }
     const { tasks, calls } = fakeTasks(() => { throw new Error('should not be called') })
-    expect(await runBatch(sqlite, tasks, spec, { force: false, log: quiet })).toEqual({ done: 0, failed: 0 })
+    expect(await runBatch(sqlite, tasks, spec, { force: false, log: quiet })).toEqual({ done: 0, failed: 0, written: 0 })
     expect(calls).toEqual([])
   })
 
@@ -170,6 +162,19 @@ describe('runBatch', () => {
       { post_id: 1, worker: 'tagger' },
       { post_id: 3, worker: 'tagger' },
     ])
+  })
+
+  it('tagger 单张重算：被遮住的不拉黑（用户会再点一次）', async () => {
+    insertPost(1)
+    sqlite.prepare('INSERT INTO tags(name) VALUES (?)').run('1girl')
+    sqlite.prepare("INSERT INTO post_has_tag(post_id, tag_name, is_auto) VALUES (1, '1girl', 0)").run()
+    const { tasks } = fakeTasks(() => ({
+      model: TAGGER_MODEL,
+      results: [{ postId: 1, tags: { general: ['1girl'], character: [], copyright: [], style: [], meta: [] }, rating: 'general' }],
+      failures: [],
+    }))
+    await runOneShot(sqlite, tasks, taggerSpec, [{ postId: 1, relPath: 'dir/f1.jpg' }])
+    expect(failures()).toEqual([])
   })
 
   it('basics：走 IO 队列，payload 带缩略图路径', async () => {

@@ -23,7 +23,7 @@ let sqlite: Database.Database
 let cleanup: () => void
 
 beforeAll(() => {
-  const temp = createTempDb('variant-edges')
+  const temp = createTempDb()
   sqlite = temp.sqlite
   cleanup = temp.cleanup
 })

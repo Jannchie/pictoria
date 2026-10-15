@@ -1,40 +1,25 @@
 /**
- * 测试用的临时库脚手架。
+ * 测试库脚手架。
  *
- * `mkdtemp → new Database → sqliteVec.load → foreign_keys=ON → runMigrations` 这五步
- * 在 packages/db 的测试里曾经被逐行抄了六份（dedup / backfill / listwise 三份，
- * 2026-08-20 的采样改动一次又加了三份）。它不是「每个测试各自独立」，而是同一段
- * 开场白 —— 迁移里一旦多出一张 vec0 虚表或一条 PRAGMA，六处都要改。
+ * 库本身就是 `createTestDb()`（`../testing.ts`，跑完全部迁移的 `:memory:` 连接，与生产
+ * 同一个 `createDb`）；这里只把它包成 `{ sqlite, cleanup }`，好放进 `afterAll`。
  *
  * 建在真实迁移上而不是手写 schema：`prod-schema.test.ts` 与 `schema.test.ts` 的
  * 存在前提就是「迁移才是唯一事实」，测试库理应走同一条路。
  */
-import fs from 'node:fs'
-import os from 'node:os'
-import path from 'node:path'
-import Database from 'better-sqlite3'
-import * as sqliteVec from 'sqlite-vec'
-import { MIGRATIONS_DIR, runMigrations } from '../migrate.js'
+import type Database from 'better-sqlite3'
+import { Buffer } from 'node:buffer'
+import { createTestDb } from '../testing.js'
 
 export interface TempDb {
   sqlite: Database.Database
-  /** 关库并删掉临时目录；放进 `afterAll`。 */
+  /** 关库；放进 `afterAll`。 */
   cleanup: () => void
 }
 
-export function createTempDb(label: string): TempDb {
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), `pictoria-${label}-`))
-  const sqlite = new Database(path.join(dir, 'test.sqlite'))
-  sqliteVec.load(sqlite) // 迁移里有 vec0 虚表
-  sqlite.pragma('foreign_keys = ON')
-  runMigrations(sqlite, MIGRATIONS_DIR)
-  return {
-    sqlite,
-    cleanup: () => {
-      sqlite.close()
-      fs.rmSync(dir, { recursive: true, force: true })
-    },
-  }
+export function createTempDb(): TempDb {
+  const sqlite = createTestDb()
+  return { sqlite, cleanup: () => sqlite.close() }
 }
 
 /**

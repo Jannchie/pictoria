@@ -3,13 +3,9 @@
  * 等价 —— 这是 `/v2/folders` 的热查询（docs/optimization-audit.md B1），形状变了
  * 就是性能回退。
  */
-import fs from 'node:fs'
-import os from 'node:os'
-import path from 'node:path'
-import Database from 'better-sqlite3'
-import * as sqliteVec from 'sqlite-vec'
+import type Database from 'better-sqlite3'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
-import { MIGRATIONS_DIR, runMigrations } from '../migrate.js'
+import { createTestDb } from '../testing.js'
 import { SILVA, SILVA_LUNA } from '../scorers.js'
 import { addAgg, emptyAgg, folderScoreAggregates, folderScoreAggregatesSql } from './folders.js'
 
@@ -38,14 +34,9 @@ function normalize(sql: string): string {
 }
 
 let sqlite: Database.Database
-let tmpDir: string
 
 beforeAll(() => {
-  tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'pictoria-folders-'))
-  sqlite = new Database(path.join(tmpDir, 'test.sqlite'))
-  sqliteVec.load(sqlite)
-  sqlite.pragma('foreign_keys = ON')
-  runMigrations(sqlite, MIGRATIONS_DIR)
+  sqlite = createTestDb()
 
   const insertPost = sqlite.prepare(
     'INSERT INTO posts (id, file_path, file_name, extension, width, height, score, rating) VALUES (?, ?, ?, \'jpg\', 100, 100, ?, ?)',
@@ -74,7 +65,6 @@ beforeAll(() => {
 
 afterAll(() => {
   sqlite.close()
-  fs.rmSync(tmpDir, { recursive: true, force: true })
 })
 
 describe('folderScoreAggregatesSql', () => {

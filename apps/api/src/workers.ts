@@ -8,9 +8,10 @@
  * "组 payload → 落库"又写了一遍。
  *
  * 现在一个 worker 就是这里的一个 `WorkerSpec`：身份（名字 → 黑名单桶，`@pictoria/db`
- * 的 `failureKey`）、队列、批大小、待办扫描、payload 组装、结果落库、拉不拉黑。
+ * 的 `failureKey`）、任务（队列由 `@pictoria/contracts` 的 `TASK_QUEUES` 给出）、批大小、
+ * 待办扫描、payload 组装、结果落库、拉不拉黑、待办清空后的钩子。
  * `scheduler.ts` 的通用 tick（`runBatch`）和 `routes/commands.ts` 的 `runOneShot`
- * 都只认这份规格，两条路径的差别只剩 key / conflict 策略（见 `runOneShot`）和
+ * 都只认这份规格，两条路径的差别只剩 key / conflict 策略、拉不拉黑（见 `runOneShot`）和
  * `PersistCtx.interactive`。
  *
  * 放在 apps/api 而不是 `packages/db`：规格要引用 cairnq 的任务定义（`TaskDef`）和
@@ -25,8 +26,7 @@ import {
   EMBEDDING_TASK_BATCH,
   embeddingTask,
   encodeVectorBlob,
-  GPU_QUEUE,
-  IO_QUEUE,
+  queueOf,
   SILVA_TASK_BATCH,
   silvaTask,
   TAGGER_MODEL,
@@ -74,15 +74,17 @@ import {
   upsertWaifuScores,
 } from '@pictoria/db'
 import { Buffer } from 'node:buffer'
+import { rebuildGroups } from './dedup.js'
 import { postAbsPath, thumbnailPathFor } from './paths.js'
+
+type Log = Pick<Console, 'info' | 'warn'>
 
 /** 落库那一步怎么被调用的。 */
 export interface PersistCtx {
   /**
    * `true` = 用户点了单张重算（`routes/commands.ts`），`false` = 后台 backfill。
    *
-   * 目前只有 tagger 读它：交互路径的 rating **无条件**覆盖、被手工标签遮住的图不拉黑
-   * 而是宣布重新待办（见 `persistTaggerResults`）。
+   * 目前只有 tagger 读它：交互路径的 rating **无条件**覆盖（见 `persistTaggerResults`）。
    */
   interactive: boolean
 }
@@ -91,16 +93,15 @@ export interface PersistCtx {
 export interface Persisted {
   /** 计入进度的条数（`queue-status` 的 processed）。 */
   done: number
-  /** 计入进度的失败条数 —— 被拉黑的，**包括** `persist` 自己已经拉黑的那些（tagger 的 shadowed）。 */
-  failed: number
-  /** 留给通用 tick 拉黑的失败（`blacklist` 为真时）。`persist` 自己拉黑过的不在这里。 */
+  /**
+   * 这一批的失败，条数也就是计入进度的失败数。backfill 按 `blacklist` 拉黑它们，单张
+   * 重算不拉黑（见 `runOneShot`）。
+   */
   failures: WorkerFailure[]
-  /** 日志"落库 N 条"里的 N，缺省就是 `done`；也是 `onDrained` 累计的数。 */
+  /** 日志"落库 N 条"里的 N，缺省就是 `done`；也是触发 `onDrained` 的依据。 */
   written?: number
-  /** 跟在落库数后面的附注（embedding 的"k 条的 post 已被删除"）。 */
-  writtenNote?: string
-  /** 跟在拉黑数后面的附注（tagger 的"S 条被手工标签遮住"）。 */
-  failedNote?: string
+  /** 跟在日志计数后面的附注（embedding 的"k 条的 post 已被删除"）。 */
+  note?: string
 }
 
 /**
@@ -114,15 +115,15 @@ export interface WorkerSpec<
 > {
   /** 循环名、水位线键、黑名单桶（经 `failureKey`）—— 全部由它推出。 */
   name: BackfillWorker
-  queue: string
   /** 一批多少条。批大小只在 TS 侧定义，worker 收到多少算多少。 */
   batch: number
+  /** cairnq 任务；提交到哪个队列由 `queueOf(task)` 定。 */
   task: TaskDef<Payload, Result>
   /**
-   * 批次 key 的前缀（`scheduler.ts` 的 `batchKey`）。除 tagger 外就是 `name`。
+   * 批次 key 的前缀（`scheduler.ts` 的 `batchKey`），缺省就是 `name`。只有 tagger 设：
    * key 里要不要带模型标识，见 `batchKey` 的 ⚠️。
    */
-  keyPrefix: string
+  keyPrefix?: string
   /** 失败要不要写进 `post_process_failures`。 */
   blacklist: boolean
   /** 水位线以上的待办，按 id 升序，最多 `limit` 条。`force` 清掉水位线全扫。 */
@@ -134,8 +135,13 @@ export interface WorkerSpec<
    * 在两次查询之间被删了），通用 tick 据此返回 `{0, 0}` 而不是提交一个空任务。
    */
   buildPayload: (sqlite: SqliteHandle, pending: Pending[]) => Payload
-  /** 结果落库。不碰黑名单（`failures` 交给调用方按 `blacklist` 决定），tagger 的 shadowed 例外。 */
+  /** 结果落库。不碰黑名单：`failures` 交给调用方按 `blacklist` 决定。 */
   persist: (sqlite: SqliteHandle, result: Result, ctx: PersistCtx) => Persisted
+  /**
+   * 待办清空、且这一轮确实写进过东西（`Persisted.written`）时调用一次。只有 embedding 有
+   * （近重复重组）。时机见 `scheduler.ts` 的 `startBackfill`。
+   */
+  onDrained?: (ctx: { sqlite: SqliteHandle, tasks: Pick<CairnQ, 'call'>, log: Log }) => Promise<void>
 }
 
 /** 只有图片路径的待办 → 任务里的 `ImageItem`。waifu / tagger / embedding 共用。 */
@@ -149,13 +155,11 @@ function imageItems(pending: PendingImage[]): ImageItem[] {
  * 失败不拉黑 —— 能取到向量就应该能打分，所以失败是暂时的/代码的问题，值得下一轮
  * 重试，而不是把这批数据永久跳过（与 Python 侧的 `blacklist_policy = never` 同义）。
  */
-export function silvaSpec(scorer: AestheticScorerName): WorkerSpec<{ postId: number }, SilvaPayload, SilvaResult> {
+function silvaSpec(scorer: AestheticScorerName): WorkerSpec<{ postId: number }, SilvaPayload, SilvaResult> {
   return {
     name: scorer,
-    queue: GPU_QUEUE,
     batch: SILVA_TASK_BATCH,
     task: silvaTask,
-    keyPrefix: scorer,
     blacklist: false,
     listPending: (sqlite, limit, { force }) =>
       listSilvaPending(sqlite, scorer, limit, { force }).map(postId => ({ postId })),
@@ -173,7 +177,7 @@ export function silvaSpec(scorer: AestheticScorerName): WorkerSpec<{ postId: num
     },
     persist: (sqlite, result) => {
       upsertAestheticScores(sqlite, scorer, result.scores)
-      return { done: result.scores.length, failed: 0, failures: [] }
+      return { done: result.scores.length, failures: [] }
     },
   }
 }
@@ -188,17 +192,15 @@ export function silvaSpec(scorer: AestheticScorerName): WorkerSpec<{ postId: num
  */
 export const waifuSpec: WorkerSpec<PendingImage, WaifuPayload, WaifuResult> = {
   name: 'waifu',
-  queue: GPU_QUEUE,
   batch: WAIFU_TASK_BATCH,
   task: waifuTask,
-  keyPrefix: 'waifu',
   blacklist: true,
   listPending: (sqlite, limit, opts) => listWaifuPending(sqlite, limit, opts),
   countPending: (sqlite, rows) => countWaifuPending(sqlite, rows),
   buildPayload: (_sqlite, pending) => ({ items: imageItems(pending) }),
   persist: (sqlite, result) => {
     upsertWaifuScores(sqlite, result.scores)
-    return { done: result.scores.length, failed: result.failures.length, failures: result.failures }
+    return { done: result.scores.length, failures: result.failures }
   },
 }
 
@@ -216,13 +218,13 @@ export const waifuSpec: WorkerSpec<PendingImage, WaifuPayload, WaifuResult> = {
  * `batchKey`：换模型时队列曾把 785 条旧模型的 succeeded 结果原样还了回来。
  *
  * 落库后仍然没有 is_auto 行的那些 —— tagger 产出的标签全部被同名手工标签遮住了。
- * 重跑只会得到同样的结果，所以 backfill 里和读不出来的图一样拉黑（在
- * `persistTaggerResults` 里当场拉黑），并且**计入 `failed`**（这一条以前漏算了，
- * 状态区的失败数因此偏小）。
+ * 重跑只会得到同样的结果，所以并进这一批的 `failures`：backfill 里和读不出来的图一样
+ * 拉黑，并且**计入失败数**（这一条以前漏算了，状态区的失败数因此偏小）；单张重打标
+ * 不拉黑（`runOneShot`），`persistTaggerResults` 发的重新待办信号让 tagger 循环下一轮
+ * 把它们捡回来。
  */
 export const taggerSpec: WorkerSpec<PendingImage, TaggerPayload, TaggerBatchResult> = {
   name: 'tagger',
-  queue: GPU_QUEUE,
   batch: TAGGER_TASK_BATCH,
   task: taggerTask,
   keyPrefix: `tagger:${TAGGER_MODEL}`,
@@ -233,16 +235,12 @@ export const taggerSpec: WorkerSpec<PendingImage, TaggerPayload, TaggerBatchResu
   persist: (sqlite, result, { interactive }) => {
     const model = assertTaggerModel(result.model)
     const groups = ensureCanonicalTagGroups(sqlite)
-    const shadowed = persistTaggerResults(sqlite, result.results, groups, model, {
-      // 单张重打标是用户主动点的：rating 无条件覆盖；遮住的不拉黑（用户会再点一次）。
-      overwriteRating: interactive,
-      onShadowed: interactive ? 'repend' : 'blacklist',
-    })
+    // 单张重打标是用户主动点的：rating 无条件覆盖。
+    const shadowed = persistTaggerResults(sqlite, result.results, groups, model, { overwriteRating: interactive })
     return {
       done: result.results.length,
-      failed: result.failures.length + shadowed.length,
-      failures: result.failures,
-      failedNote: `（${shadowed.length} 条被手工标签遮住）`,
+      failures: [...result.failures, ...shadowed],
+      note: shadowed.length ? `（${shadowed.length} 条被手工标签遮住）` : undefined,
     }
   },
 }
@@ -250,7 +248,7 @@ export const taggerSpec: WorkerSpec<PendingImage, TaggerPayload, TaggerBatchResu
 /**
  * embedding：SigLIP 2 检索向量。
  *
- * 唯一带**后置钩子**的 worker（`scheduler.ts` 的 `onDrained`），形状承自已删除的
+ * 唯一带**后置钩子**的 worker（`onDrained`），形状承自已删除的
  * `EMBEDDING_WORKER.on_backfill_complete`：写进新向量之后要重建近重复分组，否则新图
  * 永远不会被认成任何一张老图的重复。
  *
@@ -260,10 +258,8 @@ export const taggerSpec: WorkerSpec<PendingImage, TaggerPayload, TaggerBatchResu
  */
 export const embeddingSpec: WorkerSpec<PendingImage, EmbeddingPayload, EmbeddingResult> = {
   name: 'embedding',
-  queue: GPU_QUEUE,
   batch: EMBEDDING_TASK_BATCH,
   task: embeddingTask,
-  keyPrefix: 'embedding',
   blacklist: true,
   listPending: (sqlite, limit, opts) => listEmbeddingPending(sqlite, limit, opts),
   countPending: (sqlite, rows) => countEmbeddingPending(sqlite, rows),
@@ -275,11 +271,14 @@ export const embeddingSpec: WorkerSpec<PendingImage, EmbeddingPayload, Embedding
     })))
     return {
       done: result.embeddings.length,
-      failed: result.failures.length,
       failures: result.failures,
       written,
-      writtenNote: written < result.embeddings.length ? `（${result.embeddings.length - written} 条的 post 已被删除）` : '',
+      note: written < result.embeddings.length ? `（${result.embeddings.length - written} 条的 post 已被删除）` : undefined,
     }
+  },
+  // 失败只记一行：重组是尽力而为的，下一次清空还会再来。
+  onDrained: async ({ sqlite, tasks, log }) => {
+    await rebuildGroups(sqlite, tasks).catch((err: unknown) => log.warn(`[dedup] 重建失败：${String(err)}`))
   },
 }
 
@@ -293,10 +292,8 @@ export const embeddingSpec: WorkerSpec<PendingImage, EmbeddingPayload, Embedding
  */
 export const basicsSpec: WorkerSpec<BasicsPending, BasicsPayload, BasicsResult> = {
   name: 'basics',
-  queue: IO_QUEUE,
   batch: BASICS_TASK_BATCH,
   task: basicsTask,
-  keyPrefix: 'basics',
   blacklist: true,
   listPending: (sqlite, limit, opts) => listBasicsPending(sqlite, limit, opts),
   countPending: (sqlite, rows) => countBasicsPending(sqlite, rows),
@@ -315,7 +312,7 @@ export const basicsSpec: WorkerSpec<BasicsPending, BasicsPayload, BasicsResult> 
   }),
   persist: (sqlite, result) => {
     upsertBasics(sqlite, result.rows)
-    return { done: result.rows.length, failed: result.failures.length, failures: result.failures }
+    return { done: result.rows.length, failures: result.failures }
   },
 }
 
@@ -328,7 +325,7 @@ export const silvaSpecs = Object.fromEntries(SCORERS.map(s => [s.name, silvaSpec
  */
 export const BACKFILL_SPECS: readonly WorkerSpec<any, any, any>[] = [
   basicsSpec,
-  ...SCORERS.map(s => silvaSpecs[s.name]),
+  ...Object.values(silvaSpecs),
   waifuSpec,
   taggerSpec,
   embeddingSpec,
@@ -360,7 +357,7 @@ export async function runOneShot<P extends { postId: number }, Pl extends { item
   if (!payload.items.length)
     return null
   const result = await tasks.call(spec.task, payload, {
-    queue: spec.queue,
+    queue: queueOf(spec.task),
     key: `${spec.name}:one:${payload.items.map(i => i.postId).join(',')}`,
     timeoutMs: 300_000,
     maxAttempts: 1,

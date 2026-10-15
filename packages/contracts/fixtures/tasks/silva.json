@@ -1,5 +1,4 @@
 {
-  "name": "silva",
   "queue": "gpu",
   "payload": {
     "scorer": "silva",

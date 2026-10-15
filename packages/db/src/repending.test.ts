@@ -3,31 +3,28 @@
  *
  * 漏发一次的表现是完全静默的 —— 那张图的 id 在水位线以下，backfill 永远不再碰它 ——
  * 所以每一类这样的写操作在这里都有一条"发了"的断言，以及至少一条"不该发时不发"的
- * 断言（多发不出错，但会逼对应循环全库重扫一轮：tagger 在真实库上是 1.8 秒的同步阻塞）。
+ * 断言（多发不出错，但会让对应循环白扫一轮；不带 id 的还会逼它全库重扫：tagger 在真实库上
+ * 是 1.8 秒的同步阻塞）。
  *
  * 加新的重新待办写点时，在这里补一条。
  */
-import fs from 'node:fs'
-import os from 'node:os'
-import path from 'node:path'
 import Database from 'better-sqlite3'
-import * as sqliteVec from 'sqlite-vec'
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest'
 import type { TaggerCategories } from '@pictoria/contracts'
-import { MIGRATIONS_DIR, runMigrations } from './migrate.js'
 import { notifyRepending, onRepending } from './repending.js'
-import { ensureCanonicalTagGroups, listTaggerPending, persistTaggerResults, resetScanFloors } from './repositories/backfill.js'
-import { updateForRotate } from './repositories/posts.js'
+import { ensureCanonicalTagGroups, listTaggerPending, listWaifuPending, persistTaggerResults, resetScanFloors } from './repositories/backfill.js'
+import { persistPostsWithTags } from './repositories/import-persist.js'
+import { createPost, insertPostTriples, updateForRotate } from './repositories/posts.js'
 import { addTagToPost, deleteTag, deleteTags, removeTagFromPost } from './repositories/tags.js'
 import type { BackfillWorker } from './workers.js'
 import { BACKFILL_WORKERS, failureKey } from './workers.js'
+import { createTestDb } from './testing.js'
 
 const MODEL = 'test-model'
 
 let sqlite: Database.Database
-let tmpDir: string
-/** 这个用例里收到的信号，按到达顺序。 */
-let heard: BackfillWorker[][]
+/** 这个用例里收到的信号，按到达顺序。`'*'` 结尾 = 要求强制全扫（没带 id）。 */
+let heard: string[][]
 let unsubscribe: () => void
 
 function insertPost(id: number): void {
@@ -49,17 +46,17 @@ function taggerRow(postId: number, general: string[]) {
   }
 }
 
+/** 订阅者：记下被点名的 worker，强制全扫的信号在末尾多记一个 `'*'`。 */
+function listen(): () => void {
+  return onRepending(sqlite, (ws, { force }) => heard.push(force ? [...ws, '*'] : [...ws]))
+}
+
 beforeAll(() => {
-  tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'pictoria-repending-'))
-  sqlite = new Database(path.join(tmpDir, 'test.sqlite'))
-  sqliteVec.load(sqlite)
-  sqlite.pragma('foreign_keys = ON')
-  runMigrations(sqlite, MIGRATIONS_DIR)
+  sqlite = createTestDb()
 })
 
 afterAll(() => {
   sqlite.close()
-  fs.rmSync(tmpDir, { recursive: true, force: true })
 })
 
 beforeEach(() => {
@@ -67,7 +64,7 @@ beforeEach(() => {
     sqlite.exec(`DELETE FROM ${t}`)
   resetScanFloors(sqlite)
   heard = []
-  unsubscribe = onRepending(sqlite, ws => heard.push([...ws]))
+  unsubscribe = listen()
 })
 
 afterEach(() => unsubscribe())
@@ -78,22 +75,43 @@ describe('通知机制本身', () => {
     notifyRepending(other, 'tagger')
     other.close()
     expect(heard).toEqual([])
-    notifyRepending(sqlite, 'basics', 'tagger')
-    expect(heard).toEqual([['basics', 'tagger']])
+    notifyRepending(sqlite, ['basics', 'tagger'])
+    expect(heard).toEqual([['basics', 'tagger', '*']])
   })
 
   it('取消订阅之后收不到；不点名是空操作', () => {
     unsubscribe()
     notifyRepending(sqlite, 'tagger')
     expect(heard).toEqual([])
-    unsubscribe = onRepending(sqlite, ws => heard.push([...ws]))
-    notifyRepending(sqlite)
+    unsubscribe = listen()
+    notifyRepending(sqlite, [])
     expect(heard).toEqual([])
+  })
+
+  it('带 id：当场把被点名循环的水位线退到那里，不要求强制全扫；没点名的不动', () => {
+    for (const id of [1, 2, 3]) insertPost(id)
+    // 两条循环的水位线都推到 MAX(id)+1
+    expect(listWaifuPending(sqlite).map(p => p.postId)).toEqual([1, 2, 3])
+    sqlite.prepare('INSERT INTO post_waifu_scores (post_id, score) VALUES (1, 1), (2, 1), (3, 1)').run()
+    expect(listWaifuPending(sqlite)).toEqual([])
+    link(1, 'a', 1)
+    link(2, 'a', 1)
+    link(3, 'a', 1)
+    sqlite.prepare('UPDATE posts SET tagger = ?').run(MODEL)
+    expect(listTaggerPending(sqlite, MODEL)).toEqual([])
+
+    sqlite.prepare('DELETE FROM post_waifu_scores WHERE post_id >= 2').run()
+    sqlite.prepare('DELETE FROM post_has_tag WHERE post_id >= 2').run()
+    notifyRepending(sqlite, 'waifu', 2)
+    expect(heard).toEqual([['waifu']])
+    expect(listWaifuPending(sqlite).map(p => p.postId)).toEqual([2, 3])
+    // tagger 没被点名：水位线没退，不强制就看不见
+    expect(listTaggerPending(sqlite, MODEL)).toEqual([])
   })
 })
 
 describe('摘标签 → tagger', () => {
-  it('摘掉最后一个自动标签：发，而且那张图确实只有强制重扫才找得到', () => {
+  it('摘掉最后一个自动标签：发，水位线退到那张图，不强制也找得到', () => {
     insertPost(1)
     link(1, 'auto_a', 1)
     sqlite.prepare('UPDATE posts SET tagger = ?').run(MODEL)
@@ -102,9 +120,8 @@ describe('摘标签 → tagger', () => {
 
     expect(removeTagFromPost(sqlite, 1, 'auto_a')).toBe(true)
     expect(heard).toEqual([['tagger']])
-    // 这就是信号存在的理由：不强制重扫就看不见它
-    expect(listTaggerPending(sqlite, MODEL)).toEqual([])
-    expect(listTaggerPending(sqlite, MODEL, undefined, { force: true }).map(p => p.postId)).toEqual([1])
+    // 这就是信号存在的理由：没有它，post 1 在水位线以下，不强制重扫就看不见
+    expect(listTaggerPending(sqlite, MODEL).map(p => p.postId)).toEqual([1])
   })
 
   it('还剩别的自动标签、或者摘的是手工标签：不发', () => {
@@ -126,11 +143,16 @@ describe('摘标签 → tagger', () => {
 })
 
 describe('删 tag（FK 级联）→ tagger', () => {
-  it('级联剥掉某张图最后一个自动标签：deleteTag 发', () => {
+  it('级联剥掉某张图最后一个自动标签：deleteTag 发，水位线退到那张图', () => {
     insertPost(1)
-    link(1, 'auto_a', 1)
+    insertPost(2)
+    link(1, 'keep', 1)
+    link(2, 'auto_a', 1)
+    sqlite.prepare('UPDATE posts SET tagger = ?').run(MODEL)
+    expect(listTaggerPending(sqlite, MODEL)).toEqual([])
     deleteTag(sqlite, 'auto_a')
     expect(heard).toEqual([['tagger']])
+    expect(listTaggerPending(sqlite, MODEL).map(p => p.postId)).toEqual([2])
   })
 
   it('deleteTags 一次删掉一张图的全部自动标签也算', () => {
@@ -176,32 +198,50 @@ describe('旋转写回空的 arthash / sha256 → basics', () => {
 })
 
 describe('tagger 结果被手工标签遮住 → tagger', () => {
-  function shadowedPost(): void {
+  it('发信号、报回被遮住的图，但不拉黑（拉黑是调用方按策略做的）', () => {
     insertPost(1)
     link(1, '1girl', 0)
-  }
-
-  it('repend（单张重打标）：不拉黑、发信号', () => {
-    shadowedPost()
-    const shadowed = persistTaggerResults(sqlite, [taggerRow(1, ['1girl'])], ensureCanonicalTagGroups(sqlite), MODEL, { onShadowed: 'repend' })
-    expect(shadowed).toEqual([1])
+    const shadowed = persistTaggerResults(sqlite, [taggerRow(1, ['1girl'])], ensureCanonicalTagGroups(sqlite), MODEL)
+    expect(shadowed.map(f => f.postId)).toEqual([1])
     expect(heard).toEqual([['tagger']])
     expect(sqlite.prepare('SELECT COUNT(*) FROM post_process_failures').pluck().get()).toBe(0)
   })
 
-  it('blacklist（backfill）：当场拉黑进 tagger 的桶、不发信号', () => {
-    shadowedPost()
-    const shadowed = persistTaggerResults(sqlite, [taggerRow(1, ['1girl'])], ensureCanonicalTagGroups(sqlite), MODEL, { onShadowed: 'blacklist' })
-    expect(shadowed).toEqual([1])
+  it('没有被遮住的：不发', () => {
+    insertPost(1)
+    persistTaggerResults(sqlite, [taggerRow(1, ['auto'])], ensureCanonicalTagGroups(sqlite), MODEL)
     expect(heard).toEqual([])
-    expect(sqlite.prepare('SELECT post_id, worker FROM post_process_failures').all())
-      .toEqual([{ post_id: 1, worker: failureKey('tagger') }])
+  })
+})
+
+describe('新建 post → 全部 worker（只叫醒，不强制全扫）', () => {
+  const all = [...BACKFILL_WORKERS]
+
+  it('createPost', () => {
+    createPost(sqlite, { filePath: 'dir', fileName: 'new', extension: 'jpg' })
+    expect(heard).toEqual([all])
   })
 
-  it('没有被遮住的：两种模式都不发', () => {
-    insertPost(1)
-    persistTaggerResults(sqlite, [taggerRow(1, ['auto'])], ensureCanonicalTagGroups(sqlite), MODEL, { onShadowed: 'repend' })
+  it('insertPostTriples：一批一次；空批不发', () => {
+    insertPostTriples(sqlite, [])
     expect(heard).toEqual([])
+    insertPostTriples(sqlite, [['dir', 'a', 'jpg'], ['dir', 'b', 'jpg']])
+    expect(heard).toEqual([all])
+  })
+
+  it('persistPostsWithTags：一批一次；空批不发', () => {
+    persistPostsWithTags(sqlite, [])
+    expect(heard).toEqual([])
+    persistPostsWithTags(sqlite, [{ filePath: 'dir', fileName: 'a', extension: 'jpg', source: '', rating: 0, publishedAt: null, tags: {} }])
+    expect(heard).toEqual([all])
+  })
+
+  it('新行在水位线之上：不需要强制就扫得到', () => {
+    insertPost(1)
+    sqlite.prepare('INSERT INTO post_waifu_scores (post_id, score) VALUES (1, 1)').run()
+    expect(listWaifuPending(sqlite)).toEqual([])
+    const id = createPost(sqlite, { filePath: 'dir', fileName: 'new', extension: 'jpg' })
+    expect(listWaifuPending(sqlite).map(p => p.postId)).toEqual([id])
   })
 })
 

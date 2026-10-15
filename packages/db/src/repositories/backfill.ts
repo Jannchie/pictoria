@@ -6,10 +6,11 @@
  * 写入在 TS"的那一半：待办查询挑出要算什么，结果函数把算完的东西写回去。
  */
 import { placeholders } from '../sql.js'
-import type { TaggerResult } from '@pictoria/contracts'
+import type { TaggerResult, WorkerFailure } from '@pictoria/contracts'
 import type BetterSqlite3 from 'better-sqlite3'
 import { Buffer } from 'node:buffer'
 import { notifyRepending } from '../repending.js'
+import { readFloor, resetFloors, writeFloor } from '../scan-floor.js'
 import type { AestheticScorerName } from '../scorers.js'
 import { AESTHETIC_SCORES_TABLE } from '../scorers.js'
 import type { BackfillWorker } from '../workers.js'
@@ -29,8 +30,9 @@ function notFailedClause(alias = 'p'): string {
 
 // ─── 待办扫描的水位线 ──────────────────────────────────────────────────
 
-/**
- * 「这个 id 以下已经确认没有待办了」的水位线，按**连接**、按**循环**存。
+/*
+ * `scanFloor` —— 「这个 id 以下已经确认没有待办了」的水位线，按**连接**、按**循环**存
+ * （存取在 `../scan-floor.ts`）。
  *
  * 五个 `list*Pending` 的形状都是"按 `p.id` 升序、扫到够数为止"，而待办**总是在库尾**
  * （新 post 的 id 最大，老 post 早就算完了）。没有下界的话，每一批都要从 id=1 开始
@@ -54,15 +56,17 @@ function notFailedClause(alias = 'p'): string {
  *   （`maxPostId` 必须在查询**之前**读：查询期间插进来的新 post id 更大，读在后面
  *   就会把它们一起跳过，表现是新导入的图永远不被 backfill 碰。）
  *
- * ⚠️⚠️ **不变式只对"单行状态从待办变成已完成"成立，反方向必须靠 `force`。**
+ * ⚠️⚠️ **不变式只对"单行状态从待办变成已完成"成立，反方向必须有人把水位线退回去。**
  * 清空 `post_process_failures` 黑名单、手工摘掉某张图最后一个 `is_auto` 标签、删掉
  * 某个 scorer 的分数行、把 `sha256`/`arthash`/`dominant_color` 清回空值 —— 这些都会
  * 让一个 id **低于**水位线的老 post 重新变成待办，而水位线不会自己退回去。命中的
  * 表现是**静默的**：没有报错、没有日志，backfill 就是永远不再动那张图。所以每一条
  * "让老 post 重新变成待办"的写函数都必须在**自己内部**调 `notifyRepending()`
- * （`../repending.ts`）；调度器（`apps/api/src/scheduler.ts`）订阅它，给被点名的循环
- * 立一个 `force` 标志，下一轮带 `{ force: true }` 进来把水位线清零、从头重扫一次。
- * 加新的这类写点时，漏掉那一句的代价就是那些 post 永久停在待办状态。
+ * （`../repending.ts`）。知道是哪几张图时带上最小的 id，信号当场把被点名循环的水位线
+ * 退到那里（`lowerFloor`），下一轮只从那张图起扫；说不清是哪几张时不带，调度器
+ * （`apps/api/src/scheduler.ts`）给被点名的循环立一个 `force` 标志，下一轮带
+ * `{ force: true }` 进来把水位线清零、从头重扫一次。加新的这类写点时，漏掉那一句的
+ * 代价就是那些 post 永久停在待办状态。
  *
  * 这一段替换掉的是原来的 `MAX(id)` 指纹门（"上一轮扫空且 MAX(id) 没变就跳过"）。
  * 逃生通道和风险面与那一版**完全相同** —— 同样是 `force`、同样是那几条写路径；
@@ -78,16 +82,14 @@ function notFailedClause(alias = 'p'): string {
  * 按**循环**存（`Map<key, floor>`）而不是一个共用值：六条循环各自消化待办的进度不同，
  * 共用一条水位线会让跑得快的那条把还有活的那条一起推过头。
  */
-const scanFloor = new WeakMap<BetterSqlite3.Database, Map<string, number>>()
 
 /** 五个待办查询共用的可选参数。 */
 export interface PendingScanOpts {
   /**
    * 把水位线清零，强制这一次从 id=1 重新全扫。
    *
-   * 由调度循环的 `wake()` 一路传下来（触发它的是 `notifyRepending` 或
-   * `wakeAllBackfills`）—— 见上面那段 ⚠️：它是"低于水位线的老 post 重新变成待办"
-   * 唯一的逃生通道。
+   * 由调度循环一路传下来（触发它的是不带 id 的 `notifyRepending`）—— 见上面那段 ⚠️：
+   * 说不清是哪几张老 post 重新变成待办时，它是唯一的逃生通道。
    */
   force?: boolean
 }
@@ -98,25 +100,6 @@ function maxPostId(sqlite: BetterSqlite3.Database): number {
     .prepare<[], { max_id: number }>('SELECT COALESCE(MAX(id), 0) AS max_id FROM posts')
     .get()!
     .max_id
-}
-
-/** 这一轮该从哪个 id 开始扫。`force` 除了返回 0 还要把旧水位删掉，否则下一轮又被推回去。 */
-function readFloor(sqlite: BetterSqlite3.Database, key: string, force: boolean): number {
-  if (force) {
-    scanFloor.get(sqlite)?.delete(key)
-    return 0
-  }
-  return scanFloor.get(sqlite)?.get(key) ?? 0
-}
-
-/** 记下这一轮证明出来的新水位。`floor` 由调用方按上面那两条规则算好。 */
-function writeFloor(sqlite: BetterSqlite3.Database, key: string, floor: number): void {
-  let per = scanFloor.get(sqlite)
-  if (!per) {
-    per = new Map()
-    scanFloor.set(sqlite, per)
-  }
-  per.set(key, floor)
 }
 
 interface FloorScan {
@@ -597,7 +580,7 @@ function flattenTaggerTags(rows: TaggerRow[]): {
 }
 
 /**
- * 把一批 tagger 结果落库，返回**仍然没有**自动标签的那些 id。
+ * 把一批 tagger 结果落库，返回**仍然没有**自动标签的那些图（失败行的形状）。
  *
  * 四件事在一个事务里：删掉这些图旧的 `is_auto = 1` 关联、tag 名 upsert（按五个组）、
  * `post_has_tag` 重建关联、rating 补写 + `posts.tagger` 盖章。
@@ -610,15 +593,13 @@ function flattenTaggerTags(rows: TaggerRow[]): {
  * 返回值是落库后的复查结果，不是可有可无的信息：`post_has_tag` 的插入是
  * `ON CONFLICT DO NOTHING`，所以当 tagger 产出的每一个标签**都已经**作为手工标签
  * （`is_auto = 0`）存在时 —— Danbooru 导入的图很常见 —— 一行 `is_auto = 1` 都不会
- * 建出来，而待办查询下一轮又会选中它。这些"被遮住"的图怎么办由 `onShadowed` 定：
+ * 建出来，而待办查询下一轮又会选中它。所以这些"被遮住"的图此刻**是**待办、而且 id
+ * 可能在水位线以下：这里 `notifyRepending` 把 tagger 的水位线退到它们那里。
  *
- * * `'blacklist'`（backfill）—— 在这里就拉黑，因为重跑 tagger 只会得到同样被遮住的
- *   结果。拉黑写在这个函数里而不是留给调用方，是为了让下一条成立；
- * * `'repend'`（单张重打标）—— 不拉黑（用户会再点一次，黑名单会让第二次点击悄悄什么
- *   也不做），于是它们此刻**是**待办、而且 id 在水位线以下：这里 `notifyRepending`，
- *   让 tagger 循环强制重扫一次把它们捡起来（届时走 backfill 那条路被拉黑）。
- *
- * 两种之外没有第三种：既不拉黑也不喊，这些图就静默地永远停在待办里。
+ * 拉不拉黑是调用方的事，返回值就是为此给的：backfill 把它们并进这一批的失败，按
+ * tagger 的黑名单策略拉黑（重跑只会得到同样被遮住的结果）；单张重打标不拉黑（用户会
+ * 再点一次，黑名单会让第二次点击悄悄什么也不做），被叫醒的 tagger 循环会在下一轮把它们
+ * 捡起来、走 backfill 那条路拉黑。
  *
  * rating 默认只在原值为 0（未评级）时写：backfill 是后台自动跑的，不该推翻人工评级。
  * `overwriteRating` 给单张图的"重新自动标注"命令用 —— 用户主动点的，覆盖（包括认不出
@@ -633,12 +614,8 @@ export function persistTaggerResults(
   rows: TaggerRow[],
   groups: Record<string, number>,
   model: string,
-  { overwriteRating = false, onShadowed }: {
-    overwriteRating?: boolean
-    /** 被手工标签遮住的那些图：当场拉黑，还是宣布它们重新待办。见上面的注释。 */
-    onShadowed: 'blacklist' | 'repend'
-  },
-): number[] {
+  { overwriteRating = false }: { overwriteRating?: boolean } = {},
+): WorkerFailure[] {
   if (!rows.length)
     return []
 
@@ -677,17 +654,15 @@ export function persistTaggerResults(
 
   const ids = rows.map(r => r.postId)
   const shadowed = sqlite
-    .prepare<unknown[], { id: number }>(
+    .prepare<unknown[], number>(
       `SELECT p.id FROM posts p WHERE p.id IN (${placeholders(ids.length)}) `
       + `AND NOT EXISTS (SELECT 1 FROM post_has_tag pht WHERE pht.post_id = p.id AND pht.is_auto = 1)`,
     )
+    .pluck()
     .all(...ids)
-    .map(r => r.id)
-  if (onShadowed === 'blacklist')
-    recordFailures(sqlite, 'tagger', shadowed.map(postId => ({ postId, error: SHADOWED_ERROR })))
-  else if (shadowed.length)
-    notifyRepending(sqlite, 'tagger')
-  return shadowed
+  if (shadowed.length)
+    notifyRepending(sqlite, 'tagger', Math.min(...shadowed))
+  return shadowed.map(postId => ({ postId, error: SHADOWED_ERROR }))
 }
 
 /** 被遮住的图在黑名单里的 `error` 文案。 */
@@ -784,7 +759,7 @@ export function countSilvaPending(sqlite: BetterSqlite3.Database, scorer: Aesthe
  * 表现是一堆"待办查询返回空"的失败，而查询本身没有任何问题。
  */
 export function resetScanFloors(sqlite: BetterSqlite3.Database): void {
-  scanFloor.get(sqlite)?.clear()
+  resetFloors(sqlite)
 }
 
 /**

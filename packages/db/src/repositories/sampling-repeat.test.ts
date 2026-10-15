@@ -12,14 +12,16 @@
 import { afterAll, beforeAll, beforeEach, expect, it } from 'vitest'
 import { createTempDb, insertPost } from '../__fixtures__/testdb.js'
 import { insertPairwise } from './annotations.js'
-import { flipPair, isRepeatMeasurement, repeatSlots, Sampler } from './sampling.js'
+import { repeatSlots, Sampler } from './sampling.js'
+import { isRepeatMeasurement } from './sampling-queries.js'
+import { flipPair } from './sampling-random.js'
 import { edgeKey } from './variant-edges.js'
 
 let sqlite: import('better-sqlite3').Database
 let cleanup: () => void
 
 beforeAll(() => {
-  ({ sqlite, cleanup } = createTempDb('sampling-repeat'))
+  ({ sqlite, cleanup } = createTempDb())
   for (const id of [1, 2, 3, 4, 5, 6, 7, 8]) insertPost(sqlite, { id })
 })
 

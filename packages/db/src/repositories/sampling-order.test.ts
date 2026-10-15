@@ -19,7 +19,7 @@ let sqlite: import('better-sqlite3').Database
 let cleanup: () => void
 
 beforeAll(() => {
-  ({ sqlite, cleanup } = createTempDb('sampling-order'))
+  ({ sqlite, cleanup } = createTempDb())
   // 只有两张图 → similar 只可能配出这一对，于是「谁在左边」是唯一的自由度。
   // 星级 3 与 4 在 SIMILAR_SCORE_BAND(=1) 内；tilt 拉开余弦，避开近重复的硬停
   // (MAX_PAIR_COSINE=0.94) 又不至于近到 SIMILAR_MIN_DISTANCE(=0.04) 以下。

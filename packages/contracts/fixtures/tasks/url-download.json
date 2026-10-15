@@ -1,5 +1,4 @@
 {
-  "name": "url-download",
   "queue": "io",
   "payload": {
     "items": [

@@ -18,7 +18,7 @@ import { getPostPath } from '@pictoria/db'
 import fs from 'node:fs'
 import path from 'node:path'
 import { Readable } from 'node:stream'
-import { newRoutes, type TaskSource } from '../env.js'
+import { newRoutes, openapiCatchAll, type TaskSource } from '../env.js'
 import { postIdParam } from './post-shared.js'
 import { errors, fail } from '../openapi.js'
 import { presignGetObject } from '../s3.js'
@@ -223,12 +223,7 @@ imagesRoutes.openapi(
 /**
  * 按路径的两条。
  *
- * `@hono/zod-openapi` 把 `{post_path}` 转成 `:post_path`，而 Hono 的普通参数**不吃
- * 斜杠** —— `danbooru/wlop/x.jpg` 会匹配不上。做法同 `routes/folders.ts` 的
- * `deleteFolderRoute`：路由定义只有一份，OpenAPI 文档登记它本身（路径 `{post_path}`），
- * Hono 挂载的是同一个对象换了路径、`hide: true` 的副本 —— `{x}` 被懒惰地换成 `:x`，
- * 于是 `{post_path{.+}}` 落成 `:post_path{.+}`。这样入参校验仍然挂在这份定义上，
- * 而不是像 `registerPath` + 普通 handler 那样文档和路由两边各写各的。
+ * `post_path` 里有斜杠（`danbooru/wlop/x.jpg`），所以经 `openapiCatchAll`（`env.ts`）挂载。
  *
  * 响应是文件流：`FILE_RESPONSES` 的 200 不是 JSON，handler 返回裸 `Response` 本来就被
  * 放行（见 `openapi.ts` 的 `errors()` 注释）。
@@ -254,9 +249,7 @@ const originalByPathRoute = pathRoute('original', {
   description: 'Get original image by file path.',
 })
 
-imagesRoutes.openAPIRegistry.registerPath(originalByPathRoute)
-
-imagesRoutes.openapi({ ...originalByPathRoute, path: '/v2/images/original/{post_path{.+}}', hide: true }, (c) => {
+openapiCatchAll(imagesRoutes, originalByPathRoute, (c) => {
   const absPath = resolveInside(targetDir(), c.req.valid('param').post_path)
   // 逃逸和"文件不在"是两句不同的话：逃逸只说 "Image not found"，不透露库外有什么。
   if (!absPath)
@@ -272,9 +265,7 @@ const thumbnailByPathRoute = pathRoute('thumbnails', {
   description: 'Get thumbnail image by file path (creates one if missing).',
 })
 
-imagesRoutes.openAPIRegistry.registerPath(thumbnailByPathRoute)
-
-imagesRoutes.openapi({ ...thumbnailByPathRoute, path: '/v2/images/thumbnails/{post_path{.+}}', hide: true }, async (c) => {
+openapiCatchAll(imagesRoutes, thumbnailByPathRoute, async (c) => {
   const rawPath = c.req.valid('param').post_path
   const thumbPath = resolveInside(thumbnailsDir(), rawPath)
   const originalPath = resolveInside(targetDir(), rawPath)

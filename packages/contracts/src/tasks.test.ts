@@ -2,7 +2,7 @@
  * 跨语言任务契约 —— `server/tests/test_task_contracts.py` 的孪生测试。
  *
  * 两侧读的是同一批 `fixtures/tasks/<name>.json`（每个 cairnq 任务一份示例 payload /
- * result）。这一侧钉住"fixture 与 `tasks.ts` 的接口一致"：任务名、队列、以及 payload /
+ * result，文件名就是任务名）。这一侧钉住"fixture 与 `tasks.ts` 的接口一致"：任务名、队列、以及 payload /
  * result 每一层对象的**键集合**与接口字段完全相同 —— 多一个、少一个、改个名都红。
  * Python 侧钉住另一半：worker 注册了同名同队列的 handler，handler 只读 fixture 里有的
  * 键，返回值的键集合与 fixture 相同。两半拼起来，改名就不可能只改一侧。
@@ -19,17 +19,15 @@ import { describe, expect, it } from 'vitest'
 import {
   basicsTask,
   captionTask,
-  CPU_QUEUE,
   danbooruImportTask,
   dedupTask,
   embeddingTask,
-  GPU_QUEUE,
-  INTERACTIVE_QUEUE,
-  IO_QUEUE,
   lpipsVerifyTask,
+  queueOf,
   rotateTask,
   SILVA_SCORERS,
   silvaTask,
+  TASK_QUEUES,
   taggerTask,
   textEmbedTask,
   thumbnailTask,
@@ -69,23 +67,19 @@ type Shape<T> = [NonNullable<T>] extends [string | number | boolean] ? LeafOf<No
 
 type AnyShape = Leaf | 'record' | readonly [AnyShape] | { readonly [key: string]: AnyShape }
 
-type Queue = typeof GPU_QUEUE | typeof INTERACTIVE_QUEUE | typeof IO_QUEUE | typeof CPU_QUEUE
-
 interface Contract {
   task: TaskDef<unknown, unknown>
-  queue: Queue
   payload: AnyShape
   result: AnyShape
 }
 
-/** `P` / `R` 只从 `task` 推断，两个规格必须严格符合它们。 */
+/** `P` / `R` 只从 `task` 推断，两个规格必须严格符合它们。队列来自 `TASK_QUEUES`。 */
 function contract<P, R>(
   task: TaskDef<P, R>,
-  queue: Queue,
   payload: NoInfer<Shape<P>>,
   result: NoInfer<Shape<R>>,
 ): Contract {
-  return { task: task as TaskDef<unknown, unknown>, queue, payload: payload as AnyShape, result: result as AnyShape }
+  return { task: task as TaskDef<unknown, unknown>, payload: payload as AnyShape, result: result as AnyShape }
 }
 
 // ─── 每个任务的规格 ────────────────────────────────────────────────────
@@ -114,17 +108,17 @@ const galleryItem = {
 } as const
 
 const CONTRACTS: Contract[] = [
-  contract(silvaTask, GPU_QUEUE, {
+  contract(silvaTask, {
     scorer: 'string',
     items: [{ postId: 'number', embedding: 'string' }],
   }, {
     scores: [{ postId: 'number', score: 'number' }],
   }),
-  contract(waifuTask, GPU_QUEUE, { items: [imageItem] }, {
+  contract(waifuTask, { items: [imageItem] }, {
     scores: [{ postId: 'number', score: 'number' }],
     failures: [failure],
   }),
-  contract(taggerTask, GPU_QUEUE, { items: [imageItem] }, {
+  contract(taggerTask, { items: [imageItem] }, {
     model: 'string',
     results: [{
       postId: 'number',
@@ -133,11 +127,11 @@ const CONTRACTS: Contract[] = [
     }],
     failures: [failure],
   }),
-  contract(embeddingTask, GPU_QUEUE, { items: [imageItem] }, {
+  contract(embeddingTask, { items: [imageItem] }, {
     embeddings: [{ postId: 'number', embedding: 'string' }],
     failures: [failure],
   }),
-  contract(dedupTask, GPU_QUEUE, {
+  contract(dedupTask, {
     matrixPath: 'string',
     count: 'number',
     dim: 'number',
@@ -147,30 +141,30 @@ const CONTRACTS: Contract[] = [
   }, {
     pairs: 'array',
   }),
-  contract(textEmbedTask, INTERACTIVE_QUEUE, { prompt: 'string' }, {
+  contract(textEmbedTask, { prompt: 'string' }, {
     embedding: 'string',
     scale: 'number',
     bias: 'number',
   }),
-  contract(lpipsVerifyTask, CPU_QUEUE, {
+  contract(lpipsVerifyTask, {
     pairs: [{ a: imageItem, b: imageItem }],
   }, {
     results: [{ a: 'number', b: 'number', distance: 'number' }],
     failures: [{ a: 'number', b: 'number', error: 'string' }],
   }),
-  contract(thumbnailTask, IO_QUEUE, { originalPath: 'string', thumbnailPath: 'string' }, {
+  contract(thumbnailTask, { originalPath: 'string', thumbnailPath: 'string' }, {
     ok: 'boolean',
     error: 'string',
   }),
-  contract(rotateTask, IO_QUEUE, { originalPath: 'string', thumbnailPath: 'string', clockwise: 'boolean' }, {
+  contract(rotateTask, { originalPath: 'string', thumbnailPath: 'string', clockwise: 'boolean' }, {
     sha256: 'string',
     size: 'number',
     width: 'number',
     height: 'number',
     arthash: 'string',
   }),
-  contract(captionTask, IO_QUEUE, { imagePath: 'string' }, { configured: 'boolean', caption: 'string' }),
-  contract(basicsTask, IO_QUEUE, {
+  contract(captionTask, { imagePath: 'string' }, { configured: 'boolean', caption: 'string' }),
+  contract(basicsTask, {
     items: [{
       postId: 'number',
       path: 'string',
@@ -193,7 +187,7 @@ const CONTRACTS: Contract[] = [
     }],
     failures: [failure],
   }),
-  contract(danbooruImportTask, IO_QUEUE, {
+  contract(danbooruImportTask, {
     tags: 'string',
     limit: 'number',
     fullScan: 'boolean',
@@ -213,12 +207,12 @@ const CONTRACTS: Contract[] = [
       early_stopped: 'boolean',
     },
   }),
-  contract(urlScanTask, IO_QUEUE, { url: 'string' }, {
+  contract(urlScanTask, { url: 'string' }, {
     fetched: 'number',
     filePath: 'string',
     items: [galleryItem],
   }),
-  contract(urlDownloadTask, IO_QUEUE, {
+  contract(urlDownloadTask, {
     items: [galleryItem],
     saveDir: 'string',
     filePathStr: 'string',
@@ -266,7 +260,6 @@ function shapeErrors(value: unknown, shape: AnyShape, at: string): string[] {
 }
 
 interface Fixture {
-  name: string
   queue: string
   payload: unknown
   result: unknown
@@ -285,14 +278,14 @@ describe('任务契约 fixture', () => {
       .map(f => f.slice(0, -'.json'.length))
       .sort()
     expect(files).toEqual(CONTRACTS.map(c => c.task.name).sort())
+    expect(files).toEqual(Object.keys(TASK_QUEUES).sort())
   })
 
   describe.each(CONTRACTS.map(c => [c.task.name, c] as const))('%s', (name, c) => {
     const fixture = readFixture(name)
 
-    it('name / queue 与 tasks.ts 一致', () => {
-      expect(fixture.name).toBe(c.task.name)
-      expect(fixture.queue).toBe(c.queue)
+    it('queue 与 TASK_QUEUES 一致', () => {
+      expect(fixture.queue).toBe(queueOf(c.task))
     })
 
     it('payload 的键集合与接口完全一致', () => {

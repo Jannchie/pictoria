@@ -10,15 +10,24 @@
  * * 把 `sha256` / `arthash` / `dominant_color` 清回空值（旋转写回 `arthash = NULL`）→ basics；
  * * 清空 `post_process_failures` 黑名单、删掉某个 scorer 的分数行 → 对应的 worker。
  *
- * 水位线不会自己退回去，所以每一条这样的写都必须让对应的循环下一轮**强制重扫**。漏掉
+ * 水位线不会自己退回去，所以每一条这样的写都必须把对应循环的水位线退回去。漏掉
  * 一条的表现是**完全静默的**：没有异常、没有日志，那张图就是永远不再被 backfill 碰。
  *
- * 原来这件事靠路由在写完之后记得调 `wakeAllBackfills()` —— 调用点散在四个路由文件里，
- * 而"这次写会不会制造待办"是 SQL 层的知识（哪一列、哪个条件），路由只能猜，于是要么
- * 漏、要么一律叫醒全部循环（一次 tagger 全扫在真实库上是 1.8 秒的同步阻塞）。现在写函数
- * 自己判断、自己喊，调度器（`apps/api/src/scheduler.ts`）订阅这个信号，只叫醒被点名的
- * 那几条循环。新加这类写点时，规则是：**在 repository 函数里**调 `notifyRepending`，
- * 并在 `repending.test.ts` 里给它补一条断言。
+ * 写函数知道是哪几张图时带上**最小的 id**（`fromId`）：信号当场把被点名循环的水位线
+ * 退到那里（`scan-floor.ts` 的 `lowerFloor`），循环被叫醒后只从那张图起扫。说不清是
+ * 哪几张时不带，监听器收到 `force: true`，被点名的循环下一轮清零水位线、全库重扫一次
+ * （tagger 在真实库上是 1.8 秒的同步阻塞，所以能带 id 就带）。
+ *
+ * **新建 post** 也走这条信号（`createPost` / `insertPostTriples` / `persistPostsWithTags`，
+ * 点名全部 worker、带上新行的最小 id）：新行天然在水位线之上，退水位是空操作，信号只是
+ * 把空转的循环叫醒，免得它们干等一轮 `IDLE_MS`。
+ *
+ * 原来这件事靠路由在写完之后记得调一个全局的"叫醒全部循环并强制重扫" —— 调用点散在
+ * 四个路由文件里，而"这次写会不会制造待办"是 SQL 层的知识（哪一列、哪个条件），路由
+ * 只能猜，于是要么漏、要么一律叫醒全部循环。现在写函数自己判断、自己喊，调度器
+ * （`apps/api/src/scheduler.ts`）订阅这个信号，只叫醒被点名的那几条循环。新加这类写点
+ * 时，规则是：**在 repository 函数里**调 `notifyRepending`，并在 `repending.test.ts` 里
+ * 给它补一条断言。
  *
  * 按**连接**登记（`WeakMap`），和水位线同一个理由：水位线本身就是按连接存的，一条连接
  * 上的写只可能让**那条连接**的水位线过期。测试、脚本开的别的连接不会误叫醒生产循环。
@@ -27,9 +36,14 @@
  * 在之后的事件循环轮次里 —— 所以在事务**里面**喊也安全；事务回滚的话只是多扫一轮。
  */
 import type { SqliteHandle } from './connection.js'
+import { lowerFloor } from './scan-floor.js'
 import type { BackfillWorker } from './workers.js'
 
-export type RependingListener = (workers: readonly BackfillWorker[]) => void
+/**
+ * `force`：发信号的一方说不清是哪几张图（没带 `fromId`），被点名的循环下一轮要清零
+ * 水位线全扫。带了 `fromId` 的信号水位线已经退好了，只需要叫醒。
+ */
+export type RependingListener = (workers: readonly BackfillWorker[], opts: { force: boolean }) => void
 
 const listeners = new WeakMap<SqliteHandle, Set<RependingListener>>()
 
@@ -46,13 +60,27 @@ export function onRepending(sqlite: SqliteHandle, listener: RependingListener): 
   }
 }
 
-/** 宣布这些 worker 在这条连接上有老 post 重新变成了待办。不传 worker 是空操作。 */
-export function notifyRepending(sqlite: SqliteHandle, ...workers: BackfillWorker[]): void {
-  if (!workers.length)
+/**
+ * 宣布这些 worker 在这条连接上有 post 变成了待办。不点名是空操作。
+ *
+ * `fromId` 是其中最小的 post id：给了就当场把这几条循环的水位线退到它（见文件头），
+ * 不给就让监听器强制全扫。
+ */
+export function notifyRepending(
+  sqlite: SqliteHandle,
+  workers: BackfillWorker | readonly BackfillWorker[],
+  fromId?: number,
+): void {
+  const named: readonly BackfillWorker[] = typeof workers === 'string' ? [workers] : workers
+  if (!named.length)
     return
+  if (fromId !== undefined) {
+    for (const w of named) lowerFloor(sqlite, w, fromId)
+  }
   const set = listeners.get(sqlite)
   if (!set)
     return
+  const opts = { force: fromId === undefined }
   // 拷一份再派发：监听器里取消订阅不该打乱这一轮的遍历。
-  for (const listener of [...set]) listener(workers)
+  for (const listener of [...set]) listener(named, opts)
 }

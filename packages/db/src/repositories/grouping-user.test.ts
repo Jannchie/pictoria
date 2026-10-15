@@ -12,7 +12,7 @@ import { assignFromEdges } from './dedup.js'
 import { bulkUpdateField, clearCanonical, groupTogether, listGroupOverrides, markDifferent, updateField } from './posts.js'
 import { listEdgesFor, listUserVerdicts } from './variant-edges.js'
 
-const { sqlite, cleanup } = createTempDb('grouping-user')
+const { sqlite, cleanup } = createTempDb()
 afterAll(cleanup)
 
 /** 某个 post 当前的组指针（NULL = 它自己是封面 / 独立）。 */

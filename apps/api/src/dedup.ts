@@ -175,7 +175,7 @@ export interface RebuildOptions {
  */
 export async function rebuildGroups(
   sqlite: SqliteHandle,
-  tasks: CairnQ,
+  tasks: Pick<CairnQ, 'call'>,
   options: RebuildOptions = {},
 ): Promise<number> {
   while (inFlight) {
@@ -239,7 +239,7 @@ export function classifyPairs(
  */
 async function arbitrate(
   sqlite: SqliteHandle,
-  tasks: CairnQ,
+  tasks: Pick<CairnQ, 'call'>,
   grey: readonly GreyPair[],
   opts: {
     standalone: ReadonlySet<number>
@@ -402,7 +402,7 @@ export function buildEdges(
 
 async function doRebuild(
   sqlite: SqliteHandle,
-  tasks: CairnQ,
+  tasks: Pick<CairnQ, 'call'>,
   options: RebuildOptions,
 ): Promise<number> {
   const threshold = options.threshold ?? DEDUP_THRESHOLD

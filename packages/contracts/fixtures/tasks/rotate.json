@@ -1,5 +1,4 @@
 {
-  "name": "rotate",
   "queue": "io",
   "payload": {
     "originalPath": "/library/art/1.png",

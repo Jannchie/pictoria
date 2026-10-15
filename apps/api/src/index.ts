@@ -2,10 +2,9 @@ import type { CairnQ } from 'cairnq'
 import process from 'node:process'
 import { serve } from '@hono/node-server'
 import { createApp } from './app.js'
-import { rebuildGroups } from './dedup.js'
 import { getDb, migrate } from './db.js'
 import { BACKFILL_LOOP_KEYS, setSchedulerError } from './queue-status.js'
-import { startBackfills, wakeAllBackfills } from './scheduler.js'
+import { startBackfills } from './scheduler.js'
 import { startAutoSync } from './sync.js'
 import { getTasks, peekTasks } from './tasks.js'
 
@@ -60,18 +59,12 @@ if (process.env.PICTORIA_SCHEDULER !== '0') {
     const tasks = await tasksForScheduler()
     const { sqlite } = getDb()
     // 按 `workers.ts` 的 BACKFILL_SPECS 起全部循环（basics 排在最前：其余 worker 的
-    // 输入 —— 尺寸、缩略图 —— 都由它产出）。
-    // embedding 的待办清空之后要重建近重复分组 —— 新图不经过这一步就永远不会被
-    // 认成任何一张老图的重复（形状承自已删除的 EMBEDDING_WORKER.on_backfill_complete）。
-    startBackfills(sqlite, tasks, {
-      onEmbeddingDrained: async () => {
-        await rebuildGroups(sqlite, tasks).catch((err: unknown) =>
-          console.warn(`[dedup] 重建失败：${String(err)}`))
-      },
-    })
-    // 磁盘变化和定时轮询都会触发一次对账，然后把 backfill 循环叫醒 ——
-    // 形状承自已删除的 app.py 里的 watchdog + 10 分钟 poller。
-    startAutoSync(sqlite, () => wakeAllBackfills())
+    // 输入 —— 尺寸、缩略图 —— 都由它产出）。embedding 待办清空后的近重复重组是它
+    // 规格上的 `onDrained`。
+    startBackfills(sqlite, tasks)
+    // 磁盘变化和定时轮询都会触发一次对账 —— 形状承自已删除的 app.py 里的 watchdog +
+    // 10 分钟 poller。建出新行时 `insertPostTriples` 自己叫醒 backfill 循环。
+    startAutoSync(sqlite)
     console.warn(`[pictoria-api] backfill 调度已启动：${BACKFILL_LOOP_KEYS.join(', ')}`)
     console.warn('[pictoria-api] 文件监视 + 10 分钟轮询已启动')
   })().catch((err: unknown) => {

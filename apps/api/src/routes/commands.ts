@@ -37,7 +37,6 @@ import { type AppEnv, newRoutes, type TaskSource } from '../env.js'
 import { boolQuery, CREATED, OK, errors, fail, postNotFound } from '../openapi.js'
 import { postDetailResponse, postIdParam } from './post-shared.js'
 import { PostDetailPublic, Result } from '../schemas.js'
-import { wakeAllBackfills } from '../scheduler.js'
 import { postAbsPath, targetDir } from '../paths.js'
 import { startSync } from '../sync.js'
 import { embeddingSpec, runOneShot, silvaSpecs, taggerSpec, waifuSpec } from '../workers.js'
@@ -392,10 +391,9 @@ commandsRoutes.openapi(
   }),
   (c) => {
     const { allow_mass_delete: allowMassDelete } = c.req.valid('query')
+    // 新行的空列由 backfill 循环去填：建行的 repository 函数自己叫醒它们。
     const started = startSync(c.var.db, (r) => {
       console.warn(`[sync] 完成：新增 ${r.added}，删除 ${r.removed}`)
-      // 新行的空列由 backfill 循环去填：把空转的循环叫醒。
-      wakeAllBackfills()
     }, { allowMassDelete })
     return c.json({ msg: started ? 'Sync started' : 'Sync already running' }, 201)
   },
@@ -464,9 +462,8 @@ commandsRoutes.openapi(
       maxAttempts: 1,
     })
 
+    // 新行只有路径三元组，其余列等 backfill 去填 —— persistPostsWithTags 自己叫醒循环。
     persistPostsWithTags(sqlite, result.rows)
-    // 新行只有路径三元组，其余列等 backfill 去填 —— 别让它们干等一轮空转。
-    wakeAllBackfills()
     const { with_url: withUrl, early_stopped: earlyStopped, ...stats } = result.stats
     return c.json({ ...stats, withUrl, earlyStopped }, 201)
   },
@@ -542,7 +539,7 @@ async function runUrlImport(sqlite: SqliteHandle, tasks: TaskSource, url: string
   // 新图需要向量 / 分数 / 自动标签（kemono 的帖子根本不带标签）—— 踢一脚既有的
   // backfill 流程。⚠️ 必须在 state='done' **之后**，因为 done 是前端停止轮询的信号，
   // 而 syncTriggered 是它要读的最后一个字段。
-  status.syncTriggered = startSync(sqlite, () => wakeAllBackfills())
+  status.syncTriggered = startSync(sqlite)
 }
 
 /**

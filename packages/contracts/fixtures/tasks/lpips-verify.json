@@ -1,5 +1,4 @@
 {
-  "name": "lpips-verify",
   "queue": "cpu",
   "payload": {
     "pairs": [

@@ -24,7 +24,7 @@ let sqlite: import('better-sqlite3').Database
 let cleanup: () => void
 
 beforeAll(() => {
-  ({ sqlite, cleanup } = createTempDb('annotations-tx'))
+  ({ sqlite, cleanup } = createTempDb())
   for (const id of [1, 2, 3, 4, 5]) insertPost(sqlite, { id })
 })
 

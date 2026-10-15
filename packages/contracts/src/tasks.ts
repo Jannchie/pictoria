@@ -666,3 +666,39 @@ export interface UrlDownloadResult {
 
 /** 把 TS 判定为"新"的那些项下下来，回传可以落库的行。 */
 export const urlDownloadTask = defineTask<UrlDownloadPayload, UrlDownloadResult>('url-download')
+
+// ─── 任务 → 队列 ────────────────────────────────────────────────────────
+
+export type Queue = typeof GPU_QUEUE | typeof INTERACTIVE_QUEUE | typeof IO_QUEUE | typeof CPU_QUEUE
+
+/**
+ * 每个任务进哪个队列 —— 唯一的定义处。Python worker 按同一份对应关系注册 handler，
+ * `fixtures/tasks/<name>.json` 的 `queue` 字段把两侧钉在一起（`tasks.test.ts` 断言
+ * 这张表与 fixture 逐个一致，任务多一个少一个都红）。
+ */
+export const TASK_QUEUES = {
+  'silva': GPU_QUEUE,
+  'waifu': GPU_QUEUE,
+  'tagger': GPU_QUEUE,
+  'embedding': GPU_QUEUE,
+  'dedup': GPU_QUEUE,
+  'text-embed': INTERACTIVE_QUEUE,
+  'lpips-verify': CPU_QUEUE,
+  'thumbnail': IO_QUEUE,
+  'rotate': IO_QUEUE,
+  'caption': IO_QUEUE,
+  'basics': IO_QUEUE,
+  'danbooru-import': IO_QUEUE,
+  'url-scan': IO_QUEUE,
+  'url-download': IO_QUEUE,
+} as const satisfies Record<string, Queue>
+
+export type TaskName = keyof typeof TASK_QUEUES
+
+/** 一个任务该提交到的队列（查 `TASK_QUEUES`）。 */
+export function queueOf(task: { readonly name: string }): Queue {
+  const queue = (TASK_QUEUES as Record<string, Queue>)[task.name]
+  if (!queue)
+    throw new Error(`task ${task.name} has no queue in TASK_QUEUES`)
+  return queue
+}

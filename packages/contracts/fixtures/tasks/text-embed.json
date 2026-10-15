@@ -1,5 +1,4 @@
 {
-  "name": "text-embed",
   "queue": "gpu-interactive",
   "payload": {
     "prompt": "a girl under cherry blossoms"

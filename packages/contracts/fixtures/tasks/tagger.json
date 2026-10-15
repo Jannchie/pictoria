@@ -1,5 +1,4 @@
 {
-  "name": "tagger",
   "queue": "gpu",
   "payload": {
     "items": [

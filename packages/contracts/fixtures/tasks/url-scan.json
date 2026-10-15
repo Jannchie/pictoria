@@ -1,5 +1,4 @@
 {
-  "name": "url-scan",
   "queue": "io",
   "payload": {
     "url": "https://yande.re/post?tags=some_artist"

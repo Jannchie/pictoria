@@ -1,5 +1,4 @@
 {
-  "name": "danbooru-import",
   "queue": "io",
   "payload": {
     "tags": "some_artist",

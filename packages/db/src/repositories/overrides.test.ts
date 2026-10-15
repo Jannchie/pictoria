@@ -48,7 +48,7 @@ function rebuild(edges: Array<[number, number]>): void {
 }
 
 beforeAll(() => {
-  ({ sqlite, cleanup } = createTempDb('overrides'))
+  ({ sqlite, cleanup } = createTempDb())
 })
 
 afterAll(() => cleanup())

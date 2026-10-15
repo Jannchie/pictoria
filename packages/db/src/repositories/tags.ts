@@ -131,16 +131,18 @@ export function deleteTags(sqlite: BetterSqlite3.Database, names: string[]): voi
   // 删之前问一句"有没有图因此丢掉最后一个自动标签"：只删手工标签的话 tagger 待办不变，
   // 不该逼它全库重扫（真实库上一次是 1.8 秒的同步阻塞）。删完再问就问不到了 —— 级联
   // 已经把关联行带走。
-  const strandsAuto = sqlite
-    .prepare(
-      `SELECT 1 FROM post_has_tag pht WHERE pht.tag_name IN (${ph}) AND pht.is_auto = 1 `
+  // 取被剥光的图里最小的 id：水位线只需退到那里（见 `../repending.ts`）。
+  const firstStranded = sqlite
+    .prepare<unknown[], number | null>(
+      `SELECT MIN(pht.post_id) FROM post_has_tag pht WHERE pht.tag_name IN (${ph}) AND pht.is_auto = 1 `
       + `AND NOT EXISTS (SELECT 1 FROM post_has_tag o WHERE o.post_id = pht.post_id AND o.is_auto = 1 `
-      + `AND o.tag_name NOT IN (${ph})) LIMIT 1`,
+      + `AND o.tag_name NOT IN (${ph}))`,
     )
-    .get(...names, ...names) !== undefined
+    .pluck()
+    .get(...names, ...names)
   sqlite.prepare(`DELETE FROM tags WHERE name IN (${ph})`).run(...names)
-  if (strandsAuto)
-    notifyRepending(sqlite, 'tagger')
+  if (firstStranded != null)
+    notifyRepending(sqlite, 'tagger', firstStranded)
 }
 
 /**
@@ -186,6 +188,6 @@ export function removeTagFromPost(
     .pluck()
     .get(postId) === undefined
   if (lastAuto)
-    notifyRepending(sqlite, 'tagger')
+    notifyRepending(sqlite, 'tagger', postId)
   return true
 }
