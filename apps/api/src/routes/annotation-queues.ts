@@ -217,7 +217,7 @@ annotationQueuesRoutes.openapi(
     const { queue_id: queueId } = c.req.valid('param')
     const { limit } = c.req.valid('query')
     return c.json(
-      nextAbsoluteItems(getDb().sqlite, queueId, limit).map((r: any) => ({
+      nextAbsoluteItems(getDb().sqlite, queueId, limit).map(r => ({
         position: r.position,
         post: toQueuePost(r),
       })),
@@ -246,7 +246,7 @@ annotationQueuesRoutes.openapi(
     const { queue_id: queueId } = c.req.valid('param')
     const { limit } = c.req.valid('query')
     return c.json(
-      nextPairwiseItems(getDb().sqlite, queueId, limit).map((r: any) => ({
+      nextPairwiseItems(getDb().sqlite, queueId, limit).map(r => ({
         position: r.position,
         postA: toQueuePost(r, 'a_'),
         postB: toQueuePost(r, 'b_'),
@@ -282,10 +282,7 @@ annotationQueuesRoutes.openapi(
     return c.json(
       items.map(i => ({
         position: i.position,
-        posts: i.post_ids.filter(pid => posts.has(pid)).map((pid) => {
-          const p = posts.get(pid)!
-          return toQueuePost(p)
-        }),
+        posts: i.post_ids.flatMap(pid => posts.get(pid) ?? []).map(p => toQueuePost(p)),
       })),
       200,
     )

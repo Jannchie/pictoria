@@ -6,15 +6,49 @@
  * 标注事件。所以整个标注闭环是自洽的，下游消费者只**读**事件。
  *
  * 下面每个常量的取值都是在真实库上测出来的，不是拍脑袋的默认值 —— 改之前先读注释。
+ *
+ * 文件分三层：纯图算法在 pair-graph.ts（不碰 sqlite，单测不用建库），每一条 SQL 在
+ * sampling-queries.ts，这里只剩**策略** —— 可调常量和 Sampler 怎么把它们拼成一批。
  */
-import { placeholders } from '../sql.js'
 import type BetterSqlite3 from 'better-sqlite3'
-import { AESTHETIC_SCORES_TABLE, SILVA } from '../scorers.js'
-import { FORMAT_TAGS, formatOf } from '../formats.js'
-import type { Format } from '../formats.js'
-import { cosine, existingVectors, knn, unitVectors } from './vectors.js'
+import { placeholders } from '../sql.js'
+import { cosine, knn, unitVectors } from './vectors.js'
 import { scorerValuesFor } from './scores.js'
+import { SILVA } from '../scorers.js'
+import type { Format } from '../formats.js'
 import { edgeKey } from './variant-edges.js'
+import {
+  connectedBlocks,
+  cycleEdges,
+  interleaveWithBridges,
+  MIN_CYCLE_MEMBERS,
+  PAIR_MEMBERS,
+  PairGraph,
+} from './pair-graph.js'
+import type { Block } from './pair-graph.js'
+import { flipPair, nSmallest, reservoir, shuffle } from './sampling-random.js'
+import {
+  anchoredPool,
+  comparisonEdges,
+  drawCandidates,
+  existingPostIds,
+  judgedSilvaRows,
+  pairwiseEligibleScores,
+  partnerInWindow,
+  randomPairwiseEligible,
+  rankedListwiseRows,
+  repeatCutoff,
+  repeatPairPool,
+  silvaEligibleAmong,
+  silvaInRange,
+  windowSeeds,
+  withEmbedding,
+} from './sampling-queries.js'
+import type { AnchoredMember, IdScoreRow } from './sampling-queries.js'
+
+// 这两个曾经定义在本文件里，sampling-*.test.ts 仍从这里拿。index.ts 直接指向新位置。
+export { flipPair } from './sampling-random.js'
+export { isRepeatMeasurement } from './sampling-queries.js'
 
 // ─── similar 策略的可调参数 ─────────────────────────────────────────
 //
@@ -180,15 +214,8 @@ const LISTWISE_SEED_MIN_STARS = 4
  */
 const REPEAT_SHARE = 0.05
 
-/**
- * 重问之前至少要隔多久。
- *
- * 隔太近，量到的是「还记不记得上次点了哪边」，不是判断本身的稳定性。7 天是这条链上
- * 唯一需要的假设，取得保守：对一个 22 万张的库来说，认出某一个**特定组合**并回忆起
- * 当时的判决，一周后基本不可能。存量数据也支持 —— 到 2026-08-20，7 天前判过、只判过
- * 一次、非 skip 的对有 4966 个，池子远大于消耗速度。
- */
-const REPEAT_MIN_AGE_DAYS = 7
+// 重问之前至少要隔多久（REPEAT_MIN_AGE_DAYS）和「够格充当第一次」的判据（REPEAT_PRIOR）
+// 都是 SQL 的一部分，在 sampling-queries.ts。
 
 /**
  * `n` 个槽位里有多少个该让给重复测量。
@@ -196,46 +223,13 @@ const REPEAT_MIN_AGE_DAYS = 7
  * 伯努利逐槽抽，不是 `Math.round(n * share)` —— 后者在 limit=20、share=0.05 下恒等于 1，
  * 每批不多不少正好一条，有节奏可循。
  */
-/**
- * 一条「够格充当重复测量之第一次」的判决。sampleRepeats 用它挑重问对象，
- * isRepeatMeasurement 用它判定刚交上来的这条是不是第二次 —— 同一个定义，两个方向。
- */
-const REPEAT_PRIOR = `dimension = ? AND winner != 'skip'`
-  + ` AND created_at <= datetime('now', '-${REPEAT_MIN_AGE_DAYS} days')`
-
-/**
- * 刚判完的这一对，之前是不是已经judged过一次（且隔得够久）。
- *
- * 「这条是不是重复测量」是**服务端可推导**的事实，所以不该由客户端报：正常采样绝不
- * 重问已判过的对，所以「该维度上这一无序对已有一条够老的非 skip 判决」⟺ 这次是第二次量。
- * 让客户端保管一个它无法核实的来源标记，等于把迁移 0017 要解决的问题（provenance 一旦
- * 丢了就永远补不回来）原样搬高一层 —— 一个过期的前端构建就能让整批静默记错。
- *
- * 顺带把 random / similar 偶然重问到老对的情况也收进来：那同样是一次可用的重复测量，
- * 冷却期条件已经保证了它可用。
- */
-export function isRepeatMeasurement(
-  sqlite: BetterSqlite3.Database,
-  { a, b, dimension }: { a: number, b: number, dimension: string },
-): boolean {
-  return sqlite
-    .prepare<[string, number, number, number, number], { 1: number }>(
-      `SELECT 1 FROM pairwise_annotations WHERE ${REPEAT_PRIOR}`
-      + ` AND ((post_a = ? AND post_b = ?) OR (post_a = ? AND post_b = ?)) LIMIT 1`,
-    )
-    .get(dimension, a, b, b, a) !== undefined
-}
-
 export function repeatSlots(n: number, share = REPEAT_SHARE): number {
   let k = 0
   for (let i = 0; i < n; i++) if (Math.random() < share) k++
   return k
 }
 
-// 这两个不是可调参数而是算术 —— 上面每一条都是测量值，这两条是结构事实。一次比较要两张图；
-// 最小的环要三张。两个成员的块因此是一次比较而不是一个环：把它闭合等于把同一个问题问两遍。
-const PAIR_MEMBERS = 2
-const MIN_CYCLE_MEMBERS = 3
+// PAIR_MEMBERS / MIN_CYCLE_MEMBERS（结构事实，不是可调参数）在 pair-graph.ts。
 
 /**
  * 重新抽出来当桥头堡的已判图片，让这一批挂到**已经建好**的比较图上，而不是另起一座孤岛。
@@ -274,387 +268,22 @@ const ANCHOR_CANDIDATES = 200
 const CALIBRATION_GAP: readonly [number, number] = [0.15, 0.25]
 /** 有需求时占一批的比例。 */
 const CALIBRATION_SHARE = 0.2
-/** 一条判决算不上横扫。 */
-const CALIBRATION_MIN_DECISIVE = 2
 
-/** 已经连在一起的边，加上其它块用来搭桥的 `(post_id, score)`。 */
-export type Block = [Array<[number, number]>, [number, number]]
-
-/** 无向边表的连通分量：`root -> members`。 */
-function components(edges: Iterable<[number, number]>): Map<number, Set<number>> {
-  const parent = new Map<number, number>()
-
-  function find(x: number): number {
-    if (!parent.has(x))
-      parent.set(x, x)
-    let cur = x
-    while (parent.get(cur)! !== cur) {
-      // 路径减半，与 Python 侧 `parent[x] = parent[parent[x]]` 逐步等价
-      const grand = parent.get(parent.get(cur)!)!
-      parent.set(cur, grand)
-      cur = grand
-    }
-    return cur
-  }
-
-  for (const [a, b] of edges) parent.set(find(a), find(b))
-  const groups = new Map<number, Set<number>>()
-  for (const pid of [...parent.keys()]) {
-    const root = find(pid)
-    let g = groups.get(root)
-    if (!g) {
-      g = new Set()
-      groups.set(root, g)
-    }
-    g.add(pid)
-  }
-  return groups
-}
-
-/**
- * 首尾相接的相邻对 —— m 个成员，m 条边。
- *
- * 是环而不是原来那条路径。两者都能连通这个块，但同样的边数下路径把两端留在度数 1 且不含
- * 环，而这个让每个成员度数 2 并闭合一个圈。多那一条边图的就是冗余：圈是矛盾判决唯一能显形
- * 为矛盾的地方，而在已有历史里只有 4.2% 的边落在任何圈上。
- *
- * 成员不需要排序。它们来自同一个 silva 窗口，所以其中**每一对**天然在带内 —— 这正是顺序
- * 可以被腾出来干别的的原因（见 diverseSubset）。
- */
-function* cycleEdges(members: number[]): Generator<[number, number]> {
-  if (members.length < PAIR_MEMBERS)
-    return
-  if (members.length === PAIR_MEMBERS) {
-    yield [members[0]!, members[1]!]
-    return
-  }
-  for (const [i, a] of members.entries())
-    yield [a, members[(i + 1) % members.length]!]
-}
-
-/** 把一个连通边表重排，使每条边都碰到前面某条边用过的图片。 */
-function breadthFirst(edges: Array<[number, number]>): Array<[number, number]> {
-  const remaining = [...edges]
-  const ordered = [remaining.shift()!]
-  const seen = new Set<number>(ordered[0]!)
-  while (remaining.length) {
-    let idx = remaining.findIndex(e => seen.has(e[0]) || seen.has(e[1]))
-    if (idx < 0)
-      idx = 0
-    const [nxt] = remaining.splice(idx, 1) as [[number, number]]
-    ordered.push(nxt)
-    seen.add(nxt[0])
-    seen.add(nxt[1])
-  }
-  return ordered
-}
-
-/**
- * 把一个窗口的边拆成真正连在一起的若干块。
- *
- * 通常只有一块，而且这是构造保证而非运气：环掉任何一条边仍是路径，且 cycleEdges 按链序
- * 产出，于是截断出的前缀也是连通的。这里防的是那两条覆盖不到的情况 —— 窗口的**两**条边
- * 从 PairGraph.claim 回来时已被问过，把环切成了几段弧。
- *
- * 这罕见但并非不可能：它需要从 21.4 万张的库里抽到的两个成员此前比较过，而且恰好落在抽取
- * 给它们的相邻位置上。罕见到合成 fixture 永远碰不到，又常见到在有几千张已判图片的真实库上
- * 会发生。给搭桥那一趟只交一个断环的代表，意味着只有含代表的那段弧并入了图，另一段悄悄成了
- * 孤岛 —— 悄悄地，因为批次大小看着还是对的。逐段弧搭桥才让"一批是连通的"从意图变成事实。
- *
- * `score` 是窗口中心，各块共享：所有成员都在离它半个带以内，比 interleaveWithBridges 里
- * 那次排序能用到的粒度更细。
- *
- * 块内的边按广度优先重排，代表是**第一条**边的一个端点。这两件事让 interleaveWithBridges
- * 能在块之间轮转而不破坏连通性：搭到某块上的桥落在这块第一条边也碰到的那张图上，而这块后面
- * 每条边都碰到已经发出过的图。
- */
-function connectedBlocks(edges: Array<[number, number]>, score: number): Block[] {
-  const rootOf = new Map<number, number>()
-  for (const [root, members] of components(edges))
-    for (const pid of members) rootOf.set(pid, root)
-  const byRoot = new Map<number, Array<[number, number]>>()
-  for (const edge of edges) {
-    const root = rootOf.get(edge[0])!
-    const list = byRoot.get(root)
-    if (list)
-      list.push(edge)
-    else byRoot.set(root, [edge])
-  }
-  const blocks: Block[] = []
-  for (const chunk of byRoot.values()) {
-    const ordered = breadthFirst(chunk)
-    blocks.push([ordered, [ordered[0]![0], score]])
-  }
-  return blocks
-}
-
-/**
- * 等概率决定这一对谁在左。
- *
- * 离开采样器的那一刻，呈现顺序必须与任何有意义的量无关 —— 否则位置和内容混在一起，
- * 事后再也分不开。pairByScoreBand 是 `out.push([a.id, b.id])` 且 `a.score <= b.score`，
- * UI 又恒定把 post_a 画在左边，于是 similar 抽出的对里屏幕左侧系统性站着旧分更低的那张：
- * 实测到 2026-08-20，mean(silva_a − silva_b) = −0.0153，z = −10.5，而想检验标注者有没有
- * 左右偏好，就只能在模型判定几乎相等的子集里做，功效低到既证不出也排除不掉一个 2~3%
- * 的效应（|Δsilva| < 0.005 时 n=784、z=−1.43）。
- *
- * listwise 那边是同一条不变量的另一种形态（sampleGroups 返回前 shuffle 成员）。
- */
-export function flipPair([a, b]: [number, number]): [number, number] {
-  return Math.random() < 0.5 ? [b, a] : [a, b]
-}
-
-/** 原地 Fisher-Yates。 */
-function shuffle<T>(items: T[]): T[] {
-  for (let i = items.length - 1; i > 0; i--) {
-    const j = Math.floor(Math.random() * (i + 1));
-    [items[i], items[j]] = [items[j]!, items[i]!]
-  }
-  return items
-}
-
-/** 取 `n` 个 key 最小的元素，平局保持原顺序（≡ Python `heapq.nsmallest`）。 */
-/**
- * 一趟流式随机取 `n` 个（蓄水池抽样），结果的顺序本身也是随机的。
- *
- * 存在的理由是 listwise 那条路径上池子在内存里而不是在 SQL 里：`shuffle([...map.keys()])`
- * 要为 9.6 万个 id 建一个数组再全洗一遍，只为取头 32 个，而每个窗口都要做一次。蓄水池
- * 是同一个分布，不分配中间数组，也不碰不需要的那部分。
- */
-function reservoir<T>(items: Iterable<T>, n: number): T[] {
-  const out: T[] = []
-  let seen = 0
-  for (const item of items) {
-    seen++
-    if (out.length < n) {
-      out.push(item)
-      continue
-    }
-    const j = Math.floor(Math.random() * seen)
-    if (j < n)
-      out[j] = item
-  }
-  return out
-}
-
-function nSmallest<T>(n: number, items: T[], key: (x: T) => number): T[] {
-  return items
-    .map((item, i) => ({ item, i, k: key(item) }))
-    .sort((x, y) => x.k - y.k || x.i - y.i)
-    .slice(0, n)
-    .map(x => x.item)
-}
-
-/**
- * 一轮采样的边簿记：什么已经问过，以及每张图被用了几次。
- *
- * 它存在是为了让配对那几趟和搭桥那一趟共享同一个"已花费"的概念，而不是各自拎着 `out` /
- * `emitted` / `degrees` / `cap` 这些散参数。`saturated` 是增量维护的，不是每个种子从
- * `degrees` 重算一遍。
- */
-export class PairGraph {
-  readonly degrees = new Map<number, number>()
-  readonly emitted = new Set<string>()
-  readonly saturated = new Set<number>()
-  /** 每张图的决定性战绩，用来找出评分还无界的那些。 */
-  readonly wins = new Map<number, number>()
-  readonly losses = new Map<number, number>()
-  /**
-   * `emitted` 从历史载入后的最大连通分量 —— 也就是值得生长的那部分图，因为排序只能在
-   * 一个分量内部推出来。**故意不被** `claim` 更新：它描述的是已经收集到的东西，而那正是
-   * 下一批要挂靠的对象。
-   */
-  component = new Set<number>()
-
-  constructor(readonly degree: number) {}
-
-  /** `emitted` 的最大连通分量的成员。 */
-  mainComponent(): Set<number> {
-    const edges = [...this.emitted].map((key) => {
-      const [a, b] = key.split(':')
-      return [Number(a), Number(b)] as [number, number]
-    })
-    let best = new Set<number>()
-    for (const members of components(edges).values())
-      if (members.size > best.size)
-        best = members
-    return best
-  }
-
-  degreeOf(pid: number): number {
-    return this.degrees.get(pid) ?? 0
-  }
-
-  spent(pid: number): boolean {
-    return this.degreeOf(pid) >= this.degree
-  }
-
-  /** 度数 +1，够了就进 `saturated`。 */
-  bump(pid: number): void {
-    this.degrees.set(pid, this.degreeOf(pid) + 1)
-    if (this.spent(pid))
-      this.saturated.add(pid)
-  }
-
-  /**
-   * `pid` 从没输过返回 `+1`，从没赢过返回 `-1`，否则 `0`。
-   *
-   * 符号就是它下一个对手该在的方向。只有在这张图拿到 CALIBRATION_MIN_DECISIVE 条决定性
-   * 判决之后才有意义 —— 一次胜利说明不了横扫。平局两边都不算：平局同时从两侧给评分定了界，
-   * 而那恰恰是这些图片缺的东西。
-   */
-  unbounded(pid: number): number {
-    const wins = this.wins.get(pid) ?? 0
-    const losses = this.losses.get(pid) ?? 0
-    if (wins + losses < CALIBRATION_MIN_DECISIVE)
-      return 0
-    if (!losses)
-      return 1
-    return wins ? 0 : -1
-  }
-
-  /** 记下这次比较；自配对或已经问过则返回 `null`。 */
-  claim(a: number, b: number): [number, number] | null {
-    const key = edgeKey(a, b)
-    if (a === b || this.emitted.has(key))
-      return null
-    this.emitted.add(key)
-    this.bump(a)
-    this.bump(b)
-    return [a, b]
-  }
-}
-
-/**
- * 候选必须有 embedding（训练时要 join 它）、不能是被隐藏的近重复、不能在任何一个被请求的
- * 维度上已经标注过，也不能待在一个未完成的队列项里。
- *
- * 性能：embedding 检查是 vec0 虚表查询，**不是**便宜的 B-tree 探测 —— 放进 WHERE 会让
- * SQLite 每行 posts 都跑一次（约 10 万次查询，几十秒）。所以采样分两段：先只用普通表谓词
- * 抽一批超量的随机候选，再对这一小批做 vec0 过滤。
- */
-const CANDIDATE_WHERE
-  = 'p.canonical_post_id IS NULL '
-    + 'AND NOT EXISTS (SELECT 1 FROM absolute_queue_items i WHERE i.post_id = p.id AND i.done = 0) '
-    + 'AND NOT EXISTS (SELECT 1 FROM absolute_annotations a WHERE a.post_id = p.id AND a.dimension IN ({dims}))'
-
-/** 成对资格：canonical（没有被隐藏的近重复）且不在未完成的成对队列项里。两个策略共享。 */
-const PAIRWISE_ELIGIBLE
-  = 'p.canonical_post_id IS NULL AND NOT EXISTS (SELECT 1 FROM pairwise_queue_items i WHERE (i.post_a = p.id OR i.post_b = p.id) AND i.done = 0)'
-
-/**
- * 与 PAIRWISE_ELIGIBLE 同义，但从**分数行**那侧问，不需要 posts 在场。
- *
- * 两个排除集都小且能走覆盖索引，所以 SQLite 会各物化一次再拿 bloom filter 过滤，
- * 而不是每行回查一次 posts 主键。理由与实测见 SILVA_ELIGIBLE。
- */
-const SCORE_ROW_ELIGIBLE
-  = 's.post_id NOT IN (SELECT id FROM posts WHERE canonical_post_id IS NOT NULL)'
-    + ' AND s.post_id NOT IN (SELECT post_a FROM pairwise_queue_items WHERE done = 0'
-    + ' UNION SELECT post_b FROM pairwise_queue_items WHERE done = 0)'
-
-/**
- * 仍值得比较的图片的 `(id, silva 分)`。close 的四条采样查询都是这条语句加个尾巴 —— 一个
- * 分数区间、一个 id 列表 —— 和它们自己的 LIMIT，所以资格子句在这里写一次，而不是把 scorer
- * 名字硬编码四遍。两半都不绑定参数，这正是每个调用方都能直接追加自己的参数而不用记偏移量
- * 的原因。
- *
- * **不 join posts**。它曾经是 `FROM posts p JOIN post_aesthetic_scores s ON s.post_id = p.id`，
- * 而资格判定只需要 posts 的两件事：不是重复图、不在未完成的队列里。代价是每一条 silva 分行
- * 都要回查一次 posts 主键 —— 实测（2026-08-21，22.9 万张库）：单扫分数索引 5ms，加上这个
- * 回查变成 255ms，因为 posts 表有 171MB，22.9 万次随机读把它整个翻了一遍。
- *
- * 改成拿两个**小**排除集做反查：重复图 34,972 个（走覆盖索引 ix_posts_canonical，实测物化
- * 成本 0ms），未完成队列项 8 个。windowSeeds 315ms → 73ms，windowCandidates 220ms → 80ms，
- * 结果集逐行相同（194,153 行，双向差集为 0）。
- *
- * 丢掉 join 不会放进孤儿分数行：post_aesthetic_scores 对 posts 是 ON DELETE CASCADE，而
- * connection.ts 每条连接都开 `PRAGMA foreign_keys = ON`，所以 post 一删分数行就跟着没了
- * （实测孤儿数为 0）。
- *
- * 顺带记一笔试过但**不划算**的：给 post_aesthetic_scores 加 (scorer, score, post_id) 覆盖
- * 索引，windowCandidates 只从 40ms 到 34ms，windowSeeds 毫无变化 —— 不值一次迁移。
- */
-const SILVA_ELIGIBLE
-  = `SELECT s.post_id AS id, s.score FROM ${AESTHETIC_SCORES_TABLE} s `
-    + `WHERE s.scorer = '${SILVA.name}' AND ${SCORE_ROW_ELIGIBLE}`
-
-/**
- * 能给 silva 的联合拟合当**锚**的图：有 silva 分、有人工绝对分、非近重复、不在未完成
- * 的队列里。
- *
- * 和 SILVA_ELIGIBLE 的差别只有一条 `p.score >= 1`，但它值得单独存在，因为多出来的这
- * 条改变了成本模型：silva 侧 `fit_latent.py` 给没有绝对分的成员分配的是一个自由参数
- * （`extra[key] = n_items`），最后 `rank_to_grades` 只写回训练行 —— 而 `export_pairs.py`
- * 又不展开 listwise。所以一个没有绝对分的组员对下游的贡献严格为零，不是"信息量低"。
- * 2026-09-04 实测：导出的 138 组 797 个成员里只有 424 个有分，名义上 1961 个成对约束，
- * 两端都有锚的只有 567 个（29%）。
- *
- * 这里**故意 join posts** —— 正是 SILVA_ELIGIBLE 的注释里实测否决过的那件事，但成本
- * 模型不同：那条子句每个窗口跑一次（+148 ms/窗口），这条每**批**跑一次（95,856 行，
- * 实测 245 ms），之后所有窗口都在内存里切片。而且 `p.score` 只能从 posts 拿。
- *
- * 整批的固定开销因此是 formatSets(~150 ms) + 这条(245 ms)，一次 limit=3 的补充实测
- * 约 1.0 s（改动前约 0.45 s）。这笔钱花得起：一批 3 个组是标注者约 90 秒的工作量。
- * 245 ms 里有 235 ms 是 `p.score >= 1` 那侧的全表扫（posts 上没有 score 索引），所以
- * 如果哪天嫌慢，下一步是一条部分覆盖索引
- * `CREATE INDEX ... ON posts(id) WHERE score >= 1 AND canonical_post_id IS NULL`
- * ——而不是把这条查询拆回每个窗口一次。
- */
-const ANCHORED_ELIGIBLE
-  = `SELECT s.post_id AS id, s.score AS silva, p.score AS stars FROM ${AESTHETIC_SCORES_TABLE} s`
-    + ` JOIN posts p ON p.id = s.post_id`
-    + ` WHERE s.scorer = '${SILVA.name}' AND p.score >= 1 AND p.canonical_post_id IS NULL`
-    + ` AND s.post_id NOT IN (SELECT post_a FROM pairwise_queue_items WHERE done = 0`
-    + ` UNION SELECT post_b FROM pairwise_queue_items WHERE done = 0)`
-
-interface IdScoreRow { id: number, score: number }
-
-/** anchoredPool 的一行：窗口要 silva 分，形态收口要 format，选种子要人工星级。 */
-interface AnchoredMember { readonly silva: number, readonly format: Format, readonly stars: number }
+// CALIBRATION_MIN_DECISIVE 在 pair-graph.ts —— 只有 PairGraph.unbounded 用它。
 
 export class Sampler {
   constructor(private readonly sqlite: BetterSqlite3.Database) {}
 
-  /**
-   * 只保留有 SigLIP2 embedding 的 id，保持抽取顺序。
-   *
-   * 一次集合查询而不是每个 id 探一次：一次约 1.5 ms，逐个探的写法在
-   * `generate-pairwise count=200` 里光是配对开始前就花掉 1.2 s。
-   */
-  private withEmbedding(ids: number[]): number[] {
-    const embedded = existingVectors(this.sqlite, ids)
-    return ids.filter(pid => embedded.has(pid))
-  }
-
-  /**
-   * 第一段：在普通谓词上随机抽候选；第二段：vec0 过滤。
-   *
-   * 超量 2 倍 —— 库里 embedding 覆盖率接近全量，一次放大的抽取就够了（不做补抽循环，YAGNI）。
-   */
-  private draw(
-    { extraWhere, extraParams, dimensions, n }:
-    { extraWhere: string, extraParams: unknown[], dimensions: string[], n: number },
-  ): number[] {
-    const where = CANDIDATE_WHERE.replace('{dims}', placeholders(dimensions.length))
-    const rows = this.sqlite
-      .prepare<unknown[], { id: number }>(
-        `SELECT p.id FROM posts p WHERE ${where} ${extraWhere} ORDER BY RANDOM() LIMIT ?`,
-      )
-      .all(...dimensions, ...extraParams, n * 2)
-    return this.withEmbedding(rows.map(r => r.id)).slice(0, n)
-  }
-
   /** 为绝对标注抽候选 post id。 */
   samplePostIds({ count, strategy, dimensions }: { count: number, strategy: string, dimensions: string[] }): number[] {
     if (strategy !== 'stratified')
-      return this.draw({ extraWhere: '', extraParams: [], dimensions, n: count })
+      return drawCandidates(this.sqlite, { extraWhere: '', extraParams: [], dimensions, n: count })
 
     // 在旧的人工评分 1..5 上均分，每档内随机；某档抽干了就用随机候选补齐。
     const perLevel = Math.max(1, Math.floor(count / 5))
     const picked: number[] = []
     for (let level = 1; level <= 5; level++) {
-      picked.push(...this.draw({ extraWhere: 'AND p.score = ?', extraParams: [level], dimensions, n: perLevel }))
+      picked.push(...drawCandidates(this.sqlite, { extraWhere: 'AND p.score = ?', extraParams: [level], dimensions, n: perLevel }))
       if (picked.length >= count)
         return picked.slice(0, count)
     }
@@ -663,7 +292,7 @@ export class Sampler {
       // 什么都没抽到时整条 NOT IN 都要省掉：三值逻辑下 `id NOT IN (NULL)` 对每一行都是
       // NULL，于是在全未评分的库上悄悄排除了**所有东西**，补齐永远是空的。
       const notIn = picked.length ? `AND p.id NOT IN (${placeholders(picked.length)})` : ''
-      picked.push(...this.draw({ extraWhere: notIn, extraParams: [...picked], dimensions, n: fill }))
+      picked.push(...drawCandidates(this.sqlite, { extraWhere: notIn, extraParams: [...picked], dimensions, n: fill }))
     }
     return picked
   }
@@ -711,12 +340,7 @@ export class Sampler {
     if (strategy === 'close')
       return this.samplePairsClose(count, dimension)
 
-    const rows = this.sqlite
-      .prepare<[number], { id: number }>(
-        `SELECT p.id FROM posts p WHERE ${PAIRWISE_ELIGIBLE} ORDER BY RANDOM() LIMIT ?`,
-      )
-      .all(count * 4)
-    const ids = this.withEmbedding(rows.map(r => r.id)).slice(0, count * 2)
+    const ids = withEmbedding(this.sqlite, randomPairwiseEligible(this.sqlite, count * 4)).slice(0, count * 2)
     const out: Array<[number, number]> = []
     for (let i = 0; i + 1 < ids.length; i += 2) out.push([ids[i]!, ids[i + 1]!])
     return out
@@ -740,15 +364,7 @@ export class Sampler {
   sampleRepeats({ count, dimension = 'overall' }: { count: number, dimension?: string }): Array<[number, number]> {
     if (count <= 0)
       return []
-    return this.sqlite
-      .prepare<[string, number], { lo: number, hi: number }>(
-        `SELECT MIN(post_a, post_b) AS lo, MAX(post_a, post_b) AS hi`
-        + ` FROM pairwise_annotations WHERE ${REPEAT_PRIOR}`
-        + ` GROUP BY lo, hi HAVING COUNT(*) = 1`
-        + ` ORDER BY RANDOM() LIMIT ?`,
-      )
-      .all(dimension, count)
-      .map(r => [r.lo, r.hi] as [number, number])
+    return repeatPairPool(this.sqlite, dimension, count)
   }
 
   /**
@@ -779,11 +395,7 @@ export class Sampler {
   sampleRepeatGroups({ count, dimension = 'overall' }: { count: number, dimension?: string }): number[][] {
     if (count <= 0)
       return []
-    const rows = this.sqlite
-      .prepare<[string], { post_ids: string, created_at: string }>(
-        `SELECT post_ids, created_at FROM listwise_annotations WHERE dimension = ? AND ranking != '[]'`,
-      )
-      .all(dimension)
+    const rows = rankedListwiseRows(this.sqlite, dimension)
     const seen = new Map<string, { ids: number[], times: number, newest: string }>()
     for (const r of rows) {
       const ids = JSON.parse(r.post_ids) as number[]
@@ -796,19 +408,12 @@ export class Sampler {
       }
       else { seen.set(key, { ids, times: 1, newest: r.created_at }) }
     }
-    const { cutoff } = this.sqlite
-      .prepare<[], { cutoff: string }>(`SELECT datetime('now', '-${REPEAT_MIN_AGE_DAYS} days') AS cutoff`)
-      .get()!
+    const cutoff = repeatCutoff(this.sqlite)
     const aged = [...seen.values()].filter(g => g.times === 1 && g.newest <= cutoff)
     if (aged.length === 0)
       return []
     const ids = [...new Set(aged.flatMap(g => g.ids))]
-    const alive = new Set(
-      this.sqlite
-        .prepare<number[], { id: number }>(`SELECT id FROM posts WHERE id IN (${placeholders(ids.length)})`)
-        .all(...ids)
-        .map(r => r.id),
-    )
+    const alive = existingPostIds(this.sqlite, ids)
     const pool = shuffle(aged.filter(g => g.ids.every(pid => alive.has(pid))).map(g => g.ids))
     const picked: number[][] = []
     const taken = new Set<number>()
@@ -878,7 +483,7 @@ export class Sampler {
     const repeats = this.sampleRepeatGroups({ count: repeatSlots(count, repeatShare), dimension })
     count -= repeats.length
     const graph = this.judgedGraph(dimension)
-    const anchored = this.anchoredPool()
+    const anchored = anchoredPool(this.sqlite)
     const revisit = this.revisitPool(graph, dimension)
     // 与 samplePairsClose 同一个「已花费」概念：这一批已经拿走的图，**加上**纵观全部历史
     // 已经达到度数的图。漏掉后半截的话，窗口候选这条路径就永远不让任何人退役 —— 重访席位
@@ -922,51 +527,6 @@ export class Sampler {
   }
 
   /**
-   * 每个非 illust 形态的 `post_id` 集合，按 FORMAT_TAGS 的优先级序。
-   *
-   * 三条 `SELECT DISTINCT post_id ... WHERE tag_name IN (...)`，走
-   * `ix_post_has_tag_tag_name`，2026-09-04 在 1209 万行的 post_has_tag 上实测
-   * 92 / 43 / 64 ms，一批只付一次。
-   *
-   * 试过但**不划算**的两条：把形态 CASE 写进窗口查询的 WHERE（逐行 EXISTS，一次窗口
-   * 查询 123 ms -> 453 ms），以及物化成 `posts.format` 列（省下这 200 ms，代价是把一条
-   * 还在调的分类规则烧进迁移和触发器）。
-   */
-  private formatSets(): Map<Exclude<Format, 'illust'>, Set<number>> {
-    const out = new Map<Exclude<Format, 'illust'>, Set<number>>()
-    for (const [format, tags] of FORMAT_TAGS) {
-      // pluck：一列的结果不值得为每行造一个对象。三条查询合计从 163 ms 降到 ~90 ms。
-      const ids = new Set<number>(
-        this.sqlite
-          .prepare<string[], number>(
-            `SELECT DISTINCT post_id FROM post_has_tag WHERE tag_name IN (${placeholders(tags.length)})`,
-          )
-          .pluck()
-          .all(...tags),
-      )
-      out.set(format, ids)
-    }
-    return out
-  }
-
-  /**
-   * 这一批能用的全部有锚图：`post_id -> (silva 分, 形态)`。
-   *
-   * 整池一次读进内存（2026-09-04 实测 95,856 行、220–250 ms），之后每个窗口就是在内存里
-   * 扫一遍浮点数 —— 和 revisitPool 同一个取舍，理由也同一条：窗口是一个分数区间加一个
-   * 形态，没有哪个索引能比这更快地回答"落在这个区间、并且是这个形态、并且有绝对分"。
-   */
-  private anchoredPool(): Map<number, AnchoredMember> {
-    const sets = this.formatSets()
-    const out = new Map<number, AnchoredMember>()
-    // raw：9.6 万行各造一个 { id, silva } 对象要 419 ms，拿数组行是 ~250 ms。这条查询
-    // 每批只跑一次，但它是这批里最大的一笔固定开销，而 UI 一次只要 3 个组。
-    for (const [id, silva, stars] of this.sqlite.prepare(ANCHORED_ELIGIBLE).raw().all() as Array<[number, number, number]>)
-      out.set(id, { silva, format: formatOf(id, sets), stars })
-    return out
-  }
-
-  /**
    * 有锚池里落在 `[centre ± band/2]`、同形态、这一批还没花掉的成员，打乱后取
    * CLOSE_WINDOW_CANDIDATES 个。
    *
@@ -998,12 +558,7 @@ export class Sampler {
   private samplePairsSimilar(count: number): Array<[number, number]> {
     const clusters = Math.max(1, Math.ceil(count / SIMILAR_PAIRS_PER_CLUSTER))
     // 种子超量抽：一个种子可能已经被前一个簇当邻居消费掉，或者所在区域根本没有同档的搭档。
-    const seeds = this.sqlite
-      .prepare<[number], { id: number }>(
-        `SELECT p.id FROM posts p WHERE ${PAIRWISE_ELIGIBLE} ORDER BY RANDOM() LIMIT ?`,
-      )
-      .all(clusters * 4)
-      .map(r => r.id)
+    const seeds = randomPairwiseEligible(this.sqlite, clusters * 4)
 
     const used = new Set<number>()
     const pairs: Array<[number, number]> = []
@@ -1038,11 +593,7 @@ export class Sampler {
     for (const [pid, dist] of rows)
       if (pid !== seed && dist >= SIMILAR_MIN_DISTANCE && !exclude.has(pid))
         memberIds.push(pid)
-    return this.sqlite
-      .prepare<unknown[], IdScoreRow>(
-        `SELECT p.id, p.score FROM posts p WHERE p.id IN (${placeholders(memberIds.length)}) AND ${PAIRWISE_ELIGIBLE}`,
-      )
-      .all(...memberIds)
+    return pairwiseEligibleScores(this.sqlite, memberIds)
   }
 
   /**
@@ -1160,27 +711,6 @@ export class Sampler {
   }
 
   /**
-   * 仍值得比较的随机图片的 `(post_id, silva 分)`。它们的分数就是这一批窗口所围绕的中心。
-   *
-   * 抽自图片本身而不是在 [0, 1] 上均匀抽，于是窗口落在库**实际所在**的地方，而不是分数轴
-   * 所在的地方。
-   *
-   * 每**批**抽一次，不是每个窗口抽一次。`ORDER BY RANDOM()` 无法提前停止：无论返回 1 行还是
-   * 32 行，它都要扫遍所有 silva 行并在临时 B 树里排完，在 21.4 万的库上实测约 280 ms。按窗口
-   * 算这曾是采样器里最贵的一件事，而且什么也没买到 —— 一次抽取用同样的价钱服务整批的每一个
-   * 窗口。
-   *
-   * 没有任何东西让两个中心保持距离，也不需要：重叠的窗口不会重复花掉同一张图，因为
-   * windowCandidates 会过滤这一批的已花费集合。调用方跳过已花费的种子，只是为了让中心来自
-   * 一张这批还能用的图，不是为了把区间分开。
-   */
-  private windowSeeds(n: number): IdScoreRow[] {
-    return this.sqlite
-      .prepare<[number], IdScoreRow>(`${SILVA_ELIGIBLE} ORDER BY RANDOM() LIMIT ?`)
-      .all(n)
-  }
-
-  /**
    * silva 分落在离 `centre` 半个带以内的合格图片。
    *
    * 两侧各半个带，于是窗口里任何两个成员最多差一整个 CLOSE_PAIR_MAX_SILVA_DIFF，每一对天然
@@ -1192,12 +722,7 @@ export class Sampler {
    */
   private windowCandidates(centre: number, exclude: Set<number>): number[] {
     const half = CLOSE_PAIR_MAX_SILVA_DIFF / 2
-    return this.sqlite
-      .prepare<[number, number, number], IdScoreRow>(
-        `${SILVA_ELIGIBLE} AND s.score BETWEEN ? AND ? ORDER BY RANDOM() LIMIT ?`,
-      )
-      .all(centre - half, centre + half, CLOSE_WINDOW_CANDIDATES * 3)
-      .map(r => r.id)
+    return silvaInRange(this.sqlite, centre - half, centre + half, CLOSE_WINDOW_CANDIDATES * 3)
       .filter(pid => !exclude.has(pid))
       .slice(0, CLOSE_WINDOW_CANDIDATES)
   }
@@ -1210,17 +735,7 @@ export class Sampler {
    */
   private revisitPool(graph: PairGraph, dimension: string): Map<number, number> {
     const out = new Map<number, number>()
-    for (const row of this.sqlite
-      .prepare<[string, string, string], IdScoreRow>(
-        `${SILVA_ELIGIBLE} AND s.post_id IN (`
-        + ` SELECT post_a FROM pairwise_annotations WHERE dimension = ?`
-        + ` UNION SELECT post_b FROM pairwise_annotations WHERE dimension = ?`
-        // 排过序的图同样是"已判"。取 post_ids 而不是 ranking：被 skip 的组 ranking 是空的，
-        // 但那几张确实露过面，和只判过一次 skip 的 pairwise 图一样有资格回到池子里拿边。
-        + ` UNION SELECT CAST(j.value AS INTEGER) FROM listwise_annotations la, json_each(la.post_ids) j`
-        + ` WHERE la.dimension = ?)`,
-      )
-      .all(dimension, dimension, dimension))
+    for (const row of judgedSilvaRows(this.sqlite, dimension))
       if (!graph.spent(row.id))
         out.set(row.id, row.score)
     return out
@@ -1340,11 +855,7 @@ export class Sampler {
     }
     // listwise 按**出场**记：一次出场每个成员 +LISTWISE_APPEARANCE_DEGREE，与组多大无关。
     // 同一成员集合被重测过两次就是两次出场，各记一次 —— 那确实是两次独立观测。
-    for (const { post_ids: postIds } of this.sqlite
-      .prepare<[string], { post_ids: string }>(
-        `SELECT post_ids FROM listwise_annotations WHERE dimension = ? AND ranking != '[]'`,
-      )
-      .all(dimension)) {
+    for (const { post_ids: postIds } of rankedListwiseRows(this.sqlite, dimension)) {
       for (const pid of JSON.parse(postIds) as number[])
         for (let i = 0; i < LISTWISE_APPEARANCE_DEGREE; i++) graph.bump(pid)
     }
@@ -1368,11 +879,7 @@ export class Sampler {
     if (!pool.length)
       return []
     const candidates = nSmallest(ANCHOR_CANDIDATES, pool, pid => graph.degreeOf(pid))
-    return this.sqlite
-      .prepare<unknown[], IdScoreRow>(
-        `${SILVA_ELIGIBLE} AND s.post_id IN (${placeholders(candidates.length)}) ORDER BY RANDOM() LIMIT ?`,
-      )
-      .all(...candidates, n)
+    return silvaEligibleAmong(this.sqlite, candidates, n)
   }
 
   /**
@@ -1411,7 +918,7 @@ export class Sampler {
       if (base === undefined)
         continue
       const window: [number, number] = direction > 0 ? [base + lo, base + hi] : [base - hi, base - lo]
-      const partner = this.partnerInWindow(window)
+      const partner = partnerInWindow(this.sqlite, window)
       if (partner === null)
         continue
       const edge = graph.claim(pid, partner)
@@ -1421,15 +928,6 @@ export class Sampler {
     return blocks
   }
 
-  /** SILVA 分落在 `window` 里的一张合格图片，没有则 `null`。 */
-  private partnerInWindow(window: [number, number]): number | null {
-    const row = this.sqlite
-      .prepare<[number, number], IdScoreRow>(
-        `${SILVA_ELIGIBLE} AND s.score BETWEEN ? AND ? ORDER BY RANDOM() LIMIT 1`,
-      )
-      .get(...window)
-    return row ? Number(row.id) : null
-  }
 
   /**
    * SILVA head 打分接近、但被刻意抽得视觉上**不像**的那些对。
@@ -1454,7 +952,7 @@ export class Sampler {
     // 全部历史已经达到度数的图片上。
     const spent = new Set(graph.saturated)
     const revisit = this.revisitPool(graph, dimension)
-    const seeds = this.windowSeeds(CLOSE_SEED_DRAW)
+    const seeds = windowSeeds(this.sqlite, CLOSE_SEED_DRAW)
     let seedIdx = 0
 
     // 桥要从 `count` 里出，不是加在它上面。k 个块需要 k - 1 条桥，而加上这个块就有
@@ -1482,46 +980,7 @@ export class Sampler {
       blocks.push(...harvest)
     }
 
-    return Sampler.interleaveWithBridges(blocks, graph, count)
-  }
-
-  /**
-   * 按 SILVA 顺序把块**轮转**发牌，每个块搭桥到上一个。
-   *
-   * 来自已有图的锚点是一个自己没有边的块 —— 它不贡献任何要标注的东西，只提供一个让相邻块搭
-   * 上来的位置，而这正是一批加入历史的方式。
-   *
-   * 用轮转而不是一块一块发，是因为一个块就是一个 KNN 邻域，把一个发空再开下一个正是标注让人
-   * 觉得卡住的原因：在真实库上实测，连续 20 个问题里只出现 **21 张不同的图**，89.9% 的相邻
-   * 问题复用了上一个问题里的图。每个块轮流发一条边，则每个问题都换主题。
-   *
-   * 这个顺序保住两个性质：
-   *
-   * * **每个前缀都是连通的。** 队列按位置顺序服务，标注者想停就停，所以追加在末尾的桥恰恰是
-   *   永远走不到的那些边 —— 半途而废的一轮会变成一个块一座孤岛。它在轮转下仍成立，是因为一个
-   *   块的桥恰在这个块第一条边之前发出，而两者都碰到它的代表（见 connectedBlocks）。
-   * * **桥连接最像的那些邻域。** 先按分数排序，意味着每条桥跨的都是可得的最小间隔，于是它仍是
-   *   评判者能做出的比较，而不是一条任意的交叉链接。
-   *
-   * 桥不是预算里的固定份额：连接 k 个块需要 k - 1 条边，一条都不能少。悄悄丢掉它们的上限会
-   * 返回一个和连通结果无法区分的断开轮次。
-   */
-  private static interleaveWithBridges(blocks: Block[], graph: PairGraph, count: number): Array<[number, number]> {
-    blocks.sort((x, y) => x[1][1] - y[1][1])
-    const out: Array<[number, number]> = []
-    const rounds = blocks.reduce((m, [edges]) => Math.max(m, edges.length), 0)
-    for (let roundNo = 0; roundNo < rounds; roundNo++) {
-      for (const [i, [edges, [rep]]] of blocks.entries()) {
-        if (roundNo === 0 && i) {
-          const bridge = graph.claim(blocks[i - 1]![1][0], rep)
-          if (bridge)
-            out.push(bridge)
-        }
-        if (roundNo < edges.length)
-          out.push(edges[roundNo]!)
-      }
-    }
-    return out.slice(0, count)
+    return interleaveWithBridges(blocks, graph, count)
   }
 }
 
@@ -1531,57 +990,6 @@ export function samplePostIds(
   opts: { count: number, strategy: string, dimensions: string[] },
 ): number[] {
   return new Sampler(sqlite).samplePostIds(opts)
-}
-
-export interface ComparisonEdge {
-  a: number
-  b: number
-  /** `'a' | 'b' | 'tie' | 'skip'`。listwise 展开出的边只会是 `'a'`（ranking 下标小的赢）。 */
-  winner: string
-  source: 'pairwise' | 'listwise'
-}
-
-/**
- * 这个维度上**全部**的成对比较证据 —— 两张事件表合成一条流。
- *
- * 一组 n 张的 listwise 全序就是 C(n,2) 条边（迁移 0016 写的「排序结果在训练侧分解为对」，
- * 采样侧同理）。展开只发生在读侧：两张按形态分开的 append-only 事件表，写侧不该冗余。
- *
- * 之所以是一个导出函数而不是留在 judgedGraph 方法体里：「已经收集到多少比较」现在有
- * 不止一个消费者。judgedGraph 是第一个，annotations.ts 的 countPairwise 是第二个（它至今
- * 只数 pairwise 行，所以排一组 6 张会给采样图 +15 条边而顶栏纹丝不动），而 0014 注释里
- * 提到的训练导出 scripts/export_annotations.py 已经不在仓里、迟早要重新出现，那会是第三个。
- * 每个消费者各抄一遍这段双重循环，是这段逻辑唯一会出错的方式。
- *
- * 不展开的代价是实测过的：到 2026-08-20，44 个已排的组里 post 8884 出现了 11 次、8848
- * 出现 10 次，两者同组 9 次；它们在比较图里的度数却始终是 1，因为排序没有产生任何
- * pairwise 行，于是 revisitSeeds 每次都把这两张当「比较不足」重新征召，谁都排不空。
- */
-export function* comparisonEdges(
-  sqlite: BetterSqlite3.Database,
-  dimension: string,
-): Generator<ComparisonEdge> {
-  for (const row of sqlite
-    .prepare<[string], { post_a: number, post_b: number, winner: string }>(
-      'SELECT post_a, post_b, winner FROM pairwise_annotations WHERE dimension = ?',
-    )
-    .all(dimension))
-    yield { a: row.post_a, b: row.post_b, winner: row.winner, source: 'pairwise' }
-
-  for (const row of sqlite
-    .prepare<[string], { post_ids: string, ranking: string }>(
-      'SELECT post_ids, ranking FROM listwise_annotations WHERE dimension = ?',
-    )
-    .all(dimension)) {
-    // 空 ranking = skip，与 pairwise 的 skip 同义：整组算问过（成员两两不再重问），但没
-    // 产生任何排序信息。members 因此取 post_ids 而不是 ranking，winner 统一表达成 'skip'。
-    const ranking = JSON.parse(row.ranking) as number[]
-    const members = ranking.length ? ranking : (JSON.parse(row.post_ids) as number[])
-    const winner = ranking.length ? 'a' : 'skip'
-    for (let i = 0; i < members.length; i++)
-      for (let j = i + 1; j < members.length; j++)
-        yield { a: members[i]!, b: members[j]!, winner, source: 'listwise' }
-  }
 }
 
 /** 为成对标注抽不相交的对。 */

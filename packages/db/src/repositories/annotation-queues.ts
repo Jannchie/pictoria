@@ -1,11 +1,17 @@
 /**
  * 标注队列仓储（CRUD 与取件部分）。
  *
- * **采样不在这里**：`samplePostIds` / `samplePairs` / `sampleGroups` 及其 PairGraph、
- * 并查集、多样性子集、重访池在 `queries/sampling.ts`。
+ * **采样不在这里**：`samplePostIds` / `samplePairs` / `sampleGroups` 在 `sampling.ts`，
+ * PairGraph 与并查集在 `pair-graph.ts`，它们的 SQL 在 `sampling-queries.ts`。
  */
 import type BetterSqlite3 from 'better-sqlite3'
-import type { MutableKind } from './annotations.js'
+import type { MutableKind, QueueItemPost } from './annotations.js'
+
+/** 图片列加前缀：一行里带两张图的查询（pairwise 的 `a_` / `b_`）用。 */
+export type PrefixedPost<P extends string> = { [K in keyof QueueItemPost as `${P}${K}`]: QueueItemPost[K] }
+
+export type AbsoluteQueueItemRow = { position: number } & QueueItemPost
+export type PairwiseQueueItemRow = { position: number } & PrefixedPost<'a_'> & PrefixedPost<'b_'>
 
 export const QUEUE_COLUMNS = 'id, name, kind, dimensions, scale, created_at, strategy'
 
@@ -131,9 +137,9 @@ export function nextAbsoluteItems(
   sqlite: BetterSqlite3.Database,
   queueId: number,
   limit = 20,
-): Array<Record<string, unknown>> {
+): AbsoluteQueueItemRow[] {
   return sqlite
-    .prepare<[number, number], Record<string, unknown>>(
+    .prepare<[number, number], AbsoluteQueueItemRow>(
       'SELECT i.position, p.id AS post_id, p.file_path, p.file_name, p.extension, p.sha256, p.width, p.height '
       + 'FROM absolute_queue_items i JOIN posts p ON p.id = i.post_id '
       + 'WHERE i.queue_id = ? AND i.done = 0 ORDER BY i.position LIMIT ?',
@@ -164,9 +170,9 @@ export function nextPairwiseItems(
   sqlite: BetterSqlite3.Database,
   queueId: number,
   limit = 20,
-): Array<Record<string, unknown>> {
+): PairwiseQueueItemRow[] {
   return sqlite
-    .prepare<[number, number], Record<string, unknown>>(
+    .prepare<[number, number], PairwiseQueueItemRow>(
       `SELECT i.position, ${aliasedPostCols('pa', 'a_')}, ${aliasedPostCols('pb', 'b_')} `
       + 'FROM pairwise_queue_items i '
       + 'JOIN posts pa ON pa.id = i.post_a JOIN posts pb ON pb.id = i.post_b '

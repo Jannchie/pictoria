@@ -6,25 +6,26 @@ import { createRoute, OpenAPIHono, z } from '@hono/zod-openapi'
 import {
   countPairwise,
   editAnnotation,
-  insertAbsolute,
+  expandListwiseAnnotations,
+  groupsWithSilva,
   insertContentFlag,
-  insertListwise,
-  insertPairwise,
   latestContentFlag,
   listAbsoluteForPost,
   listPairwiseForPost,
-  annotationTimeline,
-  markQueueItemDone,
+  listwiseShapeError,
   MUTABLE_KINDS,
-  postsById,
+  pairsWithPosts,
+  parseTimelineCursor,
+  postsInOrder,
+  recordAbsolute,
+  recordListwise,
+  recordPairwise,
+  retractAnnotations,
   sampleGroups,
   samplePairs,
   samplePostIds,
-  scorerValuesFor,
-  SILVA,
-  undoAnnotations,
+  timelinePage,
 } from '@pictoria/db'
-import { expandListwiseAnnotations } from '@pictoria/db'
 import { getDb } from '../db.js'
 import { CREATED, OK, errors, invalidRequest, validationError, zodErrorHook } from '../openapi.js'
 import { toIsoDateTime } from '../schemas.js'
@@ -39,6 +40,11 @@ import {
 
 const VALID_WINNERS = ['a', 'b', 'tie', 'skip'] as const
 const VALID_FLAGS = ['love', 'hate', 'none'] as const
+
+// 读回来的列在写入时都经过了 enum 校验（且 winner 另有 CHECK 约束），所以只需断言。
+type Dimension = typeof VALID_DIMENSIONS[number]
+type Winner = typeof VALID_WINNERS[number]
+type Scale = z.infer<typeof ScaleSchema>
 
 const InsertedPublic = z.object({ inserted: z.int(), ids: z.array(z.int()) }).openapi('InsertedPublic')
 const DeletedPublic = z.object({ deleted: z.int() }).openapi('DeletedPublic')
@@ -57,6 +63,12 @@ const AbsoluteEventIn = z
     rubricVersion: z.string(),
     sessionId: z.string(),
     elapsedMs: z.int().nullable().optional(),
+  })
+  // 跨字段的范围校验放在 schema 里而不是 handler 里：失败时和其它字段错误走同一个
+  // zodErrorHook，回同一个 ErrorBody（带 issues 指到 events.N.value）。
+  .superRefine((e, ctx) => {
+    if (e.value > e.scale)
+      ctx.addIssue({ code: 'custom', path: ['value'], message: `value ${e.value} out of range for scale ${e.scale}` })
   })
   .openapi('AbsoluteEventIn')
 
@@ -94,6 +106,11 @@ const ListwiseEventIn = z
     elapsedMs: z.int().nullable().optional(),
     queueId: z.int().nullable().optional(),
     queuePosition: z.int().nullable().optional(),
+  })
+  .superRefine((e, ctx) => {
+    const problem = listwiseShapeError(e)
+    if (problem)
+      ctx.addIssue({ code: 'custom', path: [problem.field], message: problem.message })
   })
   .openapi('ListwiseEventIn')
 
@@ -167,15 +184,7 @@ annotationsRoutes.openapi(
     },
   }),
   (c) => {
-    const data = c.req.valid('json')
-    for (const e of data.events) {
-      if (e.value > e.scale)
-        return validationError(`value ${e.value} out of range for scale ${e.scale}`)
-    }
-    const { sqlite } = getDb()
-    const ids = data.events.map((e: any) => insertAbsolute(sqlite, e))
-    if (data.queueId != null && data.queuePosition != null)
-      markQueueItemDone(sqlite, data.queueId, { kind: 'absolute', position: data.queuePosition })
+    const ids = recordAbsolute(getDb().sqlite, c.req.valid('json'))
     return c.json({ inserted: ids.length, ids }, 201)
   },
 )
@@ -194,11 +203,7 @@ annotationsRoutes.openapi(
     },
   }),
   (c) => {
-    const data = c.req.valid('json')
-    const { sqlite } = getDb()
-    const rowId = insertPairwise(sqlite, data)
-    if (data.queueId != null && data.queuePosition != null)
-      markQueueItemDone(sqlite, data.queueId, { kind: 'pairwise', position: data.queuePosition })
+    const rowId = recordPairwise(getDb().sqlite, c.req.valid('json'))
     return c.json({ inserted: 1, ids: [rowId] }, 201)
   },
 )
@@ -217,20 +222,7 @@ annotationsRoutes.openapi(
     },
   }),
   (c) => {
-    const data = c.req.valid('json')
-    if (new Set(data.postIds).size !== data.postIds.length)
-      return validationError(`postIds must be distinct, got ${JSON.stringify(data.postIds)}`)
-    // 排序必须是这组成员的一个排列 —— 少一张、多一张、排到别的组的图，都是客户端 bug，
-    // 拦在这里比拦在训练导出里便宜四个数量级。空数组 = skip，合法。
-    const sameMembers = data.ranking.length === data.postIds.length
-      && new Set(data.ranking).size === data.ranking.length
-      && data.ranking.every((pid: number) => data.postIds.includes(pid))
-    if (data.ranking.length && !sameMembers)
-      return validationError('ranking must be a permutation of postIds (or [] to skip)')
-    const { sqlite } = getDb()
-    const rowId = insertListwise(sqlite, data)
-    if (data.queueId != null && data.queuePosition != null)
-      markQueueItemDone(sqlite, data.queueId, { kind: 'listwise', position: data.queuePosition })
+    const rowId = recordListwise(getDb().sqlite, c.req.valid('json'))
     return c.json({ inserted: 1, ids: [rowId] }, 201)
   },
 )
@@ -268,12 +260,7 @@ annotationsRoutes.openapi(
     },
   }),
   (c) => {
-    const data = c.req.valid('json')
-    const { sqlite } = getDb()
-    const deleted = undoAnnotations(sqlite, { kind: data.kind, ids: data.ids, sessionId: data.sessionId })
-    // 空 ids 是合法的：被跳过的队列项不写事件就标记完成，它的 undo 就只是取消标记。
-    if (data.queueId != null && data.queuePosition != null)
-      markQueueItemDone(sqlite, data.queueId, { kind: data.kind, position: data.queuePosition, done: false })
+    const deleted = retractAnnotations(getDb().sqlite, c.req.valid('json'))
     return c.json({ deleted }, 200)
   },
 )
@@ -357,25 +344,25 @@ annotationsRoutes.openapi(
     const { sqlite } = getDb()
     const flag = latestContentFlag(sqlite, postId)
     return c.json({
-      absolute: listAbsoluteForPost(sqlite, postId).map((a: any) => ({
+      absolute: listAbsoluteForPost(sqlite, postId).map(a => ({
         id: a.id,
         createdAt: toIsoDateTime(a.created_at),
         postId: a.post_id,
-        dimension: a.dimension,
-        scale: a.scale,
+        dimension: a.dimension as Dimension,
+        scale: a.scale as Scale,
         value: a.value,
         rubricVersion: a.rubric_version,
         sessionId: a.session_id,
         elapsedMs: a.elapsed_ms,
         editedAt: toIsoDateTime(a.edited_at),
       })),
-      pairwise: listPairwiseForPost(sqlite, postId).map((p: any) => ({
+      pairwise: listPairwiseForPost(sqlite, postId).map(p => ({
         id: p.id,
         createdAt: toIsoDateTime(p.created_at),
         postA: p.post_a,
         postB: p.post_b,
-        dimension: p.dimension,
-        winner: p.winner,
+        dimension: p.dimension as Dimension,
+        winner: p.winner as Winner,
         rubricVersion: p.rubric_version,
         sessionId: p.session_id,
         elapsedMs: p.elapsed_ms,
@@ -386,9 +373,6 @@ annotationsRoutes.openapi(
     }, 200)
   },
 )
-
-const TIMELINE_MAX_LIMIT = 100
-const CURSOR_PARTS = 3
 
 const TimelineEntryPublic = z
   .object({
@@ -412,28 +396,6 @@ const TimelinePagePublic = z
   .object({ items: z.array(TimelineEntryPublic), nextCursor: z.string().nullable().optional() })
   .openapi('TimelinePagePublic')
 
-/**
- * `created_at|kind|id` —— 把合并流的全序压成一个不透明 token。
- *
- * 对客户端刻意不透明：它是一个**排序位置**而不是行 id，把三段都编进去，下一页才能
- * 精确地从这一页停下的地方续上（id 只在单表内递增）。
- *
- * **只为一页的最后一条原始行生成**，绝不逐条生成：post 已被删的行会从 items 里剔掉，
- * 所以最后一条可见条目不是这页停下的位置，从它续会把被剔掉的重新发一遍。
- */
-function makeCursor(row: any): string {
-  return `${row.created_at}|${row.kind}|${row.id}`
-}
-
-function parseCursor(raw?: string | null): [string, string, number] | 'malformed' | null {
-  if (!raw)
-    return null
-  const parts = raw.split('|')
-  if (parts.length !== CURSOR_PARTS || parts.some(p => !p) || !/^\d+$/.test(parts[2]!))
-    return 'malformed'
-  return [parts[0]!, parts[1]!, Number(parts[2])]
-}
-
 annotationsRoutes.openapi(
   createRoute({
     method: 'get',
@@ -456,24 +418,19 @@ annotationsRoutes.openapi(
   }),
   (c) => {
     const { limit, before } = c.req.valid('query')
-    const cursor = parseCursor(before)
+    // 游标的编解码、页长上限、剔除 post 已删的事件都在 timelinePage 里（@pictoria/db）。
+    const cursor = parseTimelineCursor(before)
     if (cursor === 'malformed')
       return validationError(`malformed cursor: ${JSON.stringify(before)}`)
 
-    const page = Math.min(Math.max(limit, 1), TIMELINE_MAX_LIMIT)
-    const { sqlite } = getDb()
-    const rows = annotationTimeline(sqlite, { limit: page, before: cursor })
-    const posts = postsById(sqlite, rows.flatMap((r: any) => [r.post, r.post_b].filter(Boolean)))
-
-    const items = rows
-      // 判决之后 post 被删了，这条事件就没东西可展示。在这里剔掉比渲染一个碎块诚实。
-      .filter((r: any) => posts.has(r.post) && (!r.post_b || posts.has(r.post_b)))
-      .map((r: any) => ({
+    const { entries, nextCursor } = timelinePage(getDb().sqlite, { limit, before: cursor })
+    return c.json({
+      items: entries.map(r => ({
         kind: r.kind,
         id: r.id,
         createdAt: toIsoDateTime(r.created_at),
-        post: toQueuePost(posts.get(r.post)!),
-        postB: r.post_b ? toQueuePost(posts.get(r.post_b)!) : null,
+        post: toQueuePost(r.postRow),
+        postB: r.postBRow ? toQueuePost(r.postBRow) : null,
         dimension: r.dimension,
         winner: r.winner,
         scale: r.scale,
@@ -481,11 +438,8 @@ annotationsRoutes.openapi(
         flag: r.flag,
         ranking: r.ranking ?? null,
         editedAt: toIsoDateTime(r.edited_at),
-      }))
-
-    return c.json({
-      items,
-      nextCursor: rows.length === page ? makeCursor(rows[rows.length - 1]) : null,
+      })),
+      nextCursor,
     }, 200)
   },
 )
@@ -523,12 +477,7 @@ annotationsRoutes.openapi(
     const { dimensions, strategy, limit } = c.req.valid('query')
     const { sqlite } = getDb()
     const ids = samplePostIds(sqlite, { count: limit, strategy, dimensions })
-    if (!ids.length)
-      return c.json([], 200)
-    const byId = postsById(sqlite, ids)
-    // 抽取顺序就是采样顺序，队列也按它服务 —— 所以从 `ids` 重建，而不是从
-    // `IN (...)` 返回的行序。
-    return c.json(ids.filter(pid => byId.has(pid)).map(pid => toQueuePost(byId.get(pid)!)), 200)
+    return c.json(postsInOrder(sqlite, ids).map(p => toQueuePost(p)), 200)
   },
 )
 
@@ -558,20 +507,10 @@ annotationsRoutes.openapi(
     const { limit, strategy, dimension } = c.req.valid('query')
     const { sqlite } = getDb()
     const pairs = samplePairs(sqlite, { count: limit, strategy, dimension })
-    if (!pairs.length)
-      return c.json([], 200)
-    // 整批一次取图，然后在 JS 里拼对。对的**顺序**是吃重的
-    // （interleaveWithBridges 保证每个前缀都连通），所以从 `pairs` 重建。
-    const byId = postsById(sqlite, pairs.flat())
-    const out = []
-    for (const [a, b] of pairs) {
-      const rowA = byId.get(a)
-      const rowB = byId.get(b)
-      if (!rowA || !rowB)
-        continue // 采样和取图之间 post 被删了
-      out.push({ postA: toQueuePost(rowA), postB: toQueuePost(rowB) })
-    }
-    return c.json(out, 200)
+    return c.json(
+      pairsWithPosts(sqlite, pairs).map(([a, b]) => ({ postA: toQueuePost(a), postB: toQueuePost(b) })),
+      200,
+    )
   },
 )
 
@@ -621,16 +560,8 @@ annotationsRoutes.openapi(
     const { limit, size, dimension, repeat } = c.req.valid('query')
     const { sqlite } = getDb()
     const groups = sampleGroups(sqlite, { count: limit, size, dimension, repeatShare: repeat })
-    const flat = groups.flat()
-    const byId = postsById(sqlite, flat)
-    const silvaById = scorerValuesFor(sqlite, flat, SILVA.name)
     return c.json(
-      groups
-        .map((g) => {
-          const ids = g.filter(pid => byId.has(pid))
-          return { posts: ids.map(pid => toQueuePost(byId.get(pid)!)), silva: ids.map(pid => silvaById.get(pid) ?? null) }
-        })
-        .filter(g => g.posts.length >= 3),
+      groupsWithSilva(sqlite, groups).map(g => ({ posts: g.posts.map(p => toQueuePost(p)), silva: g.silva })),
       200,
     )
   },
@@ -659,9 +590,11 @@ const ExportQuery = z.object({
     .openapi({ param: { name: 'max_lpips', in: 'query', required: false }, type: ['number', 'null'] }),
 })
 
-// 文档和路由分开注册：zod-openapi 只给 JSON 和 text/plain 的 content 推得出返回
-// 类型，`application/x-ndjson` 会把 200 这一支推成 never，`.openapi()` 的 handler
-// 就没有任何合法返回值。查询参数的校验在 handler 里用同一个 schema 手动跑一遍。
+// 文档和路由分开注册，是这个文件里唯一一处不走 `.openapi(createRoute(...))` 的端点：
+// zod-openapi 只给 JSON 和 text/plain 的 content 推得出返回类型，`application/x-ndjson`
+// 会把 200 这一支推成 never，`.openapi()` 的 handler 就没有任何合法返回值（换成
+// text/plain 能编译，但会改掉生成客户端看到的 content type）。代价是声明与 handler
+// 之间没有类型关联，所以两边共用同一个 ExportQuery，handler 里 safeParse 手动跑一遍。
 annotationsRoutes.openAPIRegistry.registerPath({
   method: 'get',
   path: '/v2/annotations/listwise/export',

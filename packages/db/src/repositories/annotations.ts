@@ -12,7 +12,9 @@
  * 义务摊派给每一个读者，漏掉一个会在训练数据里静默出错。
  */
 import { placeholders } from '../sql.js'
-import { isRepeatMeasurement } from './sampling.js'
+import { SILVA } from '../scorers.js'
+import { isRepeatMeasurement } from './sampling-queries.js'
+import { scorerValuesFor } from './scores.js'
 import type BetterSqlite3 from 'better-sqlite3'
 
 export const ABSOLUTE_COLUMNS
@@ -144,6 +146,102 @@ export function insertContentFlag(
 }
 
 /**
+ * 提交时顺带推进的队列项。两个字段**都**给了才算 —— 无队列的流式标注两个都不带，
+ * 只带一个是客户端的半截状态，按"没有队列"处理（与改动前的路由行为一致）。
+ */
+export interface QueueRef {
+  queueId?: number | null
+  queuePosition?: number | null
+}
+
+function advanceQueue(
+  sqlite: BetterSqlite3.Database,
+  { queueId, queuePosition }: QueueRef,
+  kind: MutableKind,
+  done: boolean,
+): void {
+  if (queueId != null && queuePosition != null)
+    markQueueItemDone(sqlite, queueId, { kind, position: queuePosition, done })
+}
+
+/*
+ * record* / retract —— 写事件与推进队列放在**同一个事务**里。
+ *
+ * 分两步时，事件落了库、队列标记没跟上（或反过来）的窗口里进程一挂，队列就会把这一项
+ * 再发一遍：同一个人对同一对第二次判决，看起来就像一次重复测量，而它其实是一次重放。
+ * absolute 一批是多条 insert，中途某条撞上 CHECK 时前几条也必须一起退掉 —— 半批
+ * 评分（例如四个维度只落了两个）对 latest-wins 的导出是静默的缺口。
+ *
+ * 队列项不存在（id/position 对不上）**不是**错误：markQueueItemDone 只是改到 0 行。
+ * 这与拆分前的行为一致 —— 队列可能在标注途中被清掉，事件本身仍然有效。
+ */
+
+/** 一批 absolute 事件（同一张图的几个维度），原子地写入并推进队列。返回新行 id。 */
+export function recordAbsolute(
+  sqlite: BetterSqlite3.Database,
+  { events, ...queue }: { events: AbsoluteEventIn[] } & QueueRef,
+): number[] {
+  return sqlite.transaction(() => {
+    const ids = events.map(e => insertAbsolute(sqlite, e))
+    advanceQueue(sqlite, queue, 'absolute', true)
+    return ids
+  })()
+}
+
+/** 一条 pairwise 判决，原子地写入并推进队列。返回新行 id。 */
+export function recordPairwise(sqlite: BetterSqlite3.Database, e: PairwiseEventIn & QueueRef): number {
+  return sqlite.transaction(() => {
+    const id = insertPairwise(sqlite, e)
+    advanceQueue(sqlite, e, 'pairwise', true)
+    return id
+  })()
+}
+
+/** 一条 listwise 排序，原子地写入并推进队列。返回新行 id。 */
+export function recordListwise(sqlite: BetterSqlite3.Database, e: ListwiseEventIn & QueueRef): number {
+  return sqlite.transaction(() => {
+    const id = insertListwise(sqlite, e)
+    advanceQueue(sqlite, e, 'listwise', true)
+    return id
+  })()
+}
+
+/**
+ * 撤回本会话刚写的事件并把队列项放回去，原子地。返回真正删掉的行数。
+ *
+ * 空 `ids` 合法：被跳过的队列项不写事件就标记完成，它的 undo 就只是取消标记。
+ */
+export function retractAnnotations(
+  sqlite: BetterSqlite3.Database,
+  { kind, ids, sessionId, ...queue }: { kind: MutableKind, ids: number[], sessionId: string } & QueueRef,
+): number {
+  return sqlite.transaction(() => {
+    const deleted = undoAnnotations(sqlite, { kind, ids, sessionId })
+    advanceQueue(sqlite, queue, kind, false)
+    return deleted
+  })()
+}
+
+/**
+ * listwise 提交的结构校验，返回错误描述或 `null`。路由的 zod schema 用它做 superRefine。
+ *
+ * 排序必须是这组成员的一个排列 —— 少一张、多一张、排到别的组的图，都是客户端 bug，
+ * 拦在入口比拦在训练导出里便宜四个数量级。空数组 = skip，合法。
+ */
+export function listwiseShapeError(
+  { postIds, ranking }: { postIds: number[], ranking: number[] },
+): { field: 'postIds' | 'ranking', message: string } | null {
+  if (new Set(postIds).size !== postIds.length)
+    return { field: 'postIds', message: `postIds must be distinct, got ${JSON.stringify(postIds)}` }
+  const sameMembers = ranking.length === postIds.length
+    && new Set(ranking).size === ranking.length
+    && ranking.every(pid => postIds.includes(pid))
+  if (ranking.length && !sameMembers)
+    return { field: 'ranking', message: 'ranking must be a permutation of postIds (or [] to skip)' }
+  return null
+}
+
+/**
  * 删掉本会话刚写的事件，返回真正删掉几行。
  *
  * `sessionId` 是**护栏而非查找键**：调用方已经知道 id 了，要求 session 匹配意味着
@@ -175,16 +273,96 @@ export function undoAnnotations(
  */
 export function annotationTimeline(
   sqlite: BetterSqlite3.Database,
-  { limit, before }: { limit: number, before?: [string, string, number] | null },
-): Array<Record<string, unknown>> {
+  { limit, before }: { limit: number, before?: TimelineCursor | null },
+): TimelineRow[] {
   const where = before ? 'WHERE (created_at, kind, id) < (?, ?, ?)' : ''
   const params = before ? [...before] : []
   return sqlite
-    .prepare<unknown[], Record<string, unknown>>(
+    .prepare<unknown[], TimelineRow>(
       `SELECT * FROM (${TIMELINE_SQL}) ${where} `
       + `ORDER BY created_at DESC, kind DESC, id DESC LIMIT ?`,
     )
     .all(...params, limit)
+}
+
+/** TIMELINE_SQL 的一行。某一类没有的列在那一支里是 NULL。 */
+export interface TimelineRow {
+  id: number
+  created_at: string
+  kind: 'pairwise' | 'absolute' | 'listwise' | 'flag'
+  /** pairwise 是 post_a，listwise 是赢家（skip 时是呈现序第一张）。 */
+  post: number
+  post_b: number | null
+  dimension: string | null
+  winner: string | null
+  scale: number | null
+  value: number | null
+  flag: string | null
+  /** listwise：post_id JSON 数组，最好在前；`[]` = skip。 */
+  ranking: string | null
+  edited_at: string | null
+}
+
+/** 解析好的 timeline 游标：`(created_at, kind, id)`，合并流的一个排序位置。 */
+export type TimelineCursor = [string, string, number]
+
+const CURSOR_PARTS = 3
+export const TIMELINE_MAX_LIMIT = 100
+
+/**
+ * `created_at|kind|id` —— 把合并流的全序压成一个不透明 token。
+ *
+ * 对客户端刻意不透明：它是一个**排序位置**而不是行 id，把三段都编进去，下一页才能
+ * 精确地从这一页停下的地方续上（id 只在单表内递增）。
+ *
+ * **只为一页的最后一条原始行生成**，绝不逐条生成：post 已被删的行会从 items 里剔掉，
+ * 所以最后一条可见条目不是这页停下的位置，从它续会把被剔掉的重新发一遍。
+ */
+export function encodeTimelineCursor(row: Pick<TimelineRow, 'created_at' | 'kind' | 'id'>): string {
+  return `${row.created_at}|${row.kind}|${row.id}`
+}
+
+/** 没有游标 → `null`（第一页）；格式不对 → `'malformed'`，由调用方回 400。 */
+export function parseTimelineCursor(raw?: string | null): TimelineCursor | 'malformed' | null {
+  if (!raw)
+    return null
+  const parts = raw.split('|')
+  if (parts.length !== CURSOR_PARTS || parts.some(p => !p) || !/^\d+$/.test(parts[2]!))
+    return 'malformed'
+  return [parts[0]!, parts[1]!, Number(parts[2])]
+}
+
+export interface TimelineEntry extends TimelineRow {
+  postRow: QueueItemPost
+  postBRow: QueueItemPost | null
+}
+
+/**
+ * timeline 的一页：行 + 已经取好的图片行 + 下一页游标。
+ *
+ * `limit` 夹到 `[1, TIMELINE_MAX_LIMIT]`。判决之后 post 被删了的事件没东西可展示，在
+ * 这里剔掉比渲染一个碎块诚实 —— 但游标仍然取**原始**最后一行（见 encodeTimelineCursor），
+ * 是否还有下一页也按原始行数判断。
+ */
+export function timelinePage(
+  sqlite: BetterSqlite3.Database,
+  { limit, before }: { limit: number, before?: TimelineCursor | null },
+): { entries: TimelineEntry[], nextCursor: string | null } {
+  const page = Math.min(Math.max(limit, 1), TIMELINE_MAX_LIMIT)
+  const rows = annotationTimeline(sqlite, { limit: page, before })
+  const posts = postsById(sqlite, rows.flatMap(r => (r.post_b ? [r.post, r.post_b] : [r.post])))
+  const entries: TimelineEntry[] = []
+  for (const r of rows) {
+    const postRow = posts.get(r.post)
+    const postBRow = r.post_b ? posts.get(r.post_b) : null
+    if (!postRow || postBRow === undefined)
+      continue
+    entries.push({ ...r, postRow, postBRow })
+  }
+  return {
+    entries,
+    nextCursor: rows.length === page ? encodeTimelineCursor(rows[rows.length - 1]!) : null,
+  }
 }
 
 /**
@@ -206,12 +384,62 @@ export function editAnnotation(
   )
 }
 
+/** `absolute_annotations` 的一行（ABSOLUTE_COLUMNS）。 */
+export interface AbsoluteAnnotationRow {
+  id: number
+  created_at: string
+  post_id: number
+  dimension: string
+  scale: number
+  value: number
+  rubric_version: string
+  session_id: string
+  elapsed_ms: number | null
+  edited_at: string | null
+}
+
+/** `pairwise_annotations` 的一行（PAIRWISE_COLUMNS）。 */
+export interface PairwiseAnnotationRow {
+  id: number
+  created_at: string
+  post_a: number
+  post_b: number
+  dimension: string
+  winner: string
+  rubric_version: string
+  session_id: string
+  elapsed_ms: number | null
+  edited_at: string | null
+}
+
+/** `listwise_annotations` 的一行（LISTWISE_COLUMNS）；两个数组列仍是 JSON 串。 */
+export interface ListwiseAnnotationRow {
+  id: number
+  created_at: string
+  post_ids: string
+  ranking: string
+  dimension: string
+  rubric_version: string
+  session_id: string
+  elapsed_ms: number | null
+  edited_at: string | null
+}
+
+/** `content_flag_events` 的一行（FLAG_COLUMNS）。 */
+export interface ContentFlagRow {
+  id: number
+  created_at: string
+  post_id: number
+  flag: string
+  session_id: string
+}
+
 export function listAbsoluteForPost(
   sqlite: BetterSqlite3.Database,
   postId: number,
-): Array<Record<string, unknown>> {
+): AbsoluteAnnotationRow[] {
   return sqlite
-    .prepare<[number], Record<string, unknown>>(
+    .prepare<[number], AbsoluteAnnotationRow>(
       `SELECT ${ABSOLUTE_COLUMNS} FROM absolute_annotations WHERE post_id = ? ORDER BY id`,
     )
     .all(postId)
@@ -220,9 +448,9 @@ export function listAbsoluteForPost(
 export function listPairwiseForPost(
   sqlite: BetterSqlite3.Database,
   postId: number,
-): Array<Record<string, unknown>> {
+): PairwiseAnnotationRow[] {
   return sqlite
-    .prepare<[number, number], Record<string, unknown>>(
+    .prepare<[number, number], PairwiseAnnotationRow>(
       `SELECT ${PAIRWISE_COLUMNS} FROM pairwise_annotations WHERE post_a = ? OR post_b = ? ORDER BY id`,
     )
     .all(postId, postId)
@@ -236,21 +464,21 @@ export function listPairwiseForPost(
 export function listListwiseForPost(
   sqlite: BetterSqlite3.Database,
   postId: number,
-): Array<Record<string, unknown>> {
+): ListwiseAnnotationRow[] {
   return sqlite
-    .prepare<[string], Record<string, unknown>>(
+    .prepare<[string], ListwiseAnnotationRow>(
       `SELECT ${LISTWISE_COLUMNS} FROM listwise_annotations WHERE post_ids LIKE ? ORDER BY id`,
     )
     .all(`%${postId}%`)
-    .filter(r => (JSON.parse(r.post_ids as string) as number[]).includes(postId))
+    .filter(r => (JSON.parse(r.post_ids) as number[]).includes(postId))
 }
 
 export function latestContentFlag(
   sqlite: BetterSqlite3.Database,
   postId: number,
-): Record<string, unknown> | undefined {
+): ContentFlagRow | undefined {
   return sqlite
-    .prepare<[number], Record<string, unknown>>(
+    .prepare<[number], ContentFlagRow>(
       `SELECT ${FLAG_COLUMNS} FROM content_flag_events WHERE post_id = ? ORDER BY id DESC LIMIT 1`,
     )
     .get(postId)
@@ -335,4 +563,58 @@ export function postsById(
     .all(...unique))
     out.set(row.post_id, row)
   return out
+}
+
+/**
+ * 按 `ids` 的顺序取图片行，已删除的静默跳过。
+ *
+ * 顺序是吃重的：采样顺序就是呈现顺序，所以从 `ids` 重建，而不是从 `IN (...)` 返回的行序。
+ */
+export function postsInOrder(sqlite: BetterSqlite3.Database, ids: number[]): QueueItemPost[] {
+  const byId = postsById(sqlite, ids)
+  return ids.flatMap(pid => byId.get(pid) ?? [])
+}
+
+/**
+ * 一批对的图片行，整批一次取图再在 JS 里拼对。任一端被删了（采样和取图之间）的对丢掉。
+ *
+ * 对的**顺序**是吃重的（interleaveWithBridges 保证每个前缀都连通），所以从 `pairs` 重建。
+ */
+export function pairsWithPosts(
+  sqlite: BetterSqlite3.Database,
+  pairs: Array<[number, number]>,
+): Array<[QueueItemPost, QueueItemPost]> {
+  const byId = postsById(sqlite, pairs.flat())
+  const out: Array<[QueueItemPost, QueueItemPost]> = []
+  for (const [a, b] of pairs) {
+    const rowA = byId.get(a)
+    const rowB = byId.get(b)
+    if (rowA && rowB)
+      out.push([rowA, rowB])
+  }
+  return out
+}
+
+/** 一组少于这么多张就不值得排了（成员被删后剩下的）。 */
+const MIN_PRESENTABLE_GROUP = 3
+
+/**
+ * 一批 listwise 组的图片行与同序的 silva 分。被删的成员静默消失，剩不到
+ * MIN_PRESENTABLE_GROUP 张的组整组丢掉。
+ *
+ * 缺分为 `null` 而不是 `0`：`0` 会被下游当成「最差」而不是「不知道」。
+ */
+export function groupsWithSilva(
+  sqlite: BetterSqlite3.Database,
+  groups: number[][],
+): Array<{ posts: QueueItemPost[], silva: Array<number | null> }> {
+  const flat = groups.flat()
+  const byId = postsById(sqlite, flat)
+  const silvaById = scorerValuesFor(sqlite, flat, SILVA.name)
+  return groups
+    .map((g) => {
+      const ids = g.filter(pid => byId.has(pid))
+      return { posts: ids.map(pid => byId.get(pid)!), silva: ids.map(pid => silvaById.get(pid) ?? null) }
+    })
+    .filter(g => g.posts.length >= MIN_PRESENTABLE_GROUP)
 }
