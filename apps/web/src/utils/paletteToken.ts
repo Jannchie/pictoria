@@ -1,4 +1,5 @@
 import { BUCKETS } from '@/shared/buckets'
+import { facetForDslKey } from '@/shared/postFilter'
 import { RATING_LEVEL_LABEL_KEYS, RATING_UNRATED_LABEL_KEY } from '@/shared/ratings'
 import { SCORERS } from '@/shared/scorers'
 
@@ -104,8 +105,6 @@ export function tagTerm(name: string): string {
   return /[\s"']/.test(name) ? `tag:"${name.replaceAll('"', '')}"` : `tag:${name}`
 }
 
-const TAG_KEYS = new Set(['tag', 't'])
-
 /**
  * What to search tags for, given the term under the caret — or `null` when a
  * tag suggestion would be noise.
@@ -121,7 +120,7 @@ export function tagSuggestQuery(span: TokenSpan | null): string | null {
     return null
   }
   if (span.key !== null) {
-    return TAG_KEYS.has(span.key) ? span.value : null
+    return facetForDslKey(span.key) === 'tags' ? span.value : null
   }
   const word = span.value
   const ascii = [...word].every(c => c.charCodeAt(0) < 128)

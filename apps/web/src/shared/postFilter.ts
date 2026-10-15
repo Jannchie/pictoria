@@ -15,6 +15,7 @@ import type { ScorerUi } from './scorers'
  */
 import type { PostFilterWithOrder } from '@/api'
 import { expandRange, RATING_ALIASES, splitOp, tokenize } from '@/utils/filterDsl'
+import { naturalizeTagName } from '@/utils/tagName'
 import { bucketLabelKey, toBucketAlias, toBucketLevel } from './buckets'
 import { MAX_POST_RATING, MAX_POST_SCORE, RATING_LEVEL_LABEL_KEYS, RATING_UNRATED_LABEL_KEY } from './ratings'
 import { SCORERS } from './scorers'
@@ -68,7 +69,10 @@ interface FacetSpec<V extends FacetValue> {
   readonly field: FacetField
   /** URL：参数名就是字段名。`numeric` 解码成数字；`encode` 逐项百分号编码（值里可能有逗号）。 */
   readonly url: { readonly numeric?: boolean, readonly encode?: boolean }
-  /** DSL 里认的键（小写）。第一个是规范写法，`stringifyFilterQuery` 用的不是它而是 `formatDsl`。 */
+  /**
+   * DSL 里认的键（小写）。第一个是规范写法，也是 chip id 的前缀（`<key>:<value>`）；
+   * `stringifyFilterQuery` 用的不是它而是 `formatDsl`。
+   */
   readonly dslKeys: readonly string[]
   /** 解析 `key:<op><value>`；`null` = 不认识（记进 `unknown`）。 */
   readonly parseDsl: (op: string, value: string) => V[] | null
@@ -77,7 +81,6 @@ interface FacetSpec<V extends FacetValue> {
   /** 解析后与输出前按数值升序排（离散标度：rating / score）。 */
   readonly sorted?: boolean
   readonly chipIcon: string
-  readonly chipId: (value: V) => string
   readonly chipLabel: (value: V, t: Translate) => string
 }
 
@@ -116,7 +119,6 @@ export const FILTER_FACETS: readonly FacetSpec<FacetValue>[] = [
     formatDsl: r => `rating:${RATING_DSL_NAMES[r] ?? r}`,
     sorted: true,
     chipIcon: 'i-tabler-thumb-up',
-    chipId: r => `rating:${r}`,
     chipLabel: ratingLabel,
   }),
   facet<number>({
@@ -130,7 +132,6 @@ export const FILTER_FACETS: readonly FacetSpec<FacetValue>[] = [
     formatDsl: s => `score:${s}`,
     sorted: true,
     chipIcon: 'i-tabler-star',
-    chipId: s => `score:${s}`,
     chipLabel: (s, t) => t('filter.star', { n: s }, s),
   }),
   facet<string>({
@@ -141,8 +142,7 @@ export const FILTER_FACETS: readonly FacetSpec<FacetValue>[] = [
     parseDsl: (_op, value) => [value.replaceAll(' ', '_')],
     formatDsl: tag => (tag.includes(' ') ? `tag:"${tag}"` : `tag:${tag}`),
     chipIcon: 'i-tabler-tag',
-    chipId: tag => `tag:${tag}`,
-    chipLabel: tag => naturalize(tag),
+    chipLabel: tag => naturalizeTagName(tag),
   }),
   facet<string>({
     field: 'extension',
@@ -151,7 +151,6 @@ export const FILTER_FACETS: readonly FacetSpec<FacetValue>[] = [
     parseDsl: (_op, value) => [value.toLowerCase().replace(/^\./, '')],
     formatDsl: ext => `ext:${ext}`,
     chipIcon: 'i-tabler-file',
-    chipId: ext => `ext:${ext}`,
     chipLabel: (ext, t) => ext || t('filter.noExtension'),
   }),
   // 打分器分档：字母和别名都接受，但一律归一成后端认的 level；输出别名（可 round-trip）。
@@ -165,18 +164,9 @@ export const FILTER_FACETS: readonly FacetSpec<FacetValue>[] = [
     },
     formatDsl: lvl => `${spec.dslKey}:${toBucketAlias(lvl)}`,
     chipIcon: spec.icon,
-    chipId: lvl => `${spec.dslKey}:${lvl}`,
     chipLabel: (lvl, t) => `${spec.chipPrefix} ${bucketLabel(lvl, t)}`,
   })),
 ]
-
-/**
- * `naturalizeTagName` 的本地副本：`@/utils` 的 barrel 会把 app 状态一起拉进来，
- * 而这个模块要保持可以脱离 app 单测。
- */
-function naturalize(tag: string): string {
-  return tag.replaceAll('_', ' ')
-}
 
 const BY_DSL_KEY = new Map<string, FacetSpec<FacetValue>>()
 for (const spec of FILTER_FACETS) {
@@ -190,6 +180,11 @@ for (const spec of FILTER_FACETS) {
 
 /** DSL 认识的全部键（含别名），例如命令面板拿来判断一个 chip 是否"未知"。 */
 export const FILTER_DSL_KEYS: ReadonlySet<string> = new Set(BY_DSL_KEY.keys())
+
+/** 一个（小写的）DSL 键属于哪个筛选字段；不认识的键 → `undefined`。 */
+export function facetForDslKey(key: string): FacetField | undefined {
+  return BY_DSL_KEY.get(key)?.field
+}
 
 function values(filter: PostFilterFacets, field: FacetField): FacetValue[] {
   return filter[field] as FacetValue[]
@@ -508,7 +503,7 @@ export function filterChips(
   for (const spec of FILTER_FACETS) {
     for (const v of values(input.filter, spec.field)) {
       out.push({
-        id: spec.chipId(v),
+        id: `${spec.dslKeys[0]}:${v}`,
         icon: spec.chipIcon,
         label: spec.chipLabel(v, t),
         target: { kind: 'facet', field: spec.field, value: v },

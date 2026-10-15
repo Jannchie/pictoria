@@ -1,5 +1,6 @@
 import type { QueryClient } from '@tanstack/vue-query'
 import type { UndoableCommand } from './history'
+import type { ScorerKind } from './scorers'
 import type {
   V2EditAnnotationData,
   V2GenerateAbsoluteData,
@@ -50,6 +51,7 @@ import { i18n } from '@/locale'
 import { pushCommand } from './history'
 import { patchPostsInListCache } from './queries'
 import { COUNT_KINDS, queryKeys } from './queryKeys'
+import { SCORERS } from './scorers'
 import { postSort } from './state'
 import { notifyDid } from './undoSnackbar'
 
@@ -262,7 +264,7 @@ export function invalidateAggregates(qc: QueryClient, opts: { folders?: boolean 
   qc.invalidateQueries({ queryKey: queryKeys.postsStatsRoot })
   qc.invalidateQueries({ queryKey: queryKeys.postCount })
   if (opts.folders) {
-    qc.invalidateQueries({ queryKey: queryKeys.folders })
+    qc.invalidateQueries({ queryKey: queryKeys.folders, refetchType: 'none' })
   }
 }
 
@@ -502,33 +504,30 @@ export async function commitRotate(
 
 // ---- 单帖的服务端计算：打分器 / 自动标签 / 自动描述 ----
 
-/** The per-post scorers the detail panel can run on demand; each is also a facet `CountKind`. */
-export type ScorerKind = 'waifu' | 'silva' | 'silvaLuna'
-
-function scorerEndpoint(kind: ScorerKind) {
-  switch (kind) {
-    case 'waifu': { return v2GetWaifuScorerOne
-    }
-    case 'silva': { return v2GetSilvaScorerOne
-    }
-    case 'silvaLuna': { return v2GetSilvaLunaScorerOne
-    }
-  }
+const SCORE_ONE: Record<ScorerKind, (postId: number) => Promise<unknown>> = {
+  waifu: postId => v2GetWaifuScorerOne({ path: { post_id: postId } }),
+  silva: postId => v2GetSilvaScorerOne({ path: { post_id: postId } }),
+  silvaLuna: postId => v2GetSilvaLunaScorerOne({ path: { post_id: postId } }),
 }
 
 /**
  * Run one scorer on one post (the endpoint is a GET, but it computes and
- * persists the score). Refreshes the post detail, that scorer's facet counts
- * and the footer stats (they carry the waifu average); the SILVA scorers also
- * feed the sidebar folders' per-folder averages.
+ * persists the score). Refreshes the post detail and that scorer's facet
+ * counts; waifu also refreshes the footer stats (the only scorer they carry an
+ * average for). A scorer that feeds the sidebar folders' per-folder averages
+ * marks the folder tree stale without refetching it — `/v2/folders` takes
+ * seconds server-side, too much for one score click; it picks the new average
+ * up on its next natural fetch.
  */
 export async function computeScore(qc: QueryClient, kind: ScorerKind, postId: number): Promise<void> {
-  await scorerEndpoint(kind)({ path: { post_id: postId } })
+  await SCORE_ONE[kind](postId)
   qc.invalidateQueries({ queryKey: queryKeys.postRoot(postId) })
   qc.invalidateQueries({ queryKey: queryKeys.countRoot(kind) })
-  qc.invalidateQueries({ queryKey: queryKeys.postsStatsRoot })
-  if (kind !== 'waifu') {
-    qc.invalidateQueries({ queryKey: queryKeys.folders })
+  if (kind === 'waifu') {
+    qc.invalidateQueries({ queryKey: queryKeys.postsStatsRoot })
+  }
+  if (SCORERS.find(s => s.countKind === kind)?.feedsFolderAggregates) {
+    qc.invalidateQueries({ queryKey: queryKeys.folders, refetchType: 'none' })
   }
 }
 
@@ -593,9 +592,8 @@ export async function touchPost(postId: number): Promise<void> {
 // while one runs.
 
 function invalidatePostAnnotations(qc: QueryClient, postIds: Iterable<number>): void {
-  for (const id of new Set(postIds)) {
-    qc.invalidateQueries({ queryKey: queryKeys.annotations(id) })
-  }
+  const ids = new Set(postIds)
+  qc.invalidateQueries({ predicate: ({ queryKey: k }) => queryKeys.match.annotations(k, ids) })
 }
 
 /** Record one pairwise judgement. Resolves to the written event ids. */

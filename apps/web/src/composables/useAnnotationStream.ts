@@ -47,9 +47,9 @@ export interface AnnotationStreamOptions<T extends StreamItem> {
   lowWater: number
   /**
    * Consecutive empty batches that mean "nothing left". Below it an empty batch
-   * is retried at once, as part of the same refill. Default 2.
+   * is retried at once, as part of the same refill.
    */
-  emptyLimit?: number
+  emptyLimit: number
   /** Warm the next `ahead` items (after the current one) with `preload`. */
   preload: { ahead: number, item: (item: T) => void }
   /** A batch failed to load. */
@@ -118,8 +118,7 @@ export interface AnnotationStream<T extends StreamItem> {
 }
 
 export function useAnnotationStream<T extends StreamItem>(options: AnnotationStreamOptions<T>): AnnotationStream<T> {
-  const { kind, queryClient, sessionId, fetchBatch, keyOf, lowWater, preload, onLoadError, postIdsOf } = options
-  const emptyLimit = options.emptyLimit ?? 2
+  const { kind, queryClient, sessionId, fetchBatch, keyOf, lowWater, emptyLimit, preload, onLoadError, postIdsOf } = options
   const t = i18n.global.t
 
   const queue = () => toValue(options.queue)
@@ -129,18 +128,17 @@ export function useAnnotationStream<T extends StreamItem>(options: AnnotationStr
   const exhausted = ref(false)
   const submitting = ref(false)
 
-  const progressLabel = computed(() => {
+  // Queue mode counts against the queue's total with the shared queue copy;
+  // stream mode has no total and uses the session's own copy.
+  function progressText(queueKey: string, streamKey: string): string {
     const q = queue()
+    const done = formatNumber(doneCount.value)
     return q
-      ? t('annotate.progress.queue', { done: formatNumber(doneCount.value), total: formatNumber(q.total) })
-      : t(options.streamProgress.labelKey, { n: formatNumber(doneCount.value) })
-  })
-  const announceProgress = useProgressAnnouncer(() => {
-    const q = queue()
-    return q
-      ? t('annotate.progress.queueAnnounce', { done: formatNumber(doneCount.value), total: formatNumber(q.total) })
-      : t(options.streamProgress.announceKey, { n: formatNumber(doneCount.value) })
-  })
+      ? t(queueKey, { done, total: formatNumber(q.total) })
+      : t(streamKey, { n: done })
+  }
+  const progressLabel = computed(() => progressText('annotate.progress.queue', options.streamProgress.labelKey))
+  const announceProgress = useProgressAnnouncer(() => progressText('annotate.progress.queueAnnounce', options.streamProgress.announceKey))
 
   const seenKeys = new Set<string>()
   let emptyStreak = 0

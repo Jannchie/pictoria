@@ -5,6 +5,7 @@ import { useVirtualList } from '@vueuse/core'
 import { computed, defineComponent, nextTick, onBeforeUpdate, onUpdated, ref, watch, watchEffect } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { formatNumber } from '@/locale'
+import { splitHighlight } from '@/utils/highlight'
 import { flattenTree, hasChildren, isFocusableRow, resolveTreeKey } from './treeListModel'
 import { isTypeaheadKey, matchTypeahead, useTypeahead } from './useTypeahead'
 
@@ -496,20 +497,11 @@ export default defineComponent({
 
     // ── Rendering ───────────────────────────────────────────────────────────
     function highlight(text: string) {
-      if (!filterActive.value) {
-        return <span class="truncate">{text}</span>
-      }
-      const lower = text.toLowerCase()
-      const idx = lower.indexOf(filterLower.value)
-      if (idx === -1) {
-        return <span class="truncate">{text}</span>
-      }
-      const end = idx + filterLower.value.length
       return (
         <span class="truncate">
-          {text.slice(0, idx)}
-          <mark class="text-fg px-0.5 rounded-sm bg-primary/30">{text.slice(idx, end)}</mark>
-          {text.slice(end)}
+          {splitHighlight(text, filterLower.value).map(part => (part.match
+            ? <mark class="text-fg px-0.5 rounded-sm bg-primary/30">{part.text}</mark>
+            : part.text))}
         </span>
       )
     }

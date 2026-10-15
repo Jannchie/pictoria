@@ -31,6 +31,7 @@ function setup(overrides: Partial<AnnotationStreamOptions<Item>> = {}) {
     fetchBatch: batches(),
     keyOf: i => (i.position == null ? `p${i.id}` : `q${i.position}`),
     lowWater: 3,
+    emptyLimit: 2,
     preload: { ahead: 1, item: () => {} },
     onLoadError: () => {},
     streamProgress: { labelKey: 'annotate.progress.pairwise', announceKey: 'annotate.progress.pairwiseAnnounce' },

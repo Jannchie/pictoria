@@ -11,14 +11,16 @@
 
 import type { MaybeRef } from 'vue'
 import { resolvedLocale } from '@/locale'
+import { SCORERS } from './scorers'
 
 /**
  * Every per-bucket facet count kind. The array is the source of truth (the type
  * is derived from it) so aggregate invalidation can iterate it — a hand-copied
  * list at each delete site had already drifted (it missed waifu / silva /
- * silvaLuna, so deleting posts left those facet counts stale).
+ * silvaLuna, so deleting posts left those facet counts stale). The scorer kinds
+ * come from the scorer table, so adding a scorer adds its count kind.
  */
-export const COUNT_KINDS = ['rating', 'score', 'extension', 'waifu', 'silva', 'silvaLuna', 'tags'] as const
+export const COUNT_KINDS = ['rating', 'score', 'extension', ...SCORERS.map(s => s.countKind), 'tags'] as const
 export type CountKind = typeof COUNT_KINDS[number]
 
 type Key = readonly unknown[]
@@ -44,6 +46,8 @@ const match = {
   postsStats: (k: Key): boolean => k[0] === 'posts' && k[1] === 'stats',
   /** A gallery list (`posts` / `unratedArtistPicks`): second slot is the request object, not `'stats'`. */
   postList: (k: Key): boolean => k[0] === 'posts' && typeof k[1] === 'object' && k[1] !== null,
+  /** A post's annotation history (`annotations`). */
+  annotations: (k: Key, ids?: ReadonlySet<number>): boolean => k[0] === 'annotations' && idIn(k, ids),
   /** A flat `Post[]` list keyed off its own prefix (text search / similar / group members). */
   flatPostList: (k: Key): boolean => k[0] === 'textSearch' || k[0] === 'similarPosts' || k[0] === 'postGroup',
 }

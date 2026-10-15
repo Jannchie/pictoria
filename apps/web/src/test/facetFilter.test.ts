@@ -1,3 +1,4 @@
+import type { Translate } from '@/shared/postFilter'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { facetOptionLabel, facetTriggerLabel, formatPct, initialOptionIndex } from '@/composables/useFacetFilter'
 import { i18n, localeSetting } from '@/locale'
@@ -23,7 +24,8 @@ function keyEvent(init: KeyInit): KeyboardEvent {
   return e as unknown as KeyboardEvent
 }
 
-const t = (key: string, named: Record<string, unknown>, plural: number) => i18n.global.t(key, named, plural)
+// The facet labels always pass `named` and `plural`; the defaults only satisfy `Translate`'s optional slots.
+const t: Translate = (key, named = {}, plural = 1) => i18n.global.t(key, named, plural)
 
 describe('activateoptiononkey', () => {
   it('toggles on space and enter and consumes the key', () => {

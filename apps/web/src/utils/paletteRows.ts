@@ -1,8 +1,9 @@
 import type { HighlightPart } from './highlight'
 import type { TokenSpan } from './paletteToken'
-import { FILTER_DSL_KEYS } from '@/shared/postFilter'
+import { facetForDslKey, FILTER_DSL_KEYS } from '@/shared/postFilter'
 import { splitHighlight } from './highlight'
 import { tokenSpans } from './paletteToken'
+import { naturalizeTagName } from './tagName'
 
 /**
  * Pure row model of the command palette: which rows exist, in what order, how
@@ -134,10 +135,6 @@ export interface TermChip {
   unknown: boolean
 }
 
-function naturalize(tag: string): string {
-  return tag.replaceAll('_', ' ')
-}
-
 /**
  * The understood `key:value` terms of the input, read back as chips. The term
  * whose end the caret sits on is still being typed, not a finished filter, so
@@ -156,7 +153,7 @@ export function termChips(query: string, caret: number, unknownTerms: readonly s
       const key = s.key!
       return {
         span: s,
-        label: `${key}: ${key === 'tag' || key === 't' ? naturalize(s.value) : s.value}`,
+        label: `${key}: ${facetForDslKey(key) === 'tags' ? naturalizeTagName(s.value) : s.value}`,
         unknown: !FILTER_DSL_KEYS.has(key) || unknown.has(s.raw.replaceAll(/["']/g, '')),
       }
     })

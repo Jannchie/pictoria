@@ -1,6 +1,6 @@
 import type { MaybeRefOrGetter, Ref } from 'vue'
 import type { CountKind } from '@/shared'
-import type { FacetField } from '@/shared/postFilter'
+import type { FacetField, Translate } from '@/shared/postFilter'
 import type { RovingFocus } from '@/ui/useRovingFocus'
 import { keepPreviousData, useQuery } from '@tanstack/vue-query'
 import { useMutationObserver } from '@vueuse/core'
@@ -157,8 +157,6 @@ export function initialOptionIndex<T>(values: readonly T[], isSelected: (value: 
   const i = values.findIndex(v => isSelected(v))
   return i === -1 ? 0 : i
 }
-
-type Translate = (key: string, named: Record<string, unknown>, plural: number) => string
 
 /**
  * Accessible name of a facet option: "Safe, 1,234 posts". `count` undefined

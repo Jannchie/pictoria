@@ -1,4 +1,4 @@
-import { QueryClient } from '@tanstack/vue-query'
+import { QueryClient, QueryObserver } from '@tanstack/vue-query'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import * as api from '@/api'
 import { localeSetting } from '@/locale'
@@ -205,17 +205,28 @@ describe('invalidateaggregates', () => {
 describe('computescore', () => {
   beforeEach(() => vi.clearAllMocks())
 
-  it('calls the endpoint of that scorer and refreshes the post, that facet and the stats', async () => {
+  it('calls the endpoint of that scorer and refreshes the post and that facet; marks folders stale without refetching', async () => {
     const keys = [queryKeys.post(3), queryKeys.count('silva', {}), queryKeys.count('waifu', {}), queryKeys.postsStats({}), queryKeys.folders]
-    const hit = await invalidatedAfter(keys, qc => computeScore(qc, 'silva', 3))
+    const qc = new QueryClient()
+    const fetchFolders = vi.fn(async () => [])
+    for (const key of keys) {
+      qc.setQueryData(key, 1)
+    }
+    // An observed (active) folders query: a plain invalidate would refetch it right away.
+    const observer = new QueryObserver(qc, { queryKey: queryKeys.folders, queryFn: fetchFolders, staleTime: Infinity })
+    const stop = observer.subscribe(() => {})
+    await computeScore(qc, 'silva', 3)
+    stop()
     expect(api.v2GetSilvaScorerOne).toHaveBeenCalledWith({ path: { post_id: 3 } })
-    expect(hit).toEqual([queryKeys.post(3), queryKeys.count('silva', {}), queryKeys.postsStats({}), queryKeys.folders])
+    // The footer stats carry only the waifu average.
+    expect(keys.filter(key => qc.getQueryState(key)?.isInvalidated)).toEqual([queryKeys.post(3), queryKeys.count('silva', {}), queryKeys.folders])
+    expect(fetchFolders).not.toHaveBeenCalled()
   })
 
-  it('waifu does not touch the folder tree (it carries no waifu average)', async () => {
-    const hit = await invalidatedAfter([queryKeys.count('waifu', {}), queryKeys.folders], qc => computeScore(qc, 'waifu', 3))
+  it('waifu refreshes the stats but does not touch the folder tree (it carries no waifu average)', async () => {
+    const hit = await invalidatedAfter([queryKeys.count('waifu', {}), queryKeys.postsStats({}), queryKeys.folders], qc => computeScore(qc, 'waifu', 3))
     expect(api.v2GetWaifuScorerOne).toHaveBeenCalledWith({ path: { post_id: 3 } })
-    expect(hit).toEqual([queryKeys.count('waifu', {})])
+    expect(hit).toEqual([queryKeys.count('waifu', {}), queryKeys.postsStats({})])
   })
 })
 

@@ -5,15 +5,14 @@ import type { FolderSortKey, FolderSortOrder } from '@/utils/folderTree'
 import { useQueryClient } from '@tanstack/vue-query'
 import { computed, ref, useTemplateRef } from 'vue'
 import { useI18n } from 'vue-i18n'
-import { RouterLink, useRoute, useRouter } from 'vue-router'
+import { useRoute, useRouter } from 'vue-router'
 import { useAPIError } from '@/composables/useAPIError'
 import { useFolderTree } from '@/composables/useFolderTree'
 import { formatNumber } from '@/locale'
 import { announce, deleteFolder } from '@/shared'
 import PTreeList, { CHEVRON_SLOT, LEVEL_INDENT } from '@/ui/PTreeList.vue'
-import { findFolderNode, folderTreeItemHeight, hasStatsLine, parentFolder, ROOT_FOLDER } from '@/utils/folderTree'
-import { splitHighlight } from '@/utils/highlight'
-import FolderStatsLine from './FolderStatsLine.vue'
+import { findFolderNode, folderTreeItemHeight, parentFolder, ROOT_FOLDER } from '@/utils/folderTree'
+import FolderTreeRow from './FolderTreeRow.vue'
 
 /**
  * The sidebar folder tree: its filter + sort controls, the virtualised tree,
@@ -278,56 +277,20 @@ function clearFilter() {
           :empty-text="$t('sidebar.noFolderMatch')"
           @update:open-paths="(v) => (openPaths = v)"
         >
-          <!-- Row slots: the RouterLink IS the treeitem (role, roving
+          <!-- Row slots: FolderTreeRow's RouterLink IS the treeitem (role, roving
                tabindex, aria-* and data-tree-value via itemProps), so
                focus and semantics sit on one element. The chevron is a
                mouse-only affordance (←/→ do the same from the keyboard). -->
           <template #collapse="{ data, level, isOpen, isSelected, inChain, toggle, itemProps }">
             <div class="h-full relative">
-              <RouterLink
+              <FolderTreeRow
                 v-bind="itemProps"
-                :to="{ path: `/dir/${data.value}`, query: $route.query }"
-                :title="data.value"
-                class="group/row text-sm pr-3 rounded-md flex h-full w-full cursor-pointer transition-colors items-center relative focus-visible:[outline-offset:-2px]"
-                :class="[
-                  isSelected ? 'text-fg bg-primary/10 hover:bg-primary/15' : 'text-fg-muted hover:bg-surface-1 hover:text-fg',
-                ]"
-                :style="{ paddingLeft: `${CHEVRON_SLOT + level * LEVEL_INDENT}px` }"
-              >
-                <span
-                  v-for="i in level"
-                  :key="i"
-                  aria-hidden="true"
-                  class="w-px pointer-events-none bottom-0 top-0 absolute"
-                  :class="[
-                    inChain && i === level ? 'bg-primary/40' : 'bg-border-subtle',
-                  ]"
-                  :style="{ left: `${10 + (i - 1) * LEVEL_INDENT}px` }"
-                />
-                <div class="flex flex-grow flex-col min-w-0 justify-center">
-                  <div class="flex gap-1.5 h-6 items-center">
-                    <span aria-hidden="true" class="shrink-0 h-3.5 w-3.5 inline-block" />
-                    <span class="truncate">
-                      <template
-                        v-for="(part, i) in splitHighlight(data.title, folderFilter)"
-                        :key="i"
-                      >
-                        <mark
-                          v-if="part.match"
-                          class="text-fg px-0.5 rounded-sm bg-primary/30"
-                        >{{ part.text }}</mark>
-                        <template v-else>{{ part.text }}</template>
-                      </template>
-                    </span>
-                  </div>
-                  <FolderStatsLine
-                    v-if="hasStatsLine(data)"
-                    v-bind="data.meta"
-                    :count="data.count"
-                    class="pl-5"
-                  />
-                </div>
-              </RouterLink>
+                :data="data"
+                :level="level"
+                :is-selected="isSelected"
+                :in-chain="inChain"
+                :filter="folderFilter"
+              />
               <span
                 aria-hidden="true"
                 class="text-fg-subtle rounded flex shrink-0 h-5 w-5 cursor-pointer transition-colors items-center top-1/2 justify-center absolute hover:text-fg hover:bg-surface-2 -translate-y-1/2"
@@ -343,52 +306,15 @@ function clearFilter() {
             </div>
           </template>
           <template #link="{ data, level, isSelected, inChain, itemProps }">
-            <RouterLink
+            <FolderTreeRow
               v-bind="itemProps"
-              :to="{ path: `/dir/${data.value}`, query: $route.query }"
-              :title="data.value"
-              class="group/row text-sm pr-3 rounded-md flex h-full w-full cursor-pointer transition-colors items-center relative focus-visible:[outline-offset:-2px]"
-              :class="[
-                isSelected ? 'text-fg bg-primary/10 hover:bg-primary/15' : 'text-fg-muted hover:bg-surface-1 hover:text-fg',
-              ]"
-              :style="{ paddingLeft: `${CHEVRON_SLOT + level * LEVEL_INDENT}px` }"
-            >
-              <span
-                v-for="i in level"
-                :key="i"
-                aria-hidden="true"
-                class="w-px pointer-events-none bottom-0 top-0 absolute"
-                :class="[
-                  inChain && i === level ? 'bg-primary/40' : 'bg-border-subtle',
-                ]"
-                :style="{ left: `${10 + (i - 1) * LEVEL_INDENT}px` }"
-              />
-              <div class="flex flex-grow flex-col min-w-0 justify-center">
-                <div class="flex gap-1.5 h-6 items-center">
-                  <span aria-hidden="true" class="inline-flex shrink-0 h-3.5 w-3.5 items-center justify-center">
-                    <i v-if="data.icon" class="h-3.5 w-3.5" :class="[data.icon as string]" />
-                  </span>
-                  <span class="truncate">
-                    <template
-                      v-for="(part, i) in splitHighlight(data.title, folderFilter)"
-                      :key="i"
-                    >
-                      <mark
-                        v-if="part.match"
-                        class="text-fg px-0.5 rounded-sm bg-primary/30"
-                      >{{ part.text }}</mark>
-                      <template v-else>{{ part.text }}</template>
-                    </template>
-                  </span>
-                </div>
-                <FolderStatsLine
-                  v-if="hasStatsLine(data)"
-                  v-bind="data.meta"
-                  :count="data.count"
-                  class="pl-5"
-                />
-              </div>
-            </RouterLink>
+              :data="data"
+              :level="level"
+              :is-selected="isSelected"
+              :in-chain="inChain"
+              :filter="folderFilter"
+              :icon="typeof data.icon === 'string' ? data.icon : undefined"
+            />
           </template>
         </PTreeList>
       </div>
