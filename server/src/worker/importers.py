@@ -293,7 +293,7 @@ async def handle_url_download(payload: dict[str, Any]) -> dict[str, Any]:
         for r in raw_items
     ]
 
-    ok = await asyncio.to_thread(download_items, items, save_dir, headers=None)
+    ok = await asyncio.to_thread(download_items, items, save_dir)
     return {
         "rows": [
             {

@@ -20,13 +20,16 @@ from __future__ import annotations
 import asyncio
 import logging
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import numpy as np
 
 from paths import pictoria_dir
 from worker.codec import decode_vector, encode_vector
 from worker.ladder import run_with_fallback
+
+if TYPE_CHECKING:
+    from collections.abc import Callable
 
 log = logging.getLogger("worker.handlers")
 
@@ -72,10 +75,7 @@ async def handle_silva(payload: dict[str, Any]) -> dict[str, Any]:
     # be handed to another worker while this one is still computing it.
     scores = await asyncio.to_thread(score_embeddings, embeddings, scorer)
     return {
-        "scores": [
-            {"postId": item["postId"], "score": float(score)}
-            for item, score in zip(items, scores, strict=True)
-        ],
+        "scores": [{"postId": item["postId"], "score": float(score)} for item, score in zip(items, scores, strict=True)],
     }
 
 
@@ -162,6 +162,50 @@ def _resolve_inside(raw: str) -> Path:
     return path
 
 
+def _contain_batch(
+    batch: list[Any],
+    *,
+    check: Callable[[int, Any], None],
+    paths: Callable[[Any], tuple[str, ...]],
+    failure_ids: Callable[[Any], dict[str, Any]],
+    drop_missing: str | None,
+) -> tuple[list[tuple[Any, tuple[Path, ...]]], list[dict[str, Any]]]:
+    """The contract and containment tiers every batch handler shares, in that order.
+
+    ``check`` runs over the *whole* batch before any path is resolved: a missing
+    or mistyped field must fail the task, never land half the batch in
+    ``failures`` (see ``PayloadContractError``). Only then is each of the item's
+    ``paths`` resolved inside the library root; one escaping is a per-item
+    failure ``{**failure_ids(item), "error"}``, which TS blacklists.
+
+    ``drop_missing`` is the missing-file policy. ``None`` keeps an item whose
+    file is absent (the caller deals with it); a string drops it -- not failed,
+    the row is not bad data and sync will notice the deletion -- and is the
+    wording of the logged count, so an all-dropped batch is not silent.
+
+    Returns ``(item, resolved_paths)`` pairs, in batch order, plus the failures.
+    """
+    for i, item in enumerate(batch):
+        check(i, item)
+
+    kept: list[tuple[Any, tuple[Path, ...]]] = []
+    failures: list[dict[str, Any]] = []
+    missing = 0
+    for item in batch:
+        try:
+            resolved = tuple(_resolve_inside(raw) for raw in paths(item))
+        except ValueError as exc:
+            failures.append({**failure_ids(item), "error": str(exc)})
+            continue
+        if drop_missing is not None and not all(path.exists() for path in resolved):
+            missing += 1
+            continue
+        kept.append((item, resolved))
+    if missing:
+        log.warning("%d/%d %s, dropped from this batch", missing, len(batch), drop_missing)
+    return kept, failures
+
+
 def _resolve_items(
     items_in: list[dict[str, Any]],
 ) -> tuple[list[tuple[int, Path]], list[dict[str, Any]]]:
@@ -179,27 +223,14 @@ def _resolve_items(
     So the count is logged here, and ``scheduler.ts`` treats an all-empty result
     as "no progress" and backs off.
     """
-    # Contract first, all of it: a missing ``path`` must fail the task, never
-    # land half the batch in ``failures`` (see ``PayloadContractError``).
-    for i, item in enumerate(items_in):
-        _require(item, _IMAGE_ITEM, where=f"items[{i}]")
-
-    items: list[tuple[int, Path]] = []
-    failures: list[dict[str, Any]] = []
-    missing = 0
-    for item in items_in:
-        try:
-            path = _resolve_inside(item["path"])
-        except ValueError as exc:
-            failures.append({"postId": item["postId"], "error": str(exc)})
-            continue
-        if path.exists():
-            items.append((item["postId"], path))
-        else:
-            missing += 1
-    if missing:
-        log.warning("%d/%d item(s) no longer on disk, dropped from this batch", missing, len(items_in))
-    return items, failures
+    kept, failures = _contain_batch(
+        items_in,
+        check=lambda i, item: _require(item, _IMAGE_ITEM, where=f"items[{i}]"),
+        paths=lambda item: (item["path"],),
+        failure_ids=lambda item: {"postId": item["postId"]},
+        drop_missing="item(s) no longer on disk",
+    )
+    return [(item["postId"], path) for item, (path,) in kept], failures
 
 
 async def handle_waifu(payload: dict[str, Any]) -> dict[str, Any]:
@@ -280,14 +311,14 @@ async def handle_tagger(payload: dict[str, Any]) -> dict[str, Any]:
     # The loader touches disk and VRAM, so it goes off-loop — see handle_silva.
     await asyncio.to_thread(warm)
     successes, ladder_failures = await run_with_fallback(
-        tag_batch, items, label="tagger", reject_reason=_no_tags,
+        tag_batch,
+        items,
+        label="tagger",
+        reject_reason=_no_tags,
     )
     return {
         "model": MODEL_TAG,
-        "results": [
-            {"postId": pid, "tags": resp.tags, "rating": resp.rating}
-            for pid, resp in successes
-        ],
+        "results": [{"postId": pid, "tags": resp.tags, "rating": resp.rating} for pid, resp in successes],
         "failures": failures + [{"postId": pid, "error": err} for pid, err in ladder_failures],
     }
 
@@ -365,29 +396,20 @@ def _resolve_pairs(
     simply gone is dropped and left to sync. The unit here is the *pair*: one
     missing file takes the pair with it, because a distance needs both sides.
     """
-    for i, item in enumerate(pairs_in):
+
+    def check(i: int, item: Any) -> None:
         _require(item, {"a": dict, "b": dict}, where=f"pairs[{i}]")
         _require(item["a"], _IMAGE_ITEM, where=f"pairs[{i}].a")
         _require(item["b"], _IMAGE_ITEM, where=f"pairs[{i}].b")
 
-    pairs: list[tuple[int, int, Path, Path]] = []
-    failures: list[dict[str, Any]] = []
-    missing = 0
-    for item in pairs_in:
-        left, right = item["a"], item["b"]
-        try:
-            path_a = _resolve_inside(left["path"])
-            path_b = _resolve_inside(right["path"])
-        except ValueError as exc:
-            failures.append({"a": left["postId"], "b": right["postId"], "error": str(exc)})
-            continue
-        if path_a.exists() and path_b.exists():
-            pairs.append((left["postId"], right["postId"], path_a, path_b))
-        else:
-            missing += 1
-    if missing:
-        log.warning("%d/%d pair(s) have a side no longer on disk, dropped from this batch", missing, len(pairs_in))
-    return pairs, failures
+    kept, failures = _contain_batch(
+        pairs_in,
+        check=check,
+        paths=lambda item: (item["a"]["path"], item["b"]["path"]),
+        failure_ids=lambda item: {"a": item["a"]["postId"], "b": item["b"]["postId"]},
+        drop_missing="pair(s) have a side no longer on disk",
+    )
+    return [(item["a"]["postId"], item["b"]["postId"], path_a, path_b) for item, (path_a, path_b) in kept], failures
 
 
 def _lpips_batch(resolved: list[tuple[int, int, Path, Path]]) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
@@ -406,10 +428,7 @@ def _lpips_batch(resolved: list[tuple[int, int, Path, Path]]) -> tuple[list[dict
     except Exception as exc:
         log.warning("[lpips] batch of %d failed (%s); retrying pair by pair", len(resolved), exc)
     else:
-        return [
-            {"a": id_a, "b": id_b, "distance": distance}
-            for (id_a, id_b, _, _), distance in zip(resolved, distances, strict=True)
-        ], []
+        return [{"a": id_a, "b": id_b, "distance": distance} for (id_a, id_b, _, _), distance in zip(resolved, distances, strict=True)], []
 
     results: list[dict[str, Any]] = []
     failures: list[dict[str, Any]] = []
@@ -587,7 +606,6 @@ def _compute_basics(item: dict[str, Any], path: Path, thumb_path: Path) -> dict[
     ``item`` has passed :func:`_require` and both paths ``_resolve_inside``, so
     nothing here can fail on the payload's shape -- only on the file.
     """
-    import numpy as np  # noqa: PLC0415
     from PIL import Image  # noqa: PLC0415
     from skimage import color as skcolor  # noqa: PLC0415
 
@@ -646,22 +664,18 @@ def _resolve_basics(
     """The contract and containment tiers of :func:`handle_basics`.
 
     Every item is checked before any is resolved, so a contract error raises
-    with nothing half-done; an escaping path is then a per-item failure.
+    with nothing half-done; an escaping path is then a per-item failure. A
+    missing file is *not* dropped here: it fails in ``_compute_basics`` and is
+    reported per item.
     """
-    for i, item in enumerate(items):
-        _require(item, _BASICS_ITEM, where=f"items[{i}]")
-
-    resolved: list[tuple[dict[str, Any], Path, Path]] = []
-    failures: list[dict[str, Any]] = []
-    for item in items:
-        try:
-            path = _resolve_inside(item["path"])
-            thumb_path = _resolve_inside(item["thumbnailPath"])
-        except ValueError as exc:
-            failures.append({"postId": item["postId"], "error": str(exc)})
-        else:
-            resolved.append((item, path, thumb_path))
-    return resolved, failures
+    kept, failures = _contain_batch(
+        items,
+        check=lambda i, item: _require(item, _BASICS_ITEM, where=f"items[{i}]"),
+        paths=lambda item: (item["path"], item["thumbnailPath"]),
+        failure_ids=lambda item: {"postId": item["postId"]},
+        drop_missing=None,
+    )
+    return [(item, path, thumb_path) for item, (path, thumb_path) in kept], failures
 
 
 async def handle_basics(payload: dict[str, Any]) -> dict[str, Any]:

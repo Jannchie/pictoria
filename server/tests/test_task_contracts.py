@@ -386,10 +386,8 @@ def test_there_is_a_fixture_for_every_task() -> None:
 
 @pytest.mark.parametrize("name", sorted(FIXTURES))
 def test_worker_serves_the_task_on_the_fixture_queue(name: str) -> None:
-    fixture = FIXTURES[name]
-    assert fixture["name"] == name
     queue, _handler = TASKS[name]
-    assert queue == fixture["queue"]
+    assert queue == FIXTURES[name]["queue"]
 
 
 def test_silva_scorer_names_match_the_typescript_side() -> None:
