@@ -74,6 +74,20 @@ export function thumbnailPathFor(relPath: string): string {
 }
 
 /**
+ * 一个 post 原图的绝对路径 —— `relPath` 是库里的 `full_path`（相对图库根）。
+ *
+ * 原来这件事有三种拼法：backfill 待办查询里的字符串模板 `${targetDir}/${full_path}`、
+ * 单张命令里的字符串拼接、图片端点的 `path.resolve`。Windows 上前两种产出混合分隔符，
+ * 碰巧 worker 和 fs 都认，但"同一个文件两种写法"迟早在某次字符串比较里咬人。
+ *
+ * 和 `thumbnailPathFor` 一样假设 `relPath` 已经是库里的行；来自请求的路径用
+ * `resolveInside(targetDir(), rel)`。
+ */
+export function postAbsPath(relPath: string): string {
+  return path.resolve(targetDir(), relPath)
+}
+
+/**
  * `DB_PATH` **环境变量**覆盖 `<target_dir>/.pictoria/pictoria.sqlite`。
  *
  * ⚠️ 是环境变量，不是 `.env` —— `apps/api` 不加载任何 dotenv（唯一读 `server/.env`

@@ -12,58 +12,14 @@
  * 语义，见 `tasks.ts` 头注）：同一批重复提交拿回同一个在跑的任务或已完成的结果，
  * 失败/取消的任务绝不复用 —— 这正好取代原来那把 `backfill_lock`，也堵死了
  * 0.6 时代"终态失败被 reuse 原样重抛、循环永久卡死"的坑。
+ *
+ * 每个 worker 是什么（队列、批大小、待办扫描、payload、落库、拉不拉黑）在
+ * `workers.ts` 的 `WorkerSpec` 里；这里只有通用的一批（`runBatch`）和循环骨架（`loop`）。
  */
 import type { CairnQ } from 'cairnq'
-import type { getDb } from './db.js'
-import {
-  assertTaggerModel,
-  BASICS_TASK_BATCH,
-  BASICS_WORKER_KEY,
-  basicsTask,
-  EMBEDDING_TASK_BATCH,
-  EMBEDDING_WORKER_KEY,
-  embeddingTask,
-  encodeVectorBlob,
-  GPU_QUEUE,
-  IO_QUEUE,
-  SILVA_TASK_BATCH,
-  silvaTask,
-  TAGGER_MODEL,
-  TAGGER_TASK_BATCH,
-  TAGGER_WORKER_KEY,
-  taggerTask,
-  WAIFU_TASK_BATCH,
-  WAIFU_WORKER_KEY,
-  waifuTask,
-  type BasicsItem,
-  type SilvaScorer,
-} from '@pictoria/contracts'
-import { Buffer } from 'node:buffer'
-import {
-  countBasicsPending,
-  countEmbeddingPending,
-  countSilvaPending,
-  countTaggerPending,
-  countWaifuPending,
-  ensureCanonicalTagGroups,
-  listBasicsPending,
-  fetchEmbeddingBlobs,
-  listEmbeddingPending,
-  listSilvaPending,
-  listTaggerPending,
-  listWaifuPending,
-  persistTaggerResults,
-  recordFailures,
-  upsertAestheticScores,
-  upsertBasics,
-  upsertVectors,
-  upsertWaifuScores,
-} from '@pictoria/db'
-import { targetDir, thumbnailPathFor } from './paths.js'
+import { onRepending, recordFailures, type SqliteHandle } from '@pictoria/db'
 import { type PendingCounter, registerLoop } from './queue-status.js'
-
-/** better-sqlite3 的连接类型，从 `getDb()` 借出来 —— apps/api 不直接依赖那个包。 */
-type SqliteHandle = ReturnType<typeof getDb>['sqlite']
+import { BACKFILL_SPECS, embeddingSpec, type WorkerSpec } from './workers.js'
 
 /** 队列空了之后隔多久再看一眼。 */
 const IDLE_MS = 30_000
@@ -91,19 +47,22 @@ const CALL_TIMEOUT_MS = 300_000
  * succeeded 任务算的就是同一批输入，复用它是超时恢复（`CALL_TIMEOUT_MS` 的注释），
  * 不是拿陈旧数据。残余的例外只有"成员没变、图的内容变了"（转图后又清掉产物），
  * 窗口被 `tasks.ts` 对 succeeded 的 retention 1 小时封顶，且交互式重算路径
- * （`routes/commands.ts` 的 `oneShot`）用默认 `reuse`、不复用成功任务。
+ * （`workers.ts` 的 `runOneShot`）用默认 `reuse`、不复用成功任务。
  *
  * ⚠️ 同一个"成员没变、结果不该复用"的例外还有第二种形态：**算法变了**。换 tagger 模型
  * 时这条真的发生过 —— 队列把 785 条 WD 时代的 succeeded 结果原样还了回来，而它们连
- * 字段名都对不上。所以 tagger 的 prefix 里带上模型（`tagger:pixai-tagger-v1.0`）：
- * key 的含义因此是"这批输入 + 拿什么算的"，换模型自动换 key，旧缓存再也撞不上。
- * 别的 worker 暂时不需要，它们的模型标识没有进过 key，换模型时照这条办。
+ * 字段名都对不上。所以 tagger 的 prefix（`WorkerSpec.keyPrefix`）里带上模型
+ * （`tagger:pixai-tagger-v1.0`）：key 的含义因此是"这批输入 + 拿什么算的"，换模型自动
+ * 换 key，旧缓存再也撞不上。别的 worker 暂时不需要，它们的模型标识没有进过 key，
+ * 换模型时照这条办。
  */
-function batchKey(prefix: string, ids: number[]): string {
+export function batchKey(prefix: string, ids: number[]): string {
   return `${prefix}:${ids.join(',')}`
 }
 
 export interface BackfillHandle {
+  /** 这条循环是哪个 worker。 */
+  name: string
   stop: () => void
   /** 立刻结束这一轮空等，并让下一轮**强制重扫**（把待办查询的水位线清零）。 */
   wake: () => void
@@ -120,19 +79,15 @@ const handles = new Set<BackfillHandle>()
 /**
  * 叫醒全部 backfill 循环，并让它们下一轮**强制重扫一次**。
  *
- * ⚠️ 第二件事是这个函数现在**必须**做的，不是顺带的优化。五个待办查询都带了水位线
- * （`packages/db` 的 `scanFloor`）：每条循环记着一个"这个 id 以下已经确认没有待办"的
- * 下界，查询只从那儿往后扫。待办的**主要**来源是新 post（id 更大，天然在水位线之上），
- * 而别的来源会让一个 id 在水位线**以下**的老 post 重新变成待办：
+ * 现在只给"建出了新行"的路径用：sync 对账、Danbooru 导入、URL 导入结束时。新行的 id
+ * 在水位线之上，严格说只需要叫醒、不需要 force；但这几条路径原来就是 wake + force，
+ * 语义保持不变（一次重扫的代价在这些本来就分钟级的操作面前可以忽略）。
  *
- * * 清空 `post_process_failures` 黑名单（一批被拉黑的图重新变成待办）；
- * * 手工摘掉一张图最后一个 `is_auto = 1` 标签（重新变成 tagger 待办）；
- * * 删掉某个 scorer 的分数行（重新变成 silva 待办）；
- * * 把 `sha256` / `arthash` / `dominant_color` 清回空值（重新变成 basics 待办）。
- *
- * 这些路径**每一条**都得走到这里。漏掉一条的表现是**完全静默的**：没有异常、没有
- * 日志，那张图就是永远不再被 backfill 碰一下。这是这道门最大的风险，也是它唯一的
- * 正确性前提。
+ * "让 id 在水位线**以下**的老 post 重新变成待办"的写操作**不**再走这里：它们由
+ * `packages/db` 的 repository 写函数自己 `notifyRepending()`（见 `repending.ts`），
+ * 每条循环在 `loop()` 里订阅了自己那条连接上的信号，只有被点名的循环会被叫醒。
+ * 原来那几条写路径各自在路由里记得调这个函数，漏一条就是那张图静默地永远不再被
+ * backfill 碰 —— 那个知识现在长在写 SQL 的地方。
  *
  * 实现上不是"清水位线"而是给每条循环立一个 `force` 标志：水位线长在 `packages/db`
  * 里、按连接存，而循环本来就要被叫醒 —— 让同一个信号顺手把下一轮的 `{ force: true }`
@@ -175,9 +130,52 @@ function sleep(ms: number, signal: AbortSignal, waker: { resolve?: () => void })
  * 把"一步没动"当成干了活就是一个不睡觉的死循环 —— 待办查询按 id 排序，下一轮选出的
  * 还是同一批。
  */
-interface BatchOutcome {
+export interface BatchOutcome {
   done: number
   failed: number
+  /** 真正写进库的条数（`Persisted.written`），`onDrained` 拿它累计。 */
+  written?: number
+}
+
+/**
+ * 通用的一批：取待办 → 组 payload → 提交并等结果 → 落库 → 按规格拉黑 → 打日志。
+ *
+ * 六条循环原来各写一遍这一段（每段约 30 行），差别全在 `WorkerSpec` 里。
+ */
+export async function runBatch(
+  sqlite: SqliteHandle,
+  tasks: Pick<CairnQ, 'call'>,
+  spec: WorkerSpec<any, any, any>,
+  { force, log = console }: { force: boolean, log?: Log },
+): Promise<BatchOutcome | null> {
+  const pending = spec.listPending(sqlite, spec.batch, { force })
+  if (!pending.length)
+    return null
+
+  const payload = spec.buildPayload(sqlite, pending)
+  const ids = (payload.items as Array<{ postId: number }>).map(i => i.postId)
+  // 一个输入都取不到（silva：向量在两次查询之间被删了）。待办并没有扫空。
+  if (!ids.length)
+    return { done: 0, failed: 0 }
+
+  const result = await tasks.call(spec.task, payload, {
+    queue: spec.queue,
+    // 同一批重复提交拿回同一个在跑的任务（或超时后已完成的结果），而不是第二次 GPU 计算
+    key: batchKey(spec.keyPrefix, ids),
+    conflict: 'reuse-succeeded',
+    timeoutMs: CALL_TIMEOUT_MS,
+  })
+  const out = spec.persist(sqlite, result, { interactive: false })
+  if (spec.blacklist)
+    recordFailures(sqlite, spec.name, out.failures)
+
+  const written = out.written ?? out.done
+  log.info(
+    `[${spec.name}] 落库 ${written} 条${out.writtenNote ?? ''}`
+    + (out.failed ? `，拉黑 ${out.failed} 条${out.failedNote ?? ''}` : '')
+    + `，起始 id ${ids[0]}`,
+  )
+  return { done: out.done, failed: out.failed, written }
 }
 
 /**
@@ -189,11 +187,16 @@ interface BatchOutcome {
  * tick 只管返回结果。
  *
  * `tick` 收到的 `force` 是 `wake()` 立的旗：这一轮的待办查询要清掉水位线重新全扫
- * （理由见 `wakeAllBackfills`）。读了就清，而 wake() 可能发生在一次 tick 正跑到一半
- * 的时候 —— 那时 `waker.resolve` 是 undefined（没在空等），旗子就是唯一还留得住这个
- * 信号的东西，它会被**下一轮**读走。读和清之间没有 await，所以中间插不进 wake()。
+ * （理由见 `wakeAllBackfills` 和 `packages/db` 的 `repending.ts`）。读了就清，而 wake()
+ * 可能发生在一次 tick 正跑到一半的时候 —— 那时 `waker.resolve` 是 undefined（没在空等），
+ * 旗子就是唯一还留得住这个信号的东西，它会被**下一轮**读走。读和清之间没有 await，
+ * 所以中间插不进 wake()。
+ *
+ * 循环订阅自己那条连接上的重新待办信号（`onRepending`），被点名时 wake 自己；
+ * `stop()` 同时退订。
  */
 function loop(
+  sqlite: SqliteHandle,
   name: string,
   queue: string,
   /** 此刻还剩多少待办 —— 只给状态显示用，由 `queue-status.ts` 在后台分块调用。 */
@@ -230,7 +233,7 @@ function loop(
         tracker.error(err)
         log.warn(`[${name}] 这一批失败：${String(err)}`)
         // 这一轮的强制重扫没兑现（查询可能压根没跑到）—— 旗子还回去，别把
-        // wakeAllBackfills 的信号吞在一次异常里。
+        // 重新待办的信号吞在一次异常里。
         forceRescan ||= force
       }
       if (!worked)
@@ -239,242 +242,80 @@ function loop(
   })()
 
   const handle: BackfillHandle = {
+    name,
     stop: () => {
       controller.abort()
       handles.delete(handle)
+      unsubscribe()
     },
     wake: () => {
       forceRescan = true
       waker.resolve?.()
     },
   }
+  const unsubscribe = onRepending(sqlite, (workers) => {
+    if ((workers as readonly string[]).includes(name))
+      handle.wake()
+  })
   handles.add(handle)
   return handle
 }
 
 /**
- * SILVA / SILVA-Luna：输入是已存的向量，输出一个标量。
+ * 按一份规格起一条循环。
  *
- * 失败不拉黑 —— 能取到向量就应该能打分，所以失败是暂时的/代码的问题，值得下一轮
- * 重试，而不是把这批数据永久跳过（与 Python 侧的 `blacklist_policy = never` 同义）。
- */
-export function startSilvaBackfill(
-  sqlite: SqliteHandle,
-  tasks: CairnQ,
-  { scorer, log = console }: { scorer: SilvaScorer, log?: Log },
-): BackfillHandle {
-  return loop(scorer, GPU_QUEUE, rows => countSilvaPending(sqlite, scorer, rows), async ({ force }) => {
-    const pending = listSilvaPending(sqlite, scorer, SILVA_TASK_BATCH, { force })
-    if (!pending.length)
-      return null
-
-    const blobs = fetchEmbeddingBlobs(sqlite, pending)
-    const items = pending
-      .filter(pid => blobs.has(pid))
-      .map(pid => ({ postId: pid, embedding: encodeVectorBlob(blobs.get(pid)!) }))
-    // 待办查询说它们有向量，取的时候却没有 —— 两次查询之间被删了。待办并没有扫空。
-    if (!items.length)
-      return { done: 0, failed: 0 }
-
-    const result = await tasks.call(silvaTask, { scorer, items }, {
-      queue: GPU_QUEUE,
-      // 同一批重复提交拿回同一个在跑的任务（或超时后已完成的结果），而不是第二次 GPU 计算
-      key: batchKey(scorer, items.map(i => i.postId)),
-      conflict: 'reuse-succeeded',
-      timeoutMs: CALL_TIMEOUT_MS,
-    })
-    upsertAestheticScores(sqlite, scorer, result.scores)
-    log.info(`[${scorer}] 落库 ${result.scores.length} 条，起始 id ${items[0]!.postId}`)
-    return { done: result.scores.length, failed: 0 }
-  }, log)
-}
-
-/**
- * waifu：输入是图片本身。
- *
- * 与 silva 的关键差别是失败**要**拉黑：一张读不出来的图不会自己变好，不拉黑的话
- * 待办查询每一轮都会重选它，永远卡在同一批上（Python 侧的
- * `blacklist_policy = "ladder"`）。
- */
-export function startWaifuBackfill(
-  sqlite: SqliteHandle,
-  tasks: CairnQ,
-  { log = console }: { log?: Log } = {},
-): BackfillHandle {
-  const root = targetDir()
-  return loop('waifu', GPU_QUEUE, rows => countWaifuPending(sqlite, rows), async ({ force }) => {
-    const items = listWaifuPending(sqlite, root, WAIFU_TASK_BATCH, { force })
-    if (!items.length)
-      return null
-
-    const result = await tasks.call(waifuTask, { items }, {
-      queue: GPU_QUEUE,
-      key: batchKey('waifu', items.map(i => i.postId)),
-      conflict: 'reuse-succeeded',
-      timeoutMs: CALL_TIMEOUT_MS,
-    })
-    upsertWaifuScores(sqlite, result.scores)
-    recordFailures(sqlite, WAIFU_WORKER_KEY, result.failures)
-    log.info(
-      `[waifu] 落库 ${result.scores.length} 条`
-      + (result.failures.length ? `，拉黑 ${result.failures.length} 条` : '')
-      + `，起始 id ${items[0]!.postId}`,
-    )
-    // 整批都失败时仍然算"干了活"：黑名单已经写下，下一轮的待办查询不会再选它们。
-    return { done: result.scores.length, failed: result.failures.length }
-  }, log)
-}
-
-/**
- * tagger：算在 Python，落库在 TS —— 三个 worker 里落库最复杂的一个。
- *
- * worker 只回传标签名和 rating 字符串。哪个标签属于哪个组、rating 能不能覆盖已有值，
- * 都是 schema 的知识，留在拥有 schema 的这一侧。
- *
- * ⚠️ 待办的判据是"标签不是 `TAGGER_MODEL` 打的"，所以**换模型就等于让整库重新排队**
- * （见 `listTaggerPending`）。换的时候要有这个预期：30 万张在一张 3090 上约 18 小时，
- * 期间每一张都是在自己那一个事务里把旧标签换成新的，库不会出现标签空窗。
- */
-export function startTaggerBackfill(
-  sqlite: SqliteHandle,
-  tasks: CairnQ,
-  { log = console }: { log?: Log } = {},
-): BackfillHandle {
-  const root = targetDir()
-  return loop('tagger', GPU_QUEUE, rows => countTaggerPending(sqlite, TAGGER_MODEL, rows), async ({ force }) => {
-    const items = listTaggerPending(sqlite, root, TAGGER_MODEL, TAGGER_TASK_BATCH, { force })
-    if (!items.length)
-      return null
-
-    const result = await tasks.call(taggerTask, { items }, {
-      queue: GPU_QUEUE,
-      key: batchKey(`tagger:${TAGGER_MODEL}`, items.map(i => i.postId)),
-      conflict: 'reuse-succeeded',
-      timeoutMs: CALL_TIMEOUT_MS,
-    })
-
-    const groups = ensureCanonicalTagGroups(sqlite)
-    // 落库后仍然没有 is_auto 行的那些 —— tagger 产出的标签全部被同名手工标签遮住了。
-    // 重跑只会得到同样的结果，所以和读不出来的图一样拉黑。
-    const shadowed = persistTaggerResults(sqlite, result.results, groups, assertTaggerModel(result.model))
-    recordFailures(sqlite, TAGGER_WORKER_KEY, [
-      ...result.failures,
-      ...shadowed.map(postId => ({ postId, error: 'all auto tags shadowed by manual tags' })),
-    ])
-    log.info(
-      `[tagger] 落库 ${result.results.length} 条`
-      + (result.failures.length || shadowed.length
-        ? `，拉黑 ${result.failures.length + shadowed.length} 条（${shadowed.length} 条被手工标签遮住）`
-        : '')
-      + `，起始 id ${items[0]!.postId}`,
-    )
-    return { done: result.results.length, failed: result.failures.length }
-  }, log)
-}
-
-/**
- * embedding：SigLIP 2 检索向量。
- *
- * 唯一带**后置钩子**的 worker，形状承自已删除的 `EMBEDDING_WORKER.on_backfill_complete`：
- * 写进新向量之后要重建近重复分组，否则新图永远不会被认成任何一张老图的重复。
+ * `onDrained`：待办清空、且这一轮确实写进过东西时调用，参数是这一轮写了多少条
+ * （`Persisted.written`）。只有 embedding 用（近重复重组，见 `startBackfills`）。
  *
  * 触发时机是**待办清空的那一刻**，不是每一批之后 —— 一次重建是全库分块矩阵乘，
  * 分钟级；每 16 张图触发一次等于让 GPU 什么正事都干不成。Python 侧 `run_all_backfill`
  * 跑完整轮才 fire 一次，这里的"清空即一轮结束"是它的等价物。
  */
-export function startEmbeddingBackfill(
+export function startBackfill(
   sqlite: SqliteHandle,
-  tasks: CairnQ,
+  tasks: Pick<CairnQ, 'call'>,
+  spec: WorkerSpec<any, any, any>,
   { log = console, onDrained }: {
     log?: Log
-    /** 待办清空、且这一轮确实写进过向量时调用，参数是这一轮写了多少条。 */
     onDrained?: (written: number) => Promise<void>
   } = {},
 ): BackfillHandle {
-  const root = targetDir()
   let writtenSinceIdle = 0
-  return loop('embedding', GPU_QUEUE, rows => countEmbeddingPending(sqlite, rows), async ({ force }) => {
-    const items = listEmbeddingPending(sqlite, root, EMBEDDING_TASK_BATCH, { force })
-    if (!items.length) {
+  return loop(sqlite, spec.name, spec.queue, rows => spec.countPending(sqlite, rows), async ({ force }) => {
+    const outcome = await runBatch(sqlite, tasks, spec, { force, log })
+    if (outcome === null) {
       if (writtenSinceIdle && onDrained) {
         const written = writtenSinceIdle
-        // 先清零再 await：重组是分钟级的，期间新写进来的向量属于**下一轮**，
+        // 先清零再 await：重组是分钟级的，期间新写进来的东西属于**下一轮**，
         // 不该被这一次的计数吞掉。
         writtenSinceIdle = 0
-        log.info(`[embedding] 待办清空，本轮写入 ${written} 条，触发近重复重组`)
+        log.info(`[${spec.name}] 待办清空，本轮写入 ${written} 条，触发近重复重组`)
         await onDrained(written)
       }
       return null
     }
-
-    const result = await tasks.call(embeddingTask, { items }, {
-      queue: GPU_QUEUE,
-      key: batchKey('embedding', items.map(i => i.postId)),
-      conflict: 'reuse-succeeded',
-      timeoutMs: CALL_TIMEOUT_MS,
-    })
-    // 用真正写进去的条数，不是回来的条数：算完的这段时间里 post 可能已经被 sync
-    // 删掉了，那种会被 upsertVectors 跳过。拿回来的条数计数会让"这一轮写过向量"
-    // 在一批全被跳过时也成立，白触发一次分钟级的重组。
-    const written = upsertVectors(sqlite, result.embeddings.map(e => ({
-      postId: e.postId,
-      embedding: Buffer.from(e.embedding, 'base64'),
-    })))
-    recordFailures(sqlite, EMBEDDING_WORKER_KEY, result.failures)
-    writtenSinceIdle += written
-    log.info(
-      `[embedding] 落库 ${written} 条`
-      + (written < result.embeddings.length ? `（${result.embeddings.length - written} 条的 post 已被删除）` : '')
-      + (result.failures.length ? `，拉黑 ${result.failures.length} 条` : '')
-      + `，起始 id ${items[0]!.postId}`,
-    )
-    return { done: result.embeddings.length, failed: result.failures.length }
+    writtenSinceIdle += outcome.written ?? outcome.done
+    return outcome
   }, log)
 }
 
 /**
- * basics：sha256 / arthash / 尺寸 / 调色板 / 主色，外加缩略图。
+ * 起全部 backfill 循环，按 `BACKFILL_SPECS` 的顺序（basics 在最前：其余 worker 的输入
+ * —— 尺寸、缩略图 —— 都由它产出）。
  *
- * 六个 worker 里唯一不碰模型的一个，所以它走 IO 队列（并发 4）而不是 GPU 队列。
- * 失败**要**拉黑，而且有两种：读不出来的文件，以及解码成功但取不出调色板的
- * （退化的纯色图）。后者其余字段照常落库，只有 `dominant_color` 留 NULL ——
- * 而那正是待办查询的条件之一，不拉黑就会每一轮重选它。
+ * `onEmbeddingDrained`：embedding 的待办清空之后要重建近重复分组 —— 新图不经过这一步
+ * 就永远不会被认成任何一张老图的重复（形状承自已删除的 EMBEDDING_WORKER.on_backfill_complete）。
  */
-export function startBasicsBackfill(
+export function startBackfills(
   sqlite: SqliteHandle,
-  tasks: CairnQ,
-  { log = console }: { log?: Log } = {},
-): BackfillHandle {
-  const root = targetDir()
-  return loop('basics', IO_QUEUE, rows => countBasicsPending(sqlite, rows), async ({ force }) => {
-    const pending = listBasicsPending(sqlite, root, BASICS_TASK_BATCH, { force })
-    if (!pending.length)
-      return null
-
-    // 缩略图路径在这一侧算好再交给 worker（和 thumbnail / rotate 任务同一个出处），
-    // 缩略图布局只在 `paths.ts` 有一份。逐字段拼而不是展开，免得待办行上多出来的
-    // 列（`relPath`）混进跨进程契约。
-    const items: BasicsItem[] = pending.map(p => ({
-      postId: p.postId,
-      path: p.path,
-      thumbnailPath: thumbnailPathFor(p.relPath),
-      hasSha256: p.hasSha256,
-      hasArthash: p.hasArthash,
-      hasColor: p.hasColor,
-    }))
-    const result = await tasks.call(basicsTask, { items }, {
-      queue: IO_QUEUE,
-      key: batchKey('basics', items.map(i => i.postId)),
-      conflict: 'reuse-succeeded',
-      timeoutMs: CALL_TIMEOUT_MS,
-    })
-    upsertBasics(sqlite, result.rows)
-    recordFailures(sqlite, BASICS_WORKER_KEY, result.failures)
-    log.info(
-      `[basics] 落库 ${result.rows.length} 条`
-      + (result.failures.length ? `，拉黑 ${result.failures.length} 条` : '')
-      + `，起始 id ${items[0]!.postId}`,
-    )
-    return { done: result.rows.length, failed: result.failures.length }
-  }, log)
+  tasks: Pick<CairnQ, 'call'>,
+  { log = console, onEmbeddingDrained }: {
+    log?: Log
+    onEmbeddingDrained?: (written: number) => Promise<void>
+  } = {},
+): BackfillHandle[] {
+  return BACKFILL_SPECS.map(spec => startBackfill(sqlite, tasks, spec, {
+    log,
+    onDrained: spec === embeddingSpec ? onEmbeddingDrained : undefined,
+  }))
 }

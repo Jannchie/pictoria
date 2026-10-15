@@ -4,6 +4,7 @@
 import { placeholders } from '../sql.js'
 import type BetterSqlite3 from 'better-sqlite3'
 import { BULK_UPDATABLE_FIELDS, UPDATABLE_FIELDS } from '../filters.js'
+import { notifyRepending } from '../repending.js'
 import { setUserVerdict } from './variant-edges.js'
 import { SIGLIP2_TABLE } from './vectors.js'
 
@@ -440,18 +441,27 @@ export function listIdsInFolder(sqlite: BetterSqlite3.Database, folder: string):
     .map(r => r.id)
 }
 
-/** 旋转之后要一起改的那几列。 */
+/**
+ * 旋转之后要一起改的那几列。
+ *
+ * `arthash` 是 `string | null`，而这里直接 `SET arthash = ?`（不是 COALESCE）。写进
+ * NULL 就是一条新的 basics 待办，而这张图的 id 在待办查询的水位线**以下** —— 不喊的话
+ * 它的 arthash 永远补不回来（见 `../repending.ts`）。`sha256` 写成空串同理。只在真写空
+ * 时喊，免得每次旋转都逼 basics 全库重扫一轮。
+ */
 export function updateForRotate(
   sqlite: BetterSqlite3.Database,
   postId: number,
   v: { sha256: string, size: number, width: number, height: number, arthash: string | null },
 ): void {
-  sqlite
+  const info = sqlite
     .prepare(
       'UPDATE posts SET sha256 = ?, size = ?, width = ?, height = ?, arthash = ?, '
       + 'updated_at = CURRENT_TIMESTAMP WHERE id = ?',
     )
     .run(v.sha256, v.size, v.width, v.height, v.arthash, postId)
+  if (info.changes && (!v.arthash || !v.sha256))
+    notifyRepending(sqlite, 'basics')
 }
 
 /**
@@ -467,4 +477,77 @@ export function createPost(
     .prepare('INSERT INTO posts(file_path, file_name, extension, source) VALUES (?, ?, ?, ?)')
     .run(v.filePath, v.fileName, v.extension, v.source ?? '')
   return Number(info.lastInsertRowid)
+}
+
+/**
+ * "看起来是一张图"认的扩展名。
+ *
+ * ⚠️ 比 `backfill.ts` 的 `IMAGE_EXTS` **宽**（多了 bmp/tiff/tif/svg），两者不能合并：
+ * 那一个决定"backfill 要不要碰它"，这一个决定"端点返不返 400"。把 svg 塞进 backfill
+ * 会让每一轮都去解码一个模型读不了的文件；而这里收窄则会让一张 bmp 从 400 变成
+ * 一次真实计算 —— 都是可见的行为漂移。
+ */
+const IS_IMAGE_EXTS = ['jpg', 'jpeg', 'png', 'gif', 'webp', 'avif', 'bmp', 'tiff', 'tif', 'svg']
+
+/** 路径看起来是不是一张图（大小写不敏感的后缀判断）。`/v2/cmd/*` 的单张命令拿它判 400。 */
+export function isImagePath(filePath: string): boolean {
+  const lower = filePath.toLowerCase()
+  return IS_IMAGE_EXTS.some(ext => lower.endsWith(`.${ext}`))
+}
+
+export interface PostPath {
+  id: number
+  /** 相对 `target_dir` 的路径（`full_path` 生成列）。绝对路径由 API 层的 `postAbsPath` 拼。 */
+  fullPath: string
+}
+
+/** 单张图的 id + 相对路径；不存在返回 `null`（端点据此给 404）。 */
+export function getPostPath(
+  sqlite: BetterSqlite3.Database,
+  postId: number,
+): PostPath | null {
+  const row = sqlite
+    .prepare<[number], { id: number, full_path: string }>(
+      'SELECT id, full_path FROM posts WHERE id = ?',
+    )
+    .get(postId)
+  return row ? { id: row.id, fullPath: row.full_path } : null
+}
+
+/** `(相对目录, 文件名主干, 扩展名)` —— posts 行在磁盘上的身份，sync 对账的键。 */
+export type PostTriple = [filePath: string, fileName: string, extension: string]
+
+/** 全库每一行的 id 和路径三元组。sync 对账拿它和磁盘求差。 */
+export function listPostTriples(
+  sqlite: BetterSqlite3.Database,
+): Array<{ id: number, filePath: string, fileName: string, extension: string }> {
+  return sqlite
+    .prepare<[], { id: number, file_path: string, file_name: string, extension: string }>(
+      'SELECT id, file_path, file_name, extension FROM posts',
+    )
+    .all()
+    .map(r => ({ id: r.id, filePath: r.file_path, fileName: r.file_name, extension: r.extension }))
+}
+
+/**
+ * 按路径三元组批量建行（一个事务），其余列吃 schema 默认值、等 backfill 去填。
+ *
+ * 新行的 id 在每条待办水位线**之上**，不需要 `notifyRepending` —— 调用方照常把空转的
+ * 循环叫醒即可（`wakeAllBackfills`）。
+ */
+export function insertPostTriples(sqlite: BetterSqlite3.Database, triples: readonly PostTriple[]): void {
+  if (!triples.length)
+    return
+  const ins = sqlite.prepare('INSERT INTO posts(file_path, file_name, extension) VALUES (?, ?, ?)')
+  sqlite.transaction(() => {
+    for (const t of triples) ins.run(t[0], t[1], t[2])
+  })()
+}
+
+/** 一个目录（`posts.file_path` 精确相等，不含子目录）下已有的 `file_name`。 */
+export function listFileNamesInDir(sqlite: BetterSqlite3.Database, filePath: string): string[] {
+  return sqlite
+    .prepare<[string], { file_name: string }>('SELECT file_name FROM posts WHERE file_path = ?')
+    .all(filePath)
+    .map(r => r.file_name)
 }

@@ -18,7 +18,6 @@ import {
 } from '@pictoria/db'
 import { getDb } from '../db.js'
 import { CREATED, OK, errors, fail, postNotFound, zodErrorHook } from '../openapi.js'
-import { wakeAllBackfills } from '../scheduler.js'
 import { PostDetailPublic, Result, TagGroupPublic } from '../schemas.js'
 import { translateTag } from '../tag-i18n.js'
 import { postDetailResponse, postIdParam } from './post-shared.js'
@@ -129,11 +128,8 @@ tagWritesRoutes.openapi(
     responses: { 204: { description: 'No Content' }, ...errors(400) },
   }),
   (c) => {
+    // FK 级联可能剥掉很多图的最后一个自动标签 —— `deleteTag` 自己发重新待办信号。
     deleteTag(getDb().sqlite, c.req.valid('param').name)
-    // `post_has_tag` 走 FK 级联，这一下可能剥掉很多图的最后一个自动标签 —— 那些图
-    // 重新变成 tagger 待办，而它们的 id 都在待办查询的水位线**以下**，不叫醒的话
-    // 会静默地永远不被重新打标。
-    wakeAllBackfills()
     return c.body(null, 204)
   },
 )
@@ -150,7 +146,6 @@ tagWritesRoutes.openapi(
   }),
   (c) => {
     deleteTags(getDb().sqlite, c.req.valid('json').names)
-    wakeAllBackfills()
     return c.body(null, 204)
   },
 )
@@ -201,10 +196,10 @@ tagWritesRoutes.openapi(
     const { sqlite } = getDb()
     if (!postExists(sqlite, postId))
       return postNotFound(postId)
+    // 摘掉的若是这张图最后一个 `is_auto = 1` 行，它就重新是 tagger 待办了 ——
+    // `removeTagFromPost` 自己发重新待办信号。
     if (!removeTagFromPost(sqlite, postId, tagName))
       return fail(409, 'TagNotOnPostError', `Tag ${tagName} does not exist in post ${postId}.`)
-    // 摘掉的若是这张图最后一个 `is_auto = 1` 行，它就重新是 tagger 待办了。
-    wakeAllBackfills()
     return postDetailResponse(c, postId)
   },
 )

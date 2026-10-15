@@ -6,26 +6,24 @@
  * 写入在 TS"的那一半：待办查询挑出要算什么，结果函数把算完的东西写回去。
  */
 import { placeholders } from '../sql.js'
-import { BASICS_WORKER_KEY, EMBEDDING_WORKER_KEY, TAGGER_WORKER_KEY, WAIFU_WORKER_KEY } from '@pictoria/contracts'
 import type { TaggerResult } from '@pictoria/contracts'
 import type BetterSqlite3 from 'better-sqlite3'
 import { Buffer } from 'node:buffer'
+import { notifyRepending } from '../repending.js'
+import type { AestheticScorerName } from '../scorers.js'
 import { AESTHETIC_SCORES_TABLE } from '../scorers.js'
+import type { BackfillWorker } from '../workers.js'
+import { failureKey } from '../workers.js'
 import { postExists } from './posts.js'
 import { SIGLIP2_TABLE } from './vectors.js'
 
-/** 一个 worker 的失败黑名单键，例如 `aesthetic:silva`。与 Python 侧同拼法。 */
-export function aestheticWorkerKey(scorer: string): string {
-  return `aesthetic:${scorer}`
-}
-
 /**
- * 排除某个 worker 桶下被拉黑的 post。带一个 `?`，调用方追加 worker 键。
+ * 排除某个 worker 桶下被拉黑的 post。带一个 `?`，调用方追加 `failureKey(worker)`。
  *
  * `post_process_failures` 是一次性失败黑名单：worker 明确说"这张读不了"的，下一轮
  * 待办不再捡起来，否则一个损坏文件会让每一轮都白跑一次解码。
  */
-export function notFailedClause(alias = 'p'): string {
+function notFailedClause(alias = 'p'): string {
   return `NOT EXISTS (SELECT 1 FROM post_process_failures f WHERE f.post_id = ${alias}.id AND f.worker = ?)`
 }
 
@@ -61,10 +59,10 @@ export function notFailedClause(alias = 'p'): string {
  * 某个 scorer 的分数行、把 `sha256`/`arthash`/`dominant_color` 清回空值 —— 这些都会
  * 让一个 id **低于**水位线的老 post 重新变成待办，而水位线不会自己退回去。命中的
  * 表现是**静默的**：没有报错、没有日志，backfill 就是永远不再动那张图。所以每一条
- * "让老 post 重新变成待办"的路径都必须走到 `wakeAllBackfills()`
- * （`apps/api/src/scheduler.ts`），它会给每条循环立一个 `force` 标志，下一轮带
- * `{ force: true }` 进来把水位线清零、从头重扫一次。加新的这类写点时，漏掉那一句
- * 的代价就是那些 post 永久停在待办状态。
+ * "让老 post 重新变成待办"的写函数都必须在**自己内部**调 `notifyRepending()`
+ * （`../repending.ts`）；调度器（`apps/api/src/scheduler.ts`）订阅它，给被点名的循环
+ * 立一个 `force` 标志，下一轮带 `{ force: true }` 进来把水位线清零、从头重扫一次。
+ * 加新的这类写点时，漏掉那一句的代价就是那些 post 永久停在待办状态。
  *
  * 这一段替换掉的是原来的 `MAX(id)` 指纹门（"上一轮扫空且 MAX(id) 没变就跳过"）。
  * 逃生通道和风险面与那一版**完全相同** —— 同样是 `force`、同样是那几条写路径；
@@ -87,8 +85,9 @@ export interface PendingScanOpts {
   /**
    * 把水位线清零，强制这一次从 id=1 重新全扫。
    *
-   * 由 `wakeAllBackfills()` 一路传下来 —— 见上面那段 ⚠️：它是"低于水位线的老 post
-   * 重新变成待办"唯一的逃生通道。
+   * 由调度循环的 `wake()` 一路传下来（触发它的是 `notifyRepending` 或
+   * `wakeAllBackfills`）—— 见上面那段 ⚠️：它是"低于水位线的老 post 重新变成待办"
+   * 唯一的逃生通道。
    */
   force?: boolean
 }
@@ -121,10 +120,11 @@ function writeFloor(sqlite: BetterSqlite3.Database, key: string, floor: number):
 }
 
 interface FloorScan {
-  /** 水位线的键。六条循环各存各的，见 `scanFloor`。 */
-  key: string
-  /** `post_process_failures` 的 worker 列值。 */
-  workerKey: string
+  /**
+   * 哪条循环。既是水位线的键（六条循环各存各的，见 `scanFloor`），也经
+   * `failureKey()` 推出 `post_process_failures` 的 worker 列值。
+   */
+  key: BackfillWorker
   /** 可选的 JOIN 片段，接在 `FROM posts p` 之后。 */
   join?: string
   /** 这条循环自己的"算待办"条件，与下界和公共过滤 AND 在一起。 */
@@ -151,7 +151,7 @@ function floorSql(scan: FloorScan): string {
 }
 
 function floorParams(scan: FloorScan, floor: number, below = Number.MAX_SAFE_INTEGER): unknown[] {
-  return [floor, below, ...(scan.whereParams ?? []), scan.workerKey]
+  return [floor, below, ...(scan.whereParams ?? []), failureKey(scan.key)]
 }
 
 /**
@@ -239,12 +239,12 @@ const HAS_VECTOR = `EXISTS (SELECT 1 FROM ${SIGLIP2_TABLE}_rowids r WHERE r.rowi
  */
 export function listSilvaPending(
   sqlite: BetterSqlite3.Database,
-  scorer: string,
+  scorer: AestheticScorerName,
   limit?: number,
   { force = false }: PendingScanOpts = {},
 ): number[] {
   // 一个 scorer 一条水位线：silva 打完了不该把还在跑的 silva_luna 一起推过头。
-  const key = `silva:${scorer}`
+  const key = scorer
   const floor = readFloor(sqlite, key, force)
   const maxId = maxPostId(sqlite)
 
@@ -256,10 +256,10 @@ export function listSilvaPending(
       + `AND ${notFailedClause('p')} `
       + `ORDER BY p.id`,
     )
-    .iterate(floor, scorer, aestheticWorkerKey(scorer))
+    .iterate(floor, scorer, failureKey(scorer))
 
   // 那次 vec0 扫描推迟到**真的出现第一个候选**才付：全库打完分之后候选恒为空，
-  // 被 wakeAllBackfills 强制重扫的那些轮次也就不必白扫一遍虚表。
+  // 被 notifyRepending 强制重扫的那些轮次也就不必白扫一遍虚表。
   // better-sqlite3 允许在一个迭代器打开期间跑别的**读**语句（写才会报
   // "database connection is busy"），所以懒加载放在循环里是安全的。
   let embedded: Set<number> | undefined
@@ -328,7 +328,7 @@ function livePosts<T extends { postId: number }>(sqlite: BetterSqlite3.Database,
  */
 export function upsertAestheticScores(
   sqlite: BetterSqlite3.Database,
-  scorer: string,
+  scorer: AestheticScorerName,
   rows: Array<{ postId: number, score: number }>,
 ): void {
   if (!rows.length)
@@ -351,23 +351,25 @@ export function upsertAestheticScores(
 const IMAGE_EXTS = ['avif', 'gif', 'jpeg', 'jpg', 'png', 'webp'] as const
 const IMAGE_EXT_WHERE = `LOWER(p.extension) IN (${IMAGE_EXTS.map(e => `'${e}'`).join(', ')})`
 
-/** 待办的图片：post id 加上磁盘上的绝对路径。 */
+/**
+ * 待办的图片：post id 加上**相对**图库根的路径（`full_path` 生成列）。
+ *
+ * 绝对路径不在这里拼：图库根是 API 层的知识（`apps/api/src/paths.ts` 的
+ * `postAbsPath`），这个包拿不到它。原来这里收一个 `targetDir` 参数、用字符串模板
+ * 拼，和别处的 `path.resolve` 是同一个路径的两种写法。
+ */
 export interface PendingImage {
   postId: number
-  path: string
+  relPath: string
 }
 
 /**
  * 还没有 waifu 分、且没被拉黑的图片，按 id 升序。
  *
- * 绝对路径在 SQL 里就拼好（`full_path` 是生成列），省掉一趟"查 id 再查行"。
- * `targetDir` 必须是绝对路径 —— worker 那边会把它当根来校验路径没有逃逸。
- *
  * 带水位线（见 `scanFloor`）：没有下界的一批实测 287 ms，`p.id >= ?` 之后 0.4 ms。
  */
 export function listWaifuPending(
   sqlite: BetterSqlite3.Database,
-  targetDir: string,
   limit?: number,
   { force = false }: PendingScanOpts = {},
 ): PendingImage[] {
@@ -376,12 +378,11 @@ export function listWaifuPending(
     limit,
     force,
   })
-  return rows.map(r => ({ postId: r.id, path: `${targetDir}/${r.full_path}` }))
+  return rows.map(r => ({ postId: r.id, relPath: r.full_path }))
 }
 
 const WAIFU_SCAN: FloorScan = {
   key: 'waifu',
-  workerKey: WAIFU_WORKER_KEY,
   join: 'LEFT JOIN post_waifu_scores pws ON pws.post_id = p.id ',
   where: 'pws.post_id IS NULL',
 }
@@ -410,12 +411,14 @@ export function upsertWaifuScores(
 /**
  * 把 `(post, worker)` 一次性拉黑。
  *
+ * 收 worker 名而不是桶名字符串：桶名由 `failureKey()` 推出，调用方不再手传一遍。
+ *
  * `INSERT OR IGNORE`，于是重复记录同一条失败是空操作而不是唯一约束错误 ——
  * 有人手工删掉黑名单行让它重试、结果又失败一次时就会走到这里。
  */
 export function recordFailures(
   sqlite: BetterSqlite3.Database,
-  worker: string,
+  worker: BackfillWorker,
   rows: Array<{ postId: number, error: string }>,
 ): void {
   if (!rows.length)
@@ -423,8 +426,9 @@ export function recordFailures(
   const stmt = sqlite.prepare(
     'INSERT OR IGNORE INTO post_process_failures (post_id, worker, error) VALUES (?, ?, ?)',
   )
+  const key = failureKey(worker)
   sqlite.transaction(() => {
-    for (const r of livePosts(sqlite, rows)) stmt.run(r.postId, worker, r.error)
+    for (const r of livePosts(sqlite, rows)) stmt.run(r.postId, key, r.error)
   })()
 }
 
@@ -485,11 +489,11 @@ const CANONICAL_GROUP_COLOR = '#000000'
  * 的一轮里它一个人占了一半。`p.id >= ?` 之后是 2.1 ms。
  *
  * ⚠️ 手工摘掉一张图最后一个 `is_auto = 1` 标签会让它重新变成待办，而它的 id 在
- * 水位线**以下**。那条路径必须走 `wakeAllBackfills()`，否则它永远不会被重新打标。
+ * 水位线**以下**。那条写路径（`repositories/tags.ts`）必须 `notifyRepending(…, 'tagger')`，
+ * 否则它永远不会被重新打标。
  */
 export function listTaggerPending(
   sqlite: BetterSqlite3.Database,
-  targetDir: string,
   model: string,
   limit?: number,
   { force = false }: PendingScanOpts = {},
@@ -499,13 +503,12 @@ export function listTaggerPending(
     limit,
     force,
   })
-  return rows.map(r => ({ postId: r.id, path: `${targetDir}/${r.full_path}` }))
+  return rows.map(r => ({ postId: r.id, relPath: r.full_path }))
 }
 
 function taggerScan(model: string): FloorScan {
   return {
     key: 'tagger',
-    workerKey: TAGGER_WORKER_KEY,
     where: '(p.tagger IS NOT ? '
       + 'OR NOT EXISTS (SELECT 1 FROM post_has_tag pht WHERE pht.post_id = p.id AND pht.is_auto = 1))',
     whereParams: [model],
@@ -607,8 +610,15 @@ function flattenTaggerTags(rows: TaggerRow[]): {
  * 返回值是落库后的复查结果，不是可有可无的信息：`post_has_tag` 的插入是
  * `ON CONFLICT DO NOTHING`，所以当 tagger 产出的每一个标签**都已经**作为手工标签
  * （`is_auto = 0`）存在时 —— Danbooru 导入的图很常见 —— 一行 `is_auto = 1` 都不会
- * 建出来，而待办查询下一轮又会选中它。调用方要把这些 id 拉黑，因为重跑 tagger
- * 只会得到同样被遮住的结果。
+ * 建出来，而待办查询下一轮又会选中它。这些"被遮住"的图怎么办由 `onShadowed` 定：
+ *
+ * * `'blacklist'`（backfill）—— 在这里就拉黑，因为重跑 tagger 只会得到同样被遮住的
+ *   结果。拉黑写在这个函数里而不是留给调用方，是为了让下一条成立；
+ * * `'repend'`（单张重打标）—— 不拉黑（用户会再点一次，黑名单会让第二次点击悄悄什么
+ *   也不做），于是它们此刻**是**待办、而且 id 在水位线以下：这里 `notifyRepending`，
+ *   让 tagger 循环强制重扫一次把它们捡起来（届时走 backfill 那条路被拉黑）。
+ *
+ * 两种之外没有第三种：既不拉黑也不喊，这些图就静默地永远停在待办里。
  *
  * rating 默认只在原值为 0（未评级）时写：backfill 是后台自动跑的，不该推翻人工评级。
  * `overwriteRating` 给单张图的"重新自动标注"命令用 —— 用户主动点的，覆盖（包括认不出
@@ -623,7 +633,11 @@ export function persistTaggerResults(
   rows: TaggerRow[],
   groups: Record<string, number>,
   model: string,
-  { overwriteRating = false }: { overwriteRating?: boolean } = {},
+  { overwriteRating = false, onShadowed }: {
+    overwriteRating?: boolean
+    /** 被手工标签遮住的那些图：当场拉黑，还是宣布它们重新待办。见上面的注释。 */
+    onShadowed: 'blacklist' | 'repend'
+  },
 ): number[] {
   if (!rows.length)
     return []
@@ -662,14 +676,22 @@ export function persistTaggerResults(
   })()
 
   const ids = rows.map(r => r.postId)
-  return sqlite
+  const shadowed = sqlite
     .prepare<unknown[], { id: number }>(
       `SELECT p.id FROM posts p WHERE p.id IN (${placeholders(ids.length)}) `
       + `AND NOT EXISTS (SELECT 1 FROM post_has_tag pht WHERE pht.post_id = p.id AND pht.is_auto = 1)`,
     )
     .all(...ids)
     .map(r => r.id)
+  if (onShadowed === 'blacklist')
+    recordFailures(sqlite, 'tagger', shadowed.map(postId => ({ postId, error: SHADOWED_ERROR })))
+  else if (shadowed.length)
+    notifyRepending(sqlite, 'tagger')
+  return shadowed
 }
+
+/** 被遮住的图在黑名单里的 `error` 文案。 */
+const SHADOWED_ERROR = 'all auto tags shadowed by manual tags'
 
 // ─── embedding（SigLIP 2 检索向量） ────────────────────────────────────
 
@@ -692,7 +714,6 @@ export function persistTaggerResults(
  */
 export function listEmbeddingPending(
   sqlite: BetterSqlite3.Database,
-  targetDir: string,
   limit?: number,
   { force = false }: PendingScanOpts = {},
 ): PendingImage[] {
@@ -704,7 +725,7 @@ export function listEmbeddingPending(
       `SELECT p.id, p.full_path FROM posts p `
       + `WHERE p.id >= ? AND ${IMAGE_EXT_WHERE} AND ${notFailedClause('p')} ORDER BY p.id`,
     )
-    .all(floor, EMBEDDING_WORKER_KEY)
+    .all(floor, failureKey('embedding'))
 
   // 候选为空 = 水位线以上一张图都没有，vec0 那次扫描问不出任何东西。这是稳态
   // （全库算完、水位线在 MAX(id)+1）的常态，而 vec0 是虚表：`post_id >= ?` 不走
@@ -725,12 +746,11 @@ export function listEmbeddingPending(
   // 候选就是已完成，跳过它和跳过任何一行已完成的行是同一件事。
   writeFloor(sqlite, 'embedding', pending[0]?.id ?? maxId + 1)
   const slice = limit === undefined ? pending : pending.slice(0, limit)
-  return slice.map(r => ({ postId: r.id, path: `${targetDir}/${r.full_path}` }))
+  return slice.map(r => ({ postId: r.id, relPath: r.full_path }))
 }
 
 const EMBEDDING_SCAN: FloorScan = {
   key: 'embedding',
-  workerKey: EMBEDDING_WORKER_KEY,
   where: `NOT ${HAS_VECTOR}`,
 }
 
@@ -746,10 +766,9 @@ export function countEmbeddingPending(sqlite: BetterSqlite3.Database, chunkRows?
  * 比 `listSilvaPending` 多一条扩展名过滤（`floorSql` 带的），结果不变：有向量就意味着
  * 过了 embedding 那一关，而那一关本来就只收图片扩展名。
  */
-export function countSilvaPending(sqlite: BetterSqlite3.Database, scorer: string, chunkRows?: number): Generator<number, void, undefined> {
+export function countSilvaPending(sqlite: BetterSqlite3.Database, scorer: AestheticScorerName, chunkRows?: number): Generator<number, void, undefined> {
   return countByFloor(sqlite, {
-    key: `silva:${scorer}`,
-    workerKey: aestheticWorkerKey(scorer),
+    key: scorer,
     where: `NOT EXISTS (SELECT 1 FROM ${AESTHETIC_SCORES_TABLE} pas WHERE pas.post_id = p.id AND pas.scorer = ?) AND ${HAS_VECTOR}`,
     whereParams: [scorer],
   }, chunkRows)
@@ -758,7 +777,7 @@ export function countSilvaPending(sqlite: BetterSqlite3.Database, scorer: string
 /**
  * 把这条连接上**所有**循环的水位线清零，等价于下一次每条都 `{ force: true }`。
  *
- * 生产路径不走这里 —— 调度器用的是 `PendingScanOpts.force`（由 `wakeAllBackfills()`
+ * 生产路径不走这里 —— 调度器用的是 `PendingScanOpts.force`（由循环的 `wake()`
  * 一路传下来）。这个函数是给测试用的：水位线是**连接级**状态，而测试套件共用一条
  * 连接、每个用例之间只 `DELETE FROM` 清表，清不掉水位线。不在 `beforeEach` 里调它
  * 的话，前一个用例把水位推到 `MAX(id)+1` 会让后一个用例插进去的低 id 行整批看不见 ——
@@ -812,10 +831,9 @@ export function upsertVectors(
 
 // ─── basics（sha256 / arthash / 尺寸 / 调色板 / 主色 / 缩略图） ──────────
 
-/** basics 待办的一条：路径 + 哪几样已经有了。 */
+/** basics 待办的一条：相对路径 + 哪几样已经有了。 */
 export interface BasicsPending {
   postId: number
-  path: string
   relPath: string
   hasSha256: boolean
   hasArthash: boolean
@@ -832,7 +850,6 @@ export interface BasicsPending {
  */
 export function listBasicsPending(
   sqlite: BetterSqlite3.Database,
-  targetDir: string,
   limit?: number,
   { force = false }: PendingScanOpts = {},
 ): BasicsPending[] {
@@ -850,7 +867,6 @@ export function listBasicsPending(
   return rows
     .map(r => ({
       postId: r.id,
-      path: `${targetDir}/${r.full_path}`,
       relPath: r.full_path,
       hasSha256: !!r.sha256,
       hasArthash: !!r.arthash,
@@ -860,7 +876,6 @@ export function listBasicsPending(
 
 const BASICS_SCAN: FloorScan = {
   key: 'basics',
-  workerKey: BASICS_WORKER_KEY,
   where: `(p.sha256 = '' OR p.arthash IS NULL OR p.arthash = '' OR p.dominant_color IS NULL)`,
 }
 

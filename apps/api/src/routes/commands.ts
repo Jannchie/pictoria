@@ -8,36 +8,26 @@ import type { Context } from 'hono'
 import type { CairnQ } from 'cairnq'
 import { createRoute, OpenAPIHono, z } from '@hono/zod-openapi'
 import {
-  assertTaggerModel,
   captionTask,
   DANBOORU_LISTING_LIMIT,
   danbooruImportTask,
-  embeddingTask,
-  encodeVectorBlob,
-  GPU_QUEUE,
   IO_QUEUE,
-  silvaTask,
-  taggerTask,
   urlDownloadTask,
   urlScanTask,
-  waifuTask,
 } from '@pictoria/contracts'
 import {
+  type AestheticScorerName,
   ensureCanonicalTagGroups,
   fetchEmbeddingBlobs,
   getAestheticScore,
   getPostPath,
   getWaifuScore,
   isImagePath,
+  listFileNamesInDir,
   listImportedDanbooruIds,
   persistPostsWithTags,
-  persistAutoTagsForPost,
-  upsertAestheticScores,
   updateField,
-  upsertVectors,
-  upsertWaifuScores,
 } from '@pictoria/db'
-import { Buffer } from 'node:buffer'
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
@@ -47,9 +37,10 @@ import { boolQuery, CREATED, OK, errors, fail, postNotFound, zodErrorHook } from
 import { postDetailResponse, postIdParam } from './post-shared.js'
 import { PostDetailPublic, Result } from '../schemas.js'
 import { wakeAllBackfills } from '../scheduler.js'
-import { targetDir } from '../paths.js'
+import { postAbsPath, targetDir } from '../paths.js'
 import { startSync } from '../sync.js'
 import { getTasks } from '../tasks.js'
+import { embeddingSpec, runOneShot, silvaSpecs, taggerSpec, waifuSpec } from '../workers.js'
 
 const SnapshotResult = z.object({ path: z.string(), dir: z.string() }).openapi('SnapshotResult')
 
@@ -77,7 +68,7 @@ function requireImage(postId: number) {
     return { ok: false as const, response: postNotFound(postId) }
   if (!isImagePath(post.fullPath))
     return { ok: false as const, response: notAnImage(postId) }
-  return { ok: true as const, path: `${targetDir()}/${post.fullPath}` }
+  return { ok: true as const, item: { postId, relPath: post.fullPath } }
 }
 
 /** "扩展名像图片"和"解码器能读"是两件事：算完仍然没有分，也归到这一句。 */
@@ -85,20 +76,9 @@ function notAnImage(postId: number) {
   return fail(400, 'NotAnImageError', `Post ${postId} is not an image.`)
 }
 
-/**
- * 一张图的即时任务共用的提交参数。
- *
- * 带 id 的 key：用户连点两下拿回的是同一个**在跑的**任务，而不是两次 GPU 计算。
- * `maxAttempts: 1` —— 有人在等这个响应，重试只会让他多等一轮。
- *
- * 不写 conflict 就是默认的 `'reuse'`（cairnq ≥ 0.7 状态感知：只复用在跑的，
- * 终态一律重新提交）—— 正是这里要的：这些 key 里只有 post id，而 post 的**内容**
- * 会变，成功结果不能当缓存（转过的图再点"自动标签"必须重算）；失败的更不能复用
- * （0.6 时代那会让这张图的这个端点永久 500）。语义细节见 `tasks.ts` 头注。
- */
-function oneShot(key: string) {
-  return { queue: GPU_QUEUE, key, timeoutMs: 300_000, maxAttempts: 1 } as const
-}
+// 一张图的即时任务（waifu / silva / 自动标签）走 `workers.ts` 的 `runOneShot`：与 backfill
+// 同一份 payload 组装和落库，key 是 `<worker>:one:<id>`、conflict 用默认 `'reuse'`、
+// 失败不拉黑。为什么是这套参数见那边的注释。
 
 commandsRoutes.openapi(
   createRoute({
@@ -206,10 +186,7 @@ commandsRoutes.openapi(
       return c.json(existing, 200)
 
     const tasks: CairnQ = await getTasks()
-    const result = await tasks.call(waifuTask, {
-      items: [{ postId, path: guard.path }],
-    }, oneShot(`waifu:one:${postId}`))
-    upsertWaifuScores(sqlite, result.scores)
+    await runOneShot(sqlite, tasks, waifuSpec, [guard.item])
 
     const score = getWaifuScore(sqlite, postId)
     if (score === null)
@@ -224,7 +201,7 @@ commandsRoutes.openapi(
  * 输入是已存的 SigLIP2 向量。没有向量就**先算向量**再打分，这样用户点一次就能
  * 拿到结果，而不是"请稍后再试"。
  */
-function silvaOneShot(scorer: 'silva' | 'silva_luna') {
+function silvaOneShot(scorer: AestheticScorerName) {
   return async (c: Context<any, any, any>) => {
     const { post_id: postId } = c.req.valid('param') as { post_id: number }
     const guard = requireImage(postId)
@@ -237,26 +214,12 @@ function silvaOneShot(scorer: 'silva' | 'silva_luna') {
       return c.json(existing, 200)
 
     const tasks: CairnQ = await getTasks()
-    let blobs = fetchEmbeddingBlobs(sqlite, [postId])
-    if (!blobs.has(postId)) {
-      const embedded = await tasks.call(embeddingTask, {
-        items: [{ postId, path: guard.path }],
-      }, oneShot(`embedding:one:${postId}`))
-      upsertVectors(sqlite, embedded.embeddings.map(e => ({
-        postId: e.postId,
-        embedding: Buffer.from(e.embedding, 'base64'),
-      })))
-      blobs = fetchEmbeddingBlobs(sqlite, [postId])
-    }
-    // 向量算不出来 = 这张图读不进来。和 waifu 一样报 400。
-    if (!blobs.has(postId))
+    if (!fetchEmbeddingBlobs(sqlite, [postId]).has(postId))
+      await runOneShot(sqlite, tasks, embeddingSpec, [guard.item])
+    // 向量算不出来 = 这张图读不进来。和 waifu 一样报 400。（silva 的 payload 组装
+    // 在没有向量时给出空 items，`runOneShot` 据此不提交、返回 null。）
+    if (await runOneShot(sqlite, tasks, silvaSpecs[scorer], [{ postId }]) === null)
       return notAnImage(postId)
-
-    const result = await tasks.call(silvaTask, {
-      scorer,
-      items: [{ postId, embedding: encodeVectorBlob(blobs.get(postId)!) }],
-    }, oneShot(`${scorer}:one:${postId}`))
-    upsertAestheticScores(sqlite, scorer, result.scores)
 
     const score = getAestheticScore(sqlite, postId, scorer)
     if (score === null)
@@ -313,7 +276,7 @@ commandsRoutes.openapi(
     request: { params: z.object({ post_id: postIdParam }) },
     responses: {
       200: { description: OK, content: { 'application/json': { schema: PostDetailPublic } } },
-      ...errors(400, 404),
+      ...errors(400, 404, 500),
     },
   }),
   async (c) => {
@@ -324,18 +287,16 @@ commandsRoutes.openapi(
       return postNotFound(postId)
 
     const tasks: CairnQ = await getTasks()
-    const result = await tasks.call(taggerTask, {
-      items: [{ postId, path: `${targetDir()}/${post.fullPath}` }],
-    }, oneShot(`tagger:one:${postId}`))
+    // 落库走 tagger 规格的交互模式：rating 无条件覆盖，被手工标签遮住的不拉黑
+    // （见 `workers.ts` 的 `taggerSpec`）。没有结果时落库是空操作。
+    const result = (await runOneShot(sqlite, tasks, taggerSpec, [{ postId, relPath: post.fullPath }]))!
 
-    const row = result.results[0]
     // worker 把"读不出来"和"标签全空"都算失败。这里不能当成"标注完了但没标签"
     // 静默返回 200 —— 那会让前端以为标注成功而实际上一个字都没写。让它 500。
-    if (!row) {
+    if (!result.results[0]) {
       const why = result.failures[0]?.error ?? 'tagger returned no result'
-      throw new Error(`auto-tags failed for post ${postId}: ${why}`)
+      return fail(500, 'AutoTagsFailedError', `auto-tags failed for post ${postId}: ${why}`)
     }
-    persistAutoTagsForPost(sqlite, row, ensureCanonicalTagGroups(sqlite), assertTaggerModel(result.model))
     return postDetailResponse(c, postId)
   },
 )
@@ -367,7 +328,7 @@ commandsRoutes.openapi(
 
     const tasks: CairnQ = await getTasks()
     const result = await tasks.call(captionTask, {
-      imagePath: `${targetDir()}/${post.fullPath}`,
+      imagePath: postAbsPath(post.fullPath),
     }, { queue: IO_QUEUE, timeoutMs: 120_000, pollMs: 20, maxPollMs: 50, maxAttempts: 1 })
 
     if (!result.configured)
@@ -607,12 +568,7 @@ async function importOnce(url: string, status: typeof urlImportStatus): Promise<
 
   // 一个目录下已经有的 file_name。判据是"行存在"而不是"有手工标签"（Danbooru
   // 那边是后者）。
-  const existing = new Set(
-    sqlite
-      .prepare<[string], { file_name: string }>('SELECT file_name FROM posts WHERE file_path = ?')
-      .all(scan.filePath)
-      .map(r => r.file_name),
-  )
+  const existing = new Set(listFileNamesInDir(sqlite, scan.filePath))
   const fresh = scan.items.filter((it: { fileName: string }) => !existing.has(it.fileName))
   status.stats.new = fresh.length
   if (!fresh.length)

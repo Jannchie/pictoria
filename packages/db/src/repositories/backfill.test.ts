@@ -6,7 +6,6 @@
  * 东西 —— 生产库上 silva 已经打满，那条路径在真机上根本没被走到过。
  */
 import type { TaggerCategories } from '@pictoria/contracts'
-import { EMBEDDING_WORKER_KEY } from '@pictoria/contracts'
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
@@ -15,8 +14,8 @@ import Database from 'better-sqlite3'
 import * as sqliteVec from 'sqlite-vec'
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest'
 import { MIGRATIONS_DIR, runMigrations } from '../migrate.js'
+import { failureKey } from '../workers.js'
 import {
-  aestheticWorkerKey,
   CANONICAL_TAG_GROUPS,
   countBasicsPending,
   countEmbeddingPending,
@@ -41,6 +40,9 @@ import {
 } from './backfill.js'
 
 const here = path.dirname(fileURLToPath(import.meta.url))
+
+/** backfill 的那种落库：被遮住的当场拉黑。 */
+const BL = { onShadowed: 'blacklist' } as const
 
 
 let sqlite: Database.Database
@@ -109,7 +111,7 @@ describe('silva 待办查询', () => {
     }
     sqlite
       .prepare('INSERT INTO post_process_failures(post_id, worker, error) VALUES (?, ?, ?)')
-      .run(2, aestheticWorkerKey('silva'), 'boom')
+      .run(2, failureKey('silva'), 'boom')
 
     expect(listSilvaPending(sqlite, 'silva')).toEqual([1])
     // 黑名单是按 worker 桶分的，另一个 scorer 不受影响
@@ -237,7 +239,7 @@ describe('waifu 待办查询', () => {
 
   it('拼出来的路径是 targetDir + full_path（生成列）', () => {
     insertPost(1, 'png')
-    expect(listWaifuPending(sqlite, '/lib')).toEqual([{ postId: 1, path: '/lib/dir/f1.png' }])
+    expect(listWaifuPending(sqlite)).toEqual([{ postId: 1, relPath: 'dir/f1.png' }])
   })
 
   it('只要图片扩展名', () => {
@@ -245,14 +247,14 @@ describe('waifu 待办查询', () => {
     insertPost(2, 'txt')
     insertPost(3, 'zip')
     insertPost(4, 'WEBP') // 大小写不敏感，和 Python 侧的 LOWER(extension) 一致
-    expect(listWaifuPending(sqlite, '/lib').map(p => p.postId)).toEqual([1, 4])
+    expect(listWaifuPending(sqlite).map(p => p.postId)).toEqual([1, 4])
   })
 
   it('已经打过分的不再出现', () => {
     insertPost(1)
     insertPost(2)
     upsertWaifuScores(sqlite, [{ postId: 1, score: 7.5 }])
-    expect(listWaifuPending(sqlite, '/lib').map(p => p.postId)).toEqual([2])
+    expect(listWaifuPending(sqlite).map(p => p.postId)).toEqual([2])
   })
 
   it('被拉黑的不再出现，而且只认 waifu 那个桶', () => {
@@ -260,7 +262,7 @@ describe('waifu 待办查询', () => {
     insertPost(2)
     recordFailures(sqlite, 'waifu', [{ postId: 2, error: 'unreadable' }])
     recordFailures(sqlite, 'basics', [{ postId: 1, error: '别的 worker' }])
-    expect(listWaifuPending(sqlite, '/lib').map(p => p.postId)).toEqual([1])
+    expect(listWaifuPending(sqlite).map(p => p.postId)).toEqual([1])
   })
 
   it('重复拉黑同一条是空操作而不是唯一约束错误', () => {
@@ -276,7 +278,7 @@ describe('waifu 待办查询', () => {
 
   it('limit 截断的是 id 升序的前缀', () => {
     for (const id of [3, 1, 2]) insertPost(id)
-    expect(listWaifuPending(sqlite, '/lib', 2).map(p => p.postId)).toEqual([1, 2])
+    expect(listWaifuPending(sqlite, 2).map(p => p.postId)).toEqual([1, 2])
   })
 
   it('重复写分数是更新', () => {
@@ -341,7 +343,7 @@ describe('tagger 落库', () => {
     const g = groups()
     persistTaggerResults(sqlite, [
       taggerRow(1, { general: ['1girl'], character: ['hatsune_miku'] }, 'general'),
-    ], g, MODEL)
+    ], g, MODEL, BL)
 
     const rows = sqlite
       .prepare<[], { name: string, group_id: number }>('SELECT name, group_id FROM tags ORDER BY name')
@@ -357,7 +359,7 @@ describe('tagger 落库', () => {
     const g = groups()
     // 手工把 1girl 归进 artist 组（人为的，但足以说明规则）
     sqlite.prepare('INSERT INTO tags(name, group_id) VALUES (?, ?)').run('1girl', g.artist)
-    persistTaggerResults(sqlite, [taggerRow(1, { general: ['1girl'] })], g, MODEL)
+    persistTaggerResults(sqlite, [taggerRow(1, { general: ['1girl'] })], g, MODEL, BL)
 
     const row = sqlite.prepare<[], { group_id: number }>("SELECT group_id FROM tags WHERE name = '1girl'").get()!
     expect(row.group_id).toBe(g.artist)
@@ -371,7 +373,7 @@ describe('tagger 落库', () => {
     persistTaggerResults(sqlite, [
       taggerRow(1, { general: ['a'] }, 'sensitive'),
       taggerRow(2, { general: ['a'] }, 'general'),
-    ], g, MODEL)
+    ], g, MODEL, BL)
 
     const rows = sqlite.prepare<[], { id: number, rating: number }>('SELECT id, rating FROM posts ORDER BY id').all()
     // 1 从未评级 → 写入 2；2 是人工评的 4 → 不动
@@ -380,7 +382,7 @@ describe('tagger 落库', () => {
 
   it('rating 字符串认不出来时不写', () => {
     insertPost(1)
-    persistTaggerResults(sqlite, [taggerRow(1, { general: ['a'] })], groups(), MODEL)
+    persistTaggerResults(sqlite, [taggerRow(1, { general: ['a'] })], groups(), MODEL, BL)
     expect(sqlite.prepare<[], { rating: number }>('SELECT rating FROM posts WHERE id = 1').get()!.rating).toBe(0)
     expect(ratingToInt('bogus')).toBe(0)
   })
@@ -393,14 +395,15 @@ describe('tagger 落库', () => {
     sqlite.prepare('INSERT INTO tags(name) VALUES (?)').run('1girl')
     sqlite.prepare("INSERT INTO post_has_tag(post_id, tag_name, is_auto) VALUES (1, '1girl', 0)").run()
 
+    // 'repend'（单张重打标的落法）：不拉黑，于是它还留在待办里，下面那句才看得见。
     const shadowed = persistTaggerResults(sqlite, [
       taggerRow(1, { general: ['1girl'] }),
       taggerRow(2, { general: ['1girl'] }),
-    ], g, MODEL)
+    ], g, MODEL, { onShadowed: 'repend' })
     expect(shadowed).toEqual([1])
     // post 2 正常拿到自动标签，只剩 1 还在待办里 —— 它被盖了章（所以第一条待办不选它）
     // 但一行 is_auto 都没有（所以第二条选它）。两条待办的分工就在这一句里。
-    expect(listTaggerPending(sqlite, '/lib', MODEL).map(p => p.postId)).toEqual([1])
+    expect(listTaggerPending(sqlite, MODEL).map(p => p.postId)).toEqual([1])
   })
 
   it('待办查询只看 is_auto = 1', () => {
@@ -408,10 +411,10 @@ describe('tagger 落库', () => {
     sqlite.prepare('INSERT INTO tags(name) VALUES (?)').run('manual')
     sqlite.prepare("INSERT INTO post_has_tag(post_id, tag_name, is_auto) VALUES (1, 'manual', 0)").run()
     // 只有手工标签 → 仍然是待办
-    expect(listTaggerPending(sqlite, '/lib', MODEL).map(p => p.postId)).toEqual([1])
+    expect(listTaggerPending(sqlite, MODEL).map(p => p.postId)).toEqual([1])
 
-    persistTaggerResults(sqlite, [taggerRow(1, { general: ['auto'] })], groups(), MODEL)
-    expect(listTaggerPending(sqlite, '/lib', MODEL)).toEqual([])
+    persistTaggerResults(sqlite, [taggerRow(1, { general: ['auto'] })], groups(), MODEL, BL)
+    expect(listTaggerPending(sqlite, MODEL)).toEqual([])
   })
 
   it('整批的标签只 upsert 一次，共享的标签不重复', () => {
@@ -420,7 +423,7 @@ describe('tagger 落库', () => {
     persistTaggerResults(sqlite, [
       taggerRow(1, { general: ['shared', 'a'] }),
       taggerRow(2, { general: ['shared', 'b'] }),
-    ], groups(), MODEL)
+    ], groups(), MODEL, BL)
     expect(sqlite.prepare<[], { n: number }>('SELECT COUNT(*) AS n FROM tags').get()!.n).toBe(3)
     expect(sqlite.prepare<[], { n: number }>('SELECT COUNT(*) AS n FROM post_has_tag').get()!.n).toBe(4)
   })
@@ -434,7 +437,7 @@ describe('tagger 落库', () => {
       copyright: ['vocaloid'],
       style: ['some_artist'],
       meta: ['highres'],
-    })], g, MODEL)
+    })], g, MODEL, BL)
 
     const rows = sqlite
       .prepare<[], { name: string, group_id: number }>('SELECT name, group_id FROM tags ORDER BY name')
@@ -452,8 +455,8 @@ describe('tagger 落库', () => {
   it('重打是替换而不是并集：旧的自动标签被删掉', () => {
     insertPost(1)
     const g = groups()
-    persistTaggerResults(sqlite, [taggerRow(1, { general: ['old_tag', 'kept_tag'] })], g, 'old-model')
-    persistTaggerResults(sqlite, [taggerRow(1, { general: ['kept_tag', 'new_tag'] })], g, MODEL)
+    persistTaggerResults(sqlite, [taggerRow(1, { general: ['old_tag', 'kept_tag'] })], g, 'old-model', BL)
+    persistTaggerResults(sqlite, [taggerRow(1, { general: ['kept_tag', 'new_tag'] })], g, MODEL, BL)
 
     const names = sqlite
       .prepare<[], { tag_name: string }>('SELECT tag_name FROM post_has_tag WHERE post_id = 1 ORDER BY tag_name')
@@ -470,8 +473,8 @@ describe('tagger 落库', () => {
     const g = groups()
     sqlite.prepare('INSERT INTO tags(name) VALUES (?)').run('by_hand')
     sqlite.prepare("INSERT INTO post_has_tag(post_id, tag_name, is_auto) VALUES (1, 'by_hand', 0)").run()
-    persistTaggerResults(sqlite, [taggerRow(1, { general: ['auto'] })], g, MODEL)
-    persistTaggerResults(sqlite, [taggerRow(1, { general: ['auto2'] })], g, MODEL)
+    persistTaggerResults(sqlite, [taggerRow(1, { general: ['auto'] })], g, MODEL, BL)
+    persistTaggerResults(sqlite, [taggerRow(1, { general: ['auto2'] })], g, MODEL, BL)
 
     const rows = sqlite
       .prepare<[], { tag_name: string, is_auto: number }>(
@@ -487,23 +490,23 @@ describe('tagger 落库', () => {
     insertPost(1)
     insertPost(2)
     const g = groups()
-    persistTaggerResults(sqlite, [taggerRow(1, { general: ['a'] })], g, 'old-model')
+    persistTaggerResults(sqlite, [taggerRow(1, { general: ['a'] })], g, 'old-model', BL)
     // post 2 模拟存量行：有自动标签，但 tagger 是 NULL
     sqlite.prepare('INSERT INTO tags(name) VALUES (?) ON CONFLICT DO NOTHING').run('a')
     sqlite.prepare("INSERT INTO post_has_tag(post_id, tag_name, is_auto) VALUES (2, 'a', 1)").run()
 
-    expect(listTaggerPending(sqlite, '/lib', MODEL, undefined, { force: true }).map(p => p.postId))
+    expect(listTaggerPending(sqlite, MODEL, undefined, { force: true }).map(p => p.postId))
       .toEqual([1, 2])
     // 换成当前模型之后就都不是待办了
-    persistTaggerResults(sqlite, [taggerRow(1, { general: ['a'] }), taggerRow(2, { general: ['a'] })], g, MODEL)
-    expect(listTaggerPending(sqlite, '/lib', MODEL, undefined, { force: true })).toEqual([])
+    persistTaggerResults(sqlite, [taggerRow(1, { general: ['a'] }), taggerRow(2, { general: ['a'] })], g, MODEL, BL)
+    expect(listTaggerPending(sqlite, MODEL, undefined, { force: true })).toEqual([])
   })
 
   it('被遮住的 post 也盖章，于是只靠黑名单之外还有第二道防线', () => {
     insertPost(1)
     sqlite.prepare('INSERT INTO tags(name) VALUES (?)').run('1girl')
     sqlite.prepare("INSERT INTO post_has_tag(post_id, tag_name, is_auto) VALUES (1, '1girl', 0)").run()
-    persistTaggerResults(sqlite, [taggerRow(1, { general: ['1girl'] })], groups(), MODEL)
+    persistTaggerResults(sqlite, [taggerRow(1, { general: ['1girl'] })], groups(), MODEL, BL)
     expect(sqlite.prepare<[], { tagger: string | null }>('SELECT tagger FROM posts WHERE id = 1').get())
       .toEqual({ tagger: MODEL })
   })
@@ -513,11 +516,11 @@ describe('tagger 落库', () => {
     const g = groups()
     expect(() => persistTaggerResults(sqlite, [
       { postId: 1, tags: { future: ['x'] } as unknown as TaggerCategories, rating: '' },
-    ], g, MODEL)).toThrow(/unknown tag category/)
+    ], g, MODEL, BL)).toThrow(/unknown tag category/)
   })
 
   it('空列表是空操作', () => {
-    expect(persistTaggerResults(sqlite, [], groups(), MODEL)).toEqual([])
+    expect(persistTaggerResults(sqlite, [], groups(), MODEL, BL)).toEqual([])
   })
 })
 
@@ -543,17 +546,17 @@ describe('embedding 向量落库', () => {
   it('写完之后待办查询就不再返回它', () => {
     insertPost(1)
     insertPost(2)
-    expect(listEmbeddingPending(sqlite, '/lib').map(p => p.postId)).toEqual([1, 2])
+    expect(listEmbeddingPending(sqlite).map(p => p.postId)).toEqual([1, 2])
     upsertVectors(sqlite, [{ postId: 1, embedding: vectorBlob(1) }])
-    expect(listEmbeddingPending(sqlite, '/lib').map(p => p.postId)).toEqual([2])
+    expect(listEmbeddingPending(sqlite).map(p => p.postId)).toEqual([2])
   })
 
   it('待办查询过滤扩展名与黑名单，路径拼法同 waifu', () => {
     insertPost(1, 'png')
     insertPost(2, 'txt')
     insertPost(3)
-    recordFailures(sqlite, 'embedding:siglip2', [{ postId: 3, error: 'unreadable' }])
-    expect(listEmbeddingPending(sqlite, '/lib')).toEqual([{ postId: 1, path: '/lib/dir/f1.png' }])
+    recordFailures(sqlite, 'embedding', [{ postId: 3, error: 'unreadable' }])
+    expect(listEmbeddingPending(sqlite)).toEqual([{ postId: 1, relPath: 'dir/f1.png' }])
   })
 
   it('空列表是空操作', () => {
@@ -578,56 +581,56 @@ describe('embedding 待办扫描的水位线', () => {
   it('待办清空后重复调用直接短路', () => {
     insertPost(1)
     upsertVectors(sqlite, [{ postId: 1, embedding: vectorBlob(1) }])
-    expect(listEmbeddingPending(sqlite, '/lib')).toEqual([])
+    expect(listEmbeddingPending(sqlite)).toEqual([])
 
     // 水位线已推到 MAX(id)+1。把向量删掉但不动 posts —— post 1 的 id 在水位线
     // **以下**，扫描根本不会走到它。这正是那段 ⚠️ 说的缺口：让老 post 重新变成
-    // 待办的写路径必须自己调 wakeAllBackfills()，否则它永远不再被碰。
+    // 待办的写路径必须在 repository 里 notifyRepending()（见 repending.ts），否则它永远不再被碰。
     sqlite.exec('DELETE FROM post_vectors_siglip2')
-    expect(listEmbeddingPending(sqlite, '/lib')).toEqual([])
+    expect(listEmbeddingPending(sqlite)).toEqual([])
 
     resetScanFloors(sqlite)
-    expect(listEmbeddingPending(sqlite, '/lib').map(p => p.postId)).toEqual([1])
+    expect(listEmbeddingPending(sqlite).map(p => p.postId)).toEqual([1])
   })
 
   it('新 post 的 id 在水位线之上，照样扫得出来', () => {
     insertPost(1)
     upsertVectors(sqlite, [{ postId: 1, embedding: vectorBlob(1) }])
-    expect(listEmbeddingPending(sqlite, '/lib')).toEqual([])
+    expect(listEmbeddingPending(sqlite)).toEqual([])
 
     insertPost(2)
-    expect(listEmbeddingPending(sqlite, '/lib').map(p => p.postId)).toEqual([2])
+    expect(listEmbeddingPending(sqlite).map(p => p.postId)).toEqual([2])
   })
 
   it('水位线停在第一个待办上，不越过它', () => {
     insertPost(1)
     insertPost(2)
-    expect(listEmbeddingPending(sqlite, '/lib').map(p => p.postId)).toEqual([1, 2])
+    expect(listEmbeddingPending(sqlite).map(p => p.postId)).toEqual([1, 2])
     // 什么都没算完，所以水位线还压在 1 上 —— 两条都得再扫出来。
-    expect(listEmbeddingPending(sqlite, '/lib').map(p => p.postId)).toEqual([1, 2])
+    expect(listEmbeddingPending(sqlite).map(p => p.postId)).toEqual([1, 2])
   })
 
   it('算完的前缀被跳过，剩下的照常扫出来', () => {
     insertPost(1)
     insertPost(2)
     insertPost(3)
-    expect(listEmbeddingPending(sqlite, '/lib').map(p => p.postId)).toEqual([1, 2, 3])
+    expect(listEmbeddingPending(sqlite).map(p => p.postId)).toEqual([1, 2, 3])
 
     // 只算完 1。水位线该推到 2，而 3 不能被带过去。
     upsertVectors(sqlite, [{ postId: 1, embedding: vectorBlob(1) }])
-    expect(listEmbeddingPending(sqlite, '/lib').map(p => p.postId)).toEqual([2, 3])
+    expect(listEmbeddingPending(sqlite).map(p => p.postId)).toEqual([2, 3])
     upsertVectors(sqlite, [{ postId: 2, embedding: vectorBlob(2) }])
-    expect(listEmbeddingPending(sqlite, '/lib').map(p => p.postId)).toEqual([3])
+    expect(listEmbeddingPending(sqlite).map(p => p.postId)).toEqual([3])
   })
 
   it('force 把水位线清零，重新看得见老 post', () => {
     insertPost(1)
     upsertVectors(sqlite, [{ postId: 1, embedding: vectorBlob(1) }])
-    expect(listEmbeddingPending(sqlite, '/lib')).toEqual([])
+    expect(listEmbeddingPending(sqlite)).toEqual([])
 
     sqlite.exec('DELETE FROM post_vectors_siglip2')
-    expect(listEmbeddingPending(sqlite, '/lib')).toEqual([])
-    expect(listEmbeddingPending(sqlite, '/lib', undefined, { force: true }).map(p => p.postId)).toEqual([1])
+    expect(listEmbeddingPending(sqlite)).toEqual([])
+    expect(listEmbeddingPending(sqlite, undefined, { force: true }).map(p => p.postId)).toEqual([1])
   })
 })
 
@@ -649,9 +652,9 @@ describe('待办水位线（waifu / tagger / basics）', () => {
       .run(`h${id}`, `a${id}`, '[0.1,0.2,0.3]', id) as never,
   }
   const list: Record<string, () => number[]> = {
-    waifu: () => listWaifuPending(sqlite, '/lib').map(p => p.postId),
-    tagger: () => listTaggerPending(sqlite, '/lib', MODEL).map(p => p.postId),
-    basics: () => listBasicsPending(sqlite, '/lib').map(p => p.postId),
+    waifu: () => listWaifuPending(sqlite).map(p => p.postId),
+    tagger: () => listTaggerPending(sqlite, MODEL).map(p => p.postId),
+    basics: () => listBasicsPending(sqlite).map(p => p.postId),
   }
 
   for (const worker of ['waifu', 'tagger', 'basics']) {
@@ -685,10 +688,10 @@ describe('待办水位线（waifu / tagger / basics）', () => {
       expect(list[worker]!()).toEqual([])
 
       const forced = worker === 'waifu'
-        ? listWaifuPending(sqlite, '/lib', undefined, { force: true })
+        ? listWaifuPending(sqlite, undefined, { force: true })
         : worker === 'tagger'
-          ? listTaggerPending(sqlite, '/lib', MODEL, undefined, { force: true })
-          : listBasicsPending(sqlite, '/lib', undefined, { force: true })
+          ? listTaggerPending(sqlite, MODEL, undefined, { force: true })
+          : listBasicsPending(sqlite, undefined, { force: true })
       expect(forced.map(p => p.postId)).toEqual([1])
     })
   }
@@ -702,7 +705,7 @@ describe('待办计数', () => {
     for (const id of [1, 2, 3, 4, 5]) insertPost(id)
     insertPost(6, 'txt')
     upsertVectors(sqlite, [{ postId: 2, embedding: vectorBlob(2) }, { postId: 4, embedding: vectorBlob(4) }])
-    recordFailures(sqlite, EMBEDDING_WORKER_KEY, [{ postId: 3, error: 'x' }])
+    recordFailures(sqlite, 'embedding', [{ postId: 3, error: 'x' }])
     upsertWaifuScores(sqlite, [{ postId: 5, score: 5 }])
     upsertAestheticScores(sqlite, 'silva', [{ postId: 4, score: 0.5 }])
   }
@@ -710,10 +713,10 @@ describe('待办计数', () => {
   const sum = (chunks: Iterable<number>) => [...chunks].reduce((a, b) => a + b, 0)
 
   const cases: Array<[string, (chunkRows?: number) => Iterable<number>, () => number]> = [
-    ['waifu', r => countWaifuPending(sqlite, r), () => listWaifuPending(sqlite, '/lib').length],
-    ['tagger', r => countTaggerPending(sqlite, MODEL, r), () => listTaggerPending(sqlite, '/lib', MODEL).length],
-    ['basics', r => countBasicsPending(sqlite, r), () => listBasicsPending(sqlite, '/lib').length],
-    ['embedding', r => countEmbeddingPending(sqlite, r), () => listEmbeddingPending(sqlite, '/lib').length],
+    ['waifu', r => countWaifuPending(sqlite, r), () => listWaifuPending(sqlite).length],
+    ['tagger', r => countTaggerPending(sqlite, MODEL, r), () => listTaggerPending(sqlite, MODEL).length],
+    ['basics', r => countBasicsPending(sqlite, r), () => listBasicsPending(sqlite).length],
+    ['embedding', r => countEmbeddingPending(sqlite, r), () => listEmbeddingPending(sqlite).length],
     ['silva', r => countSilvaPending(sqlite, 'silva', r), () => listSilvaPending(sqlite, 'silva').length],
   ]
 
@@ -758,7 +761,7 @@ describe('待办计数', () => {
   it('分块从水位线开始，水位线以下不产生块', () => {
     for (const id of [1, 2, 3, 4, 5, 6]) insertPost(id)
     upsertWaifuScores(sqlite, [1, 2, 3, 4].map(postId => ({ postId, score: 5 })))
-    listWaifuPending(sqlite, '/lib') // 水位线落在第一个待办 5 上
+    listWaifuPending(sqlite) // 水位线落在第一个待办 5 上
     expect([...countWaifuPending(sqlite, 1)]).toEqual([1, 1])
   })
 })
@@ -795,7 +798,7 @@ describe('结果回来时 post 已被删除', () => {
     const shadowed = persistTaggerResults(sqlite, [
       taggerRow(999, { general: ['only_on_dead'] }),
       taggerRow(1, { general: ['1girl'] }),
-    ], ensureCanonicalTagGroups(sqlite), MODEL)
+    ], ensureCanonicalTagGroups(sqlite), MODEL, BL)
     expect(shadowed).toEqual([])
     expect(sqlite.prepare('SELECT post_id, tag_name FROM post_has_tag').all()).toEqual([{ post_id: 1, tag_name: '1girl' }])
     expect(sqlite.prepare('SELECT name FROM tags WHERE name = ?').get('only_on_dead')).toBeUndefined()

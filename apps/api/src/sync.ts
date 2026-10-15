@@ -7,18 +7,17 @@
  * 2. 少的删、多的建，然后叫醒各个 backfill 循环去填新行的空列 —— 活是 worker
  *    干的，不占着这个请求（这个端点本来就是 fire-and-forget）。
  */
-import type { getDb } from './db.js'
+import { insertPostTriples, listPostTriples, type PostTriple, type SqliteHandle } from '@pictoria/db'
 import fs from 'node:fs'
 import path from 'node:path'
 import process from 'node:process'
 import { pictoriaDir, targetDir } from './paths.js'
 import { deletePostFiles } from './post-files.js'
 
-type SqliteHandle = ReturnType<typeof getDb>['sqlite']
 type Log = Pick<Console, 'info' | 'warn'>
 
 /** `(相对目录, 文件名主干, 扩展名)`，和 posts 表的三元组一一对应。 */
-export type FileTriple = [string, string, string]
+export type FileTriple = PostTriple
 
 /** 目录绝对路径 → `(mtime_ns, 直接子文件)`。跨调用复用。 */
 type ScanCache = Map<string, { mtimeNs: bigint, files: FileTriple[] }>
@@ -189,12 +188,7 @@ export async function syncMetadata(
   log.info(`[sync] 扫描 ${onDisk.length} 个文件，${((Date.now() - t0) / 1000).toFixed(2)}s`)
 
   const key = (t: FileTriple) => `${t[0]}\0${t[1]}\0${t[2]}`
-  const dbRows = sqlite
-    .prepare<[], { id: number, file_path: string, file_name: string, extension: string }>(
-      'SELECT id, file_path, file_name, extension FROM posts',
-    )
-    .all()
-  const dbByKey = new Map(dbRows.map(r => [key([r.file_path, r.file_name, r.extension]), r]))
+  const dbByKey = new Map(listPostTriples(sqlite).map(r => [key([r.filePath, r.fileName, r.extension]), r]))
   // 一趟走完 22.3 万个文件：key 只拼一次，两个产物同时出来。分成 `map` + `filter`
   // 会多留一个和 `onDisk` 靠下标对齐的平行数组 —— 以后谁给 `onDisk` 加一次
   // filter/sort 就会静默错位。
@@ -211,7 +205,7 @@ export async function syncMetadata(
   const deleted: Array<{ id: number, dir: string }> = []
   for (const [k, row] of dbByKey) {
     if (!diskKeys.has(k))
-      deleted.push({ id: row.id, dir: row.file_path })
+      deleted.push({ id: row.id, dir: row.filePath })
   }
 
   // 闸门一：读不动的目录按子树豁免。`'.'`（库根读不动）盖住一切。
@@ -257,10 +251,7 @@ export async function syncMetadata(
 
   if (newTriples.length) {
     log.info(`[sync] 检测到 ${newTriples.length} 个新文件`)
-    const ins = sqlite.prepare('INSERT INTO posts(file_path, file_name, extension) VALUES (?, ?, ?)')
-    sqlite.transaction(() => {
-      for (const t of newTriples) ins.run(t[0], t[1], t[2])
-    })()
+    insertPostTriples(sqlite, newTriples)
   }
 
   return {

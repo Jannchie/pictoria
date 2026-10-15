@@ -3,6 +3,7 @@
  * `db/repositories/scores.py`。
  */
 import type BetterSqlite3 from 'better-sqlite3'
+import type { AestheticScorerName } from '../scorers.js'
 import { AESTHETIC_SCORES_TABLE } from '../scorers.js'
 import { placeholders } from '../sql.js'
 
@@ -57,4 +58,26 @@ export function waifuScoreDistribution(sqlite: BetterSqlite3.Database): WaifuBuc
   for (const r of rows) counts.set(Number(r.bucket), Number(r.count))
 
   return [...counts.entries()].map(([bucket, count]) => ({ bucket, count }))
+}
+
+/** 已存的 waifu 分，没有则 `null`。单张命令"命中就不重算"用。 */
+export function getWaifuScore(sqlite: BetterSqlite3.Database, postId: number): number | null {
+  const row = sqlite
+    .prepare<[number], { score: number }>('SELECT score FROM post_waifu_scores WHERE post_id = ?')
+    .get(postId)
+  return row?.score ?? null
+}
+
+/** 已存的某个 scorer 的分，没有则 `null`。 */
+export function getAestheticScore(
+  sqlite: BetterSqlite3.Database,
+  postId: number,
+  scorer: AestheticScorerName,
+): number | null {
+  const row = sqlite
+    .prepare<[number, string], { score: number }>(
+      `SELECT score FROM ${AESTHETIC_SCORES_TABLE} WHERE post_id = ? AND scorer = ?`,
+    )
+    .get(postId, scorer)
+  return row?.score ?? null
 }

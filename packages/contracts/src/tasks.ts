@@ -113,9 +113,6 @@ export const waifuTask = defineTask<WaifuPayload, WaifuResult>('waifu')
  */
 export const WAIFU_TASK_BATCH = 32
 
-/** `post_process_failures.worker` 里 waifu 用的桶名。 */
-export const WAIFU_WORKER_KEY = 'waifu'
-
 /**
  * PixAI Tagger 的五个标签类别。
  *
@@ -212,9 +209,6 @@ export function assertTaggerModel(reported: string): string {
   return reported
 }
 
-/** `post_process_failures.worker` 里 tagger 用的桶名。 */
-export const TAGGER_WORKER_KEY = 'tagger'
-
 export interface EmbeddingPayload {
   items: ImageItem[]
 }
@@ -237,9 +231,6 @@ export const embeddingTask = defineTask<EmbeddingPayload, EmbeddingResult>('embe
 
 /** so400m 是比 CLIP-L/14 更大的 ViT，bf16 下 16 张正好放进 12 GB。 */
 export const EMBEDDING_TASK_BATCH = 16
-
-/** `post_process_failures.worker` 里 embedding 用的桶名。注意带表名后缀。 */
-export const EMBEDDING_WORKER_KEY = 'embedding:siglip2'
 
 /**
  * 近重复分组的一次全量重算。
@@ -548,9 +539,6 @@ export const basicsTask = defineTask<BasicsPayload, BasicsResult>('basics')
 
 /** 一批 32 张。批大小只在这一侧定义，worker 收到多少算多少。 */
 export const BASICS_TASK_BATCH = 32
-
-/** `post_process_failures.worker` 里 basics 用的桶名。 */
-export const BASICS_WORKER_KEY = 'basics'
 
 /** 一条准备落库的图片，用 `posts` 表自己的说法表述。 */
 export interface NormalizedPostRow {

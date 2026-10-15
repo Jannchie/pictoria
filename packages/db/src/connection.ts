@@ -9,6 +9,14 @@ import fs from 'node:fs'
 import nodePath from 'node:path'
 import Database from 'better-sqlite3'
 import * as sqliteVec from 'sqlite-vec'
+/**
+ * 一条已配置好的连接（`createDb` 返回的 `sqlite`）。
+ *
+ * 导出给 `apps/api`：它不直接依赖 better-sqlite3，原来四个文件各自用
+ * `ReturnType<typeof getDb>['sqlite']` / `Parameters<…>[0]` 推导一遍。
+ */
+export type SqliteHandle = Database.Database
+
 export interface OpenOptions {
   /** SQLite 文件路径。 */
   path: string

@@ -11,9 +11,8 @@ import { bulkUpdateField, clearCanonical, createPost, getPostPath, groupHeadOf, 
 import { getDb } from '../db.js'
 import type { Context } from 'hono'
 import { boolQuery, CREATED, OK, errors, fail, postNotFound, validationError, zodErrorHook } from '../openapi.js'
-import { wakeAllBackfills } from '../scheduler.js'
 import { PostDetailPublic } from '../schemas.js'
-import { isInside, targetDir, thumbnailPathFor } from '../paths.js'
+import { isInside, postAbsPath, targetDir, thumbnailPathFor } from '../paths.js'
 import { deletePostFiles } from '../post-files.js'
 import { getTasks } from '../tasks.js'
 import { postDetailResponse, postIdParam } from './post-shared.js'
@@ -356,21 +355,16 @@ postWritesRoutes.openapi(
     if (!post)
       return postNotFound(postId)
 
-    const base = targetDir()
     const tasks = await getTasks()
     const result = await tasks.call(rotateTask, {
-      originalPath: path.resolve(base, post.fullPath),
+      originalPath: postAbsPath(post.fullPath),
       thumbnailPath: thumbnailPathFor(post.fullPath),
       clockwise,
     }, { queue: IO_QUEUE, timeoutMs: 120_000, pollMs: 20, maxAttempts: 1 })
 
+    // `arthash` 写回 NULL 会让这张图重新变成 basics 待办 —— `updateForRotate` 自己
+    // 会发重新待办信号（`packages/db` 的 `repending.ts`），这里不用管。
     updateForRotate(sqlite, postId, result)
-    // `arthash` 是 `string | null`，而 `updateForRotate` 直接 `SET arthash = ?`（不是
-    // COALESCE）。写进 NULL 就是一条新的 basics 待办，而这张图的 id 在待办查询的
-    // 水位线**以下** —— 不叫醒的话它的 arthash 永远补不回来。只在真写空时叫，
-    // 免得每次旋转都逼一轮全库重扫。
-    if (result.arthash === null)
-      wakeAllBackfills()
     return postDetailResponse(c, postId)
   },
 )

@@ -5,11 +5,10 @@ import { OpenAPIHono } from '@hono/zod-openapi'
 import { compress } from 'hono/compress'
 import { cors } from 'hono/cors'
 import { rebuildGroups } from './dedup.js'
-import { SCORERS } from '@pictoria/db'
 import { getDb, migrate } from './db.js'
 import { fail } from './openapi.js'
 import { BACKFILL_LOOP_KEYS, setSchedulerError } from './queue-status.js'
-import { startBasicsBackfill, startEmbeddingBackfill, startSilvaBackfill, startTaggerBackfill, startWaifuBackfill, wakeAllBackfills } from './scheduler.js'
+import { startBackfills, wakeAllBackfills } from './scheduler.js'
 import { startAutoSync } from './sync.js'
 import { getTasks } from './tasks.js'
 import { annotationQueuesRoutes } from './routes/annotation-queues.js'
@@ -138,16 +137,12 @@ if (process.env.PICTORIA_SCHEDULER !== '0') {
   void (async () => {
     const tasks = await tasksForScheduler()
     const { sqlite } = getDb()
-    // basics 排在最前：其余 worker 的输入（尺寸、缩略图）都由它产出。
-    startBasicsBackfill(sqlite, tasks)
-    for (const { name } of SCORERS)
-      startSilvaBackfill(sqlite, tasks, { scorer: name })
-    startWaifuBackfill(sqlite, tasks)
-    startTaggerBackfill(sqlite, tasks)
+    // 按 `workers.ts` 的 BACKFILL_SPECS 起全部循环（basics 排在最前：其余 worker 的
+    // 输入 —— 尺寸、缩略图 —— 都由它产出）。
     // embedding 的待办清空之后要重建近重复分组 —— 新图不经过这一步就永远不会被
     // 认成任何一张老图的重复（形状承自已删除的 EMBEDDING_WORKER.on_backfill_complete）。
-    startEmbeddingBackfill(sqlite, tasks, {
-      onDrained: async () => {
+    startBackfills(sqlite, tasks, {
+      onEmbeddingDrained: async () => {
         await rebuildGroups(sqlite, tasks).catch((err: unknown) =>
           console.warn(`[dedup] 重建失败：${String(err)}`))
       },

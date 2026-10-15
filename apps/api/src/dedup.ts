@@ -28,7 +28,6 @@
  * 它存的是距离本身，不是判定。
  */
 import type { CairnQ } from 'cairnq'
-import type { getDb } from './db.js'
 import fs from 'node:fs/promises'
 import path from 'node:path'
 import {
@@ -43,7 +42,7 @@ import {
   LPIPS_TASK_BATCH,
   lpipsVerifyTask,
 } from '@pictoria/contracts'
-import type { AutoEdge, VariantEdge } from '@pictoria/db'
+import type { AutoEdge, SqliteHandle, VariantEdge } from '@pictoria/db'
 import {
   assignFromEdges,
   edgeKey,
@@ -58,7 +57,6 @@ import {
 import process from 'node:process'
 import { dedupMatrixPath, isDedupMatrix, pictoriaDir, thumbnailPathFor } from './paths.js'
 
-type SqliteHandle = ReturnType<typeof getDb>['sqlite']
 type Log = Pick<Console, 'info' | 'warn'>
 
 export { DEDUP_THRESHOLD }

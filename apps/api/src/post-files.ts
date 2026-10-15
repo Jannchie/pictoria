@@ -8,11 +8,8 @@
  * 形状承自已删除的 `services/file_management.py`。
  */
 import fs from 'node:fs'
-import path from 'node:path'
-import { deleteManyReturningPaths } from '@pictoria/db'
-import { targetDir, thumbnailPathFor } from './paths.js'
-
-type SqliteHandle = Parameters<typeof deleteManyReturningPaths>[0]
+import { deleteManyReturningPaths, type SqliteHandle } from '@pictoria/db'
+import { postAbsPath, thumbnailPathFor } from './paths.js'
 
 /**
  * 删掉这些 post 的行、原图和缩略图，返回被删的相对路径。
@@ -21,10 +18,9 @@ type SqliteHandle = Parameters<typeof deleteManyReturningPaths>[0]
  * 没了。行先删，删完才动盘：反过来会在中途失败时留下指向空文件的行。
  */
 export function deletePostFiles(sqlite: SqliteHandle, ids: number[]): string[] {
-  const base = targetDir()
   const removed = deleteManyReturningPaths(sqlite, ids)
   for (const rel of removed) {
-    fs.rmSync(path.resolve(base, rel), { force: true })
+    fs.rmSync(postAbsPath(rel), { force: true })
     fs.rmSync(thumbnailPathFor(rel), { force: true })
   }
   return removed

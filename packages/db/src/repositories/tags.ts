@@ -3,6 +3,7 @@
  */
 import { placeholders } from '../sql.js'
 import type BetterSqlite3 from 'better-sqlite3'
+import { notifyRepending } from '../repending.js'
 
 export interface TagGroupRow {
   id: number
@@ -113,16 +114,33 @@ export function updateTagGroup(
   return getTag(sqlite, name)
 }
 
-/** `post_has_tag.tag_name` 对 `tags.name` 有 ON DELETE CASCADE，join 行自动跟着删。 */
+/**
+ * `post_has_tag.tag_name` 对 `tags.name` 有 ON DELETE CASCADE，join 行自动跟着删。
+ *
+ * 级联可能剥掉很多图的最后一个自动标签 —— 那些图重新变成 tagger 待办，而它们的 id 都在
+ * 待办查询的水位线**以下**，不喊的话会静默地永远不被重新打标（见 `../repending.ts`）。
+ */
 export function deleteTag(sqlite: BetterSqlite3.Database, name: string): void {
-  sqlite.prepare('DELETE FROM tags WHERE name = ?').run(name)
+  deleteTags(sqlite, [name])
 }
 
 export function deleteTags(sqlite: BetterSqlite3.Database, names: string[]): void {
   if (!names.length)
     return
   const ph = placeholders(names.length)
+  // 删之前问一句"有没有图因此丢掉最后一个自动标签"：只删手工标签的话 tagger 待办不变，
+  // 不该逼它全库重扫（真实库上一次是 1.8 秒的同步阻塞）。删完再问就问不到了 —— 级联
+  // 已经把关联行带走。
+  const strandsAuto = sqlite
+    .prepare(
+      `SELECT 1 FROM post_has_tag pht WHERE pht.tag_name IN (${ph}) AND pht.is_auto = 1 `
+      + `AND NOT EXISTS (SELECT 1 FROM post_has_tag o WHERE o.post_id = pht.post_id AND o.is_auto = 1 `
+      + `AND o.tag_name NOT IN (${ph})) LIMIT 1`,
+    )
+    .get(...names, ...names) !== undefined
   sqlite.prepare(`DELETE FROM tags WHERE name IN (${ph})`).run(...names)
+  if (strandsAuto)
+    notifyRepending(sqlite, 'tagger')
 }
 
 /**
@@ -145,14 +163,29 @@ export function addTagToPost(
   return row !== undefined
 }
 
-/** 摘掉 post 上的 tag，删掉了返回 true，本来就没有返回 false。 */
+/**
+ * 摘掉 post 上的 tag，删掉了返回 true，本来就没有返回 false。
+ *
+ * 摘掉的若是这张图最后一个 `is_auto = 1` 行，它就重新是 tagger 待办了，而它的 id 在
+ * 水位线以下 —— 这里喊一声（见 `../repending.ts`）。摘手工标签不改变 tagger 待办，不喊。
+ */
 export function removeTagFromPost(
   sqlite: BetterSqlite3.Database,
   postId: number,
   tagName: string,
 ): boolean {
   const row = sqlite
-    .prepare('DELETE FROM post_has_tag WHERE post_id = ? AND tag_name = ? RETURNING post_id')
+    .prepare<[number, string], { is_auto: number }>(
+      'DELETE FROM post_has_tag WHERE post_id = ? AND tag_name = ? RETURNING is_auto',
+    )
     .get(postId, tagName)
-  return row !== undefined
+  if (row === undefined)
+    return false
+  const lastAuto = row.is_auto === 1 && sqlite
+    .prepare<[number], number>('SELECT 1 FROM post_has_tag WHERE post_id = ? AND is_auto = 1 LIMIT 1')
+    .pluck()
+    .get(postId) === undefined
+  if (lastAuto)
+    notifyRepending(sqlite, 'tagger')
+  return true
 }
