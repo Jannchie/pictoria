@@ -2,7 +2,7 @@ import type { MaybeRefOrGetter } from 'vue'
 import { useDebounceFn } from '@vueuse/core'
 import { toValue } from 'vue'
 import { announce } from '@/shared/announce'
-import { layerCount } from '@/shared/layers'
+import { layerCount } from '@/ui/layers'
 import { isAnyDialogOpen } from '@/ui/modal'
 
 /** Keyboard layout for the annotation flow: dimension i uses keyboard row i. */

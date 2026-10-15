@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { useTemplateRef } from 'vue'
-import { useRovingFocus } from '@/composables/useRovingFocus'
+import { useRovingFocus } from '@/ui/useRovingFocus'
 
 // One dimension's choices as a radio group: one Tab stop, ←/→ move focus,
 // Space/Enter pick. Arrows deliberately do NOT check (APG "manual activation"):

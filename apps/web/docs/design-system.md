@@ -167,7 +167,6 @@ reference in `PSelectArea`.
 | `PTreeList`        | Virtualized tree (sidebar folders)   | typed `TreeListItemData`, `rounded`                         |
 | `PToast`           | Notification card (toast + snackbar) — the card is its own live region | `message`, `icon`, `iconColor`, `closeable`, `fluid` (hug content instead of the fixed 384px), `tone` (info/success/warning/error; `error` → `role=alert`, else `role=status`), `#action` slot. A caller that announces through `announce()` instead passes `role="none"` (UndoSnackbar) so each message is read once |
 | `PToastContainer`  | Toast stack layout                   | `items`                                                     |
-| `PLocaleSwitch`    | Language picker                      | (wired to locale state)                                     |
 | `PSchemeSwitch`    | Dark/light/auto picker               | (wired to `data-scheme`)                                    |
 
 `src/ui/index.ts` also re-exports `modal.ts` (`isAnyDialogOpen`, an alias of
@@ -209,6 +208,7 @@ primitives:
 | `ToastSystem`        | Renders the global toast queue (`shared/toast.ts`) via `PToastContainer`; mounted once in `App.vue` |
 | `UndoSnackbar`       | Bound to `shared/undoSnackbar.ts` (`performUndo`/`performRedo`); renders a `fluid` `PToast` pinned bottom-centre, with undo/redo in its `#action` slot — same card as the top toast queue, different corner |
 | `TagSelectorWindow`  | Binds a `PFloatWindow` instance into the shared open-window ref |
+| `LocaleSwitch`       | Language picker bound to the global `localeSetting` (was `PLocaleSwitch`) |
 
 ## 6. Do / Don't
 
@@ -236,7 +236,7 @@ primitives:
 Shared plumbing every keyboard interaction builds on. Three rules:
 
 1. **Every floating layer registers on the layer stack** (`useLayer` from
-   `@/shared/layers`) — dialogs, overlays, popovers, menus, float windows.
+   `@/ui/layers`) — dialogs, overlays, popovers, menus, float windows.
 2. **Global hotkeys go through `useHotkey`** (or `handleHotkey` inside an
    existing listener) — never a bare `onKeyStroke` / `window.addEventListener`.
 3. **Never bind window Escape directly.** Escape belongs to the layer stack
@@ -246,16 +246,17 @@ Shared plumbing every keyboard interaction builds on. Three rules:
 | Module | What it gives you |
 | ------ | ----------------- |
 | `utils/keyboard.ts` | `isTypingTarget` / `isWidgetTarget` / `isValueWidgetTarget`; `parseShortcut`, `matchesShortcut` (exact modifiers, `Mod` = ⌘ on Mac / Ctrl elsewhere), `formatShortcut` / `shortcutKeys` for `<kbd>` hints. |
-| `composables/useHotkey.ts` | `useHotkey(shortcut, handler, { when, allowInTyping, allowInWidgets, preventDefault, repeat, ignore, target })`. Stands down on handled / IME-composing events, in text fields, and on widgets that own their keys (buttons, sliders, menu items, grid cells…) unless allowed. |
-| `shared/layers.ts` | The layer stack. One capture-phase Escape listener calls the **top** layer's `onEscape` and swallows the key; one capture-phase pointerdown listener drives the top layer's `onPointerDownOutside` (`inside()` = e.g. the trigger). `modal` layers feed `isAnyDialogOpen` and make every other `<body>` child `inert` (teleport to body to get this; `data-layer-keep-active` opts an element out; `data-layer-escape-passthrough` lets Escape through to a widget). |
-| `composables/useFocusTrap.ts` | `useFocusTrap(container, active, opts)` for modals: initial focus (`initialFocus` → `[data-autofocus]` → first tabbable → container), Tab cycling, focus return. `useFocusReturn(active, { container })` for non-modal popovers. Focus is not returned if the user already moved it elsewhere on purpose. |
+| `ui/useHotkey.ts` | `useHotkey(shortcut, handler, { when, allowInTyping, allowInWidgets, preventDefault, repeat, ignore, target })`. Stands down on handled / IME-composing events, in text fields, and on widgets that own their keys (buttons, sliders, menu items, grid cells…) unless allowed. |
+| `ui/layers.ts` | The layer stack. One capture-phase Escape listener calls the **top** layer's `onEscape` and swallows the key; one capture-phase pointerdown listener drives the top layer's `onPointerDownOutside` (`inside()` = e.g. the trigger). `modal` layers feed `isAnyDialogOpen` and make every other `<body>` child `inert` (teleport to body to get this; `data-layer-keep-active` opts an element out; `data-layer-escape-passthrough` lets Escape through to a widget). |
+| `ui/useFocusTrap.ts` | `useFocusTrap(container, active, opts)` for modals: initial focus (`initialFocus` → `[data-autofocus]` → first tabbable → container), Tab cycling, focus return. `useFocusReturn(active, { container })` for non-modal popovers. Focus is not returned if the user already moved it elsewhere on purpose. |
 | `utils/focus.ts` | `getFocusable`, `focusFirst`, `focusElement`. |
-| `composables/useRovingFocus.ts` | Roving tabindex for composite widgets (radio group, toolbar, menu, listbox, tabs): one Tab stop, arrows / Home / End / PageUp / PageDown / typeahead move focus, disabled items skipped, RTL-aware. |
-| `composables/useTypeahead.ts` | `matchTypeahead` (pure) + `useTypeahead` buffer + `isTypeaheadKey`. |
+| `ui/useRovingFocus.ts` | Roving tabindex for composite widgets (radio group, toolbar, menu, listbox, tabs): one Tab stop, arrows / Home / End / PageUp / PageDown / typeahead move focus, disabled items skipped, RTL-aware. |
+| `ui/useTypeahead.ts` | `matchTypeahead` (pure) + `useTypeahead` buffer + `isTypeaheadKey`. |
 | `shared/announce.ts` | `announce(message, 'polite' \| 'assertive')` through persistent live regions. Messages go through i18n. |
 
-`useRovingIndex.ts` stays for index-based (non-DOM-focus) cruising such as
-TagSelector's hover index.
+These modules live in `src/ui/` because the primitives build on them; `src/ui/**`
+must not import `@/shared`, `@/composables`, `@/components` or `@/views`
+(enforced by `src/test/uiBoundary.test.ts`).
 
 ### Keyboard model
 

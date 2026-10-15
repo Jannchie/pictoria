@@ -1,5 +1,29 @@
 import type { DirectiveBinding } from 'vue'
 
+export interface HighlightPart { text: string, match: boolean }
+
+/**
+ * Split `text` around the first case-insensitive occurrence of `needle`
+ * (trimmed), for templates that render the hit themselves (e.g. a `<mark>`).
+ * No needle / no hit → a single unmatched part. The `v-highlight` directive
+ * below is the DOM-mutating variant (every occurrence, injected spans).
+ */
+export function splitHighlight(text: string, needle: string): HighlightPart[] {
+  const f = needle.trim().toLowerCase()
+  if (!f) {
+    return [{ text, match: false }]
+  }
+  const i = text.toLowerCase().indexOf(f)
+  if (i === -1) {
+    return [{ text, match: false }]
+  }
+  return [
+    { text: text.slice(0, i), match: false },
+    { text: text.slice(i, i + f.length), match: true },
+    { text: text.slice(i + f.length), match: false },
+  ]
+}
+
 const highlightDirective = {
   beforeMount(element: HTMLElement, binding: DirectiveBinding) {
     updateHighlight(element, binding.value)

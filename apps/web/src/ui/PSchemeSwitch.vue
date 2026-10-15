@@ -2,7 +2,7 @@
 import { useColorMode } from '@vueuse/core'
 import { computed, useTemplateRef } from 'vue'
 import { useI18n } from 'vue-i18n'
-import { useRovingFocus } from '@/composables/useRovingFocus'
+import { useRovingFocus } from './useRovingFocus'
 
 const { t } = useI18n()
 

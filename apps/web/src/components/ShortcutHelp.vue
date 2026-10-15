@@ -2,10 +2,11 @@
 import type { ShortcutGroup } from '@/shared/shortcuts'
 import { computed, ref, useId, useTemplateRef, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
-import { useFocusTrap } from '@/composables/useFocusTrap'
-import { shortcutHelpOpen, useLayer } from '@/shared'
+import { shortcutHelpOpen } from '@/shared'
 import { shortcutChords, shortcutGroups } from '@/shared/shortcuts'
 import { POverlay } from '@/ui'
+import { useLayer } from '@/ui/layers'
+import { useFocusTrap } from '@/ui/useFocusTrap'
 
 /**
  * The keyboard shortcut sheet, rendered from the catalogue in

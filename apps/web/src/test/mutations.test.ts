@@ -3,8 +3,8 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import * as api from '@/api'
 import { localeSetting } from '@/locale'
 import { canUndo, clearHistory, redo, undo } from '@/shared/history'
-import { captureOldValues, commitRating, commitScore, commitTag, deletePosts, groupIdsByValue, removePostsFromCacheEntry } from '@/shared/mutations'
-import { queryKeys } from '@/shared/queryKeys'
+import { captureOldValues, commitRating, commitScore, commitTag, computeScore, deleteFolder, deletePosts, groupIdsByValue, invalidateAggregates, removePostsFromCacheEntry, submitPairwise, undoAnnotations } from '@/shared/mutations'
+import { COUNT_KINDS, queryKeys } from '@/shared/queryKeys'
 
 vi.mock('@/api', () => ({
   v2UpdatePostScore: vi.fn(async () => ({})),
@@ -17,6 +17,12 @@ vi.mock('@/api', () => ({
   v2RemoveTagFromPost: vi.fn(async () => ({})),
   v2RotatePostImage: vi.fn(async () => ({})),
   v2DeletePosts: vi.fn(async () => ({})),
+  v2DeleteFolder: vi.fn(async () => ({})),
+  v2GetWaifuScorerOne: vi.fn(async () => ({})),
+  v2GetSilvaScorerOne: vi.fn(async () => ({})),
+  v2GetSilvaLunaScorerOne: vi.fn(async () => ({})),
+  v2SubmitPairwise: vi.fn(async () => ({ data: { ids: [41] } })),
+  v2UndoAnnotations: vi.fn(async () => ({})),
   v2GetFolders: vi.fn(async () => ({})),
   v2SearchPosts: vi.fn(async () => ({})),
 }))
@@ -161,5 +167,77 @@ describe('deleteposts', () => {
     const qc = new QueryClient()
     await deletePosts(qc, [])
     expect(api.v2DeletePosts).not.toHaveBeenCalled()
+  })
+})
+
+// Seed one query per key and report which of them `run` left invalidated.
+async function invalidatedAfter(keys: readonly (readonly unknown[])[], run: (qc: QueryClient) => Promise<void> | void) {
+  const qc = new QueryClient()
+  for (const key of keys) {
+    qc.setQueryData(key, 1)
+  }
+  await run(qc)
+  return keys.filter(key => qc.getQueryState(key)?.isInvalidated)
+}
+
+describe('invalidateaggregates', () => {
+  const countKeys = COUNT_KINDS.map(kind => queryKeys.count(kind, {}))
+
+  it('invalidates every count kind, the tags-total denominator, stats and post counts', async () => {
+    const keys = [...countKeys, queryKeys.tagsTotalCount({}), queryKeys.postsStats({}), queryKeys.postCount, queryKeys.folders]
+    const hit = await invalidatedAfter(keys, qc => invalidateAggregates(qc))
+    expect(hit).toEqual(keys.filter(k => k !== queryKeys.folders))
+  })
+
+  it('refreshes the folder tree only when asked', async () => {
+    expect(await invalidatedAfter([queryKeys.folders], qc => invalidateAggregates(qc, { folders: true }))).toEqual([queryKeys.folders])
+  })
+
+  // The bug this replaced: the hand-copied lists at the delete sites missed the
+  // waifu / silva / silvaLuna facet counts.
+  it('deleteposts and deletefolder refresh the scorer facet counts too', async () => {
+    const scorerKeys = (['waifu', 'silva', 'silvaLuna'] as const).map(kind => queryKeys.count(kind, {}))
+    expect(await invalidatedAfter(scorerKeys, qc => deletePosts(qc, [1]))).toEqual(scorerKeys)
+    expect(await invalidatedAfter(scorerKeys, qc => deleteFolder(qc, 'a/b'))).toEqual(scorerKeys)
+  })
+})
+
+describe('computescore', () => {
+  beforeEach(() => vi.clearAllMocks())
+
+  it('calls the endpoint of that scorer and refreshes the post, that facet and the stats', async () => {
+    const keys = [queryKeys.post(3), queryKeys.count('silva', {}), queryKeys.count('waifu', {}), queryKeys.postsStats({}), queryKeys.folders]
+    const hit = await invalidatedAfter(keys, qc => computeScore(qc, 'silva', 3))
+    expect(api.v2GetSilvaScorerOne).toHaveBeenCalledWith({ path: { post_id: 3 } })
+    expect(hit).toEqual([queryKeys.post(3), queryKeys.count('silva', {}), queryKeys.postsStats({}), queryKeys.folders])
+  })
+
+  it('waifu does not touch the folder tree (it carries no waifu average)', async () => {
+    const hit = await invalidatedAfter([queryKeys.count('waifu', {}), queryKeys.folders], qc => computeScore(qc, 'waifu', 3))
+    expect(api.v2GetWaifuScorerOne).toHaveBeenCalledWith({ path: { post_id: 3 } })
+    expect(hit).toEqual([queryKeys.count('waifu', {})])
+  })
+})
+
+describe('annotation writes', () => {
+  beforeEach(() => vi.clearAllMocks())
+
+  const body = { postA: 1, postB: 2, dimension: 'overall' as const, winner: 'a' as const, rubricVersion: 'overall-v1', sessionId: 's', elapsedMs: 10, queueId: null, queuePosition: null, strategy: 'close' as const }
+
+  it('a judgement refreshes the per-post history of both posts, nothing else', async () => {
+    const keys = [queryKeys.annotations(1), queryKeys.annotations(2), queryKeys.annotations(3), queryKeys.annotationQueues]
+    let ids: number[] = []
+    const hit = await invalidatedAfter(keys, async (qc) => {
+      ids = await submitPairwise(qc, body)
+    })
+    expect(ids).toEqual([41])
+    expect(hit).toEqual([queryKeys.annotations(1), queryKeys.annotations(2)])
+  })
+
+  it('undo refreshes the history of the posts the caller names', async () => {
+    const keys = [queryKeys.annotations(1), queryKeys.annotations(2)]
+    const hit = await invalidatedAfter(keys, qc => undoAnnotations(qc, { kind: 'pairwise', ids: [41], sessionId: 's', queueId: null, queuePosition: null }, [2]))
+    expect(api.v2UndoAnnotations).toHaveBeenCalledWith({ body: { kind: 'pairwise', ids: [41], sessionId: 's', queueId: null, queuePosition: null } })
+    expect(hit).toEqual([queryKeys.annotations(2)])
   })
 })

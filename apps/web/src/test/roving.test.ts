@@ -1,8 +1,8 @@
 // @vitest-environment happy-dom
-import type { UseRovingFocusOptions } from '@/composables/useRovingFocus'
+import type { UseRovingFocusOptions } from '@/ui/useRovingFocus'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { effectScope, nextTick } from 'vue'
-import { stepIndex, useRovingFocus } from '@/composables/useRovingFocus'
+import { stepIndex, useRovingFocus } from '@/ui/useRovingFocus'
 
 function byId(id: string): HTMLElement {
   return document.querySelector<HTMLElement>(`#${id}`)!

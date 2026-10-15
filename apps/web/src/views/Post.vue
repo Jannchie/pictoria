@@ -2,19 +2,18 @@
 import { useQueryClient } from '@tanstack/vue-query'
 import { useI18n } from 'vue-i18n'
 import { onBeforeRouteLeave, useRoute, useRouter } from 'vue-router'
-import { v2TouchPost } from '@/api'
 import ArthashPlaceholder from '@/components/ArthashPlaceholder.vue'
 import PostDetail from '@/components/PostDetail.vue'
 import { useEdgeProximity } from '@/composables/useEdgeProximity'
-import { useHotkey } from '@/composables/useHotkey'
 import { useKeyScope } from '@/composables/useKeyScope'
 import { usePostNavAnnounce, usePostNavigation } from '@/composables/usePostNavigation'
 import { useAdjacentPostPrefetch } from '@/composables/usePostPrefetch'
-import { announce, bottomBarInfo, clear as clearSelection, deletePosts, enableArthash, enableFancyPlaceholder, isCommittedSelected, lastViewedPostId, selectedIdList, selectOnly, showPostDetail, similarPostList } from '@/shared'
+import { announce, bottomBarInfo, clear as clearSelection, deletePosts, enableArthash, enableFancyPlaceholder, isCommittedSelected, lastViewedPostId, selectedIdList, selectOnly, showPostDetail, similarPostList, touchPost } from '@/shared'
 import { shortcuts } from '@/shared/shortcuts'
 import { useToast } from '@/shared/toast'
 import { POverlay } from '@/ui'
 import PDialog from '@/ui/PDialog.vue'
+import { useHotkey } from '@/ui/useHotkey'
 import { getPostImageURL } from '@/utils'
 import { colorNumToHex } from '@/utils/color'
 import { focusElement } from '@/utils/focus'
@@ -139,7 +138,7 @@ watch(postId, (id) => {
     // 相似图时，选区从空开始累积，只含相似图——与列表瀑布流的多选行为完全一致，
     // 不会再有主图残留导致侧边栏出现 “N/M in view” 的差异。
     clearSelection()
-    v2TouchPost({ path: { post_id: id } }).catch(() => {})
+    touchPost(id).catch(() => {})
   }
 }, { immediate: true })
 

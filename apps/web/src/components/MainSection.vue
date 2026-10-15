@@ -7,8 +7,7 @@ import { useI18n } from 'vue-i18n'
 import { onBeforeRouteLeave, useRoute, useRouter } from 'vue-router'
 import { Waterfall } from 'vue-wf'
 import { v2SearchPostsByText } from '@/api'
-import { useGalleryGrid } from '@/composables/useGalleryGrid'
-import { useHotkey } from '@/composables/useHotkey'
+import { GRID_OUTSIDE_SHORTCUTS, useGalleryGrid } from '@/composables/useGalleryGrid'
 import { useKeyScope, useScoreHotkeys } from '@/composables/useKeyScope'
 import { prefetchPost } from '@/composables/usePostPrefetch'
 import { announce, clear as clearSelection, commitRotate, commitScore, currentPostList, deletePosts, galleryScrollPositions, gridCursorId, lastViewedPostId, postFilter, queryKeys, selectedCount, selectedIdList, selectOnly, setGridCursor, soleSelectedId, textSearchQuery, useInfinityPostsQuery, waterfallRowCount } from '@/shared'
@@ -16,6 +15,7 @@ import { GRID_GAP, GRID_PAD } from '@/shared/gridLayout'
 import { useToast } from '@/shared/toast'
 import { POverlay } from '@/ui'
 import PDialog from '@/ui/PDialog.vue'
+import { useHotkey } from '@/ui/useHotkey'
 import { isImageExtension } from '@/utils'
 import { nextCursorAfterRemoval } from '@/utils/gridSelection'
 
@@ -164,13 +164,13 @@ const grid = useGalleryGrid({
 // With focus outside the grid (on <body> after a load, or on a non-widget),
 // the arrows / Enter / Delete / Mod+A still drive the grid, as they always
 // have; the first arrow moves focus into it. Foreign widgets and text fields
-// keep their keys (handleHotkey's default guards).
-useEventListener(globalThis, 'keydown', (e: KeyboardEvent) => {
-  const el = gridEl.value
-  if (!inGridScope() || !el || (e.target instanceof Node && el.contains(e.target))) {
-    return
-  }
-  grid.handleOutsideKey(e)
+// keep their keys (useHotkey's default guards, which handleOutsideKey re-applies
+// per key). Inside the grid the listbox's own keydown handler has them.
+useHotkey(GRID_OUTSIDE_SHORTCUTS, e => grid.handleOutsideKey(e), {
+  when: () => inGridScope() && !!gridEl.value,
+  ignore: e => e.target instanceof Node && !!gridEl.value?.contains(e.target),
+  // handleOutsideKey prevents the default itself, and only for keys it acts on.
+  preventDefault: false,
 })
 
 // Escape clears the selection from anywhere in the gallery (inside the grid

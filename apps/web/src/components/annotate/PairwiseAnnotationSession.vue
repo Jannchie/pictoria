@@ -2,21 +2,21 @@
 import type { QueueItemPostPublic, QueueSummaryPublic } from '@/api'
 import type { AnnotationDimension, PairwiseStrategy, PairwiseWinner } from '@/shared/annotationTypes'
 import { useQueryClient } from '@tanstack/vue-query'
-import { computed, onMounted, ref, useTemplateRef, watch } from 'vue'
+import { computed, ref, useTemplateRef, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
-import { v2CountPairwise, v2NextPairwise, v2SamplePairwise, v2SubmitPairwise, v2UndoAnnotations } from '@/api'
+import { v2CountPairwise, v2NextPairwise, v2SamplePairwise } from '@/api'
 import AnnotationKeyHints from '@/components/annotate/AnnotationKeyHints.vue'
 import AnnotationReviewBanner from '@/components/annotate/AnnotationReviewBanner.vue'
-import { isForeignComposite, noLayerOpen, useProgressAnnouncer } from '@/composables/useAnnotationKeymap'
+import { noLayerOpen } from '@/composables/useAnnotationKeymap'
 import { useAnnotationReview } from '@/composables/useAnnotationReview'
+import { useAnnotationSessionFrame, useAnnotationStream } from '@/composables/useAnnotationStream'
 import { useAPIError } from '@/composables/useAPIError'
-import { useHotkey } from '@/composables/useHotkey'
 import { preloadImage } from '@/composables/usePostPrefetch'
 import { formatNumber } from '@/locale'
-import { announce, endReview, prependEntry, pushCommand, removeEntries, winnerLabel } from '@/shared'
+import { endReview, prependEntry, submitPairwise, winnerLabel } from '@/shared'
 import { dimensionMeta } from '@/shared/annotationTypes'
+import { useHotkey } from '@/ui/useHotkey'
 import { getPostImageURL } from '@/utils'
-import { focusElement } from '@/utils/focus'
 import { shortcutKeys } from '@/utils/keyboard'
 
 interface BufferItem {
@@ -46,22 +46,55 @@ const dimension = computed(() => props.queue?.dimensions[0] ?? props.dimension ?
 // 采样和提交读同一个值，两边的默认值不会漂。
 const strategy = computed(() => props.queue?.strategy ?? props.strategy ?? 'close')
 
-const buffer = ref<BufferItem[]>([])
-const doneCount = ref(props.queue?.done ?? 0)
+function imgURL(p: QueueItemPostPublic) {
+  return getPostImageURL(p)
+}
+
+const stream = useAnnotationStream<BufferItem>({
+  kind: 'pairwise',
+  queryClient,
+  sessionId,
+  queue: () => props.queue,
+  async fetchBatch() {
+    if (props.queue) {
+      const resp = await v2NextPairwise({ path: { queue_id: props.queue.id }, query: { limit: 20 } })
+      return (resp.data ?? []).map(i => ({ postA: i.postA, postB: i.postB, position: i.position }))
+    }
+    const resp = await v2SamplePairwise({ query: { limit: 20, strategy: strategy.value } })
+    return (resp.data ?? []).map(p => ({ postA: p.postA, postB: p.postB }))
+  },
+  // 与左右无关的键：呈现顺序现在是随机翻转的，用有序键的话同一对换个朝向就漏过去了。
+  keyOf: i => (i.position == null ? [i.postA.id, i.postB.id].sort((x, y) => x - y).join('-') : `q${i.position}`),
+  // 补货水位：「低于这么多就去补」，不是「补到这么多」——后端一次给 20 条。
+  // 取 10 而非 5，是因为流式采样要跑 vec0 KNN（214k 图暴力扫，一次邻域 ~0.9s；
+  // 实测一批 20 对 close ≈ 1.2s、similar ≈ 3.5s）。水位越低，越可能在 buffer
+  // 见底、用户已经无图可判时才补上。
+  lowWater: 10,
+  // 一次空响应不等于标完了：close 每次只抽几个种子，可能刚好都已经比够或没有模型分。
+  // 连续两次空才收摊，否则会在还剩十万张图的时候弹「没有更多了」。
+  emptyLimit: 2,
+  // 预热接下来几对的原图：判断当前对的几秒钟里，下一对已进浏览器缓存。
+  preload: {
+    ahead: 2,
+    item: (item) => {
+      preloadImage(imgURL(item.postA))
+      preloadImage(imgURL(item.postB))
+    },
+  },
+  onLoadError: error => handleAPIError(error, t('annotate.error.loadImages')),
+  streamProgress: { labelKey: 'annotate.progress.pairwise', announceKey: 'annotate.progress.pairwiseAnnounce' },
+  postIdsOf: item => [item.postA.id, item.postB.id],
+})
+const { doneCount, exhausted, submitting, current } = stream
+
 // 该维度数据库累计已判（decisive + tie，skip 不计）；流式模式下顶栏展示进度感。
 const cumulativeCount = ref<number | null>(null)
 const totalLabel = computed(() => {
-  if (props.queue) {
-    return t('annotate.progress.queue', { done: formatNumber(doneCount.value), total: formatNumber(props.queue.total) })
+  if (props.queue || cumulativeCount.value == null) {
+    return stream.progressLabel.value
   }
-  const session = t('annotate.progress.pairwise', { n: formatNumber(doneCount.value) })
-  return cumulativeCount.value == null
-    ? session
-    : `${session} · ${t('annotate.progress.cumulative', { n: formatNumber(cumulativeCount.value) })}`
+  return `${stream.progressLabel.value} · ${t('annotate.progress.cumulative', { n: formatNumber(cumulativeCount.value) })}`
 })
-const announceProgress = useProgressAnnouncer(() => (props.queue
-  ? t('annotate.progress.queueAnnounce', { done: formatNumber(doneCount.value), total: formatNumber(props.queue.total) })
-  : t('annotate.progress.pairwiseAnnounce', { n: formatNumber(doneCount.value) })))
 
 async function refreshCumulative() {
   try {
@@ -72,9 +105,6 @@ async function refreshCumulative() {
     // 计数非关键，失败静默，不打断标注
   }
 }
-const exhausted = ref(false)
-const submitting = ref(false)
-const current = computed(() => buffer.value[0] ?? null)
 const { review, amend } = useAnnotationReview({ kind: 'pairwise', field: 'winner', labelKey: 'history.judgePair', submitting })
 
 // What the two panes show. Reviewing borrows the whole judging surface rather than
@@ -84,103 +114,20 @@ const shown = computed(() => {
   const r = review.value
   return r?.postB ? { postA: r.post, postB: r.postB } : current.value
 })
-const seenKeys = new Set<string>()
-let emptyStreak = 0
-let shownAt = performance.now()
 
-function imgURL(p: QueueItemPostPublic) {
-  return getPostImageURL(p)
-}
-
-// 预热接下来几对的原图：判断当前对的几秒钟里，下一对已进浏览器缓存。
-const PRELOAD_AHEAD = 2
-function preloadAhead() {
-  for (const item of buffer.value.slice(1, 1 + PRELOAD_AHEAD)) {
-    preloadImage(imgURL(item.postA))
-    preloadImage(imgURL(item.postB))
-  }
-}
-
-// 补货水位与并发闸。
-// LOW_WATER 是「低于这么多就去补」，不是「补到这么多」——后端一次给 20 条。
-// 取 10 而非 5，是因为流式采样要跑 vec0 KNN（214k 图暴力扫，一次邻域 ~0.9s；
-// 实测一批 20 对 close ≈ 1.2s、similar ≈ 3.5s）。水位越低，越可能在 buffer
-// 见底、用户已经无图可判时才补上。
-const LOW_WATER = 10
-// refill 不再被 await，所以同一时刻可能被触发两次：没有这道闸，两个请求会
-// 各自去重后都返回空，把 exhausted 误判成「判完了」。
-let refilling = false
-
-async function refill() {
-  if (exhausted.value || refilling || buffer.value.length >= LOW_WATER) {
-    return
-  }
-  refilling = true
-  try {
-    await refillOnce()
-  }
-  finally {
-    refilling = false
-  }
-}
-
-// 闸在 refill() 上，不在这里：空响应时的重试是同一次补货的第二轮，
-// 走 refill() 会被自己的闸挡回去，静默变成不重试。
-async function refillOnce(): Promise<void> {
-  try {
-    let fresh: BufferItem[]
-    if (props.queue) {
-      const resp = await v2NextPairwise({ path: { queue_id: props.queue.id }, query: { limit: 20 } })
-      const known = new Set(buffer.value.map(i => i.position))
-      fresh = (resp.data ?? []).filter(i => !known.has(i.position)).map(i => ({ postA: i.postA, postB: i.postB, position: i.position }))
-    }
-    else {
-      const resp = await v2SamplePairwise({ query: { limit: 20, strategy: strategy.value } })
-      fresh = (resp.data ?? [])
-        .map(p => ({ postA: p.postA, postB: p.postB }))
-        .filter((p) => {
-          // 与左右无关的键：呈现顺序现在是随机翻转的，用有序键的话同一对换个朝向就漏过去了。
-          const key = [p.postA.id, p.postB.id].sort((x, y) => x - y).join('-')
-          if (seenKeys.has(key)) {
-            return false
-          }
-          seenKeys.add(key)
-          return true
-        })
-    }
-    buffer.value.push(...fresh)
-    // 一次空响应不等于标完了：close 每次只抽几个种子，可能刚好都已经比够或没有模型分。
-    // 连续两次空才收摊，否则会在还剩十万张图的时候弹「没有更多了」。
-    emptyStreak = fresh.length === 0 ? emptyStreak + 1 : 0
-    if (emptyStreak >= 2) {
-      exhausted.value = true
-    }
-    else if (fresh.length === 0) {
-      await refillOnce()
-    }
-    preloadAhead()
-  }
-  catch (error) {
-    handleAPIError(error, t('annotate.error.loadImages'))
-  }
-}
-
-async function postJudgement(item: BufferItem, winner: PairwiseWinner, elapsedMs: number): Promise<number[]> {
-  const resp = await v2SubmitPairwise({
-    body: {
-      postA: item.postA.id,
-      postB: item.postB.id,
-      dimension: dimension.value,
-      winner,
-      rubricVersion: `${dimension.value}-v1`,
-      sessionId,
-      elapsedMs,
-      queueId: props.queue?.id ?? null,
-      queuePosition: item.position ?? null,
-      strategy: strategy.value,
-    },
+function postJudgement(item: BufferItem, winner: PairwiseWinner, elapsedMs: number): Promise<number[]> {
+  return submitPairwise(queryClient, {
+    postA: item.postA.id,
+    postB: item.postB.id,
+    dimension: dimension.value,
+    winner,
+    rubricVersion: `${dimension.value}-v1`,
+    sessionId,
+    elapsedMs,
+    queueId: props.queue?.id ?? null,
+    queuePosition: item.position ?? null,
+    strategy: strategy.value,
   })
-  return resp.data?.ids ?? []
 }
 
 /** Put this judgement at the head of the history sidebar without refetching it. */
@@ -191,67 +138,10 @@ function noteInHistory(item: BufferItem, winner: PairwiseWinner, ids: number[]) 
 }
 
 function advancePast(winner: PairwiseWinner) {
-  buffer.value.shift()
-  doneCount.value += 1
   if (winner !== 'skip' && cumulativeCount.value != null) {
     cumulativeCount.value += 1 // 乐观递增，与后端 total（decisive+tie）口径一致
   }
-  shownAt = performance.now()
-  preloadAhead()
-  // 不 await：采样要跑 KNN，await 会把那 1~3.5 秒直接压进按键响应里——
-  // 判到第 16 对时按下方向键，画面会停在已经判完的那一对上等采样返回。
-  // buffer 还有 LOW_WATER 条垫着，补货在后台跑完即可。
-  void refill()
-  announceProgress()
-}
-
-/**
- * 把这一判压进全局撤销栈，让 Ctrl+Z 能收回手滑的那几下。
- *
- * 走 pushCommand 而不是 mutations.ts 的 record()：record() 每次都会弹 snackbar，
- * 而这里一秒一判，弹窗会一直盖在图上。压栈不弹，撤销时 performUndo 自己会弹。
- *
- * 撤销必须真删事件行（后端 /annotations/undo），不能只退界面：误判会直接进
- * export_annotations 的训练集，而采样器的 _judged_graph 会永久认为这对问过了。
- */
-function recordJudgement(item: BufferItem, winner: PairwiseWinner, elapsedMs: number, ids: number[]) {
-  // 会话切到别的维度后，把旧维度的一对塞回新 buffer 会让它被按错维度重判。
-  // 那种情况下只删事件，不动界面。
-  const judgedIn = dimension.value
-  let eventIds = ids
-  pushCommand({
-    label: t(winner === 'skip' ? 'history.skipPair' : 'history.judgePair'),
-    // 空数组 = 不改画廊选中。这里的"定位"是那对图自己回到屏幕上，
-    // 而在全屏会话背后改画廊选中是个看不见的副作用。
-    postIds: [],
-    apply: async () => {
-      eventIds = await postJudgement(item, winner, elapsedMs)
-      advancePast(winner)
-      noteInHistory(item, winner, eventIds)
-    },
-    revert: async () => {
-      await v2UndoAnnotations({
-        body: {
-          kind: 'pairwise',
-          ids: eventIds,
-          sessionId,
-          queueId: props.queue?.id ?? null,
-          queuePosition: item.position ?? null,
-        },
-      })
-      removeEntries(queryClient, 'pairwise', eventIds) // 事件已删，历史列表也不该再有它
-      if (dimension.value !== judgedIn) {
-        return
-      }
-      buffer.value.unshift(item)
-      exhausted.value = false // 判完最后一对时是 true，撤销后又有的判了
-      doneCount.value -= 1
-      if (winner !== 'skip' && cumulativeCount.value != null) {
-        cumulativeCount.value -= 1
-      }
-      shownAt = performance.now()
-    },
-  })
+  stream.advance()
 }
 
 /** The single entry point for a verdict: it lands on the record under review, or on
@@ -260,25 +150,33 @@ function decide(winner: PairwiseWinner) {
   return review.value ? amend(winner) : judge(winner)
 }
 
-async function judge(winner: PairwiseWinner) {
-  const item = current.value
-  if (!item || submitting.value) {
-    return
-  }
-  submitting.value = true
-  const elapsedMs = Math.round(performance.now() - shownAt)
-  try {
+function judge(winner: PairwiseWinner) {
+  return stream.submitCurrent(async (item) => {
+    const elapsedMs = stream.elapsedMs()
     const ids = await postJudgement(item, winner, elapsedMs)
     advancePast(winner)
     noteInHistory(item, winner, ids)
-    recordJudgement(item, winner, elapsedMs, ids)
-  }
-  catch (error) {
-    handleAPIError(error, t('annotate.error.submit'))
-  }
-  finally {
-    submitting.value = false
-  }
+    // Ctrl+Z 收回手滑的那几下。会话切到别的维度后，把旧维度的一对塞回新 buffer
+    // 会让它被按错维度重判 —— 那种情况下只删事件，不动界面。
+    const judgedIn = dimension.value
+    stream.pushUndoable({
+      item,
+      ids,
+      label: t(winner === 'skip' ? 'history.skipPair' : 'history.judgePair'),
+      redo: async () => {
+        const again = await postJudgement(item, winner, elapsedMs)
+        advancePast(winner)
+        noteInHistory(item, winner, again)
+        return again
+      },
+      stillHere: () => dimension.value === judgedIn,
+      onRevert: () => {
+        if (winner !== 'skip' && cumulativeCount.value != null) {
+          cumulativeCount.value -= 1
+        }
+      },
+    })
+  }, error => handleAPIError(error, t('annotate.error.submit')))
 }
 
 // ── Keyboard ────────────────────────────────────────────────────────────────
@@ -286,7 +184,13 @@ async function judge(winner: PairwiseWinner) {
 // arrows also fire from a plain button (a clicked history row, the refresh button)
 // because none of those use arrows — but not from someone else's composite widget.
 const root = useTemplateRef<HTMLElement>('root')
-const notForeign = (e: KeyboardEvent) => isForeignComposite(e.target, root.value)
+// Esc backs out one level at a time: out of the review first, out of the session
+// only when there is no review to leave. Layers swallow Escape before it gets here.
+const { notForeign } = useAnnotationSessionFrame({
+  root,
+  onEscape: () => (review.value ? endReview() : emit('exit')),
+  finished: () => exhausted.value && !current.value,
+})
 const canDecide = () => noLayerOpen() && !!shown.value
 
 useHotkey(['ArrowLeft', 'ArrowRight', 'ArrowDown'], (e) => {
@@ -296,44 +200,13 @@ useHotkey(['ArrowLeft', 'ArrowRight', 'ArrowDown'], (e) => {
 // focus from a mouse click, so click-then-Space still skips.
 useHotkey('Space', () => decide('skip'), { when: canDecide, ignore: notForeign, repeat: false })
 
-// Esc backs out one level at a time: out of the review first, out of the session
-// only when there is no review to leave. Layers swallow Escape before it gets here.
-function onEscape() {
-  if (review.value) {
-    endReview()
-    return
-  }
-  emit('exit')
-}
-useHotkey('Escape', onEscape, { when: noLayerOpen, allowInWidgets: true, ignore: notForeign })
-
-// The launcher that started the session is gone; keep focus off <body>.
-onMounted(() => {
-  const active = document.activeElement
-  if (!active || active === document.body) {
-    focusElement(root.value, { preventScroll: true })
-  }
-})
-
 watch(() => [props.queue?.id, props.dimension] as const, () => {
   endReview() // the record belongs to the dimension it was judged in
-  buffer.value = []
-  seenKeys.clear()
-  emptyStreak = 0
-  exhausted.value = false
-  doneCount.value = props.queue?.done ?? 0
-  shownAt = performance.now()
-  refill()
+  stream.reset()
   refreshCumulative()
 }, { immediate: true })
 
 const title = computed(() => props.queue?.name ?? t('annotate.pairwise.streamTitle'))
-
-watch(() => exhausted.value && !current.value, (done) => {
-  if (done) {
-    announce(t('annotate.session.exhaustedAnnounce'))
-  }
-})
 
 const reviewVerdict = computed(() => winnerLabel(review.value?.winner))
 

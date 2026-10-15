@@ -10,7 +10,7 @@ import { isTypingTarget, isWidgetTarget, matchesShortcut } from '@/utils/keyboar
  * stand-down rules everywhere: already-handled events, IME composition, focus
  * in a text field, focus on a widget that owns its keys, a `when` guard, and
  * auto-repeat. Escape is special: it is owned by the layer stack
- * (`@/shared/layers`) while any layer is open, so a window Escape hotkey only
+ * (`@/ui/layers`) while any layer is open, so a window Escape hotkey only
  * ever sees the key when nothing is layered on top.
  */
 export interface HotkeyOptions {

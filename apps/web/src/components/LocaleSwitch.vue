@@ -2,8 +2,8 @@
 import type { LocaleSetting } from '@/locale'
 import { computed, useTemplateRef } from 'vue'
 import { useI18n } from 'vue-i18n'
-import { useRovingFocus } from '@/composables/useRovingFocus'
 import { localeSetting } from '@/locale'
+import { useRovingFocus } from '@/ui/useRovingFocus'
 
 const { t } = useI18n()
 

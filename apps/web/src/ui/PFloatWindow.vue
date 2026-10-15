@@ -1,11 +1,11 @@
 <script setup lang="ts">
 import { useEventListener, useResizeObserver } from '@vueuse/core'
 import { provide, ref, useTemplateRef, watch, watchEffect } from 'vue'
-import { useFocusTrap } from '@/composables/useFocusTrap'
-import { useLayer } from '@/shared/layers'
 import { isTypingTarget } from '@/utils/keyboard'
 import { lastInputWasKeyboard, lastPointerPosition, trackInputModality } from './inputModality'
+import { useLayer } from './layers'
 import { clampToViewport } from './overlay'
+import { useFocusTrap } from './useFocusTrap'
 
 // Generic non-modal floating window (tag selector, folder context menu).
 //

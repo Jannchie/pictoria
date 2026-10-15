@@ -1,6 +1,6 @@
-import { useHotkey } from '@/composables/useHotkey'
 import { shortcuts } from '@/shared/shortcuts'
 import { performRedo, performUndo } from '@/shared/undoSnackbar'
+import { useHotkey } from '@/ui/useHotkey'
 
 /**
  * 全局 Mod+Z 撤销、Mod+Shift+Z / Mod+Y 重做（键位见 `shared/shortcuts.ts`）。

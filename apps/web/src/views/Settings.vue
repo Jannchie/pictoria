@@ -32,7 +32,7 @@ import { enableArthash, enableFancyPlaceholder, hideNSFW } from '@/shared'
           :title="$t('settings.language')"
           :description="$t('settings.languageDesc')"
         >
-          <PLocaleSwitch />
+          <LocaleSwitch />
         </SettingRow>
 
         <SettingRow

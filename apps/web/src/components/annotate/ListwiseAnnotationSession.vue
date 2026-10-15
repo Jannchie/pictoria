@@ -2,18 +2,20 @@
 import type { QueueItemPostPublic, QueueSummaryPublic } from '@/api'
 import type { AnnotationDimension } from '@/shared/annotationTypes'
 import { useQueryClient } from '@tanstack/vue-query'
-import { computed, nextTick, onMounted, ref, useId, useTemplateRef, watch } from 'vue'
+import { computed, nextTick, ref, useId, useTemplateRef, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
-import { v2NextListwise, v2SampleListwise, v2SubmitListwise, v2UndoAnnotations } from '@/api'
+import { v2NextListwise, v2SampleListwise } from '@/api'
 import AnnotationKeyHints from '@/components/annotate/AnnotationKeyHints.vue'
-import { isForeignComposite, moveItem, noLayerOpen, sortableIntent, sortableTarget, useProgressAnnouncer } from '@/composables/useAnnotationKeymap'
+import { moveItem, noLayerOpen, sortableIntent, sortableTarget } from '@/composables/useAnnotationKeymap'
+import { useAnnotationSessionFrame, useAnnotationStream } from '@/composables/useAnnotationStream'
 import { useAPIError } from '@/composables/useAPIError'
-import { useFocusTrap } from '@/composables/useFocusTrap'
-import { useHotkey } from '@/composables/useHotkey'
 import { preloadImage } from '@/composables/usePostPrefetch'
-import { useRovingFocus } from '@/composables/useRovingFocus'
 import { formatNumber } from '@/locale'
-import { announce, prependEntry, pushCommand, removeEntries, useLayer } from '@/shared'
+import { announce, prependEntry, submitListwise } from '@/shared'
+import { useLayer } from '@/ui/layers'
+import { useFocusTrap } from '@/ui/useFocusTrap'
+import { useHotkey } from '@/ui/useHotkey'
+import { useRovingFocus } from '@/ui/useRovingFocus'
 import { getPostImageURL } from '@/utils'
 import { focusElement } from '@/utils/focus'
 import { formatShortcut, isMac } from '@/utils/keyboard'
@@ -38,17 +40,38 @@ const sessionId = crypto.randomUUID()
 const dimension = computed(() => props.queue?.dimensions[0] ?? props.dimension ?? 'overall')
 const groupSize = computed(() => props.size ?? 4)
 
-const buffer = ref<BufferItem[]>([])
-const doneCount = ref(props.queue?.done ?? 0)
-const totalLabel = computed(() => (props.queue
-  ? t('annotate.progress.queue', { done: formatNumber(doneCount.value), total: formatNumber(props.queue.total) })
-  : t('annotate.progress.listwise', { n: formatNumber(doneCount.value) })))
-const announceProgress = useProgressAnnouncer(() => (props.queue
-  ? t('annotate.progress.queueAnnounce', { done: formatNumber(doneCount.value), total: formatNumber(props.queue.total) })
-  : t('annotate.progress.listwiseAnnounce', { n: formatNumber(doneCount.value) })))
-const exhausted = ref(false)
-const submitting = ref(false)
-const current = computed(() => buffer.value[0] ?? null)
+const stream = useAnnotationStream<BufferItem>({
+  kind: 'listwise',
+  queryClient,
+  sessionId,
+  queue: () => props.queue,
+  async fetchBatch() {
+    if (props.queue) {
+      const resp = await v2NextListwise({ path: { queue_id: props.queue.id }, query: { limit: 10 } })
+      return (resp.data ?? []).map(i => ({ posts: i.posts, position: i.position }))
+    }
+    const resp = await v2SampleListwise({ query: { limit: 3, size: groupSize.value, dimension: dimension.value, repeat: props.repeat } })
+    return (resp.data ?? []).map(g => ({ posts: g.posts, silva: g.silva }))
+  },
+  keyOf: g => (g.position == null ? groupKeyOf(g.posts) : `q${g.position}`),
+  // 一组要看 ~6 张、排 ~15 秒，水位 2 已绰绰有余；采样一批 3 组本身要跑分数窗口查询。
+  lowWater: 2,
+  emptyLimit: 2,
+  // 预热下一组：排当前组的十几秒里，下一组已进浏览器缓存。
+  preload: {
+    ahead: 1,
+    item: (item) => {
+      for (const p of item.posts) {
+        preloadImage(imgURL(p))
+      }
+    },
+  },
+  onLoadError: error => handleAPIError(error, t('annotate.error.loadGroups')),
+  streamProgress: { labelKey: 'annotate.progress.listwise', announceKey: 'annotate.progress.listwiseAnnounce' },
+  postIdsOf: item => item.posts.map(p => p.id),
+})
+const { doneCount, exhausted, submitting, current } = stream
+const totalLabel = stream.progressLabel
 
 // 一字排开、拖拽定序：order 是当前行序（post_id，左 = 最好），初始 = 呈现顺序。
 // 呈现顺序由服务端随机化并存进 postIds，留作顺序效应审计。
@@ -107,10 +130,6 @@ function applyAgreement(item: BufferItem, ranking: number[], sign: 1 | -1) {
   agreeTotal.value += sign * total
 }
 
-const seenKeys = new Set<string>()
-let emptyStreak = 0
-let shownAt = performance.now()
-
 /** 组的身份 = 成员 id 序列。既用于批次去重，也进卡片的 :key（换组必须重建 <img>）。 */
 function groupKeyOf(posts: QueueItemPostPublic[]): string {
   return posts.map(p => p.id).join('-')
@@ -118,68 +137,6 @@ function groupKeyOf(posts: QueueItemPostPublic[]): string {
 
 function imgURL(p: QueueItemPostPublic) {
   return getPostImageURL(p)
-}
-
-// 预热下一组：排当前组的十几秒里，下一组已进浏览器缓存。
-function preloadAhead() {
-  for (const item of buffer.value.slice(1, 2)) {
-    for (const p of item.posts) {
-      preloadImage(imgURL(p))
-    }
-  }
-}
-
-// 一组要看 ~6 张、排 ~15 秒，水位 2 已绰绰有余；采样一批 3 组本身要跑分数窗口查询。
-const LOW_WATER = 2
-let refilling = false
-
-async function refill() {
-  if (exhausted.value || refilling || buffer.value.length >= LOW_WATER) {
-    return
-  }
-  refilling = true
-  try {
-    await refillOnce()
-  }
-  finally {
-    refilling = false
-  }
-}
-
-async function refillOnce(): Promise<void> {
-  try {
-    let fresh: BufferItem[]
-    if (props.queue) {
-      const resp = await v2NextListwise({ path: { queue_id: props.queue.id }, query: { limit: 10 } })
-      const known = new Set(buffer.value.map(i => i.position))
-      fresh = (resp.data ?? []).filter(i => !known.has(i.position)).map(i => ({ posts: i.posts, position: i.position }))
-    }
-    else {
-      const resp = await v2SampleListwise({ query: { limit: 3, size: groupSize.value, dimension: dimension.value, repeat: props.repeat } })
-      fresh = (resp.data ?? [])
-        .map(g => ({ posts: g.posts, silva: g.silva }))
-        .filter((g) => {
-          const key = groupKeyOf(g.posts)
-          if (seenKeys.has(key)) {
-            return false
-          }
-          seenKeys.add(key)
-          return true
-        })
-    }
-    buffer.value.push(...fresh)
-    emptyStreak = fresh.length === 0 ? emptyStreak + 1 : 0
-    if (emptyStreak >= 2) {
-      exhausted.value = true
-    }
-    else if (fresh.length === 0) {
-      await refillOnce()
-    }
-    preloadAhead()
-  }
-  catch (error) {
-    handleAPIError(error, t('annotate.error.loadGroups'))
-  }
 }
 
 // ── 忙碌态 ──────────────────────────────────────────────────────
@@ -316,29 +273,17 @@ function cardStyle(pid: number, idx: number): Record<string, string> {
   return shift ? { transform: `translateX(${shift * d.step}px)` } : {}
 }
 
-async function postRanking(item: BufferItem, ranking: number[], elapsedMs: number): Promise<number[]> {
-  const resp = await v2SubmitListwise({
-    body: {
-      postIds: item.posts.map(p => p.id),
-      ranking,
-      dimension: dimension.value,
-      rubricVersion: `${dimension.value}-v1`,
-      sessionId,
-      elapsedMs,
-      queueId: props.queue?.id ?? null,
-      queuePosition: item.position ?? null,
-    },
+function postRanking(item: BufferItem, ranking: number[], elapsedMs: number): Promise<number[]> {
+  return submitListwise(queryClient, {
+    postIds: item.posts.map(p => p.id),
+    ranking,
+    dimension: dimension.value,
+    rubricVersion: `${dimension.value}-v1`,
+    sessionId,
+    elapsedMs,
+    queueId: props.queue?.id ?? null,
+    queuePosition: item.position ?? null,
   })
-  return resp.data?.ids ?? []
-}
-
-function advancePast() {
-  buffer.value.shift()
-  doneCount.value += 1
-  shownAt = performance.now()
-  preloadAhead()
-  void refill()
-  announceProgress()
 }
 
 function noteInHistory(item: BufferItem, ranking: number[], ids: number[]) {
@@ -348,65 +293,35 @@ function noteInHistory(item: BufferItem, ranking: number[], ids: number[]) {
   }
 }
 
-// 与 pairwise 相同的撤销契约：真删事件行（误排会直接进训练导出），再把组塞回屏幕。
-function recordRanking(item: BufferItem, ranking: number[], elapsedMs: number, ids: number[]) {
-  const judgedIn = dimension.value
-  let eventIds = ids
-  pushCommand({
-    label: t(ranking.length > 0 ? 'annotate.listwise.rankGroup' : 'annotate.listwise.skipGroup'),
-    postIds: [],
-    apply: async () => {
-      eventIds = await postRanking(item, ranking, elapsedMs)
-      advancePast()
-      noteInHistory(item, ranking, eventIds)
-      applyAgreement(item, ranking, 1)
-    },
-    revert: async () => {
-      await v2UndoAnnotations({
-        body: {
-          kind: 'listwise',
-          ids: eventIds,
-          sessionId,
-          queueId: props.queue?.id ?? null,
-          queuePosition: item.position ?? null,
-        },
-      })
-      removeEntries(queryClient, 'listwise', eventIds)
-      if (dimension.value !== judgedIn) {
-        return
-      }
-      buffer.value.unshift(item)
-      order.value = ranking.length > 0 ? [...ranking] : item.posts.map(p => p.id)
-      touched.value = ranking.length > 0
-      confirmArmed.value = false
-      exhausted.value = false
-      doneCount.value -= 1
-      applyAgreement(item, ranking, -1)
-      shownAt = performance.now()
-    },
-  })
-}
-
-async function submit(ranking: number[]) {
-  const item = current.value
-  if (!item || submitting.value) {
-    return
-  }
-  submitting.value = true
-  const elapsedMs = Math.round(performance.now() - shownAt)
-  try {
+function submit(ranking: number[]) {
+  return stream.submitCurrent(async (item) => {
+    const elapsedMs = stream.elapsedMs()
     const ids = await postRanking(item, ranking, elapsedMs)
-    advancePast()
+    stream.advance()
     noteInHistory(item, ranking, ids)
     applyAgreement(item, ranking, 1)
-    recordRanking(item, ranking, elapsedMs, ids)
-  }
-  catch (error) {
-    handleAPIError(error, t('annotate.error.submit'))
-  }
-  finally {
-    submitting.value = false
-  }
+    // 与 pairwise 相同的撤销契约：真删事件行（误排会直接进训练导出），再把组塞回屏幕。
+    const judgedIn = dimension.value
+    stream.pushUndoable({
+      item,
+      ids,
+      label: t(ranking.length > 0 ? 'annotate.listwise.rankGroup' : 'annotate.listwise.skipGroup'),
+      redo: async () => {
+        const again = await postRanking(item, ranking, elapsedMs)
+        stream.advance()
+        noteInHistory(item, ranking, again)
+        applyAgreement(item, ranking, 1)
+        return again
+      },
+      stillHere: () => dimension.value === judgedIn,
+      onRevert: () => {
+        order.value = ranking.length > 0 ? [...ranking] : item.posts.map(p => p.id)
+        touched.value = ranking.length > 0
+        confirmArmed.value = false
+        applyAgreement(item, ranking, -1)
+      },
+    })
+  }, error => handleAPIError(error, t('annotate.error.submit')))
 }
 
 // ── Keyboard ────────────────────────────────────────────────────────────────
@@ -420,7 +335,11 @@ async function submit(ranking: number[]) {
 // the Submit button); from anywhere else plain Enter still submits.
 const root = useTemplateRef<HTMLElement>('root')
 const row = useTemplateRef<HTMLElement>('row')
-const notForeign = (e: KeyboardEvent) => isForeignComposite(e.target, root.value)
+const { notForeign } = useAnnotationSessionFrame({
+  root,
+  onEscape: () => emit('exit'),
+  finished: () => exhausted.value && !current.value,
+})
 const helpId = useId()
 
 useRovingFocus({ container: row, itemSelector: '[data-sort-card]', orientation: 'horizontal', pageSize: false })
@@ -531,7 +450,6 @@ const canAct = () => noLayerOpen() && !!current.value
 useHotkey('Enter', trySubmit, { when: canAct, ignore: notForeign, repeat: false })
 useHotkey('Mod+Enter', trySubmit, { when: canAct, allowInWidgets: true, ignore: notForeign, repeat: false })
 useHotkey('Space', skipGroup, { when: canAct, ignore: notForeign, repeat: false })
-useHotkey('Escape', () => emit('exit'), { when: noLayerOpen, allowInWidgets: true, ignore: notForeign })
 
 // ── Lightbox: a modal dialog on the layer stack ─────────────────────────────
 const lightboxEl = useTemplateRef<HTMLElement>('lightboxEl')
@@ -547,14 +465,6 @@ const lightboxActive = () => lightboxOpen.value && lightboxOnTop.value
 useHotkey(['ArrowLeft', 'ArrowRight'], e => lightboxStep(e.key === 'ArrowLeft' ? -1 : 1), { when: lightboxActive, allowInWidgets: true })
 // Enter on the dialog itself closes it (as before); on a focused button it clicks it.
 useHotkey('Enter', closeLightbox, { when: lightboxActive, repeat: false })
-
-// The launcher that started the session is gone; keep focus off <body>.
-onMounted(() => {
-  const active = document.activeElement
-  if (!active || active === document.body) {
-    focusElement(root.value, { preventScroll: true })
-  }
-})
 
 // 组变化时重置行序为呈现顺序；undo 已按提交序恢复过的组（成员集相同）不重置。
 watch(current, (cur) => {
@@ -581,27 +491,15 @@ watch(current, (cur) => {
 })
 
 watch(() => [props.queue?.id, props.dimension] as const, () => {
-  buffer.value = []
   order.value = []
   touched.value = false
   confirmArmed.value = false
-  seenKeys.clear()
-  emptyStreak = 0
-  exhausted.value = false
-  doneCount.value = props.queue?.done ?? 0
   agreeOk.value = 0
   agreeTotal.value = 0
-  shownAt = performance.now()
-  refill()
+  stream.reset()
 }, { immediate: true })
 
 const title = computed(() => props.queue?.name ?? t('annotate.listwise.streamTitle'))
-
-watch(() => exhausted.value && !current.value, (done) => {
-  if (done) {
-    announce(t('annotate.session.exhaustedAnnounce'))
-  }
-})
 
 const hints = computed(() => [
   { keys: [t('annotate.keys.drag')], label: t('annotate.keys.reorder') },

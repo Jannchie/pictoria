@@ -1,13 +1,13 @@
 import type { MaybeRefOrGetter, Ref } from 'vue'
-import type { RovingFocus } from '@/composables/useRovingFocus'
 import type { CountKind } from '@/shared'
 import type { ScorerUi } from '@/shared/scorers'
+import type { RovingFocus } from '@/ui/useRovingFocus'
 import { keepPreviousData, useQuery } from '@tanstack/vue-query'
 import { useMutationObserver } from '@vueuse/core'
 import { computed, ref, toValue } from 'vue'
-import { useRovingFocus } from '@/composables/useRovingFocus'
 import { formatNumber } from '@/locale'
 import { postFilter, queryKeys } from '@/shared'
+import { useRovingFocus } from '@/ui/useRovingFocus'
 
 /**
  * Shared behaviour behind the gallery's faceted filters (rating / score /

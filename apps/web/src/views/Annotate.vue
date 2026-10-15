@@ -2,23 +2,25 @@
 import type { QueueSummaryPublic } from '@/api'
 import type { StreamConfig } from '@/components/annotate/AbsoluteAnnotationSession.vue'
 import type { AbsoluteStrategy, AnnotationDimension, AnnotationScale, PairwiseStrategy, QueueKind } from '@/shared/annotationTypes'
-import { useQuery } from '@tanstack/vue-query'
+import { useQuery, useQueryClient } from '@tanstack/vue-query'
 import { computed, nextTick, ref, useId, useTemplateRef } from 'vue'
 import { useI18n } from 'vue-i18n'
-import { v2GenerateAbsolute, v2GenerateListwise, v2GeneratePairwise, v2ListQueues } from '@/api'
+import { v2ListQueues } from '@/api'
 import AbsoluteAnnotationSession from '@/components/annotate/AbsoluteAnnotationSession.vue'
 import ListwiseAnnotationSession from '@/components/annotate/ListwiseAnnotationSession.vue'
 import PairwiseAnnotationSession from '@/components/annotate/PairwiseAnnotationSession.vue'
 import { useAPIError } from '@/composables/useAPIError'
-import { useRovingFocus } from '@/composables/useRovingFocus'
 import { formatNumber } from '@/locale'
 import { DIMENSION_META, dimensionMeta } from '@/shared/annotationTypes'
+import { generateAbsoluteQueue, generateListwiseQueue, generatePairwiseQueue } from '@/shared/mutations'
 import { queryKeys } from '@/shared/queryKeys'
 import { PSwitch } from '@/ui'
+import { useRovingFocus } from '@/ui/useRovingFocus'
 import { focusElement } from '@/utils/focus'
 
 const { handle: handleAPIError } = useAPIError()
 const { t } = useI18n()
+const queryClient = useQueryClient()
 
 type Session
   = | { mode: 'queue', queue: QueueSummaryPublic }
@@ -160,23 +162,17 @@ async function generateQueue() {
   }
   generating.value = true
   try {
+    // Each generator refetches the queue list before resolving.
     await (form.value.kind === 'absolute'
-      ? v2GenerateAbsolute({
-          body: {
-            dimensions: DIMENSIONS.map(d => d.key).filter(k => form.value.dimensions.includes(k)),
-            scale: form.value.scale,
-            count: queueCount.value,
-            strategy: form.value.strategy,
-          },
+      ? generateAbsoluteQueue(queryClient, {
+          dimensions: DIMENSIONS.map(d => d.key).filter(k => form.value.dimensions.includes(k)),
+          scale: form.value.scale,
+          count: queueCount.value,
+          strategy: form.value.strategy,
         })
       : form.value.kind === 'listwise'
-        ? v2GenerateListwise({
-            body: { dimension: PAIRWISE_DIMENSION, count: queueCount.value, size: form.value.listwiseSize },
-          })
-        : v2GeneratePairwise({
-            body: { dimension: PAIRWISE_DIMENSION, count: queueCount.value, strategy: form.value.pairwiseStrategy },
-          }))
-    await refetch()
+        ? generateListwiseQueue(queryClient, { dimension: PAIRWISE_DIMENSION, count: queueCount.value, size: form.value.listwiseSize })
+        : generatePairwiseQueue(queryClient, { dimension: PAIRWISE_DIMENSION, count: queueCount.value, strategy: form.value.pairwiseStrategy }))
   }
   catch (error) {
     handleAPIError(error, t('annotate.error.generateQueue'))

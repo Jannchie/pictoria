@@ -174,12 +174,7 @@ export function patchPostsInListCache(
     return
   }
   queryClient.setQueriesData<{ pages: (PostSimplePublic[] | undefined)[], pageParams: unknown[] }>(
-    {
-      predicate: (q) => {
-        const k = q.queryKey
-        return Array.isArray(k) && k[0] === 'posts' && typeof k[1] === 'object' && k[1] !== null
-      },
-    },
+    { predicate: q => queryKeys.match.postList(q.queryKey) },
     (old) => {
       if (!old || !Array.isArray(old.pages)) {
         return old

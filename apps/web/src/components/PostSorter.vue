@@ -2,8 +2,8 @@
 import { computed, ref, useId, useTemplateRef } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { activateOptionOnKey } from '@/composables/useFacetFilter'
-import { useRovingFocus } from '@/composables/useRovingFocus'
 import { postSort, postSortColor, postSortOrder, textSearchQuery } from '@/shared'
+import { useRovingFocus } from '@/ui/useRovingFocus'
 
 const { t } = useI18n()
 

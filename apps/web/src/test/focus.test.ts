@@ -1,7 +1,7 @@
 // @vitest-environment happy-dom
 import { describe, expect, it } from 'vitest'
 import { effectScope, nextTick, ref } from 'vue'
-import { useFocusReturn, useFocusTrap } from '@/composables/useFocusTrap'
+import { useFocusReturn, useFocusTrap } from '@/ui/useFocusTrap'
 import { focusElement, focusFirst, getFocusable } from '@/utils/focus'
 
 function byId(id: string): HTMLElement {

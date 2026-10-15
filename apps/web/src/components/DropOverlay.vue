@@ -2,10 +2,9 @@
 import { useQueryClient } from '@tanstack/vue-query'
 import { useI18n } from 'vue-i18n'
 import { useRoute } from 'vue-router'
-import { v2UploadFile } from '@/api'
 import { useAPIError } from '@/composables/useAPIError'
 import { announce } from '@/shared/announce'
-import { queryKeys } from '@/shared/queryKeys'
+import { uploadFile } from '@/shared/mutations'
 
 const { t } = useI18n()
 const { handle: handleAPIError } = useAPIError()
@@ -20,15 +19,8 @@ let savedCount = 0
 
 async function onUploadFile(file: File, path: string | null, source?: string) {
   try {
-    await v2UploadFile({
-      body: {
-        file,
-        path,
-        source,
-      },
-    })
+    await uploadFile(queryClient, { file, path, source })
     savedCount++
-    queryClient.invalidateQueries({ queryKey: queryKeys.postsRoot })
   }
   catch (error) {
     handleAPIError(error, t('error.uploadFailed'))

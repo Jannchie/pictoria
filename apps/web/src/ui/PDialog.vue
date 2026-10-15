@@ -1,9 +1,9 @@
 <script setup lang="ts">
 import { computed, useId, useSlots, useTemplateRef } from 'vue'
-import { useFocusTrap } from '@/composables/useFocusTrap'
-import { useHotkey } from '@/composables/useHotkey'
-import { useLayer } from '@/shared/layers'
 import { isWidgetTarget } from '@/utils/keyboard'
+import { useLayer } from './layers'
+import { useFocusTrap } from './useFocusTrap'
+import { useHotkey } from './useHotkey'
 
 // Modal dialog (APG "dialog (modal)" / "alertdialog" for variant=danger).
 //

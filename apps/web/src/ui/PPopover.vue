@@ -1,8 +1,8 @@
 <script setup lang="ts">
 import { autoUpdate, flip, offset as offsetMw, shift, useFloating } from '@floating-ui/vue'
 import { computed, nextTick, onMounted, ref, useId, useTemplateRef, watch } from 'vue'
-import { useLayer } from '@/shared/layers'
 import { focusElement, getFocusable } from '@/utils/focus'
+import { useLayer } from './layers'
 import { nextInOrder } from './overlay'
 import PTooltip from './PTooltip.vue'
 

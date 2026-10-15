@@ -4,9 +4,7 @@ import type { GridCell, GridDirection, GridRect } from '@/utils/gridGeometry'
 import { useDebounceFn, useEventListener, usePreferredReducedMotion } from '@vueuse/core'
 import { computed, provide, reactive, ref, toValue, watch, watchEffect } from 'vue'
 import { useI18n } from 'vue-i18n'
-import { handleHotkey } from '@/composables/useHotkey'
 import { announce } from '@/shared/announce'
-import { layerCount } from '@/shared/layers'
 import {
   clear as clearSelection,
   extendToGridCursor,
@@ -22,6 +20,8 @@ import {
   toggleGridCursor,
 } from '@/shared/selection'
 import { shortcuts } from '@/shared/shortcuts'
+import { layerCount } from '@/ui/layers'
+import { handleHotkey } from '@/ui/useHotkey'
 import { findGridNeighbor, findPageTarget, firstVisibleIndex, revealScrollTop } from '@/utils/gridGeometry'
 
 /**
@@ -142,6 +142,17 @@ const KEYS = shortcuts.gallery
 const TOGGLE_KEYS = [...KEYS.toggle.keys, 'Ctrl+Space']
 const DELETE_KEYS = KEYS.deleteSelected.keys
 const MENU_KEYS = KEYS.contextMenu.keys
+/**
+ * Every shortcut `handleOutsideKey` can act on. A page binds these with one
+ * `useHotkey` (`preventDefault: false`) and forwards to `handleOutsideKey`,
+ * which applies the per-key rules and prevents the default only when it acts.
+ */
+export const GRID_OUTSIDE_SHORTCUTS: readonly string[] = [
+  ...OUTSIDE_NAV.map(([shortcut]) => shortcut),
+  ...KEYS.openPost.keys,
+  ...KEYS.selectAll.keys,
+  ...DELETE_KEYS,
+]
 const REVEAL_MARGIN = 16
 
 /** Container top in the scroller's content coordinates. */

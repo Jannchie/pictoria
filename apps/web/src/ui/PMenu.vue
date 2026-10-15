@@ -2,13 +2,13 @@
 import type { VirtualElement } from '@floating-ui/vue'
 import { autoUpdate, flip, offset as offsetMw, shift, useFloating } from '@floating-ui/vue'
 import { computed, nextTick, onMounted, shallowRef, useId, useTemplateRef, watch } from 'vue'
-import { useFocusReturn } from '@/composables/useFocusTrap'
-import { useRovingFocus } from '@/composables/useRovingFocus'
-import { useLayer } from '@/shared/layers'
 import { focusElement, getFocusable } from '@/utils/focus'
 import { matchesShortcut } from '@/utils/keyboard'
 import { lastInputWasKeyboard, trackInputModality } from './inputModality'
+import { useLayer } from './layers'
 import { clipRectToViewport, groupMenuItems, isKeyboardContextMenu } from './overlay'
+import { useFocusReturn } from './useFocusTrap'
+import { useRovingFocus } from './useRovingFocus'
 
 // Context / click menu (APG "menu").
 //

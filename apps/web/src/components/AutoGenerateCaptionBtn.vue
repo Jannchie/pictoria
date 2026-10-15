@@ -2,9 +2,8 @@
 import { useMutation, useQueryClient } from '@tanstack/vue-query'
 import { computed } from 'vue'
 import { useI18n } from 'vue-i18n'
-import { v2AutoCaption } from '@/api'
 import { announce } from '@/shared/announce'
-import { queryKeys } from '@/shared/queryKeys'
+import { autoCaptionPost } from '@/shared/mutations'
 
 const props = defineProps<{
   postId: number
@@ -15,13 +14,8 @@ const { t } = useI18n()
 const queryClient = useQueryClient()
 
 const mutation = useMutation({
-  mutationFn: () => {
-    return v2AutoCaption({ path: { post_id: id.value } })
-  },
+  mutationFn: () => autoCaptionPost(queryClient, id.value),
   onSuccess: () => {
-    queryClient.invalidateQueries({
-      queryKey: queryKeys.postRoot(id),
-    })
     // The result lands elsewhere in the panel; say that it did.
     announce(t('post.panel.autoCaptionDone'))
   },

@@ -9,7 +9,6 @@ export * from './announce'
 export * from './buckets'
 export * from './commandPalette'
 export * from './history'
-export * from './layers'
 export * from './mutations'
 export * from './queries'
 export * from './queryKeys'
@@ -18,3 +17,7 @@ export * from './scorers'
 export * from './selection'
 export * from './state'
 export * from './undoSnackbar'
+// The layer stack lives in the design system (`@/ui/layers`); import it from
+// there. Re-exported here only for CommandPalette.vue, which is frozen until the
+// PostFilter refactor — drop this line together with its `useLayer` import.
+export * from '@/ui/layers'

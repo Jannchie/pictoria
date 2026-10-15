@@ -11,6 +11,7 @@ declare global {
   const EffectScope: typeof import('vue').EffectScope
   const FACET_OPTION_SELECTOR: typeof import('./composables/useFacetFilter').FACET_OPTION_SELECTOR
   const GALLERY_GRID_ATTR: typeof import('./composables/useGalleryGrid').GALLERY_GRID_ATTR
+  const GRID_OUTSIDE_SHORTCUTS: typeof import('./composables/useGalleryGrid').GRID_OUTSIDE_SHORTCUTS
   const KEY_ROWS: typeof import('./composables/useAnnotationKeymap').KEY_ROWS
   const SUPPORTED_LOCALES: typeof import('./locale/index').SUPPORTED_LOCALES
   const UNCATEGORISED: typeof import('./composables/useTagTree').UNCATEGORISED
@@ -114,6 +115,7 @@ declare global {
   const prefetchPostData: typeof import('./composables/usePostPrefetch').prefetchPostData
   const preloadImage: typeof import('./composables/usePostPrefetch').preloadImage
   const provide: typeof import('vue').provide
+  const provideFolderTree: typeof import('./composables/useFolderTree').provideFolderTree
   const provideLocal: typeof import('@vueuse/core').provideLocal
   const reactify: typeof import('@vueuse/core').reactify
   const reactifyObject: typeof import('@vueuse/core').reactifyObject
@@ -166,6 +168,8 @@ declare global {
   const useAdjacentPostPrefetch: typeof import('./composables/usePostPrefetch').useAdjacentPostPrefetch
   const useAnimate: typeof import('@vueuse/core').useAnimate
   const useAnnotationReview: typeof import('./composables/useAnnotationReview').useAnnotationReview
+  const useAnnotationSessionFrame: typeof import('./composables/useAnnotationStream').useAnnotationSessionFrame
+  const useAnnotationStream: typeof import('./composables/useAnnotationStream').useAnnotationStream
   const useArrayDifference: typeof import('@vueuse/core').useArrayDifference
   const useArrayEvery: typeof import('@vueuse/core').useArrayEvery
   const useArrayFilter: typeof import('@vueuse/core').useArrayFilter
@@ -233,10 +237,11 @@ declare global {
   const useFileDialog: typeof import('@vueuse/core').useFileDialog
   const useFileSystemAccess: typeof import('@vueuse/core').useFileSystemAccess
   const useFocus: typeof import('@vueuse/core').useFocus
-  const useFocusReturn: typeof import('./composables/useFocusTrap').useFocusReturn
-  const useFocusTrap: typeof import('./composables/useFocusTrap').useFocusTrap
+  const useFocusReturn: typeof import('./ui/useFocusTrap').useFocusReturn
+  const useFocusTrap: typeof import('./ui/useFocusTrap').useFocusTrap
   const useFocusWithin: typeof import('@vueuse/core').useFocusWithin
   const useFocusedPost: typeof import('./composables/useFocusedPost').useFocusedPost
+  const useFolderTree: typeof import('./composables/useFolderTree').useFolderTree
   const useFps: typeof import('@vueuse/core').useFps
   const useFullscreen: typeof import('@vueuse/core').useFullscreen
   const useGalleryGrid: typeof import('./composables/useGalleryGrid').useGalleryGrid
@@ -392,23 +397,26 @@ declare global {
   export type { KeyChoice, ChoiceBinding, SortableIntent } from './composables/useAnnotationKeymap'
   import('./composables/useAnnotationKeymap')
   // @ts-ignore
+  export type { StreamItem, AnnotationKind, AnnotationStreamOptions, UndoableJudgement, AnnotationStream } from './composables/useAnnotationStream'
+  import('./composables/useAnnotationStream')
+  // @ts-ignore
   export type { UseElementOffsetOptions, UseElementBoundingReturn } from './composables/useElementOffset'
   import('./composables/useElementOffset')
   // @ts-ignore
   export type { PostFilterValue } from './composables/useFacetFilter'
   import('./composables/useFacetFilter')
   // @ts-ignore
-  export type { FocusReturnOptions, FocusTrapOptions } from './composables/useFocusTrap'
-  import('./composables/useFocusTrap')
+  export type { FocusReturnOptions, FocusTrapOptions } from './ui/useFocusTrap'
+  import('./ui/useFocusTrap')
   // @ts-ignore
   export type { FocusMode } from './composables/useFocusedPost'
   import('./composables/useFocusedPost')
   // @ts-ignore
+  export type { FolderTreeState } from './composables/useFolderTree'
+  import('./composables/useFolderTree')
+  // @ts-ignore
   export type { GalleryGridContext, UseGalleryGridOptions, GalleryGrid } from './composables/useGalleryGrid'
   import('./composables/useGalleryGrid')
-  // @ts-ignore
-  export type { HotkeyOptions } from './composables/useHotkey'
-  import('./composables/useHotkey')
   // @ts-ignore
   export type { KeyScope, KeyScopeInputs, ScoreScope } from './composables/useKeyScope'
   import('./composables/useKeyScope')
@@ -419,17 +427,8 @@ declare global {
   export type { GroupEvidenceItem } from './composables/usePostGroupEvidenceQuery'
   import('./composables/usePostGroupEvidenceQuery')
   // @ts-ignore
-  export type { RovingOrientation, UseRovingFocusOptions, RovingFocus } from './composables/useRovingFocus'
-  import('./composables/useRovingFocus')
-  // @ts-ignore
-  export type { UseRovingIndexOptions } from './composables/useRovingIndex'
-  import('./composables/useRovingIndex')
-  // @ts-ignore
   export type { TagTreeNode, TopCategoryGroup } from './composables/useTagTree'
   import('./composables/useTagTree')
-  // @ts-ignore
-  export type { UseTypeaheadOptions, Typeahead } from './composables/useTypeahead'
-  import('./composables/useTypeahead')
   // @ts-ignore
   export type { AppLocale, LocaleSetting } from './locale/index'
   import('./locale/index')

@@ -1,8 +1,8 @@
 // @vitest-environment happy-dom
-import type { LayerHandle } from '@/shared/layers'
+import type { LayerHandle } from '@/ui/layers'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { effectScope, nextTick, ref } from 'vue'
-import { hasModalLayer, isTopLayer, layerCount, pushLayer, topLayer, useLayer } from '@/shared/layers'
+import { hasModalLayer, isTopLayer, layerCount, pushLayer, topLayer, useLayer } from '@/ui/layers'
 import { isAnyDialogOpen } from '@/ui/modal'
 
 function byId(id: string): HTMLElement {

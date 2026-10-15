@@ -2,7 +2,7 @@ import type { VNode } from 'vue'
 // @vitest-environment happy-dom
 import { afterEach, describe, expect, it } from 'vitest'
 import { createApp, defineComponent, h, nextTick, ref } from 'vue'
-import { layerCount } from '@/shared/layers'
+import { layerCount } from '@/ui/layers'
 import PDialog from '@/ui/PDialog.vue'
 import PMenu from '@/ui/PMenu.vue'
 import PPopover from '@/ui/PPopover.vue'

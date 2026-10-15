@@ -2,8 +2,8 @@
 import type { Placement } from '@floating-ui/vue'
 import { autoUpdate, flip, offset as offsetMw, shift, useFloating } from '@floating-ui/vue'
 import { computed, onBeforeUnmount, onMounted, ref, useId, useSlots, useTemplateRef, watch } from 'vue'
-import { useLayer } from '@/shared/layers'
 import { getFocusable } from '@/utils/focus'
+import { useLayer } from './layers'
 
 // Tooltip (APG "tooltip" + WCAG 1.4.13 content on hover or focus).
 //

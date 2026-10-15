@@ -1,7 +1,7 @@
 // @vitest-environment happy-dom
 import { describe, expect, it, vi } from 'vitest'
 import { effectScope } from 'vue'
-import { handleHotkey, shouldHandleHotkey, useHotkey } from '@/composables/useHotkey'
+import { handleHotkey, shouldHandleHotkey, useHotkey } from '@/ui/useHotkey'
 import {
   detectMac,
   formatShortcut,

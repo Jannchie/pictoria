@@ -1,18 +1,18 @@
 <script setup lang="ts">
 import type { PostDetailPublic, PostHasTagPublic } from '@/api'
+import type { ScorerKind } from '@/shared'
 import { useQueryClient } from '@tanstack/vue-query'
 import { filesize } from 'filesize'
 import { useId } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useRouter } from 'vue-router'
-import { v2GetSilvaLunaScorerOne, v2GetSilvaScorerOne, v2GetWaifuScorerOne } from '@/api'
 import { useAPIError } from '@/composables/useAPIError'
 import { useScoreHotkeys } from '@/composables/useKeyScope'
 import { usePostGroupEvidenceQuery } from '@/composables/usePostGroupEvidenceQuery'
 import { usePostGroupQuery } from '@/composables/usePostGroupQuery'
 import { UNCATEGORISED, useTopCategoryGrouper } from '@/composables/useTagTree'
 import { formatDateTime } from '@/locale'
-import { announce, commitCaption, commitRating, commitScore, commitSource, hideNSFW, makePostCanonical, markPostsDifferent, openTagSelectorWindow, queryKeys, RATING_LEVEL_COLORS, RATING_LEVEL_ICONS, showPostDetail, ungroupPost } from '@/shared'
+import { announce, commitCaption, commitRating, commitScore, commitSource, computeScore, hideNSFW, makePostCanonical, markPostsDifferent, openTagSelectorWindow, RATING_LEVEL_COLORS, RATING_LEVEL_ICONS, showPostDetail, ungroupPost } from '@/shared'
 import { getPostThumbnailURL, isImageExtension } from '@/utils'
 import { colorNumToHex, labToRgbaString } from '@/utils/color'
 
@@ -138,30 +138,6 @@ const tagsHeadingId = `${uid}-tags`
 const ratingLabelId = `${uid}-rating`
 const scoreLabelId = `${uid}-score`
 
-const isCalculatingWaifuScore = ref(false)
-
-async function calculateWaifuScore() {
-  if (isCalculatingWaifuScore.value) {
-    return
-  }
-
-  isCalculatingWaifuScore.value = true
-  try {
-    await v2GetWaifuScorerOne({
-      path: {
-        post_id: post.value.id,
-      },
-    })
-    queryClient.invalidateQueries({ queryKey: queryKeys.postRoot(post.value.id) })
-  }
-  catch (error) {
-    handleAPIError(error, t('error.waifuComputeFailed'))
-  }
-  finally {
-    isCalculatingWaifuScore.value = false
-  }
-}
-
 const SILVA_SCORER = 'silva'
 const SILVA_LUNA_SCORER = 'silva_luna'
 const silvaScore = computed(
@@ -170,50 +146,28 @@ const silvaScore = computed(
 const silvaLunaScore = computed(
   () => post.value.aestheticScores?.find(s => s.scorer === SILVA_LUNA_SCORER)?.score,
 )
-const isCalculatingSilvaScore = ref(false)
-const isCalculatingSilvaLunaScore = ref(false)
 
-async function calculateSilvaScore() {
-  if (isCalculatingSilvaScore.value) {
-    return
-  }
-
-  isCalculatingSilvaScore.value = true
-  try {
-    await v2GetSilvaScorerOne({
-      path: {
-        post_id: post.value.id,
-      },
-    })
-    queryClient.invalidateQueries({ queryKey: queryKeys.postRoot(post.value.id) })
-  }
-  catch (error) {
-    handleAPIError(error, t('error.silvaComputeFailed'))
-  }
-  finally {
-    isCalculatingSilvaScore.value = false
-  }
+// One in-flight flag per scorer, so the three buttons spin independently.
+const computing = ref<Record<ScorerKind, boolean>>({ waifu: false, silva: false, silvaLuna: false })
+const COMPUTE_FAILED_KEYS: Record<ScorerKind, string> = {
+  waifu: 'error.waifuComputeFailed',
+  silva: 'error.silvaComputeFailed',
+  silvaLuna: 'error.silvaLunaComputeFailed',
 }
 
-async function calculateSilvaLunaScore() {
-  if (isCalculatingSilvaLunaScore.value) {
+async function onComputeScore(kind: ScorerKind) {
+  if (computing.value[kind]) {
     return
   }
-
-  isCalculatingSilvaLunaScore.value = true
+  computing.value[kind] = true
   try {
-    await v2GetSilvaLunaScorerOne({
-      path: {
-        post_id: post.value.id,
-      },
-    })
-    queryClient.invalidateQueries({ queryKey: queryKeys.postRoot(post.value.id) })
+    await computeScore(queryClient, kind, post.value.id)
   }
   catch (error) {
-    handleAPIError(error, t('error.silvaLunaComputeFailed'))
+    handleAPIError(error, t(COMPUTE_FAILED_KEYS[kind]))
   }
   finally {
-    isCalculatingSilvaLunaScore.value = false
+    computing.value[kind] = false
   }
 }
 
@@ -324,10 +278,10 @@ const sectionTitleClass
               <PButton
                 size="sm"
                 variant="subtle"
-                :loading="isCalculatingWaifuScore"
-                @click="calculateWaifuScore"
+                :loading="computing.waifu"
+                @click="onComputeScore('waifu')"
               >
-                {{ isCalculatingWaifuScore ? $t('common.computing') : $t('common.compute') }}
+                {{ computing.waifu ? $t('common.computing') : $t('common.compute') }}
               </PButton>
             </template>
           </div>
@@ -340,10 +294,10 @@ const sectionTitleClass
               <PButton
                 size="sm"
                 variant="subtle"
-                :loading="isCalculatingSilvaScore"
-                @click="calculateSilvaScore"
+                :loading="computing.silva"
+                @click="onComputeScore('silva')"
               >
-                {{ isCalculatingSilvaScore ? $t('common.computing') : $t('common.compute') }}
+                {{ computing.silva ? $t('common.computing') : $t('common.compute') }}
               </PButton>
             </template>
           </div>
@@ -356,10 +310,10 @@ const sectionTitleClass
               <PButton
                 size="sm"
                 variant="subtle"
-                :loading="isCalculatingSilvaLunaScore"
-                @click="calculateSilvaLunaScore"
+                :loading="computing.silvaLuna"
+                @click="onComputeScore('silvaLuna')"
               >
-                {{ isCalculatingSilvaLunaScore ? $t('common.computing') : $t('common.compute') }}
+                {{ computing.silvaLuna ? $t('common.computing') : $t('common.compute') }}
               </PButton>
             </template>
           </div>

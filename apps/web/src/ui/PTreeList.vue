@@ -4,9 +4,9 @@ import type { FlatTreeRow, TreeListCollapseData, TreeListHeaderData, TreeListIte
 import { useVirtualList } from '@vueuse/core'
 import { computed, defineComponent, nextTick, onBeforeUpdate, onUpdated, ref, watch, watchEffect } from 'vue'
 import { useI18n } from 'vue-i18n'
-import { isTypeaheadKey, matchTypeahead, useTypeahead } from '@/composables/useTypeahead'
 import { formatNumber } from '@/locale'
 import { flattenTree, hasChildren, isFocusableRow, resolveTreeKey } from './treeListModel'
+import { isTypeaheadKey, matchTypeahead, useTypeahead } from './useTypeahead'
 
 export type { TreeListCollapseData, TreeListHeaderData, TreeListItemData, TreeListLeafData } from './treeListModel'
 

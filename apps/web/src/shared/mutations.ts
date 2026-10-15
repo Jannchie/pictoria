@@ -1,26 +1,55 @@
 import type { QueryClient } from '@tanstack/vue-query'
 import type { UndoableCommand } from './history'
+import type {
+  V2EditAnnotationData,
+  V2GenerateAbsoluteData,
+  V2GenerateListwiseData,
+  V2GeneratePairwiseData,
+  V2SubmitAbsoluteData,
+  V2SubmitContentFlagData,
+  V2SubmitListwiseData,
+  V2SubmitPairwiseData,
+  V2UndoAnnotationsData,
+  V2UploadFileData,
+} from '@/api'
 import {
   v2AddTagToPost,
+  v2AutoCaption,
+  v2AutoTags,
   v2BulkUpdatePostRating,
   v2BulkUpdatePostScore,
   v2DeleteFolder,
   v2DeletePosts,
+  v2EditAnnotation,
+  v2GenerateAbsolute,
+  v2GenerateListwise,
+  v2GeneratePairwise,
+  v2GetSilvaLunaScorerOne,
+  v2GetSilvaScorerOne,
+  v2GetWaifuScorerOne,
   v2GroupPostsTogether,
+  v2ImportFromUrlEndpoint,
   v2MakePostCanonical,
   v2MarkPostsDifferent,
   v2RemoveTagFromPost,
   v2RotatePostImage,
+  v2SubmitAbsolute,
+  v2SubmitContentFlag,
+  v2SubmitListwise,
+  v2SubmitPairwise,
+  v2TouchPost,
+  v2UndoAnnotations,
   v2UngroupPost,
   v2UpdatePostCaption,
   v2UpdatePostRating,
   v2UpdatePostScore,
   v2UpdatePostSource,
+  v2UploadFile,
 } from '@/api'
 import { i18n } from '@/locale'
 import { pushCommand } from './history'
 import { patchPostsInListCache } from './queries'
-import { queryKeys } from './queryKeys'
+import { COUNT_KINDS, queryKeys } from './queryKeys'
 import { postSort } from './state'
 import { notifyDid } from './undoSnackbar'
 
@@ -104,12 +133,7 @@ async function inBatches(ids: number[], run: (chunk: number[]) => Promise<unknow
 function patchPostDetailCaches(qc: QueryClient, ids: number[], patch: Record<string, unknown>): void {
   const idSet = new Set(ids)
   qc.setQueriesData<Record<string, unknown>>(
-    {
-      predicate: (q) => {
-        const k = q.queryKey
-        return Array.isArray(k) && k[0] === 'post' && typeof k[1] === 'number' && idSet.has(k[1])
-      },
-    },
+    { predicate: q => queryKeys.match.post(q.queryKey, idSet) },
     old => (old ? { ...old, ...patch } : old),
   )
 }
@@ -140,23 +164,16 @@ async function writeScore(qc: QueryClient, ids: number[], score: number): Promis
     throw error
   }
   const idSet = new Set(ids)
+  const { match } = queryKeys
   qc.invalidateQueries({
-    predicate: (q) => {
-      const k = q.queryKey
-      if (!Array.isArray(k)) {
-        return false
-      }
-      if (k[0] === 'count' && k[1] === 'score') {
-        return true
-      }
-      if (k[0] === 'posts' && k[1] === 'stats') {
-        return true
-      }
+    predicate: ({ queryKey: k }) =>
+      match.count(k, 'score')
+      || match.postsStats(k)
       // Scoring a canonical mirrors the score onto its hidden group members
       // (server-side), so refresh both the post detail and the "same group"
       // member panel (postGroup) for every scored id.
-      return (k[0] === 'post' || k[0] === 'postGroup') && typeof k[1] === 'number' && idSet.has(k[1])
-    },
+      || match.post(k, idSet)
+      || match.postGroup(k, idSet),
   })
 }
 
@@ -177,20 +194,9 @@ async function writeRating(qc: QueryClient, ids: number[], rating: number): Prom
     throw error
   }
   const idSet = new Set(ids)
+  const { match } = queryKeys
   qc.invalidateQueries({
-    predicate: (q) => {
-      const k = q.queryKey
-      if (!Array.isArray(k)) {
-        return false
-      }
-      if (k[0] === 'count' && k[1] === 'rating') {
-        return true
-      }
-      if (k[0] === 'posts' && k[1] === 'stats') {
-        return true
-      }
-      return k[0] === 'post' && typeof k[1] === 'number' && idSet.has(k[1])
-    },
+    predicate: ({ queryKey: k }) => match.count(k, 'rating') || match.postsStats(k) || match.post(k, idSet),
   })
 }
 
@@ -238,6 +244,28 @@ async function writeRotate(qc: QueryClient, ids: number[], clockwise: boolean): 
   qc.invalidateQueries({ queryKey: queryKeys.postsRoot })
 }
 
+// ---- 聚合失效：计数 / 统计 ----
+
+/**
+ * Invalidate every aggregate that summarises "which posts exist": each facet
+ * count kind (driven off `COUNT_KINDS`, so a new kind can't be forgotten here
+ * the way waifu / silva / silvaLuna were), TagFilter's `tags-total`
+ * denominator, the footer stats and the special-path post counts. Count
+ * queries are popover-gated, so this mostly marks them stale rather than
+ * refetching. `folders` also refreshes the sidebar tree's per-folder numbers.
+ */
+export function invalidateAggregates(qc: QueryClient, opts: { folders?: boolean } = {}): void {
+  for (const kind of COUNT_KINDS) {
+    qc.invalidateQueries({ queryKey: queryKeys.countRoot(kind) })
+  }
+  qc.invalidateQueries({ queryKey: queryKeys.tagsTotalCountRoot })
+  qc.invalidateQueries({ queryKey: queryKeys.postsStatsRoot })
+  qc.invalidateQueries({ queryKey: queryKeys.postCount })
+  if (opts.folders) {
+    qc.invalidateQueries({ queryKey: queryKeys.folders })
+  }
+}
+
 // ---- 删除：从所有列表缓存剔除 + 刷新计数 ----
 
 // A PostSimplePublic list lives in the cache under two shapes: the gallery's
@@ -271,18 +299,9 @@ function removeDeletedPostsFromCaches(qc: QueryClient, ids: number[]): void {
   const idSet = new Set(ids)
   qc.setQueriesData<unknown>(
     {
-      predicate: (q) => {
-        const k = q.queryKey
-        if (!Array.isArray(k)) {
-          return false
-        }
-        // gallery infinite list ['posts', <body object>]; exclude ['posts','stats',…]
-        if (k[0] === 'posts') {
-          return typeof k[1] === 'object' && k[1] !== null
-        }
-        // flat-array post lists keyed off their own prefixes
-        return k[0] === 'textSearch' || k[0] === 'similarPosts' || k[0] === 'postGroup'
-      },
+      // gallery infinite list ['posts', <body object>] (not ['posts','stats',…]),
+      // plus the flat-array post lists keyed off their own prefixes
+      predicate: ({ queryKey: k }) => queryKeys.match.postList(k) || queryKeys.match.flatPostList(k),
     },
     (old: unknown) => removePostsFromCacheEntry(old, idSet),
   )
@@ -301,15 +320,9 @@ export async function deletePosts(qc: QueryClient, ids: number[]): Promise<void>
   }
   await inBatches(ids, chunk => v2DeletePosts({ query: { ids: chunk } }))
   removeDeletedPostsFromCaches(qc, ids)
-  qc.invalidateQueries({ queryKey: queryKeys.countRoot('score') })
-  qc.invalidateQueries({ queryKey: queryKeys.countRoot('rating') })
-  qc.invalidateQueries({ queryKey: queryKeys.countRoot('extension') })
-  qc.invalidateQueries({ queryKey: queryKeys.countRoot('tags') })
-  qc.invalidateQueries({ queryKey: queryKeys.postsStatsRoot })
   // The sidebar folder tree's per-folder counts/averages come from the folders
-  // query (staleTime 1h) — without this it kept showing pre-delete numbers.
-  qc.invalidateQueries({ queryKey: queryKeys.folders })
-  qc.invalidateQueries({ queryKey: queryKeys.postCount })
+  // query (staleTime 1h) — without `folders` it kept showing pre-delete numbers.
+  invalidateAggregates(qc, { folders: true })
 }
 
 /** Delete a library folder (its posts, files and the directory tree). Not undoable. */
@@ -317,14 +330,8 @@ export async function deleteFolder(qc: QueryClient, folder: string): Promise<voi
   await v2DeleteFolder({ path: { folder_path: folder } })
   // A whole subtree of posts disappeared — refresh the tree, every post list
   // and all the facet/stat counts (we don't know which ids were inside).
-  qc.invalidateQueries({ queryKey: queryKeys.folders })
   qc.invalidateQueries({ queryKey: queryKeys.postsRoot })
-  qc.invalidateQueries({ queryKey: queryKeys.countRoot('score') })
-  qc.invalidateQueries({ queryKey: queryKeys.countRoot('rating') })
-  qc.invalidateQueries({ queryKey: queryKeys.countRoot('extension') })
-  qc.invalidateQueries({ queryKey: queryKeys.countRoot('tags') })
-  qc.invalidateQueries({ queryKey: queryKeys.postsStatsRoot })
-  qc.invalidateQueries({ queryKey: queryKeys.postCount })
+  invalidateAggregates(qc, { folders: true })
 }
 
 // Near-duplicate grouping edits shift which posts are canonical/visible, so they
@@ -334,13 +341,9 @@ export async function deleteFolder(qc: QueryClient, folder: string): Promise<voi
 // which sibling ids moved).
 function invalidateGrouping(qc: QueryClient): void {
   qc.invalidateQueries({ queryKey: queryKeys.postsRoot })
-  qc.invalidateQueries({ queryKey: queryKeys.postsStatsRoot })
-  qc.invalidateQueries({ queryKey: queryKeys.countRoot('tags') })
+  invalidateAggregates(qc)
   qc.invalidateQueries({
-    predicate: (q) => {
-      const k = q.queryKey
-      return Array.isArray(k) && (k[0] === 'post' || k[0] === 'postGroup')
-    },
+    predicate: ({ queryKey: k }) => queryKeys.match.post(k) || queryKeys.match.postGroup(k),
   })
 }
 
@@ -495,4 +498,176 @@ export async function commitRotate(
     apply: () => run(clockwise),
     revert: () => run(!clockwise),
   })
+}
+
+// ---- 单帖的服务端计算：打分器 / 自动标签 / 自动描述 ----
+
+/** The per-post scorers the detail panel can run on demand; each is also a facet `CountKind`. */
+export type ScorerKind = 'waifu' | 'silva' | 'silvaLuna'
+
+function scorerEndpoint(kind: ScorerKind) {
+  switch (kind) {
+    case 'waifu': { return v2GetWaifuScorerOne
+    }
+    case 'silva': { return v2GetSilvaScorerOne
+    }
+    case 'silvaLuna': { return v2GetSilvaLunaScorerOne
+    }
+  }
+}
+
+/**
+ * Run one scorer on one post (the endpoint is a GET, but it computes and
+ * persists the score). Refreshes the post detail, that scorer's facet counts
+ * and the footer stats (they carry the waifu average); the SILVA scorers also
+ * feed the sidebar folders' per-folder averages.
+ */
+export async function computeScore(qc: QueryClient, kind: ScorerKind, postId: number): Promise<void> {
+  await scorerEndpoint(kind)({ path: { post_id: postId } })
+  qc.invalidateQueries({ queryKey: queryKeys.postRoot(postId) })
+  qc.invalidateQueries({ queryKey: queryKeys.countRoot(kind) })
+  qc.invalidateQueries({ queryKey: queryKeys.postsStatsRoot })
+  if (kind !== 'waifu') {
+    qc.invalidateQueries({ queryKey: queryKeys.folders })
+  }
+}
+
+/**
+ * Auto-tag one post. New tags shift the tag catalogue's per-tag counts and the
+ * tag-facet counts, same as a manual tag edit (`writeTag`).
+ */
+export async function autoTagPost(qc: QueryClient, postId: number): Promise<void> {
+  await v2AutoTags({ path: { post_id: postId } })
+  qc.invalidateQueries({ queryKey: queryKeys.postRoot(postId) })
+  qc.invalidateQueries({ queryKey: queryKeys.tagsRoot })
+  qc.invalidateQueries({ queryKey: queryKeys.countRoot('tags') })
+}
+
+/** Auto-caption one post. */
+export async function autoCaptionPost(qc: QueryClient, postId: number): Promise<void> {
+  await v2AutoCaption({ path: { post_id: postId } })
+  qc.invalidateQueries({ queryKey: queryKeys.postRoot(postId) })
+}
+
+// ---- 入库：上传 / URL 导入 / 访问记录 ----
+
+/**
+ * Upload one file into the library. Invalidates the gallery per file, as the
+ * drop handler always has (a drop is a handful of files, and each one should
+ * show up as soon as it lands).
+ */
+export async function uploadFile(qc: QueryClient, body: V2UploadFileData['body']): Promise<void> {
+  await v2UploadFile({ body })
+  qc.invalidateQueries({ queryKey: queryKeys.postsRoot })
+}
+
+/**
+ * Start a background gallery-dl import. Only the task status is refreshed here;
+ * the folders / gallery are refreshed when that status reaches `done`
+ * (`ImportFromUrlSection` watches it).
+ */
+export async function startUrlImport(qc: QueryClient, url: string) {
+  const resp = await v2ImportFromUrlEndpoint({ query: { url } })
+  qc.invalidateQueries({ queryKey: queryKeys.urlImportStatus })
+  return resp.data
+}
+
+/**
+ * Stamp `last_accessed_at` (the Recently view's order). Fire-and-forget and
+ * deliberately invalidates nothing: it runs on every post navigation, and
+ * refetching the infinite gallery each time would re-run every loaded page.
+ */
+export async function touchPost(postId: number): Promise<void> {
+  await v2TouchPost({ path: { post_id: postId } })
+}
+
+// ---- 标注 ----
+//
+// Judgements are prepended into the session-history cache by the sessions
+// themselves (see annotationTimeline.ts — refetching that infinite query would
+// re-run every loaded page per judgement). What is invalidated here is the
+// per-post history (`queryKeys.annotations`, staleTime 30s), which otherwise
+// kept showing a post's pre-session history on its detail panel. The queue
+// list (`queryKeys.annotationQueues`) is not touched per judgement:
+// Annotate.vue refetches it when a session exits, and it is not on screen
+// while one runs.
+
+function invalidatePostAnnotations(qc: QueryClient, postIds: Iterable<number>): void {
+  for (const id of new Set(postIds)) {
+    qc.invalidateQueries({ queryKey: queryKeys.annotations(id) })
+  }
+}
+
+/** Record one pairwise judgement. Resolves to the written event ids. */
+export async function submitPairwise(qc: QueryClient, body: V2SubmitPairwiseData['body']): Promise<number[]> {
+  const resp = await v2SubmitPairwise({ body })
+  invalidatePostAnnotations(qc, [body.postA, body.postB])
+  return resp.data?.ids ?? []
+}
+
+/** Record one listwise ranking (or a skip, with an empty ranking). Resolves to the event ids. */
+export async function submitListwise(qc: QueryClient, body: V2SubmitListwiseData['body']): Promise<number[]> {
+  const resp = await v2SubmitListwise({ body })
+  invalidatePostAnnotations(qc, body.postIds)
+  return resp.data?.ids ?? []
+}
+
+/**
+ * Record absolute ratings (one event per dimension; an empty `events` only
+ * marks a queue item done). Resolves to the event ids, in `events` order.
+ */
+export async function submitAbsolute(qc: QueryClient, body: V2SubmitAbsoluteData['body']): Promise<number[]> {
+  const resp = await v2SubmitAbsolute({ body })
+  invalidatePostAnnotations(qc, body.events.map(e => e.postId))
+  return resp.data?.ids ?? []
+}
+
+/** Record a content flag (love / hate / none). Resolves to the event ids. */
+export async function submitContentFlag(qc: QueryClient, body: V2SubmitContentFlagData['body']): Promise<number[]> {
+  const resp = await v2SubmitContentFlag({ body })
+  invalidatePostAnnotations(qc, [body.postId])
+  return resp.data?.ids ?? []
+}
+
+/**
+ * Delete annotation events (the undo of a judgement) and reopen the queue item.
+ * The body carries only event ids, so the caller names the posts they were about.
+ */
+export async function undoAnnotations(
+  qc: QueryClient,
+  body: V2UndoAnnotationsData['body'],
+  postIds: Iterable<number>,
+): Promise<void> {
+  await v2UndoAnnotations({ body })
+  invalidatePostAnnotations(qc, postIds)
+}
+
+/** Correct an already-submitted record's verdict in place. */
+export async function editAnnotation(
+  qc: QueryClient,
+  kind: V2EditAnnotationData['path']['kind'],
+  annotationId: number,
+  verdict: V2EditAnnotationData['body']['verdict'],
+  postIds: Iterable<number>,
+): Promise<void> {
+  await v2EditAnnotation({ path: { kind, annotation_id: annotationId }, body: { verdict } })
+  invalidatePostAnnotations(qc, postIds)
+}
+
+/** Create a fixed absolute-rating queue; resolves once the queue list has refetched. */
+export async function generateAbsoluteQueue(qc: QueryClient, body: V2GenerateAbsoluteData['body']): Promise<void> {
+  await v2GenerateAbsolute({ body })
+  await qc.invalidateQueries({ queryKey: queryKeys.annotationQueues })
+}
+
+/** Create a fixed listwise queue; resolves once the queue list has refetched. */
+export async function generateListwiseQueue(qc: QueryClient, body: V2GenerateListwiseData['body']): Promise<void> {
+  await v2GenerateListwise({ body })
+  await qc.invalidateQueries({ queryKey: queryKeys.annotationQueues })
+}
+
+/** Create a fixed pairwise queue; resolves once the queue list has refetched. */
+export async function generatePairwiseQueue(qc: QueryClient, body: V2GeneratePairwiseData['body']): Promise<void> {
+  await v2GeneratePairwise({ body })
+  await qc.invalidateQueries({ queryKey: queryKeys.annotationQueues })
 }

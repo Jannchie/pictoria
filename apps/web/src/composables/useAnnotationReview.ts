@@ -1,13 +1,14 @@
 import type { Ref } from 'vue'
+import type { TimelineEntryPublic } from '@/api'
 import type { ReviewKind } from '@/shared/annotationReview'
 import { useQueryClient } from '@tanstack/vue-query'
 import { computed, onScopeDispose } from 'vue'
 import { useI18n } from 'vue-i18n'
-import { v2EditAnnotation } from '@/api'
 import { useAPIError } from '@/composables/useAPIError'
 import { pushCommand } from '@/shared'
 import { endReview, reviewing, setReviewHost } from '@/shared/annotationReview'
 import { patchEntry } from '@/shared/annotationTimeline'
+import { editAnnotation } from '@/shared/mutations'
 
 /**
  * Re-judging an already-submitted record, for whichever session is running.
@@ -44,9 +45,10 @@ export function useAnnotationReview(options: {
   /** The record under review, or null while judging normally. */
   const review = computed(() => (reviewing.value?.kind === kind ? reviewing.value : null))
 
-  function write(id: number, verdict: string | number, editedAt: string | null) {
-    return v2EditAnnotation({ path: { kind, annotation_id: id }, body: { verdict } })
-      .then(() => patchEntry(queryClient, kind, id, { [field]: verdict, editedAt: editedAt ?? undefined }))
+  function write(entry: TimelineEntryPublic, verdict: string | number, editedAt: string | null) {
+    const postIds = entry.postB ? [entry.post.id, entry.postB.id] : [entry.post.id]
+    return editAnnotation(queryClient, kind, entry.id, verdict, postIds)
+      .then(() => patchEntry(queryClient, kind, entry.id, { [field]: verdict, editedAt: editedAt ?? undefined }))
   }
 
   async function amend(verdict: string | number): Promise<void> {
@@ -61,7 +63,7 @@ export function useAnnotationReview(options: {
     }
     submitting.value = true
     try {
-      await write(entry.id, verdict, new Date().toISOString())
+      await write(entry, verdict, new Date().toISOString())
       endReview()
       // Same undo stack as the judgements, so Ctrl+Z means one thing on this screen
       // rather than skipping past a correction to the judgement before it. Revert
@@ -70,8 +72,8 @@ export function useAnnotationReview(options: {
       pushCommand({
         label: t(labelKey),
         postIds: [],
-        apply: () => write(entry.id, verdict, new Date().toISOString()),
-        revert: () => write(entry.id, previous as string | number, entry.editedAt ?? null),
+        apply: () => write(entry, verdict, new Date().toISOString()),
+        revert: () => write(entry, previous as string | number, entry.editedAt ?? null),
       })
     }
     catch (error) {

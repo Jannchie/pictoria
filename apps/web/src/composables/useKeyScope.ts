@@ -3,8 +3,8 @@ import { useActiveElement, useEventListener } from '@vueuse/core'
 import { computed } from 'vue'
 import { useRoute } from 'vue-router'
 import { focusedTreeFolder, isAnyDialogOpen, showPostDetail } from '@/shared'
+import { shouldHandleHotkey } from '@/ui/useHotkey'
 import { isTypingTarget, isValueWidgetTarget } from '@/utils/keyboard'
-import { shouldHandleHotkey } from './useHotkey'
 
 /**
  * 单一事实来源，统一了此前散落在 5 个组件里逐字复制的键盘热键守卫。

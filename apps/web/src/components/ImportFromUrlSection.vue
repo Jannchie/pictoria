@@ -1,8 +1,9 @@
 <script setup lang="ts">
 import { useMutation, useQuery, useQueryClient } from '@tanstack/vue-query'
 import { computed, ref, watch } from 'vue'
-import { v2ImportFromUrlEndpoint, v2ImportFromUrlStatus } from '@/api'
+import { v2ImportFromUrlStatus } from '@/api'
 import { describeAPIError } from '@/composables/useAPIError'
+import { startUrlImport } from '@/shared/mutations'
 import { queryKeys } from '@/shared/queryKeys'
 
 const url = ref('')
@@ -26,16 +27,8 @@ const isRunning = computed(() => status.value?.state === 'running')
 const urlValid = computed(() => /^https?:\/\/\S+$/.test(url.value.trim()))
 
 const mutation = useMutation({
-  mutationFn: async () => {
-    const resp = await v2ImportFromUrlEndpoint({ query: { url: url.value.trim() } })
-    if (resp.error) {
-      throw resp.error
-    }
-    return resp.data
-  },
-  onSuccess: () => {
-    statusQuery.refetch()
-  },
+  // startUrlImport refreshes the status query, which then polls while running.
+  mutationFn: () => startUrlImport(queryClient, url.value.trim()),
 })
 
 // New images land under <category>/<creator>/ — refresh the folder tree and

@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { isTypeaheadKey, matchTypeahead, useTypeahead } from '@/composables/useTypeahead'
+import { isTypeaheadKey, matchTypeahead, useTypeahead } from '@/ui/useTypeahead'
 
 const LABELS = ['Apple', 'banana', 'Avocado', 'blueberry', 'Cherry', 'apricot']
 
