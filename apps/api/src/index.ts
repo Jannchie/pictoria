@@ -5,10 +5,10 @@ import { OpenAPIHono } from '@hono/zod-openapi'
 import { compress } from 'hono/compress'
 import { cors } from 'hono/cors'
 import { rebuildGroups } from './dedup.js'
-import { SILVA_SCORERS } from '@pictoria/contracts'
+import { SCORERS } from '@pictoria/db'
 import { getDb, migrate } from './db.js'
 import { fail } from './openapi.js'
-import { setSchedulerError } from './queue-status.js'
+import { BACKFILL_LOOP_KEYS, setSchedulerError } from './queue-status.js'
 import { startBasicsBackfill, startEmbeddingBackfill, startSilvaBackfill, startTaggerBackfill, startWaifuBackfill, wakeAllBackfills } from './scheduler.js'
 import { startAutoSync } from './sync.js'
 import { getTasks } from './tasks.js'
@@ -140,8 +140,8 @@ if (process.env.PICTORIA_SCHEDULER !== '0') {
     const { sqlite } = getDb()
     // basics 排在最前：其余 worker 的输入（尺寸、缩略图）都由它产出。
     startBasicsBackfill(sqlite, tasks)
-    for (const scorer of SILVA_SCORERS)
-      startSilvaBackfill(sqlite, tasks, { scorer })
+    for (const { name } of SCORERS)
+      startSilvaBackfill(sqlite, tasks, { scorer: name })
     startWaifuBackfill(sqlite, tasks)
     startTaggerBackfill(sqlite, tasks)
     // embedding 的待办清空之后要重建近重复分组 —— 新图不经过这一步就永远不会被
@@ -155,7 +155,7 @@ if (process.env.PICTORIA_SCHEDULER !== '0') {
     // 磁盘变化和定时轮询都会触发一次对账，然后把 backfill 循环叫醒 ——
     // 形状承自已删除的 app.py 里的 watchdog + 10 分钟 poller。
     startAutoSync(sqlite, () => wakeAllBackfills())
-    console.warn('[pictoria-api] backfill 调度已启动：basics, silva, silva_luna, waifu, tagger, embedding')
+    console.warn(`[pictoria-api] backfill 调度已启动：${BACKFILL_LOOP_KEYS.join(', ')}`)
     console.warn('[pictoria-api] 文件监视 + 10 分钟轮询已启动')
   })().catch((err: unknown) => {
     // ⚠️ 这个 catch 不能省。上面整段是 fire-and-forget，开库之后的启动步骤抛出的

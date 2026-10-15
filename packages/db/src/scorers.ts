@@ -1,8 +1,13 @@
 /**
  * 打分器注册表 —— 形状承自已退役的 Python 侧 `server/src/scorers.py`。
  *
- * ⚠️ 两边是手工同步的双份，没有任何机制校验它们一致。真正跨进程的只有**名字**
- * （`SILVA_SCORERS`，定义在 `@pictoria/contracts`）；join SQL 与分档边界只有这一侧在用。
+ * 真正跨进程的只有**名字**（`SILVA_SCORERS`，定义在 `@pictoria/contracts`）；
+ * `scorers.test.ts` 断言 `SCORERS` 的名字集合与它相等。join SQL 与分档边界只有这一侧在用。
+ *
+ * TS 后端里所有“按打分器枚举”的地方都从 `SCORERS` / `FILTERABLE_SCORERS` 遍历生成：
+ * 文件夹聚合（`repositories/folders.ts`）、`/v2/folders` 的 `<key>Avg` 字段、
+ * `/v2/posts/count/<slug>` 分档计数端点、`PostFilter` 的 `<key>ScoreLevels` 字段、
+ * 调度器的 silva 循环。
  *
  * `post_aesthetic_scores` 是通用的 per-(post, scorer) 表；每个住在里面的打分器由
  * 一条 `ScorerSpec` 描述一次：DB 里的 `scorer` 名、join 用的别名、A–E 分档边界、
@@ -29,6 +34,10 @@ export interface ScorerSpec {
   readonly offset: number
   /** SQL 别名，例如 `pas_silva`。 */
   readonly alias: string
+  /** 给人看的名字，进 OpenAPI 描述，例如 `SILVA-Luna`。 */
+  readonly label: string
+  /** `PostFilter.<key>ScoreLevels` 字段的 OpenAPI 描述。 */
+  readonly levelsDescription: string
   joinSql: (opts?: { alias?: string, tableAlias?: string }) => string
   isJoined: (joins: Iterable<string>) => boolean
   scoreCol: (alias?: string) => string
@@ -37,6 +46,13 @@ export interface ScorerSpec {
 }
 
 interface DefineOptions {
+  /** 见 `ScorerSpec.label`。 */
+  readonly label: string
+  /**
+   * 见 `ScorerSpec.levelsDescription`。没法从模板生成 —— 几条的结构本来就不一样
+   * （silvaLuna 那条是引用 silva 那条来说明的），所以作为数据存在注册项里。
+   */
+  readonly levelsDescription: string
   /** 分数所在的表。默认是通用的 `post_aesthetic_scores`。 */
   readonly table?: string
   readonly alias?: string
@@ -60,7 +76,7 @@ function defineScorer<N extends string, K extends string>(
   name: N,
   key: K,
   buckets: Buckets,
-  { table = AESTHETIC_SCORES_TABLE, alias = `pas_${name}`, scale = 4, offset = 1, scoped = true }: DefineOptions = {},
+  { label, levelsDescription, table = AESTHETIC_SCORES_TABLE, alias = `pas_${name}`, scale = 4, offset = 1, scoped = true }: DefineOptions,
 ): ScorerSpec & { readonly name: N, readonly key: K } {
   return {
     name,
@@ -69,6 +85,8 @@ function defineScorer<N extends string, K extends string>(
     scale,
     offset,
     alias,
+    label,
+    levelsDescription,
     joinSql: ({ alias: a = alias, tableAlias = 'p' } = {}) =>
       `LEFT JOIN ${table} ${a} ON ${a}.post_id = ${tableAlias}.id${scoped ? ` AND ${a}.scorer = '${name}'` : ''}`,
     /**
@@ -95,24 +113,38 @@ export const SILVA_SCORE_BUCKETS: Buckets = {
   A: [0.8, 1.0001],
 }
 
-export const SILVA = defineScorer('silva', 'silva', SILVA_SCORE_BUCKETS)
+export const SILVA = defineScorer('silva', 'silva', SILVA_SCORE_BUCKETS, {
+  label: 'SILVA',
+  levelsDescription: "SILVA aesthetic bucket filter. Each value is one of 'A' (0.8-1.0), 'B' (0.6-0.8), 'C' (0.4-0.6), 'D' (0.2-0.4), 'E' (0-0.2), or 'UNSCORED' (no SILVA score yet). OR together.",
+})
 
 /**
  * 第二个蒸馏评委（`Jannchie/silva-luna`），架构与输出域都和 SILVA 相同，所以复用
  * 同一套分档边界。它是**另一种口味**，不是更高一档 —— 两者并排存储，任选其一排序。
  */
-export const SILVA_LUNA = defineScorer('silva_luna', 'silvaLuna', SILVA_SCORE_BUCKETS)
+export const SILVA_LUNA = defineScorer('silva_luna', 'silvaLuna', SILVA_SCORE_BUCKETS, {
+  label: 'SILVA-Luna',
+  levelsDescription: "SILVA-Luna aesthetic bucket filter. Same A-E edges over the [0, 1] domain as ``silvaScoreLevels`` (a second distilled judge, not a second tier), or 'UNSCORED'. OR together.",
+})
 
 /**
- * `post_aesthetic_scores` 里 `scorer` 列的取值注册表。
+ * `post_aesthetic_scores` 里 `scorer` 列的取值注册表，按 UI 顺序。**TS 侧唯一来源**：
+ * 加一个 SILVA 类打分器 = 这里 `defineScorer` 一项并追加进来（外加 contracts 的
+ * `SILVA_SCORERS` 和 worker），后端其余地方都由它遍历生成。
  *
  * ⚠️ waifu **不在**这里，而且不该进来：它有自己的表和自己的原生域。这张表回答的是
- * “通用分数表里住着谁”，`countByScorerBucket` 之类按 `scorer` 列分组的查询消费它。
+ * “通用分数表里住着谁”。
+ *
+ * 是元组而不是 `Record<string, ScorerSpec>`：下游要从它派生字面量联合
+ * （`'silva' | 'silva_luna'`、`silvaAvg | silvaLunaAvg`）。
  */
-export const SCORERS: Record<string, ScorerSpec> = {
-  [SILVA.name]: SILVA,
-  [SILVA_LUNA.name]: SILVA_LUNA,
-}
+export const SCORERS = [SILVA, SILVA_LUNA] as const
+
+export type AestheticScorer = typeof SCORERS[number]
+/** `'silva' | 'silva_luna'` */
+export type AestheticScorerName = AestheticScorer['name']
+/** `'silva' | 'silvaLuna'` */
+export type AestheticScorerKey = AestheticScorer['key']
 
 /**
  * waifu 的分档：0–10 原生域。'A' 实际是 [8, 10]，同样靠 10.001 表达闭上界。
@@ -136,6 +168,8 @@ export const WAIFU_SCORE_BUCKETS: Buckets = {
  * `isJoined` 的整词匹配是两种方言，混用迟早出事。
  */
 export const WAIFU = defineScorer('waifu', 'waifu', WAIFU_SCORE_BUCKETS, {
+  label: 'waifu',
+  levelsDescription: "Waifu-score bucket filter. Each value is one of 'A' (8-10), 'B' (6-8), 'C' (4-6), 'D' (2-4), 'E' (0-2), or 'UNSCORED' (no waifu score yet). Multiple values OR together.",
   table: 'post_waifu_scores',
   alias: 'pws',
   scoped: false,
@@ -166,6 +200,16 @@ export function levelsField<K extends string>(spec: { readonly key: K }): `${K}S
 /** 排序列名，例如 `silva_luna_score`。 */
 export function orderColumn<N extends string>(spec: { readonly name: N }): `${N}_score` {
   return `${spec.name}_score`
+}
+
+/** PascalCase 词根，用于 OpenAPI 组件名 / operationId：`silvaLuna` → `SilvaLuna`。 */
+export function pascalKey<K extends string>(spec: { readonly key: K }): Capitalize<K> {
+  return (spec.key.charAt(0).toUpperCase() + spec.key.slice(1)) as Capitalize<K>
+}
+
+/** URL 段：`silva_luna` → `silva-luna`。 */
+export function urlSlug(spec: { readonly name: string }): string {
+  return spec.name.replaceAll('_', '-')
 }
 
 

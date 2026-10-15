@@ -15,27 +15,20 @@ import { FILTERABLE_SCORERS, levelsField, ORDERABLE_COLUMNS } from '@pictoria/db
 // 翻页会重复和漏掉行。插入序即枚举取值序，别重排。
 const ORDER_COLUMNS = [...ORDERABLE_COLUMNS] as [string, ...string[]]
 
-/**
- * 分档过滤字段的说明文案，一个打分器一条。
- *
- * 这是 `Record<FilterableScorerKey, string>` 而不是可选表：加一个打分器时
- * TypeScript 会**强制**你在这里补一条，否则编译不过。文案没法从模板生成 —— 三条
- * 的结构本来就不一样（silvaLuna 那条是引用 silva 那条来说明的），所以它们作为
- * 数据存在这里，而不是被拼出来。
- */
-const LEVELS_DESCRIPTIONS: Record<FilterableScorerKey, string> = {
-  waifu: "Waifu-score bucket filter. Each value is one of 'A' (8-10), 'B' (6-8), 'C' (4-6), 'D' (2-4), 'E' (0-2), or 'UNSCORED' (no waifu score yet). Multiple values OR together.",
-  silva: "SILVA aesthetic bucket filter. Each value is one of 'A' (0.8-1.0), 'B' (0.6-0.8), 'C' (0.4-0.6), 'D' (0.2-0.4), 'E' (0-0.2), or 'UNSCORED' (no SILVA score yet). OR together.",
-  silvaLuna: "SILVA-Luna aesthetic bucket filter. Same A-E edges over the [0, 1] domain as ``silvaScoreLevels`` (a second distilled judge, not a second tier), or 'UNSCORED'. OR together.",
-}
+type LevelsFieldName = `${FilterableScorerKey}ScoreLevels`
+type LevelsFieldSchema = z.ZodOptional<z.ZodNullable<z.ZodDefault<z.ZodArray<z.ZodString>>>>
 
-/** 每个打分器一个 `<key>ScoreLevels` 字段，顺序与注册表一致。 */
+/**
+ * 每个打分器一个 `<key>ScoreLevels` 字段，顺序与注册表一致；说明文案是注册项上的
+ * `levelsDescription`。映射类型把字段名留给 `c.req.valid('json')` 的推断 ——
+ * 裸 `Object.fromEntries` 会把它们抹成 `string` 索引。
+ */
 const levelsFields = Object.fromEntries(
   FILTERABLE_SCORERS.map(spec => [
     levelsField(spec),
-    z.array(z.string()).default([]).nullable().optional().describe(LEVELS_DESCRIPTIONS[spec.key]),
+    z.array(z.string()).default([]).nullable().optional().describe(spec.levelsDescription),
   ]),
-)
+) as Record<LevelsFieldName, LevelsFieldSchema>
 
 const baseFilter = {
   rating: z.array(z.int()).default([]).nullable().optional().describe("Rating filter."),

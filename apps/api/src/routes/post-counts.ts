@@ -9,8 +9,9 @@ import {
   countByScorerBucket,
   countByTag,
   countPosts,
-  SILVA,
-  SILVA_LUNA,
+  pascalKey,
+  SCORERS,
+  urlSlug,
   WAIFU,
   type PostFilter as DbPostFilter,
 } from '@pictoria/db'
@@ -23,9 +24,10 @@ const CountPostsResponse = z.object({ count: z.int() }).openapi('CountPostsRespo
 const RatingCountItem = z.object({ rating: z.int(), count: z.int() }).openapi('RatingCountItem')
 const ScoreCountItem = z.object({ score: z.int(), count: z.int() }).openapi('ScoreCountItem')
 const ExtensionCountItem = z.object({ extension: z.string(), count: z.int() }).openapi('ExtensionCountItem')
-const WaifuBucketCountItem = z.object({ bucket: z.string(), count: z.int() }).openapi('WaifuBucketCountItem')
-const SilvaBucketCountItem = z.object({ bucket: z.string(), count: z.int() }).openapi('SilvaBucketCountItem')
-const SilvaLunaBucketCountItem = z.object({ bucket: z.string(), count: z.int() }).openapi('SilvaLunaBucketCountItem')
+/** 分档计数的一项。形状全都一样，每个打分器一个组件名（`<Pascal>BucketCountItem`），沿用历史契约。 */
+function bucketCountItem(pascal: string) {
+  return z.object({ bucket: z.string(), count: z.int() }).openapi(`${pascal}BucketCountItem`)
+}
 const TagCountItem = z
   .object({ tagName: z.string(), count: z.int(), translatedName: z.string().nullable().optional() })
   .openapi('TagCountItem')
@@ -89,12 +91,22 @@ for (const facet of columnFacets) {
   )
 }
 
-/** 三个分档 facet：waifu 走独立表，两个 silva 走 post_aesthetic_scores。 */
+/**
+ * 分档 facet：waifu 走独立表（描述措辞不同，单列），`SCORERS` 里每个打分器走
+ * post_aesthetic_scores，路径 / operationId / 组件名都由注册项派生。
+ */
 const bucketFacets = [
-  { path: '/v2/posts/count/waifu', id: 'v2GetWaifuBucketCount', scorer: WAIFU, desc: "Count posts by waifu-score bucket (A/B/C/D/E/UNSCORED).", schema: WaifuBucketCountItem },
-  { path: '/v2/posts/count/silva', id: 'v2GetSilvaBucketCount', scorer: SILVA, desc: 'Count posts by SILVA aesthetic bucket (A/B/C/D/E/UNSCORED).', schema: SilvaBucketCountItem },
-  { path: '/v2/posts/count/silva-luna', id: 'v2GetSilvaLunaBucketCount', scorer: SILVA_LUNA, desc: 'Count posts by SILVA-Luna aesthetic bucket (A/B/C/D/E/UNSCORED).', schema: SilvaLunaBucketCountItem },
-] as const
+  WAIFU,
+  ...SCORERS,
+].map(scorer => ({
+  path: `/v2/posts/count/${urlSlug(scorer)}`,
+  id: `v2Get${pascalKey(scorer)}BucketCount`,
+  scorer,
+  desc: scorer === WAIFU
+    ? 'Count posts by waifu-score bucket (A/B/C/D/E/UNSCORED).'
+    : `Count posts by ${scorer.label} aesthetic bucket (A/B/C/D/E/UNSCORED).`,
+  schema: bucketCountItem(pascalKey(scorer)),
+}))
 
 for (const facet of bucketFacets) {
   postCountsRoutes.openapi(

@@ -4,20 +4,29 @@
 import fs from 'node:fs'
 import path from 'node:path'
 import { createRoute, OpenAPIHono, z } from '@hono/zod-openapi'
-import { addAgg, emptyAgg, folderScoreAggregates, listIdsInFolder, type FolderScoreAgg } from '@pictoria/db'
+import { addAgg, emptyAgg, folderScoreAggregates, listIdsInFolder, SCORERS, type AestheticScorer, type AestheticScorerKey, type FolderScoreAgg } from '@pictoria/db'
 import { getDb } from '../db.js'
 import { isInside, pictoriaDir, targetDir, thumbnailPathFor } from '../paths.js'
 import { deletePostFiles } from '../post-files.js'
 import { OK, errors, fail, zodErrorHook } from '../openapi.js'
 import { Result } from '../schemas.js'
 
-interface DirectorySummary {
+/** 每个打分器一个 `<key>Avg` 字段（`silvaAvg`、`silvaLunaAvg`），由 `SCORERS` 生成。 */
+type ScorerAvgFields = { [K in AestheticScorerKey as `${K}Avg`]: number | null }
+
+function avgField<K extends AestheticScorerKey>(spec: { readonly key: K }): `${K}Avg` {
+  return `${spec.key}Avg`
+}
+
+function emptyAvgs(): ScorerAvgFields {
+  return Object.fromEntries(SCORERS.map(s => [avgField(s), null])) as ScorerAvgFields
+}
+
+interface DirectorySummary extends ScorerAvgFields {
   name: string
   path: string
   fileCount: number
   postCount: number
-  silvaAvg: number | null
-  silvaLunaAvg: number | null
   scoreAvg: number | null
   ratingAvg: number | null
   scoredRatio: number | null
@@ -30,14 +39,17 @@ interface DirectorySummary {
  */
 const IGNORED_DIR_NAME = path.basename(pictoriaDir())
 
+const scorerAvgSchemas = Object.fromEntries(
+  SCORERS.map(s => [avgField(s), z.number().nullable()]),
+) as { [K in AestheticScorer['key'] as `${K}Avg`]: z.ZodNullable<z.ZodNumber> }
+
 const DirectorySummarySchema: z.ZodType<DirectorySummary> = z.lazy(() =>
   z.object({
     name: z.string(),
     path: z.string(),
     fileCount: z.int(),
     postCount: z.int(),
-    silvaAvg: z.number().nullable(),
-    silvaLunaAvg: z.number().nullable(),
+    ...scorerAvgSchemas,
     scoreAvg: z.number().nullable(),
     ratingAvg: z.number().nullable(),
     scoredRatio: z.number().nullable(),
@@ -100,8 +112,7 @@ async function walk(
     path: rel === '' ? '.' : rel,
     fileCount: 0,
     postCount: 0,
-    silvaAvg: null,
-    silvaLunaAvg: null,
+    ...emptyAvgs(),
     scoreAvg: null,
     ratingAvg: null,
     scoredRatio: null,
@@ -162,8 +173,10 @@ function attachStats(
   for (const child of node.children) addAgg(total, attachStats(child, aggregates))
 
   node.postCount = total.posts
-  node.silvaAvg = total.silvaN ? total.silvaTotal / total.silvaN : null
-  node.silvaLunaAvg = total.silvaLunaN ? total.silvaLunaTotal / total.silvaLunaN : null
+  for (const spec of SCORERS) {
+    const { total: sum, n } = total.scorers[spec.name]
+    node[avgField(spec)] = n ? sum / n : null
+  }
   node.scoreAvg = total.scored ? total.scoreTotal / total.scored : null
   node.ratingAvg = total.posts ? total.ratingTotal / total.posts : null
   node.scoredRatio = total.posts ? total.scored / total.posts : null
@@ -237,14 +250,20 @@ foldersRoutes.openapi(
  *
  * 路由用 `:folder_path{.+}` 而不是 `createRoute` 生成的 `:folder_path` —— 目录名
  * 里有斜杠，普通参数不吃斜杠（和 images 那两条同一个理由）。
+ *
+ * 路由定义只有 `deleteFolderRoute` 一份：OpenAPI 文档登记它本身（路径
+ * `{folder_path}`），Hono 挂载的是同一个对象换了路径、`hide: true` 的副本 ——
+ * `@hono/zod-openapi` 把 `{x}` 懒惰地换成 `:x`，于是 `{folder_path{.+}}` 落成
+ * `:folder_path{.+}`。这样 handler 的入参校验和返回类型仍然挂在这份定义上，而不是
+ * 像 `registerPath` + 普通 handler 那样两边各写各的。
  */
-foldersRoutes.openAPIRegistry.registerPath({
+const deleteFolderRoute = createRoute({
   method: 'delete',
   path: '/v2/folders/{folder_path}',
   tags: ['Commands', 'Folder'],
   operationId: 'v2DeleteFolder',
   summary: 'DeleteFolder',
-  description: 'Delete a library folder: its posts (DB + files + thumbnails) and the dir tree.\n\nRefuses the library root and anything resolving outside the library\n(or into ``.pictoria``). DB rows go through ``PostRepo.delete_many`` so\nthe FK cascade, the manual vec0 cascade and the per-file unlink all\napply; the remaining tree (non-image files, empty dirs) is then removed\nfrom disk. If the disk removal partially fails, the next sync re-imports\nwhatever survived — no orphaned DB rows either way.',
+  description: 'Delete a library folder: its posts (DB + files + thumbnails) and the dir tree.\n\nRefuses the library root and anything resolving outside the library\n(or into ``.pictoria``). DB rows go through ``deleteManyReturningPaths`` so\nthe FK cascade, the manual vec0 cascade and the per-file unlink all\napply; the remaining tree (non-image files, empty dirs) is then removed\nfrom disk. If the disk removal partially fails, the next sync re-imports\nwhatever survived — no orphaned DB rows either way.',
   request: {
     params: z.object({
       folder_path: z.string().openapi({ param: { name: 'folder_path', in: 'path', required: true } }),
@@ -256,8 +275,10 @@ foldersRoutes.openAPIRegistry.registerPath({
   },
 })
 
-foldersRoutes.delete('/v2/folders/:folder_path{.+}', (c) => {
-  const folder = (c.req.param('folder_path') ?? '').replace(/^\/+|\/+$/g, '')
+foldersRoutes.openAPIRegistry.registerPath(deleteFolderRoute)
+
+foldersRoutes.openapi({ ...deleteFolderRoute, path: '/v2/folders/{folder_path{.+}}', hide: true }, (c) => {
+  const folder = c.req.valid('param').folder_path.replace(/^\/+|\/+$/g, '')
   const base = targetDir()
   const target = path.resolve(base, folder)
 

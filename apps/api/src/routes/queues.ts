@@ -2,12 +2,12 @@
 import { createRoute, OpenAPIHono, z } from '@hono/zod-openapi'
 import { CPU_QUEUE, GPU_QUEUE, INTERACTIVE_QUEUE, IO_QUEUE } from '@pictoria/contracts'
 import { OK, zodErrorHook } from '../openapi.js'
-import { schedulerStatus } from '../queue-status.js'
+import { BACKFILL_LOOP_KEYS, schedulerStatus } from '../queue-status.js'
 import { peekTasks } from '../tasks.js'
 
 const LoopStatus = z
   .object({
-    key: z.string().openapi({ description: '循环名：`basics` / `silva` / `silva_luna` / `waifu` / `tagger` / `embedding`。' }),
+    key: z.string().openapi({ description: `循环名：${BACKFILL_LOOP_KEYS.map(k => `\`${k}\``).join(' / ')}。` }),
     queue: z.string(),
     state: z.enum(['idle', 'working', 'error']),
     remaining: z.int().nullable().openapi({ description: '还剩多少条；`null` = 还没数出来（第一遍计数在后台进行中）。两次精确计数之间是估计值。' }),
