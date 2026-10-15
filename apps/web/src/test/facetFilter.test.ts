@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { activateOptionOnKey, facetOptionLabel, facetTriggerLabel, formatPct, initialOptionIndex } from '@/composables/useFacetFilter'
+import { facetOptionLabel, facetTriggerLabel, formatPct, initialOptionIndex } from '@/composables/useFacetFilter'
 import { i18n, localeSetting } from '@/locale'
+import { activateOptionOnKey } from '@/ui/listboxKeys'
 
 type KeyInit = Partial<Pick<KeyboardEvent, 'key' | 'ctrlKey' | 'metaKey' | 'altKey' | 'shiftKey' | 'repeat' | 'isComposing' | 'defaultPrevented'>>
 

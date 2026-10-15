@@ -1,6 +1,6 @@
 import type { MaybeRefOrGetter, Ref } from 'vue'
 import type { CountKind } from '@/shared'
-import type { ScorerUi } from '@/shared/scorers'
+import type { FacetField } from '@/shared/postFilter'
 import type { RovingFocus } from '@/ui/useRovingFocus'
 import { keepPreviousData, useQuery } from '@tanstack/vue-query'
 import { useMutationObserver } from '@vueuse/core'
@@ -19,7 +19,8 @@ import { useRovingFocus } from '@/ui/useRovingFocus'
  */
 
 export type PostFilterValue = typeof postFilter.value
-type ArrayFilterField = 'rating' | 'score' | 'extension' | ScorerUi['levelsField']
+/** Popover facets with mutually exclusive options (tags has its own search-aware filter). */
+type ArrayFilterField = Exclude<FacetField, 'tags'>
 
 /**
  * Percentage share of `count` in `total`, formatted to one decimal ('0.0' when
@@ -146,25 +147,6 @@ export function useFacetListbox(
     roving.focusItem(preferred === -1 ? 0 : preferred)
   }, { childList: true, subtree: true })
   return roving
-}
-
-/**
- * Space / Enter on a focused option toggles it (APG multi-select listbox).
- * Returns true when the key was consumed. IME composition, modifier chords
- * and auto-repeat are ignored so a held key doesn't flicker the selection.
- */
-export function activateOptionOnKey(e: KeyboardEvent, activate: () => void): boolean {
-  if (e.defaultPrevented || e.isComposing || e.ctrlKey || e.metaKey || e.altKey) {
-    return false
-  }
-  if (e.key !== 'Enter' && e.key !== ' ') {
-    return false
-  }
-  e.preventDefault()
-  if (!e.repeat) {
-    activate()
-  }
-  return true
 }
 
 /**

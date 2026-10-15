@@ -406,9 +406,6 @@ declare global {
   export type { PostFilterValue } from './composables/useFacetFilter'
   import('./composables/useFacetFilter')
   // @ts-ignore
-  export type { FocusReturnOptions, FocusTrapOptions } from './ui/useFocusTrap'
-  import('./ui/useFocusTrap')
-  // @ts-ignore
   export type { FocusMode } from './composables/useFocusedPost'
   import('./composables/useFocusedPost')
   // @ts-ignore

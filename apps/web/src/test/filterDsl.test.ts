@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
-import { hasFilterTerms, parseFilterQuery, stringifyFilterQuery, tokenize } from '@/utils/filterDsl'
+import { hasFilterTerms, parseFilterQuery, stringifyFilterQuery } from '@/shared/postFilter'
+import { tokenize } from '@/utils/filterDsl'
 
 describe('tokenize', () => {
   it('splits on whitespace', () => {

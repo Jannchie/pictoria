@@ -2,7 +2,7 @@
 import { computed, useTemplateRef } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { v2GetExtensionCount } from '@/api'
-import { activateOptionOnKey, facetOptionLabel, facetTriggerLabel, initialOptionIndex, useFacetFilter, useFacetListbox } from '@/composables/useFacetFilter'
+import { facetOptionLabel, facetTriggerLabel, initialOptionIndex, useFacetFilter, useFacetListbox } from '@/composables/useFacetFilter'
 
 const { t } = useI18n()
 
@@ -42,6 +42,10 @@ const btnText = computed(() => {
   const item = ratingFilterData.value
   return item.length === 0 ? t('filter.extension') : item.map(s => getExtensionName(s)).join(', ')
 })
+function extensionCount(extension: string): number | undefined {
+  return scoreCountList.value[extension]
+}
+
 function getExtensionName(extension: string) {
   return extension
 }
@@ -51,8 +55,8 @@ function extensionLabel(extension: string): string {
   return extension === '' ? t('filter.noExtension') : extension
 }
 
-const listbox = useTemplateRef<HTMLElement>('listbox')
-useFacetListbox(listbox)
+const listbox = useTemplateRef<{ el: HTMLElement | null }>('listbox')
+useFacetListbox(() => listbox.value?.el)
 const autofocusIndex = computed(() => initialOptionIndex(extensions.value, hasExt))
 const triggerLabel = computed(() => facetTriggerLabel(t, t('filter.extension'), ratingFilterData.value.map(extensionLabel)))
 function optionLabel(extension: string) {
@@ -75,31 +79,20 @@ function optionLabel(extension: string) {
         </span>
       </PButton>
       <template #content>
-        <div
+        <PFacetList
           ref="listbox"
-          role="listbox"
-          aria-multiselectable="true"
           :aria-label="$t('filter.extension')"
           class="p-popover-panel min-w-52"
+          :items="extensions"
+          :selected="hasExt"
+          :option-label="optionLabel"
+          :typeahead="extensionLabel"
+          :autofocus-index="autofocusIndex"
+          :count="extensionCount"
+          :share="pct"
+          @toggle="toggle"
         >
-          <div
-            v-for="(ext, i) in extensions"
-            :key="ext"
-            role="option"
-            :aria-selected="hasExt(ext)"
-            :aria-label="optionLabel(ext)"
-            :data-typeahead="extensionLabel(ext)"
-            :data-autofocus="i === autofocusIndex || undefined"
-            class="text-xs px-2 py-1 rounded flex gap-2 w-full cursor-pointer items-center hover:bg-surface-2 focus-visible:[outline-offset:-2px]"
-            @click="toggle(ext)"
-            @keydown="activateOptionOnKey($event, () => toggle(ext))"
-          >
-            <PCheckbox
-              class="flex-shrink-0 pointer-events-none"
-              :model-value="hasExt(ext)"
-              inert
-              aria-hidden="true"
-            />
+          <template #default="{ item: ext }">
             <div class="flex flex-grow gap-1 items-center">
               <template v-if="ext === ''">
                 <span class="text-fg-subtle italic">{{ $t('filter.noExtension') }}</span>
@@ -108,15 +101,8 @@ function optionLabel(extension: string) {
                 <span class="font-mono">.{{ getExtensionName(ext) }}</span>
               </template>
             </div>
-            <div
-              v-if="scoreCountList[ext] || hasExt(ext)"
-              class="font-mono inline-flex flex-shrink-0 tabular-nums"
-            >
-              <span class="text-right flex-shrink-0 w-10" :class="scoreCountList[ext] ? 'text-fg-muted' : 'text-fg-subtle'">{{ scoreCountList[ext] || 0 }}</span>
-              <span v-if="scoreCountList[ext]" class="text-fg-subtle text-right flex-shrink-0 w-14">{{ pct(scoreCountList[ext]) }}%</span>
-            </div>
-          </div>
-        </div>
+          </template>
+        </PFacetList>
       </template>
     </PPopover>
   </div>

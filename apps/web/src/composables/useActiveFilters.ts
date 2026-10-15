@@ -1,18 +1,14 @@
-import type { ScorerUi } from '@/shared/scorers'
+import type { FilterChipTarget, Translate } from '@/shared/postFilter'
 import { computed } from 'vue'
 import { useI18n } from 'vue-i18n'
 import {
-  bucketLabelKey,
   postFilter,
   postSort,
   postSortColor,
   postSortOrder,
-  RATING_LEVEL_LABEL_KEYS,
-  RATING_UNRATED_LABEL_KEY,
-  SCORERS,
   textSearchQuery,
 } from '@/shared'
-import { naturalizeTagName } from '@/utils'
+import { clearFilter, filterChips, withoutFacetValue } from '@/shared/postFilter'
 
 /**
  * One flattened, renderable view of everything currently narrowing the
@@ -32,27 +28,33 @@ export interface FilterChip {
   remove: () => void
 }
 
-type ArrayFacet = 'rating' | 'score' | 'extension' | 'tags' | ScorerUi['levelsField']
-
-/** Drops one value from an array facet, leaving the rest of the filter alone. */
-function removeFrom<T>(field: ArrayFacet, value: T) {
-  const arr = postFilter.value[field] as unknown as T[]
-  ;(postFilter.value[field] as unknown as T[]) = arr.filter(v => v !== value)
-}
-
 /** Clears every facet, the text search and the colour sort in one go. */
 function clearAll() {
-  postFilter.value = {
-    ...postFilter.value,
-    rating: [],
-    score: [],
-    tags: [],
-    extension: [],
-    ...Object.fromEntries(SCORERS.map(s => [s.levelsField, []])),
-    waifuScoreRange: undefined,
-  }
+  postFilter.value = clearFilter(postFilter.value)
   textSearchQuery.value = ''
   postSortColor.value = undefined
+}
+
+/** Clears just what one chip contributes, leaving the rest of the filter alone. */
+function removeTarget(target: FilterChipTarget) {
+  switch (target.kind) {
+    case 'text': {
+      textSearchQuery.value = ''
+      break
+    }
+    case 'facet': {
+      postFilter.value[target.field] = withoutFacetValue(postFilter.value, target.field, target.value)[target.field] as never
+      break
+    }
+    case 'waifuScoreRange': {
+      postFilter.value.waifuScoreRange = undefined
+      break
+    }
+    case 'sortColor': {
+      postSortColor.value = undefined
+      break
+    }
+  }
 }
 
 /** Also resets the ordering — used by the "reset everything" affordance. */
@@ -64,76 +66,14 @@ function resetAll() {
 
 export function useActiveFilters() {
   const { t } = useI18n()
+  // 只有 `t(key)` 和 `t(key, named, plural)` 两种调用形态，分开转发以保持原样。
+  const translate: Translate = (key, named, plural) =>
+    named === undefined ? t(key) : t(key, named, plural ?? 1)
 
-  function ratingLabel(r: number): string {
-    return r === 0 ? t(RATING_UNRATED_LABEL_KEY) : t(RATING_LEVEL_LABEL_KEYS[r - 1] ?? 'rating.unknown')
-  }
-
-  function bucketLabel(id: string): string {
-    const key = bucketLabelKey(id)
-    return key ? t(key) : id
-  }
-
-  const chips = computed<FilterChip[]>(() => {
-    const f = postFilter.value
-    const out: FilterChip[] = []
-
-    if (textSearchQuery.value.trim()) {
-      out.push({
-        id: 'text',
-        icon: 'i-tabler-search',
-        label: textSearchQuery.value.trim(),
-        remove: () => {
-          textSearchQuery.value = ''
-        },
-      })
-    }
-    for (const r of f.rating) {
-      out.push({ id: `rating:${r}`, icon: 'i-tabler-thumb-up', label: ratingLabel(r), remove: () => removeFrom('rating', r) })
-    }
-    for (const s of f.score) {
-      out.push({ id: `score:${s}`, icon: 'i-tabler-star', label: t('filter.star', { n: s }, s), remove: () => removeFrom('score', s) })
-    }
-    for (const tag of f.tags) {
-      out.push({ id: `tag:${tag}`, icon: 'i-tabler-tag', label: naturalizeTagName(tag), remove: () => removeFrom('tags', tag) })
-    }
-    for (const ext of f.extension) {
-      out.push({ id: `ext:${ext}`, icon: 'i-tabler-file', label: ext || t('filter.noExtension'), remove: () => removeFrom('extension', ext) })
-    }
-    // 三块 chip 只差前缀和图标，而那两样都在打分器表里。
-    for (const spec of SCORERS) {
-      for (const lvl of f[spec.levelsField]) {
-        out.push({
-          id: `${spec.dslKey}:${lvl}`,
-          icon: spec.icon,
-          label: `${spec.chipPrefix} ${bucketLabel(lvl)}`,
-          remove: () => removeFrom(spec.levelsField, lvl),
-        })
-      }
-    }
-    if (f.waifuScoreRange) {
-      const [lo, hi] = f.waifuScoreRange
-      out.push({
-        id: 'waifu-range',
-        icon: 'i-tabler-heart',
-        label: `${lo}–${hi}`,
-        remove: () => {
-          postFilter.value.waifuScoreRange = undefined
-        },
-      })
-    }
-    if (postSortColor.value) {
-      out.push({
-        id: 'sort-color',
-        icon: 'i-tabler-palette',
-        label: postSortColor.value.toUpperCase(),
-        remove: () => {
-          postSortColor.value = undefined
-        },
-      })
-    }
-    return out
-  })
+  const chips = computed<FilterChip[]>(() =>
+    filterChips({ filter: postFilter.value, text: textSearchQuery.value, sortColor: postSortColor.value }, translate)
+      .map(({ target, ...chip }) => ({ ...chip, remove: () => removeTarget(target) })),
+  )
 
   const count = computed(() => chips.value.length)
   const isFiltered = computed(() => count.value > 0)

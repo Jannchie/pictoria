@@ -44,6 +44,7 @@ declare module 'vue' {
     PDisclosure: typeof import('./ui/PDisclosure.vue')['default']
     PEdgeNavRail: typeof import('./ui/PEdgeNavRail.vue')['default']
     PEmpty: typeof import('./ui/PEmpty.vue')['default']
+    PFacetList: typeof import('./ui/PFacetList.vue')['default']
     PFloatWindow: typeof import('./ui/PFloatWindow.vue')['default']
     PInput: typeof import('./ui/PInput.vue')['default']
     PListItem: typeof import('./ui/PListItem.vue')['default']
@@ -77,8 +78,6 @@ declare module 'vue' {
     ScoreFilter: typeof import('./components/ScoreFilter.vue')['default']
     SettingRow: typeof import('./components/SettingRow.vue')['default']
     ShortcutHelp: typeof import('./components/ShortcutHelp.vue')['default']
-    SilvaLunaScoreFilter: typeof import('./components/SilvaLunaScoreFilter.vue')['default']
-    SilvaScoreFilter: typeof import('./components/SilvaScoreFilter.vue')['default']
     SimilarPosts: typeof import('./components/SimilarPosts.vue')['default']
     SpecialPathList: typeof import('./components/SpecialPathList.vue')['default']
     SyncStatus: typeof import('./components/SyncStatus.vue')['default']
@@ -87,7 +86,6 @@ declare module 'vue' {
     TagSelectorWindow: typeof import('./components/TagSelectorWindow.vue')['default']
     ToastSystem: typeof import('./components/ToastSystem.vue')['default']
     UndoSnackbar: typeof import('./components/UndoSnackbar.vue')['default']
-    WaifuScoreFilter: typeof import('./components/WaifuScoreFilter.vue')['default']
     WaifuScoreLevel: typeof import('./components/WaifuScoreLevel.vue')['default']
   }
 }
@@ -126,6 +124,7 @@ declare global {
   const PDisclosure: typeof import('./ui/PDisclosure.vue')['default']
   const PEdgeNavRail: typeof import('./ui/PEdgeNavRail.vue')['default']
   const PEmpty: typeof import('./ui/PEmpty.vue')['default']
+  const PFacetList: typeof import('./ui/PFacetList.vue')['default']
   const PFloatWindow: typeof import('./ui/PFloatWindow.vue')['default']
   const PInput: typeof import('./ui/PInput.vue')['default']
   const PListItem: typeof import('./ui/PListItem.vue')['default']
@@ -159,8 +158,6 @@ declare global {
   const ScoreFilter: typeof import('./components/ScoreFilter.vue')['default']
   const SettingRow: typeof import('./components/SettingRow.vue')['default']
   const ShortcutHelp: typeof import('./components/ShortcutHelp.vue')['default']
-  const SilvaLunaScoreFilter: typeof import('./components/SilvaLunaScoreFilter.vue')['default']
-  const SilvaScoreFilter: typeof import('./components/SilvaScoreFilter.vue')['default']
   const SimilarPosts: typeof import('./components/SimilarPosts.vue')['default']
   const SpecialPathList: typeof import('./components/SpecialPathList.vue')['default']
   const SyncStatus: typeof import('./components/SyncStatus.vue')['default']
@@ -169,6 +166,5 @@ declare global {
   const TagSelectorWindow: typeof import('./components/TagSelectorWindow.vue')['default']
   const ToastSystem: typeof import('./components/ToastSystem.vue')['default']
   const UndoSnackbar: typeof import('./components/UndoSnackbar.vue')['default']
-  const WaifuScoreFilter: typeof import('./components/WaifuScoreFilter.vue')['default']
   const WaifuScoreLevel: typeof import('./components/WaifuScoreLevel.vue')['default']
 }

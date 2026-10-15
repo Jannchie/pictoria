@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import type { TagCountRequest } from '@/api'
+import type { PaletteRow as Row, SectionKey, TermChip } from '@/utils/paletteRows'
 import type { TokenSpan } from '@/utils/paletteToken'
 import { keepPreviousData, useQuery } from '@tanstack/vue-query'
 import { refDebounced, useDebounceFn, useEventListener } from '@vueuse/core'
@@ -8,7 +9,6 @@ import { useI18n } from 'vue-i18n'
 import { useRouter } from 'vue-router'
 import { v2GetTagCount } from '@/api'
 import { useActiveFilters } from '@/composables/useActiveFilters'
-import { useFocusTrap } from '@/composables/useFocusTrap'
 import { formatNumber, resolvedLocale } from '@/locale'
 import {
   announce,
@@ -23,14 +23,16 @@ import {
   rightPaneCollapsed,
   shortcutHelpOpen,
   textSearchQuery,
-  useLayer,
 } from '@/shared'
+import { applyParsedFilter, hasFilterTerms, parseFilterQuery, stringifyFilterQuery } from '@/shared/postFilter'
 import { shortcuts } from '@/shared/shortcuts'
 import { POverlay } from '@/ui'
+import { useLayer } from '@/ui/layers'
+import { useFocusTrap } from '@/ui/useFocusTrap'
 import { naturalizeTagName } from '@/utils'
-import { hasFilterTerms, parseFilterQuery, stringifyFilterQuery } from '@/utils/filterDsl'
 import { formatShortcut, shortcutKeys } from '@/utils/keyboard'
 import { idFragment, listboxKeyIndex } from '@/utils/listboxNav'
+import { activeRowIndex, applyRowKind, groupSections, highlightRow, matchCommands, orderRows, SECTION_LABEL_KEYS, termChips } from '@/utils/paletteRows'
 import {
   FILTER_KEYS,
   rankTagSuggestions,
@@ -41,7 +43,6 @@ import {
   tagSuggestQuery,
   tagTerm,
   tokenAt,
-  tokenSpans,
 } from '@/utils/paletteToken'
 
 /**
@@ -113,41 +114,6 @@ useEventListener(() => (commandPaletteOpen.value ? document : null), 'selectionc
 // ---------------------------------------------------------------------------
 // Rows
 // ---------------------------------------------------------------------------
-
-type SectionKey = 'apply' | 'tags' | 'syntax' | 'filter' | 'navigate' | 'sort' | 'view' | 'help'
-
-interface Row {
-  id: string
-  section: SectionKey
-  icon: string
-  label: string
-  /** Substring of `label` to emphasise (the part that matched the input). */
-  match?: string
-  /** Secondary text (translation, description). */
-  hint?: string
-  /** Right-aligned mono detail (a count). */
-  meta?: string
-  /** Shortcut in `useHotkey` grammar, rendered Mac-aware. */
-  shortcut?: string
-  /** Completion rows fill the input instead of closing the palette. */
-  kind: 'command' | 'completion'
-  /**
-   * `enter` / `tab`: the row's primary action. `apply`: Mod+Enter — for a
-   * completion, insert it and apply the whole query at once.
-   */
-  activate: (mode: 'enter' | 'tab' | 'apply') => void
-}
-
-const SECTION_LABEL_KEYS: Record<SectionKey, string> = {
-  apply: 'command.groupAction',
-  tags: 'command.groupTags',
-  syntax: 'command.groupSyntax',
-  filter: 'command.groupFilter',
-  navigate: 'command.groupNavigate',
-  sort: 'command.groupSort',
-  view: 'command.groupView',
-  help: 'command.groupHelp',
-}
 
 interface CommandDef {
   id: string
@@ -239,17 +205,10 @@ const commands = computed<CommandDef[]>(() => {
   return list
 })
 
-/** Plain substring match — predictable beats clever for a 20-item list. */
-const matchedCommands = computed(() => {
-  // Filter terms are not command words; match on the free text only.
-  const q = (hasTerms.value ? promptText.value : query.value).trim().toLowerCase()
-  if (!q) {
-    return commands.value
-  }
-  return commands.value.filter(c =>
-    c.label.toLowerCase().includes(q) || (c.keywords?.toLowerCase().includes(q) ?? false),
-  )
-})
+// Filter terms are not command words; match on the free text only.
+const matchedCommands = computed(() =>
+  matchCommands(commands.value, hasTerms.value ? promptText.value : query.value),
+)
 
 /**
  * Close first, run after: the focus trap returns focus to where the palette
@@ -268,18 +227,8 @@ function closeThen(run: () => void) {
  * (removing a chip and applying must drop that filter).
  */
 function applyQuery() {
-  const p = parsed.value
-  postFilter.value = {
-    ...postFilter.value,
-    rating: p.rating,
-    score: p.score,
-    tags: p.tags,
-    extension: p.extension,
-    waifuScoreLevels: p.waifuScoreLevels,
-    silvaScoreLevels: p.silvaScoreLevels,
-    silvaLunaScoreLevels: p.silvaLunaScoreLevels,
-  }
-  textSearchQuery.value = p.text
+  postFilter.value = applyParsedFilter(postFilter.value, parsed.value)
+  textSearchQuery.value = parsed.value.text
 }
 
 /** Writes new input text and puts the caret where the completion left it. */
@@ -310,22 +259,10 @@ const debouncedTagQuery = refDebounced(tagQuery, 120)
  * should say how many posts it would add, not be zeroed by the tags already
  * typed).
  */
-const suggestScope = computed(() => {
-  const p = parsed.value
-  const base = { ...postFilter.value, tags: [] as string[] }
-  if (!hasTerms.value) {
-    return base
-  }
-  return {
-    ...base,
-    rating: p.rating,
-    score: p.score,
-    extension: p.extension,
-    waifuScoreLevels: p.waifuScoreLevels,
-    silvaScoreLevels: p.silvaScoreLevels,
-    silvaLunaScoreLevels: p.silvaLunaScoreLevels,
-  }
-})
+const suggestScope = computed(() => ({
+  ...(hasTerms.value ? applyParsedFilter(postFilter.value, parsed.value) : postFilter.value),
+  tags: [] as string[],
+}))
 
 const tagSuggestQueryResult = useQuery({
   queryKey: queryKeys.tagSuggest(computed(() => ({
@@ -440,37 +377,32 @@ const syntaxIntroRows = computed<Row[]>(() => {
 
 // ── Apply row ──────────────────────────────────────────────────────────────
 
-/** The input no longer says what the gallery currently shows. */
-const isDirty = computed(() => query.value.trim() !== seededQuery.value.trim())
+function closeAndApply() {
+  closeThen(applyQuery)
+}
 
 const applyRow = computed<Row | null>(() => {
-  if (!hasTerms.value && !promptText.value) {
-    // Every term deleted from a filtered view: offer to clear.
-    if (isDirty.value && seededQuery.value.trim() !== '') {
-      return {
-        id: '__apply',
-        section: 'apply',
-        icon: 'i-tabler-filter-off',
-        label: t('command.applyClear'),
-        kind: 'command',
-        activate: () => closeThen(applyQuery),
-      }
-    }
+  const kind = applyRowKind({ hasTerms: hasTerms.value, promptText: promptText.value, query: query.value, seededQuery: seededQuery.value })
+  if (kind === null) {
     return null
   }
-  const label = hasTerms.value
-    ? (promptText.value
-        ? t('command.applyFilterAndSearch', { query: promptText.value })
-        : t('command.applyFilter'))
-    : t('command.searchFor', { query: promptText.value })
+  if (kind === 'clear') {
+    // Every term deleted from a filtered view: offer to clear.
+    return { id: '__apply', section: 'apply', icon: 'i-tabler-filter-off', label: t('command.applyClear'), kind: 'command', activate: closeAndApply }
+  }
+  const label = kind === 'filterAndSearch'
+    ? t('command.applyFilterAndSearch', { query: promptText.value })
+    : kind === 'filter'
+      ? t('command.applyFilter')
+      : t('command.searchFor', { query: promptText.value })
   return {
     id: '__apply',
     section: 'apply',
-    icon: hasTerms.value ? 'i-tabler-filter' : 'i-tabler-search',
+    icon: kind === 'search' ? 'i-tabler-search' : 'i-tabler-filter',
     label,
-    hint: hasTerms.value ? undefined : t('command.semanticHint'),
+    hint: kind === 'search' ? t('command.semanticHint') : undefined,
     kind: 'command',
-    activate: () => closeThen(applyQuery),
+    activate: closeAndApply,
   }
 })
 
@@ -484,52 +416,22 @@ const commandRows = computed<Row[]>(() => matchedCommands.value.map(c => ({
   activate: () => closeThen(c.run),
 })))
 
-/**
- * Order follows intent. While a `key:` term is being typed, the completions
- * are what the user is after, so they lead; for a bare word the search /
- * apply row leads and the tag suggestions sit right under it.
- */
-const rows = computed<Row[]>(() => {
-  const apply = applyRow.value ? [applyRow.value] : []
-  // Syntax first: a key prefix (`ra` → `rating:`) is a stronger signal than a
-  // tag that merely contains the letters.
-  const completions = [...syntaxRows.value, ...tagRows.value]
-  const lead = currentSpan.value?.key == null
-    ? [...apply, ...completions]
-    : [...completions, ...apply]
-  // Mid-way through a `key:` term the commands are noise — the user is
-  // writing a filter, not looking for "Sort by…".
-  const commandsShown = currentSpan.value?.key == null ? commandRows.value : []
-  return [...lead, ...commandsShown, ...syntaxIntroRows.value]
-})
+/** See `orderRows` for why the order follows the term under the caret. */
+const rows = computed<Row[]>(() => orderRows({
+  typingKey: currentSpan.value?.key != null,
+  apply: applyRow.value,
+  syntax: syntaxRows.value,
+  tags: tagRows.value,
+  commands: commandRows.value,
+  intro: syntaxIntroRows.value,
+}))
 
-interface RowSection {
-  key: SectionKey
-  labelId: string
-  items: { row: Row, index: number }[]
-}
-
-const sections = computed<RowSection[]>(() => {
-  const out: RowSection[] = []
-  for (const [index, row] of rows.value.entries()) {
-    const last = out.at(-1)
-    if (last && last.key === row.section) {
-      last.items.push({ row, index })
-    }
-    else {
-      out.push({ key: row.section, labelId: `${uid}-sec-${row.section}-${out.length}`, items: [{ row, index }] })
-    }
-  }
-  return out
-})
+const sections = computed(() => groupSections(rows.value, uid))
 
 // ── Active row (tracked by id so async suggestions don't move it) ─────────
 
 const activeId = ref<string | null>(null)
-const activeIndex = computed(() => {
-  const i = rows.value.findIndex(r => r.id === activeId.value)
-  return i === -1 ? 0 : i
-})
+const activeIndex = computed(() => activeRowIndex(rows.value, activeId.value))
 const activeRow = computed(() => rows.value[activeIndex.value])
 const activeDescendant = computed(() => (activeRow.value ? optionId(activeRow.value) : undefined))
 
@@ -552,35 +454,9 @@ function scrollActiveIntoView() {
 
 // ── Chips: the understood terms, read back ────────────────────────────────
 
-const KNOWN_KEYS = new Set(['tag', 't', 'rating', 'r', 'score', 'sc', 'ext', 'extension', ...FILTER_KEYS.map(k => k.key)])
+const chips = computed<TermChip[]>(() => termChips(query.value, caret.value, parsed.value.unknown))
 
-interface Chip {
-  span: TokenSpan
-  label: string
-  unknown: boolean
-}
-
-/** The term whose end the caret sits on is still being typed, not a finished filter. */
-function isBeingTyped(s: TokenSpan): boolean {
-  return currentSpan.value?.start === s.start && caret.value === s.end
-}
-
-const chips = computed<Chip[]>(() => {
-  // parseFilterQuery reports unknown terms as tokenize() yields them: quotes stripped.
-  const unknown = new Set(parsed.value.unknown)
-  return tokenSpans(query.value)
-    .filter(s => s.key !== null && s.value !== '' && !isBeingTyped(s))
-    .map((s) => {
-      const key = s.key!
-      return {
-        span: s,
-        label: `${key}: ${key === 'tag' || key === 't' ? naturalizeTagName(s.value) : s.value}`,
-        unknown: !KNOWN_KEYS.has(key) || unknown.has(s.raw.replaceAll(/["']/g, '')),
-      }
-    })
-})
-
-function removeChip(chip: Chip) {
+function removeChip(chip: TermChip) {
   const text = removeSpan(query.value, chip.span)
   setQuery(text, Math.min(chip.span.start, text.length))
   announce(t('command.termRemoved', { term: chip.label }))
@@ -701,23 +577,6 @@ watch(commandPaletteOpen, (open) => {
 })
 
 // ── Rendering helpers ──────────────────────────────────────────────────────
-
-/** Splits `text` around the first case-insensitive occurrence of `needle`. */
-function highlight(text: string, needle?: string): { text: string, hit: boolean }[] {
-  const n = needle?.replace(/^[a-z]+:/i, '').replaceAll(/["']/g, '').replaceAll('_', ' ').trim()
-  if (!n) {
-    return [{ text, hit: false }]
-  }
-  const i = text.toLowerCase().indexOf(n.toLowerCase())
-  if (i === -1) {
-    return [{ text, hit: false }]
-  }
-  return [
-    { text: text.slice(0, i), hit: false },
-    { text: text.slice(i, i + n.length), hit: true },
-    { text: text.slice(i + n.length), hit: false },
-  ].filter(p => p.text)
-}
 
 const hintKeys = computed(() => [
   { keys: ['↑', '↓'], label: t('command.hintNavigate') },
@@ -853,8 +712,8 @@ const hintKeys = computed(() => [
                 class="flex-shrink truncate"
                 :class="{ 'font-mono text-[0.8125rem]': row.section === 'syntax' }"
               >
-                <template v-for="(part, i) in highlight(row.label, row.match)" :key="i">
-                  <span v-if="part.hit" class="text-fg font-semibold">{{ part.text }}</span>
+                <template v-for="(part, i) in highlightRow(row.label, row.match)" :key="i">
+                  <span v-if="part.match" class="text-fg font-semibold">{{ part.text }}</span>
                   <template v-else>{{ part.text }}</template>
                 </template>
               </span>
@@ -862,8 +721,8 @@ const hintKeys = computed(() => [
                 v-if="row.hint"
                 class="text-xs text-fg-subtle flex-shrink-[2] min-w-0 truncate"
               >
-                <template v-for="(part, i) in highlight(row.hint, row.section === 'tags' ? row.match : undefined)" :key="i">
-                  <span v-if="part.hit" class="text-fg-muted font-semibold">{{ part.text }}</span>
+                <template v-for="(part, i) in highlightRow(row.hint, row.section === 'tags' ? row.match : undefined)" :key="i">
+                  <span v-if="part.match" class="text-fg-muted font-semibold">{{ part.text }}</span>
                   <template v-else>{{ part.text }}</template>
                 </template>
               </span>

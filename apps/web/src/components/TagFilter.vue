@@ -5,7 +5,7 @@ import { useDebounce } from '@vueuse/core'
 import { computed, ref, useId, useTemplateRef } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { v2GetPostsCount, v2GetTagCount } from '@/api'
-import { activateOptionOnKey, facetOptionLabel, facetTriggerLabel, formatPct, gatedCountOptions, useFacetListbox } from '@/composables/useFacetFilter'
+import { facetOptionLabel, facetTriggerLabel, formatPct, gatedCountOptions, useFacetListbox } from '@/composables/useFacetFilter'
 import { resolvedLocale } from '@/locale'
 import { postFilter, queryKeys } from '@/shared'
 import { naturalizeTagName } from '@/utils'
@@ -108,6 +108,10 @@ const isLoading = computed(() => countQuery.isLoading.value)
 const btnText = computed(() => (selected.value.length === 0 ? t('filter.tags') : selected.value.map(naturalizeTagName).join(', ')))
 const triggerLabel = computed(() => facetTriggerLabel(t, t('filter.tags'), selected.value.map(naturalizeTagName)))
 
+function tagCount(tag: string): number | undefined {
+  return countMap.value[tag]
+}
+
 function tagDisplayName(tag: string): string {
   const translated = translationMap.value[tag]
   return translated ? `${naturalizeTagName(tag)} ${translated}` : naturalizeTagName(tag)
@@ -122,9 +126,9 @@ function optionLabel(tag: string): string {
 // search box, the same as a combobox, so "search → pick → refine" never
 // needs the mouse. Space / Enter toggle the focused tag.
 const listboxId = useId()
-const listbox = useTemplateRef<HTMLElement>('listbox')
+const listbox = useTemplateRef<{ el: HTMLElement | null }>('listbox')
 const searchBox = useTemplateRef<HTMLElement>('searchBox')
-const roving = useFacetListbox(listbox, { typeahead: false, loop: false })
+const roving = useFacetListbox(() => listbox.value?.el, { typeahead: false, loop: false })
 
 function focusSearch() {
   searchBox.value?.querySelector<HTMLInputElement>('input')?.focus()
@@ -140,10 +144,8 @@ function onSearchKeydown(e: KeyboardEvent) {
   }
 }
 
-function onOptionKeydown(e: KeyboardEvent, tag: string, index: number) {
-  if (activateOptionOnKey(e, () => toggle(tag))) {
-    return
-  }
+// Space / Enter already toggled inside PFacetList (and arrive defaultPrevented).
+function onOptionKeydown(e: KeyboardEvent, _tag: string, index: number) {
   if (e.defaultPrevented || e.isComposing || e.ctrlKey || e.metaKey || e.altKey) {
     return
   }
@@ -204,43 +206,26 @@ function onOptionKeydown(e: KeyboardEvent, tag: string, index: number) {
             </PInput>
           </div>
           <div class="max-h-72 overflow-y-auto">
-            <div
+            <PFacetList
               :id="listboxId"
               ref="listbox"
-              role="listbox"
-              aria-multiselectable="true"
               :aria-label="$t('filter.tags')"
               :aria-busy="isLoading || undefined"
+              :items="tagRows"
+              :selected="has"
+              :option-label="optionLabel"
+              :count="tagCount"
+              :share="pct"
+              @toggle="toggle"
+              @option-keydown="onOptionKeydown"
             >
-              <div
-                v-for="(tag, i) in tagRows"
-                :key="tag"
-                role="option"
-                :aria-selected="has(tag)"
-                :aria-label="optionLabel(tag)"
-                class="text-xs px-2 py-1 rounded flex gap-2 w-full cursor-pointer items-center hover:bg-surface-2 focus-visible:[outline-offset:-2px]"
-                @click="toggle(tag)"
-                @keydown="onOptionKeydown($event, tag, i)"
-              >
-                <PCheckbox
-                  class="flex-shrink-0 pointer-events-none"
-                  :model-value="has(tag)"
-                  inert
-                  aria-hidden="true"
-                />
+              <template #default="{ item: tag }">
                 <span class="flex-grow truncate">
                   {{ naturalizeTagName(tag) }}
                   <span v-if="translationMap[tag]" class="text-fg-subtle ml-0.5">{{ translationMap[tag] }}</span>
                 </span>
-                <div
-                  v-if="countMap[tag] || has(tag)"
-                  class="font-mono inline-flex flex-shrink-0 tabular-nums"
-                >
-                  <span class="text-right flex-shrink-0 w-10" :class="countMap[tag] ? 'text-fg-muted' : 'text-fg-subtle'">{{ countMap[tag] || 0 }}</span>
-                  <span v-if="countMap[tag]" class="text-fg-subtle text-right flex-shrink-0 w-14">{{ pct(countMap[tag]) }}%</span>
-                </div>
-              </div>
-            </div>
+              </template>
+            </PFacetList>
             <div
               v-if="tagRows.length === 0 && isLoading"
               class="text-xs text-fg-subtle px-2 py-3 text-center"

@@ -1,67 +1,33 @@
-import type { ScorerUi } from './scorers'
+import type { PostFilterState, PostSortColumn, PostSortOrder } from './postFilter'
 import type { PostSimplePublic } from '@/api'
 import { useActiveElement, useLocalStorage, useStorage } from '@vueuse/core'
 import { computed, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { SCORERS } from './scorers'
+import { emptyFacets, filterFromQuery, filterQuerySignature, filterToQuery } from './postFilter'
 
 export const baseURL = 'http://localhost:4777'
 
-/** 分档字段由打分器表的 `levelsField` 联合派生 —— 加一项就自动多一个字段。 */
-interface PostFilter extends Record<ScorerUi['levelsField'], string[]> {
-  rating: number[]
-  score: number[]
-  tags: string[]
-  extension: string[]
-  folder?: string
-  waifuScoreRange?: [number, number]
-}
-export const postFilter = ref<PostFilter>({
-  rating: [],
-  score: [],
-  tags: [],
-  extension: [],
-  ...Object.fromEntries(SCORERS.map(s => [s.levelsField, [] as string[]])) as Record<ScorerUi['levelsField'], string[]>,
-})
+/** 画廊筛选状态。字段与编解码见 `./postFilter` 的字段表。 */
+export const postFilter = ref<PostFilterState>(emptyFacets())
 export const textSearchQuery = ref('')
 
-export const postSort = useLocalStorage<'id' | 'score' | 'rating' | 'created_at' | 'updated_at' | 'file_name' | 'published_at' | 'waifu_score' | 'silva_score' | 'silva_luna_score' | 'discrepancy'>('pictoria.posts.sort', 'id')
+export const postSort = useLocalStorage<PostSortColumn>('pictoria.posts.sort', 'id')
 export const postSortColor = useLocalStorage<string | undefined>('pictoria.posts.color', undefined)
-export const postSortOrder = useLocalStorage<'asc' | 'desc'>('pictoria.posts.sortOrder', 'desc')
+export const postSortOrder = useLocalStorage<PostSortOrder>('pictoria.posts.sortOrder', 'desc')
 
 // Seed for the /random page's random ordering. SQLite's random() re-rolls per
 // query, so offset pagination needs a fixed seed to page consistently; this is
 // regenerated on each visit to /random (see useWatchRoute) for a fresh shuffle.
 export const randomSeed = ref(1)
 
-// Declarative filter-to-URL mapping for array-typed PostFilter fields.
-// Add a new entry here to sync a new array filter — no other changes needed.
-// `encode`: percent-encode each value before the comma-join (and decode on the
-// way back), so values that may contain commas/other reserved chars (tag names)
-// round-trip safely. Omit it for value sets that never collide (numbers, exts).
-const ARRAY_FILTERS: { key: keyof PostFilter & string, numeric?: boolean, encode?: boolean }[] = [
-  { key: 'score', numeric: true },
-  { key: 'rating', numeric: true },
-  { key: 'extension' },
-  { key: 'tags', encode: true },
-  ...SCORERS.map(s => ({ key: s.levelsField })),
-]
-
-// vue-router query values are `string | null | (string | null)[]`: a valueless
-// param (`?score`) yields null and a repeated key (`?tags=a&tags=b`) an array.
-// Our own URLs only ever produce single comma-joined strings, but hand-edited
-// or shared URLs can produce the other shapes — calling .split on them threw
-// inside the immediate route watcher and broke filter sync for the session.
-// Normalize to the first string value, or undefined when there is none.
-function queryParamString(value: unknown): string | undefined {
-  const raw = Array.isArray(value) ? value[0] : value
-  return typeof raw === 'string' ? raw : undefined
+function urlState() {
+  return { filter: postFilter.value, sort: postSort.value, order: postSortOrder.value, sortColor: postSortColor.value }
 }
 
 // Sync postFilter with URL query parameters. Must be mounted on a component
 // that survives route changes (App.vue) — the URL→filter watcher below has to
 // observe every navigation, and the filter→URL one re-projects after each
-// path change.
+// path change. The encoding itself lives in `./postFilter`.
 export function useSyncFilterWithUrl() {
   const route = useRoute()
   const router = useRouter()
@@ -74,33 +40,18 @@ export function useSyncFilterWithUrl() {
   // filters. Keys absent from the URL leave the filter untouched (state is
   // the source of truth across navigations).
   watch(() => route.query, (newQuery) => {
-    for (const { key, numeric, encode } of ARRAY_FILTERS) {
-      const raw = queryParamString(newQuery[key])
-      if (raw !== undefined) {
-        const parts = raw.split(',')
-        const decoded = encode ? parts.map(p => decodeURIComponent(p)) : parts
-        ;(postFilter.value[key] as any) = numeric ? decoded.map(Number) : decoded
-      }
+    const patch = filterFromQuery(newQuery)
+    for (const [key, value] of Object.entries(patch.filter)) {
+      ;(postFilter.value as unknown as Record<string, unknown>)[key] = value
     }
-
-    const rangeRaw = queryParamString(newQuery.waifuScoreRange)
-    if (rangeRaw !== undefined) {
-      postFilter.value.waifuScoreRange = rangeRaw.split(',').map(Number) as [number, number]
+    if (patch.sort !== undefined) {
+      postSort.value = patch.sort
     }
-
-    const sort = queryParamString(newQuery.sort)
-    if (sort !== undefined) {
-      postSort.value = sort as typeof postSort.value
+    if (patch.order !== undefined) {
+      postSortOrder.value = patch.order
     }
-
-    const order = queryParamString(newQuery.order)
-    if (order !== undefined) {
-      postSortOrder.value = order as typeof postSortOrder.value
-    }
-
-    const sortColor = queryParamString(newQuery.sort_color)
-    if (sortColor !== undefined) {
-      postSortColor.value = sortColor
+    if (patch.sortColor !== undefined) {
+      postSortColor.value = patch.sortColor
     }
   }, { immediate: true })
 
@@ -121,62 +72,14 @@ export function useSyncFilterWithUrl() {
         // they kept applying in memory either way; this keeps the URL honest
         // so reload/share doesn't silently lose them.
         route.path,
-        // Encode the same way the URL write does, so a value containing ',' can't
-        // make two distinct selections collapse to one signature (and skip a sync).
-        ...ARRAY_FILTERS.map(({ key, encode }) => {
-          const arr = postFilter.value[key] as unknown[]
-          return encode ? arr.map(v => encodeURIComponent(String(v))).join(',') : arr.join(',')
-        }),
-        postFilter.value.waifuScoreRange?.join(',') ?? '',
-        postSort.value,
-        postSortOrder.value,
-        postSortColor.value ?? '',
+        ...filterQuerySignature(urlState()),
       ]
     },
     (signature) => {
       if (signature === false) {
         return
       }
-      const f = postFilter.value
-      const query = { ...route.query }
-
-      for (const { key, encode } of ARRAY_FILTERS) {
-        const arr = f[key] as unknown[]
-        if (arr.length > 0) {
-          query[key] = encode ? arr.map(v => encodeURIComponent(String(v))).join(',') : arr.join(',')
-        }
-        else {
-          delete query[key]
-        }
-      }
-
-      if (f.waifuScoreRange) {
-        query.waifuScoreRange = f.waifuScoreRange.join(',')
-      }
-      else {
-        delete query.waifuScoreRange
-      }
-
-      // Sort state: omit defaults (sort=id, order=desc) so URLs stay clean.
-      if (postSort.value === 'id') {
-        delete query.sort
-      }
-      else {
-        query.sort = postSort.value
-      }
-      if (postSortOrder.value === 'desc') {
-        delete query.order
-      }
-      else {
-        query.order = postSortOrder.value
-      }
-      if (postSortColor.value) {
-        query.sort_color = postSortColor.value
-      }
-      else {
-        delete query.sort_color
-      }
-      router.replace({ query })
+      router.replace({ query: filterToQuery(urlState(), route.query) })
     },
   )
 }

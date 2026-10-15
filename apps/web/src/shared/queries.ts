@@ -6,6 +6,7 @@ import { converter, parse } from 'culori'
 import { computed } from 'vue'
 import { useRoute } from 'vue-router'
 import { v2GetFolders, v2SearchPosts, v2UnratedArtistPicks } from '@/api'
+import { searchPostsBody } from './postFilter'
 import { queryKeys } from './queryKeys'
 import { postFilter, postSort, postSortColor, postSortOrder, randomSeed } from './state'
 
@@ -49,23 +50,6 @@ export function useInfinityPostsQuery() {
   // postFilter / 排序无关，所以不带 requestBody —— 筛选条件在这个视图上不生效。
   const isUnratedArtistsPage = computed(() => route.path === '/unrated-artists')
 
-  const order = computed<'asc' | 'desc' | 'random'>(() => {
-    if (isRandomPage.value) {
-      return 'random'
-    }
-    if (isRecentlyPage.value) {
-      return 'desc'
-    }
-    return postSortOrder.value as 'asc' | 'desc'
-  })
-
-  const orderBy = computed<'id' | 'score' | 'rating' | 'created_at' | 'updated_at' | 'file_name' | 'published_at' | 'last_accessed_at' | 'waifu_score' | 'silva_score' | 'silva_luna_score' | 'discrepancy'>(() => {
-    if (isRecentlyPage.value) {
-      return 'last_accessed_at'
-    }
-    return postSort.value
-  })
-
   // Isolated computed so the lab conversion only runs when the picked
   // color actually changes — without this, every filter change re-runs the
   // culori parse/converter chain even when the color hasn't moved.
@@ -86,29 +70,15 @@ export function useInfinityPostsQuery() {
     }
   })
 
-  const requestBody = computed(() => {
-    const base = {
-      ...postFilter.value,
-      order: order.value,
-      // On /random the default sort (id — PostSorter's "no specific sort")
-      // must NOT be sent as orderBy: the backend re-sorts the shuffled page
-      // by any orderBy it receives, so sending the default re-ordered every
-      // random page back into id order and pure random browsing was
-      // unreachable. Only forward an explicitly chosen sort.
-      ...(isRandomPage.value && postSort.value === 'id'
-        ? {}
-        : { orderBy: orderBy.value }),
-      // Pin the random shuffle seed so every page of the infinite query shares
-      // one ordering; it's part of the queryKey, so a new seed → a fresh query.
-      ...(isRandomPage.value
-        ? {
-            orderSeed: randomSeed.value,
-            ...(postSort.value === 'id' ? {} : { sortDirection: postSortOrder.value }),
-          }
-        : {}),
-    }
-    return labTuple.value ? { ...base, lab: labTuple.value } : base
-  })
+  // 排序语义（/random、/recently 的特例）与筛选字段的映射都在 `./postFilter`。
+  const requestBody = computed(() => searchPostsBody({
+    filter: postFilter.value,
+    mode: isRandomPage.value ? 'random' : isRecentlyPage.value ? 'recently' : 'default',
+    sort: postSort.value,
+    sortOrder: postSortOrder.value,
+    seed: randomSeed.value,
+    lab: labTuple.value,
+  }))
 
   return useInfiniteQuery({
     queryKey: computed(() => isUnratedArtistsPage.value

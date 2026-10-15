@@ -3,7 +3,7 @@ import type { FilterChip } from '@/composables/useActiveFilters'
 import { nextTick, useTemplateRef } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useActiveFilters } from '@/composables/useActiveFilters'
-import { announce, openCommandPalette, textSearchQuery, waterfallRowCount } from '@/shared'
+import { announce, openCommandPalette, SCORERS, textSearchQuery, waterfallRowCount } from '@/shared'
 import { shortcuts } from '@/shared/shortcuts'
 import { focusElement } from '@/utils/focus'
 import { formatShortcut, isMac } from '@/utils/keyboard'
@@ -55,9 +55,11 @@ async function onClearAll() {
         <RatingFilter />
         <ExtensionFilter />
         <TagFilter />
-        <WaifuScoreFilter />
-        <SilvaScoreFilter />
-        <SilvaLunaScoreFilter />
+        <ScoreBucketFilter
+          v-for="scorer in SCORERS"
+          :key="scorer.name"
+          :scorer="scorer"
+        />
       </div>
       <!-- Right cluster, in two groups: finding things (search + sort), then
            how densely they are laid out. The divider keeps the density slider

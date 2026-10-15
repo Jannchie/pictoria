@@ -1,15 +1,16 @@
 <script setup lang="ts">
+import type { PostSortColumn } from '@/shared/postFilter'
 import { computed, ref, useId, useTemplateRef } from 'vue'
 import { useI18n } from 'vue-i18n'
-import { activateOptionOnKey } from '@/composables/useFacetFilter'
 import { postSort, postSortColor, postSortOrder, textSearchQuery } from '@/shared'
+import { activateOptionOnKey } from '@/ui/listboxKeys'
 import { useRovingFocus } from '@/ui/useRovingFocus'
 
 const { t } = useI18n()
 
 // Labels stored as message keys so a locale switch re-renders them.
 const sortOptions: {
-  id: 'created_at' | 'published_at' | 'updated_at' | 'score' | 'rating' | 'file_name' | 'waifu_score' | 'silva_score' | 'silva_luna_score' | 'discrepancy'
+  id: Exclude<PostSortColumn, 'id'>
   labelKey: string
   icon: string
 }[] = [

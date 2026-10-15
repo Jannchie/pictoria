@@ -1,0 +1,4386 @@
+{
+  "parse": [
+    {
+      "input": "",
+      "out": {
+        "rating": [],
+        "score": [],
+        "tags": [],
+        "extension": [],
+        "waifuScoreLevels": [],
+        "silvaScoreLevels": [],
+        "silvaLunaScoreLevels": [],
+        "text": "",
+        "unknown": []
+      }
+    },
+    {
+      "input": "rating:explicit",
+      "out": {
+        "rating": [
+          4
+        ],
+        "score": [],
+        "tags": [],
+        "extension": [],
+        "waifuScoreLevels": [],
+        "silvaScoreLevels": [],
+        "silvaLunaScoreLevels": [],
+        "text": "",
+        "unknown": []
+      }
+    },
+    {
+      "input": "rating:g rating:s",
+      "out": {
+        "rating": [
+          1,
+          2
+        ],
+        "score": [],
+        "tags": [],
+        "extension": [],
+        "waifuScoreLevels": [],
+        "silvaScoreLevels": [],
+        "silvaLunaScoreLevels": [],
+        "text": "",
+        "unknown": []
+      }
+    },
+    {
+      "input": "rating:>=3 score:<2",
+      "out": {
+        "rating": [
+          3,
+          4
+        ],
+        "score": [
+          0,
+          1
+        ],
+        "tags": [],
+        "extension": [],
+        "waifuScoreLevels": [],
+        "silvaScoreLevels": [],
+        "silvaLunaScoreLevels": [],
+        "text": "",
+        "unknown": []
+      }
+    },
+    {
+      "input": "r:q sc:>4 t:cat",
+      "out": {
+        "rating": [
+          3
+        ],
+        "score": [
+          5
+        ],
+        "tags": [
+          "cat"
+        ],
+        "extension": [],
+        "waifuScoreLevels": [],
+        "silvaScoreLevels": [],
+        "silvaLunaScoreLevels": [],
+        "text": "",
+        "unknown": []
+      }
+    },
+    {
+      "input": "rating:purple score:x",
+      "out": {
+        "rating": [],
+        "score": [],
+        "tags": [],
+        "extension": [],
+        "waifuScoreLevels": [],
+        "silvaScoreLevels": [],
+        "silvaLunaScoreLevels": [],
+        "text": "",
+        "unknown": [
+          "rating:purple",
+          "score:x"
+        ]
+      }
+    },
+    {
+      "input": "score:9",
+      "out": {
+        "rating": [],
+        "score": [],
+        "tags": [],
+        "extension": [],
+        "waifuScoreLevels": [],
+        "silvaScoreLevels": [],
+        "silvaLunaScoreLevels": [],
+        "text": "",
+        "unknown": []
+      }
+    },
+    {
+      "input": "tag:\"long hair\" tag:cat tag:cat",
+      "out": {
+        "rating": [],
+        "score": [],
+        "tags": [
+          "long_hair",
+          "cat"
+        ],
+        "extension": [],
+        "waifuScoreLevels": [],
+        "silvaScoreLevels": [],
+        "silvaLunaScoreLevels": [],
+        "text": "",
+        "unknown": []
+      }
+    },
+    {
+      "input": "ext:.PNG extension:jpg",
+      "out": {
+        "rating": [],
+        "score": [],
+        "tags": [],
+        "extension": [
+          "png",
+          "jpg"
+        ],
+        "waifuScoreLevels": [],
+        "silvaScoreLevels": [],
+        "silvaLunaScoreLevels": [],
+        "text": "",
+        "unknown": []
+      }
+    },
+    {
+      "input": "waifu:best silva:worst luna:good",
+      "out": {
+        "rating": [],
+        "score": [],
+        "tags": [],
+        "extension": [],
+        "waifuScoreLevels": [
+          "A"
+        ],
+        "silvaScoreLevels": [
+          "E"
+        ],
+        "silvaLunaScoreLevels": [
+          "B"
+        ],
+        "text": "",
+        "unknown": []
+      }
+    },
+    {
+      "input": "silva:A luna:c waifu:UNSCORED",
+      "out": {
+        "rating": [],
+        "score": [],
+        "tags": [],
+        "extension": [],
+        "waifuScoreLevels": [
+          "UNSCORED"
+        ],
+        "silvaScoreLevels": [
+          "A"
+        ],
+        "silvaLunaScoreLevels": [
+          "C"
+        ],
+        "text": "",
+        "unknown": []
+      }
+    },
+    {
+      "input": "silva:amazing",
+      "out": {
+        "rating": [],
+        "score": [],
+        "tags": [],
+        "extension": [],
+        "waifuScoreLevels": [],
+        "silvaScoreLevels": [],
+        "silvaLunaScoreLevels": [],
+        "text": "",
+        "unknown": [
+          "silva:amazing"
+        ]
+      }
+    },
+    {
+      "input": "girl in red dress",
+      "out": {
+        "rating": [],
+        "score": [],
+        "tags": [],
+        "extension": [],
+        "waifuScoreLevels": [],
+        "silvaScoreLevels": [],
+        "silvaLunaScoreLevels": [],
+        "text": "girl in red dress",
+        "unknown": []
+      }
+    },
+    {
+      "input": "sunset rating:>=3 beach",
+      "out": {
+        "rating": [
+          3,
+          4
+        ],
+        "score": [],
+        "tags": [],
+        "extension": [],
+        "waifuScoreLevels": [],
+        "silvaScoreLevels": [],
+        "silvaLunaScoreLevels": [],
+        "text": "sunset beach",
+        "unknown": []
+      }
+    },
+    {
+      "input": "colour:blue",
+      "out": {
+        "rating": [],
+        "score": [],
+        "tags": [],
+        "extension": [],
+        "waifuScoreLevels": [],
+        "silvaScoreLevels": [],
+        "silvaLunaScoreLevels": [],
+        "text": "colour:blue",
+        "unknown": [
+          "colour:blue"
+        ]
+      }
+    },
+    {
+      "input": "tag:",
+      "out": {
+        "rating": [],
+        "score": [],
+        "tags": [],
+        "extension": [],
+        "waifuScoreLevels": [],
+        "silvaScoreLevels": [],
+        "silvaLunaScoreLevels": [],
+        "text": "tag:",
+        "unknown": []
+      }
+    },
+    {
+      "input": ":foo",
+      "out": {
+        "rating": [],
+        "score": [],
+        "tags": [],
+        "extension": [],
+        "waifuScoreLevels": [],
+        "silvaScoreLevels": [],
+        "silvaLunaScoreLevels": [],
+        "text": ":foo",
+        "unknown": []
+      }
+    },
+    {
+      "input": "rating:<=1 rating:>2 score:>=0",
+      "out": {
+        "rating": [
+          0,
+          1,
+          3,
+          4
+        ],
+        "score": [
+          0,
+          1,
+          2,
+          3,
+          4,
+          5
+        ],
+        "tags": [],
+        "extension": [],
+        "waifuScoreLevels": [],
+        "silvaScoreLevels": [],
+        "silvaLunaScoreLevels": [],
+        "text": "",
+        "unknown": []
+      }
+    },
+    {
+      "input": "TAG:Foo EXT:WebP Waifu:Good",
+      "out": {
+        "rating": [],
+        "score": [],
+        "tags": [
+          "Foo"
+        ],
+        "extension": [
+          "webp"
+        ],
+        "waifuScoreLevels": [
+          "B"
+        ],
+        "silvaScoreLevels": [],
+        "silvaLunaScoreLevels": [],
+        "text": "",
+        "unknown": []
+      }
+    }
+  ],
+  "stringify": [
+    {
+      "state": {
+        "rating": [],
+        "score": [],
+        "tags": [],
+        "extension": [],
+        "waifuScoreLevels": [],
+        "silvaScoreLevels": [],
+        "silvaLunaScoreLevels": []
+      },
+      "text": "",
+      "out": ""
+    },
+    {
+      "state": {
+        "rating": [],
+        "score": [],
+        "tags": [],
+        "extension": [],
+        "waifuScoreLevels": [],
+        "silvaScoreLevels": [],
+        "silvaLunaScoreLevels": []
+      },
+      "text": "sunset ",
+      "out": "sunset"
+    },
+    {
+      "state": {
+        "rating": [
+          4,
+          1
+        ],
+        "score": [
+          5,
+          0
+        ],
+        "tags": [],
+        "extension": [],
+        "waifuScoreLevels": [],
+        "silvaScoreLevels": [],
+        "silvaLunaScoreLevels": []
+      },
+      "text": "",
+      "out": "rating:general rating:explicit score:0 score:5"
+    },
+    {
+      "state": {
+        "rating": [
+          4,
+          1
+        ],
+        "score": [
+          5,
+          0
+        ],
+        "tags": [],
+        "extension": [],
+        "waifuScoreLevels": [],
+        "silvaScoreLevels": [],
+        "silvaLunaScoreLevels": []
+      },
+      "text": "sunset ",
+      "out": "rating:general rating:explicit score:0 score:5 sunset"
+    },
+    {
+      "state": {
+        "rating": [],
+        "score": [],
+        "tags": [
+          "long hair",
+          "a,b",
+          "cat"
+        ],
+        "extension": [
+          "png",
+          ""
+        ],
+        "waifuScoreLevels": [],
+        "silvaScoreLevels": [],
+        "silvaLunaScoreLevels": []
+      },
+      "text": "",
+      "out": "tag:\"long hair\" tag:a,b tag:cat ext:png ext:"
+    },
+    {
+      "state": {
+        "rating": [],
+        "score": [],
+        "tags": [
+          "long hair",
+          "a,b",
+          "cat"
+        ],
+        "extension": [
+          "png",
+          ""
+        ],
+        "waifuScoreLevels": [],
+        "silvaScoreLevels": [],
+        "silvaLunaScoreLevels": []
+      },
+      "text": "sunset ",
+      "out": "tag:\"long hair\" tag:a,b tag:cat ext:png ext: sunset"
+    },
+    {
+      "state": {
+        "rating": [],
+        "score": [],
+        "tags": [],
+        "extension": [],
+        "waifuScoreLevels": [
+          "A",
+          "UNSCORED"
+        ],
+        "silvaScoreLevels": [
+          "good"
+        ],
+        "silvaLunaScoreLevels": [
+          "E"
+        ]
+      },
+      "text": "",
+      "out": "waifu:best waifu:unscored silva:good luna:worst"
+    },
+    {
+      "state": {
+        "rating": [],
+        "score": [],
+        "tags": [],
+        "extension": [],
+        "waifuScoreLevels": [
+          "A",
+          "UNSCORED"
+        ],
+        "silvaScoreLevels": [
+          "good"
+        ],
+        "silvaLunaScoreLevels": [
+          "E"
+        ]
+      },
+      "text": "sunset ",
+      "out": "waifu:best waifu:unscored silva:good luna:worst sunset"
+    },
+    {
+      "state": {
+        "rating": [
+          0
+        ],
+        "score": [],
+        "tags": [],
+        "extension": [],
+        "waifuScoreLevels": [],
+        "silvaScoreLevels": [],
+        "silvaLunaScoreLevels": [],
+        "waifuScoreRange": [
+          2,
+          8
+        ]
+      },
+      "text": "",
+      "out": "rating:unrated"
+    },
+    {
+      "state": {
+        "rating": [
+          0
+        ],
+        "score": [],
+        "tags": [],
+        "extension": [],
+        "waifuScoreLevels": [],
+        "silvaScoreLevels": [],
+        "silvaLunaScoreLevels": [],
+        "waifuScoreRange": [
+          2,
+          8
+        ]
+      },
+      "text": "sunset ",
+      "out": "rating:unrated sunset"
+    },
+    {
+      "state": {
+        "rating": [
+          3
+        ],
+        "score": [],
+        "tags": [],
+        "extension": [],
+        "waifuScoreLevels": [],
+        "silvaScoreLevels": [],
+        "silvaLunaScoreLevels": [],
+        "folder": "a/b"
+      },
+      "text": "",
+      "out": "rating:questionable"
+    },
+    {
+      "state": {
+        "rating": [
+          3
+        ],
+        "score": [],
+        "tags": [],
+        "extension": [],
+        "waifuScoreLevels": [],
+        "silvaScoreLevels": [],
+        "silvaLunaScoreLevels": [],
+        "folder": "a/b"
+      },
+      "text": "sunset ",
+      "out": "rating:questionable sunset"
+    }
+  ],
+  "toQuery": [
+    {
+      "state": {
+        "rating": [],
+        "score": [],
+        "tags": [],
+        "extension": [],
+        "waifuScoreLevels": [],
+        "silvaScoreLevels": [],
+        "silvaLunaScoreLevels": []
+      },
+      "sort": "id",
+      "order": "desc",
+      "base": {
+        "keep": "1",
+        "rating": "9"
+      },
+      "out": {
+        "keep": "1"
+      }
+    },
+    {
+      "state": {
+        "rating": [],
+        "score": [],
+        "tags": [],
+        "extension": [],
+        "waifuScoreLevels": [],
+        "silvaScoreLevels": [],
+        "silvaLunaScoreLevels": []
+      },
+      "sort": "silva_score",
+      "order": "asc",
+      "color": "#abcdef",
+      "base": {
+        "keep": "1",
+        "rating": "9"
+      },
+      "out": {
+        "keep": "1",
+        "sort": "silva_score",
+        "order": "asc",
+        "sort_color": "#abcdef"
+      }
+    },
+    {
+      "state": {
+        "rating": [
+          4,
+          1
+        ],
+        "score": [
+          5,
+          0
+        ],
+        "tags": [],
+        "extension": [],
+        "waifuScoreLevels": [],
+        "silvaScoreLevels": [],
+        "silvaLunaScoreLevels": []
+      },
+      "sort": "id",
+      "order": "desc",
+      "base": {
+        "keep": "1",
+        "rating": "9"
+      },
+      "out": {
+        "keep": "1",
+        "rating": "4,1",
+        "score": "5,0"
+      }
+    },
+    {
+      "state": {
+        "rating": [
+          4,
+          1
+        ],
+        "score": [
+          5,
+          0
+        ],
+        "tags": [],
+        "extension": [],
+        "waifuScoreLevels": [],
+        "silvaScoreLevels": [],
+        "silvaLunaScoreLevels": []
+      },
+      "sort": "silva_score",
+      "order": "asc",
+      "color": "#abcdef",
+      "base": {
+        "keep": "1",
+        "rating": "9"
+      },
+      "out": {
+        "keep": "1",
+        "rating": "4,1",
+        "score": "5,0",
+        "sort": "silva_score",
+        "order": "asc",
+        "sort_color": "#abcdef"
+      }
+    },
+    {
+      "state": {
+        "rating": [],
+        "score": [],
+        "tags": [
+          "long hair",
+          "a,b",
+          "cat"
+        ],
+        "extension": [
+          "png",
+          ""
+        ],
+        "waifuScoreLevels": [],
+        "silvaScoreLevels": [],
+        "silvaLunaScoreLevels": []
+      },
+      "sort": "id",
+      "order": "desc",
+      "base": {
+        "keep": "1",
+        "rating": "9"
+      },
+      "out": {
+        "keep": "1",
+        "extension": "png,",
+        "tags": "long%20hair,a%2Cb,cat"
+      }
+    },
+    {
+      "state": {
+        "rating": [],
+        "score": [],
+        "tags": [
+          "long hair",
+          "a,b",
+          "cat"
+        ],
+        "extension": [
+          "png",
+          ""
+        ],
+        "waifuScoreLevels": [],
+        "silvaScoreLevels": [],
+        "silvaLunaScoreLevels": []
+      },
+      "sort": "silva_score",
+      "order": "asc",
+      "color": "#abcdef",
+      "base": {
+        "keep": "1",
+        "rating": "9"
+      },
+      "out": {
+        "keep": "1",
+        "extension": "png,",
+        "tags": "long%20hair,a%2Cb,cat",
+        "sort": "silva_score",
+        "order": "asc",
+        "sort_color": "#abcdef"
+      }
+    },
+    {
+      "state": {
+        "rating": [],
+        "score": [],
+        "tags": [],
+        "extension": [],
+        "waifuScoreLevels": [
+          "A",
+          "UNSCORED"
+        ],
+        "silvaScoreLevels": [
+          "good"
+        ],
+        "silvaLunaScoreLevels": [
+          "E"
+        ]
+      },
+      "sort": "id",
+      "order": "desc",
+      "base": {
+        "keep": "1",
+        "rating": "9"
+      },
+      "out": {
+        "keep": "1",
+        "waifuScoreLevels": "A,UNSCORED",
+        "silvaScoreLevels": "good",
+        "silvaLunaScoreLevels": "E"
+      }
+    },
+    {
+      "state": {
+        "rating": [],
+        "score": [],
+        "tags": [],
+        "extension": [],
+        "waifuScoreLevels": [
+          "A",
+          "UNSCORED"
+        ],
+        "silvaScoreLevels": [
+          "good"
+        ],
+        "silvaLunaScoreLevels": [
+          "E"
+        ]
+      },
+      "sort": "silva_score",
+      "order": "asc",
+      "color": "#abcdef",
+      "base": {
+        "keep": "1",
+        "rating": "9"
+      },
+      "out": {
+        "keep": "1",
+        "waifuScoreLevels": "A,UNSCORED",
+        "silvaScoreLevels": "good",
+        "silvaLunaScoreLevels": "E",
+        "sort": "silva_score",
+        "order": "asc",
+        "sort_color": "#abcdef"
+      }
+    },
+    {
+      "state": {
+        "rating": [
+          0
+        ],
+        "score": [],
+        "tags": [],
+        "extension": [],
+        "waifuScoreLevels": [],
+        "silvaScoreLevels": [],
+        "silvaLunaScoreLevels": [],
+        "waifuScoreRange": [
+          2,
+          8
+        ]
+      },
+      "sort": "id",
+      "order": "desc",
+      "base": {
+        "keep": "1",
+        "rating": "9"
+      },
+      "out": {
+        "keep": "1",
+        "rating": "0",
+        "waifuScoreRange": "2,8"
+      }
+    },
+    {
+      "state": {
+        "rating": [
+          0
+        ],
+        "score": [],
+        "tags": [],
+        "extension": [],
+        "waifuScoreLevels": [],
+        "silvaScoreLevels": [],
+        "silvaLunaScoreLevels": [],
+        "waifuScoreRange": [
+          2,
+          8
+        ]
+      },
+      "sort": "silva_score",
+      "order": "asc",
+      "color": "#abcdef",
+      "base": {
+        "keep": "1",
+        "rating": "9"
+      },
+      "out": {
+        "keep": "1",
+        "rating": "0",
+        "waifuScoreRange": "2,8",
+        "sort": "silva_score",
+        "order": "asc",
+        "sort_color": "#abcdef"
+      }
+    },
+    {
+      "state": {
+        "rating": [
+          3
+        ],
+        "score": [],
+        "tags": [],
+        "extension": [],
+        "waifuScoreLevels": [],
+        "silvaScoreLevels": [],
+        "silvaLunaScoreLevels": [],
+        "folder": "a/b"
+      },
+      "sort": "id",
+      "order": "desc",
+      "base": {
+        "keep": "1",
+        "rating": "9"
+      },
+      "out": {
+        "keep": "1",
+        "rating": "3"
+      }
+    },
+    {
+      "state": {
+        "rating": [
+          3
+        ],
+        "score": [],
+        "tags": [],
+        "extension": [],
+        "waifuScoreLevels": [],
+        "silvaScoreLevels": [],
+        "silvaLunaScoreLevels": [],
+        "folder": "a/b"
+      },
+      "sort": "silva_score",
+      "order": "asc",
+      "color": "#abcdef",
+      "base": {
+        "keep": "1",
+        "rating": "9"
+      },
+      "out": {
+        "keep": "1",
+        "rating": "3",
+        "sort": "silva_score",
+        "order": "asc",
+        "sort_color": "#abcdef"
+      }
+    }
+  ],
+  "fromQuery": [
+    {
+      "query": {},
+      "out": {}
+    },
+    {
+      "query": {
+        "rating": "1,4",
+        "score": "5",
+        "sort": "score",
+        "order": "asc"
+      },
+      "out": {
+        "score": [
+          5
+        ],
+        "rating": [
+          1,
+          4
+        ],
+        "sort": "score",
+        "order": "asc"
+      }
+    },
+    {
+      "query": {
+        "tags": "long%20hair,a%2Cb",
+        "extension": "png,",
+        "waifuScoreLevels": "A,UNSCORED"
+      },
+      "out": {
+        "extension": [
+          "png",
+          ""
+        ],
+        "tags": [
+          "long hair",
+          "a,b"
+        ],
+        "waifuScoreLevels": [
+          "A",
+          "UNSCORED"
+        ]
+      }
+    },
+    {
+      "query": {
+        "rating": [
+          "2",
+          "3"
+        ],
+        "score": null,
+        "silvaScoreLevels": "B",
+        "silvaLunaScoreLevels": "C",
+        "waifuScoreRange": "1,9",
+        "sort_color": "#ff0000"
+      },
+      "out": {
+        "rating": [
+          2
+        ],
+        "silvaScoreLevels": [
+          "B"
+        ],
+        "silvaLunaScoreLevels": [
+          "C"
+        ],
+        "waifuScoreRange": [
+          1,
+          9
+        ],
+        "sortColor": "#ff0000"
+      }
+    },
+    {
+      "query": {
+        "unrelated": "x",
+        "tags": ""
+      },
+      "out": {
+        "tags": [
+          ""
+        ]
+      }
+    }
+  ],
+  "body": [
+    {
+      "state": {
+        "rating": [],
+        "score": [],
+        "tags": [],
+        "extension": [],
+        "waifuScoreLevels": [],
+        "silvaScoreLevels": [],
+        "silvaLunaScoreLevels": []
+      },
+      "page": "/all",
+      "sort": "id",
+      "order": "desc",
+      "seed": 7,
+      "out": {
+        "rating": [],
+        "score": [],
+        "tags": [],
+        "extension": [],
+        "waifuScoreLevels": [],
+        "silvaScoreLevels": [],
+        "silvaLunaScoreLevels": [],
+        "order": "desc",
+        "orderBy": "id"
+      }
+    },
+    {
+      "state": {
+        "rating": [],
+        "score": [],
+        "tags": [],
+        "extension": [],
+        "waifuScoreLevels": [],
+        "silvaScoreLevels": [],
+        "silvaLunaScoreLevels": []
+      },
+      "page": "/all",
+      "sort": "id",
+      "order": "desc",
+      "seed": 7,
+      "lab": [
+        50,
+        1,
+        -2
+      ],
+      "out": {
+        "rating": [],
+        "score": [],
+        "tags": [],
+        "extension": [],
+        "waifuScoreLevels": [],
+        "silvaScoreLevels": [],
+        "silvaLunaScoreLevels": [],
+        "order": "desc",
+        "orderBy": "id",
+        "lab": [
+          50,
+          1,
+          -2
+        ]
+      }
+    },
+    {
+      "state": {
+        "rating": [],
+        "score": [],
+        "tags": [],
+        "extension": [],
+        "waifuScoreLevels": [],
+        "silvaScoreLevels": [],
+        "silvaLunaScoreLevels": []
+      },
+      "page": "/all",
+      "sort": "waifu_score",
+      "order": "asc",
+      "seed": 7,
+      "out": {
+        "rating": [],
+        "score": [],
+        "tags": [],
+        "extension": [],
+        "waifuScoreLevels": [],
+        "silvaScoreLevels": [],
+        "silvaLunaScoreLevels": [],
+        "order": "asc",
+        "orderBy": "waifu_score"
+      }
+    },
+    {
+      "state": {
+        "rating": [],
+        "score": [],
+        "tags": [],
+        "extension": [],
+        "waifuScoreLevels": [],
+        "silvaScoreLevels": [],
+        "silvaLunaScoreLevels": []
+      },
+      "page": "/all",
+      "sort": "waifu_score",
+      "order": "asc",
+      "seed": 7,
+      "lab": [
+        50,
+        1,
+        -2
+      ],
+      "out": {
+        "rating": [],
+        "score": [],
+        "tags": [],
+        "extension": [],
+        "waifuScoreLevels": [],
+        "silvaScoreLevels": [],
+        "silvaLunaScoreLevels": [],
+        "order": "asc",
+        "orderBy": "waifu_score",
+        "lab": [
+          50,
+          1,
+          -2
+        ]
+      }
+    },
+    {
+      "state": {
+        "rating": [],
+        "score": [],
+        "tags": [],
+        "extension": [],
+        "waifuScoreLevels": [],
+        "silvaScoreLevels": [],
+        "silvaLunaScoreLevels": []
+      },
+      "page": "/random",
+      "sort": "id",
+      "order": "desc",
+      "seed": 7,
+      "out": {
+        "rating": [],
+        "score": [],
+        "tags": [],
+        "extension": [],
+        "waifuScoreLevels": [],
+        "silvaScoreLevels": [],
+        "silvaLunaScoreLevels": [],
+        "order": "random",
+        "orderSeed": 7
+      }
+    },
+    {
+      "state": {
+        "rating": [],
+        "score": [],
+        "tags": [],
+        "extension": [],
+        "waifuScoreLevels": [],
+        "silvaScoreLevels": [],
+        "silvaLunaScoreLevels": []
+      },
+      "page": "/random",
+      "sort": "id",
+      "order": "desc",
+      "seed": 7,
+      "lab": [
+        50,
+        1,
+        -2
+      ],
+      "out": {
+        "rating": [],
+        "score": [],
+        "tags": [],
+        "extension": [],
+        "waifuScoreLevels": [],
+        "silvaScoreLevels": [],
+        "silvaLunaScoreLevels": [],
+        "order": "random",
+        "orderSeed": 7,
+        "lab": [
+          50,
+          1,
+          -2
+        ]
+      }
+    },
+    {
+      "state": {
+        "rating": [],
+        "score": [],
+        "tags": [],
+        "extension": [],
+        "waifuScoreLevels": [],
+        "silvaScoreLevels": [],
+        "silvaLunaScoreLevels": []
+      },
+      "page": "/random",
+      "sort": "waifu_score",
+      "order": "asc",
+      "seed": 7,
+      "out": {
+        "rating": [],
+        "score": [],
+        "tags": [],
+        "extension": [],
+        "waifuScoreLevels": [],
+        "silvaScoreLevels": [],
+        "silvaLunaScoreLevels": [],
+        "order": "random",
+        "orderBy": "waifu_score",
+        "orderSeed": 7,
+        "sortDirection": "asc"
+      }
+    },
+    {
+      "state": {
+        "rating": [],
+        "score": [],
+        "tags": [],
+        "extension": [],
+        "waifuScoreLevels": [],
+        "silvaScoreLevels": [],
+        "silvaLunaScoreLevels": []
+      },
+      "page": "/random",
+      "sort": "waifu_score",
+      "order": "asc",
+      "seed": 7,
+      "lab": [
+        50,
+        1,
+        -2
+      ],
+      "out": {
+        "rating": [],
+        "score": [],
+        "tags": [],
+        "extension": [],
+        "waifuScoreLevels": [],
+        "silvaScoreLevels": [],
+        "silvaLunaScoreLevels": [],
+        "order": "random",
+        "orderBy": "waifu_score",
+        "orderSeed": 7,
+        "sortDirection": "asc",
+        "lab": [
+          50,
+          1,
+          -2
+        ]
+      }
+    },
+    {
+      "state": {
+        "rating": [],
+        "score": [],
+        "tags": [],
+        "extension": [],
+        "waifuScoreLevels": [],
+        "silvaScoreLevels": [],
+        "silvaLunaScoreLevels": []
+      },
+      "page": "/recently",
+      "sort": "id",
+      "order": "desc",
+      "seed": 7,
+      "out": {
+        "rating": [],
+        "score": [],
+        "tags": [],
+        "extension": [],
+        "waifuScoreLevels": [],
+        "silvaScoreLevels": [],
+        "silvaLunaScoreLevels": [],
+        "order": "desc",
+        "orderBy": "last_accessed_at"
+      }
+    },
+    {
+      "state": {
+        "rating": [],
+        "score": [],
+        "tags": [],
+        "extension": [],
+        "waifuScoreLevels": [],
+        "silvaScoreLevels": [],
+        "silvaLunaScoreLevels": []
+      },
+      "page": "/recently",
+      "sort": "id",
+      "order": "desc",
+      "seed": 7,
+      "lab": [
+        50,
+        1,
+        -2
+      ],
+      "out": {
+        "rating": [],
+        "score": [],
+        "tags": [],
+        "extension": [],
+        "waifuScoreLevels": [],
+        "silvaScoreLevels": [],
+        "silvaLunaScoreLevels": [],
+        "order": "desc",
+        "orderBy": "last_accessed_at",
+        "lab": [
+          50,
+          1,
+          -2
+        ]
+      }
+    },
+    {
+      "state": {
+        "rating": [],
+        "score": [],
+        "tags": [],
+        "extension": [],
+        "waifuScoreLevels": [],
+        "silvaScoreLevels": [],
+        "silvaLunaScoreLevels": []
+      },
+      "page": "/recently",
+      "sort": "waifu_score",
+      "order": "asc",
+      "seed": 7,
+      "out": {
+        "rating": [],
+        "score": [],
+        "tags": [],
+        "extension": [],
+        "waifuScoreLevels": [],
+        "silvaScoreLevels": [],
+        "silvaLunaScoreLevels": [],
+        "order": "desc",
+        "orderBy": "last_accessed_at"
+      }
+    },
+    {
+      "state": {
+        "rating": [],
+        "score": [],
+        "tags": [],
+        "extension": [],
+        "waifuScoreLevels": [],
+        "silvaScoreLevels": [],
+        "silvaLunaScoreLevels": []
+      },
+      "page": "/recently",
+      "sort": "waifu_score",
+      "order": "asc",
+      "seed": 7,
+      "lab": [
+        50,
+        1,
+        -2
+      ],
+      "out": {
+        "rating": [],
+        "score": [],
+        "tags": [],
+        "extension": [],
+        "waifuScoreLevels": [],
+        "silvaScoreLevels": [],
+        "silvaLunaScoreLevels": [],
+        "order": "desc",
+        "orderBy": "last_accessed_at",
+        "lab": [
+          50,
+          1,
+          -2
+        ]
+      }
+    },
+    {
+      "state": {
+        "rating": [
+          4,
+          1
+        ],
+        "score": [
+          5,
+          0
+        ],
+        "tags": [],
+        "extension": [],
+        "waifuScoreLevels": [],
+        "silvaScoreLevels": [],
+        "silvaLunaScoreLevels": []
+      },
+      "page": "/all",
+      "sort": "id",
+      "order": "desc",
+      "seed": 7,
+      "out": {
+        "rating": [
+          4,
+          1
+        ],
+        "score": [
+          5,
+          0
+        ],
+        "tags": [],
+        "extension": [],
+        "waifuScoreLevels": [],
+        "silvaScoreLevels": [],
+        "silvaLunaScoreLevels": [],
+        "order": "desc",
+        "orderBy": "id"
+      }
+    },
+    {
+      "state": {
+        "rating": [
+          4,
+          1
+        ],
+        "score": [
+          5,
+          0
+        ],
+        "tags": [],
+        "extension": [],
+        "waifuScoreLevels": [],
+        "silvaScoreLevels": [],
+        "silvaLunaScoreLevels": []
+      },
+      "page": "/all",
+      "sort": "id",
+      "order": "desc",
+      "seed": 7,
+      "lab": [
+        50,
+        1,
+        -2
+      ],
+      "out": {
+        "rating": [
+          4,
+          1
+        ],
+        "score": [
+          5,
+          0
+        ],
+        "tags": [],
+        "extension": [],
+        "waifuScoreLevels": [],
+        "silvaScoreLevels": [],
+        "silvaLunaScoreLevels": [],
+        "order": "desc",
+        "orderBy": "id",
+        "lab": [
+          50,
+          1,
+          -2
+        ]
+      }
+    },
+    {
+      "state": {
+        "rating": [
+          4,
+          1
+        ],
+        "score": [
+          5,
+          0
+        ],
+        "tags": [],
+        "extension": [],
+        "waifuScoreLevels": [],
+        "silvaScoreLevels": [],
+        "silvaLunaScoreLevels": []
+      },
+      "page": "/all",
+      "sort": "waifu_score",
+      "order": "asc",
+      "seed": 7,
+      "out": {
+        "rating": [
+          4,
+          1
+        ],
+        "score": [
+          5,
+          0
+        ],
+        "tags": [],
+        "extension": [],
+        "waifuScoreLevels": [],
+        "silvaScoreLevels": [],
+        "silvaLunaScoreLevels": [],
+        "order": "asc",
+        "orderBy": "waifu_score"
+      }
+    },
+    {
+      "state": {
+        "rating": [
+          4,
+          1
+        ],
+        "score": [
+          5,
+          0
+        ],
+        "tags": [],
+        "extension": [],
+        "waifuScoreLevels": [],
+        "silvaScoreLevels": [],
+        "silvaLunaScoreLevels": []
+      },
+      "page": "/all",
+      "sort": "waifu_score",
+      "order": "asc",
+      "seed": 7,
+      "lab": [
+        50,
+        1,
+        -2
+      ],
+      "out": {
+        "rating": [
+          4,
+          1
+        ],
+        "score": [
+          5,
+          0
+        ],
+        "tags": [],
+        "extension": [],
+        "waifuScoreLevels": [],
+        "silvaScoreLevels": [],
+        "silvaLunaScoreLevels": [],
+        "order": "asc",
+        "orderBy": "waifu_score",
+        "lab": [
+          50,
+          1,
+          -2
+        ]
+      }
+    },
+    {
+      "state": {
+        "rating": [
+          4,
+          1
+        ],
+        "score": [
+          5,
+          0
+        ],
+        "tags": [],
+        "extension": [],
+        "waifuScoreLevels": [],
+        "silvaScoreLevels": [],
+        "silvaLunaScoreLevels": []
+      },
+      "page": "/random",
+      "sort": "id",
+      "order": "desc",
+      "seed": 7,
+      "out": {
+        "rating": [
+          4,
+          1
+        ],
+        "score": [
+          5,
+          0
+        ],
+        "tags": [],
+        "extension": [],
+        "waifuScoreLevels": [],
+        "silvaScoreLevels": [],
+        "silvaLunaScoreLevels": [],
+        "order": "random",
+        "orderSeed": 7
+      }
+    },
+    {
+      "state": {
+        "rating": [
+          4,
+          1
+        ],
+        "score": [
+          5,
+          0
+        ],
+        "tags": [],
+        "extension": [],
+        "waifuScoreLevels": [],
+        "silvaScoreLevels": [],
+        "silvaLunaScoreLevels": []
+      },
+      "page": "/random",
+      "sort": "id",
+      "order": "desc",
+      "seed": 7,
+      "lab": [
+        50,
+        1,
+        -2
+      ],
+      "out": {
+        "rating": [
+          4,
+          1
+        ],
+        "score": [
+          5,
+          0
+        ],
+        "tags": [],
+        "extension": [],
+        "waifuScoreLevels": [],
+        "silvaScoreLevels": [],
+        "silvaLunaScoreLevels": [],
+        "order": "random",
+        "orderSeed": 7,
+        "lab": [
+          50,
+          1,
+          -2
+        ]
+      }
+    },
+    {
+      "state": {
+        "rating": [
+          4,
+          1
+        ],
+        "score": [
+          5,
+          0
+        ],
+        "tags": [],
+        "extension": [],
+        "waifuScoreLevels": [],
+        "silvaScoreLevels": [],
+        "silvaLunaScoreLevels": []
+      },
+      "page": "/random",
+      "sort": "waifu_score",
+      "order": "asc",
+      "seed": 7,
+      "out": {
+        "rating": [
+          4,
+          1
+        ],
+        "score": [
+          5,
+          0
+        ],
+        "tags": [],
+        "extension": [],
+        "waifuScoreLevels": [],
+        "silvaScoreLevels": [],
+        "silvaLunaScoreLevels": [],
+        "order": "random",
+        "orderBy": "waifu_score",
+        "orderSeed": 7,
+        "sortDirection": "asc"
+      }
+    },
+    {
+      "state": {
+        "rating": [
+          4,
+          1
+        ],
+        "score": [
+          5,
+          0
+        ],
+        "tags": [],
+        "extension": [],
+        "waifuScoreLevels": [],
+        "silvaScoreLevels": [],
+        "silvaLunaScoreLevels": []
+      },
+      "page": "/random",
+      "sort": "waifu_score",
+      "order": "asc",
+      "seed": 7,
+      "lab": [
+        50,
+        1,
+        -2
+      ],
+      "out": {
+        "rating": [
+          4,
+          1
+        ],
+        "score": [
+          5,
+          0
+        ],
+        "tags": [],
+        "extension": [],
+        "waifuScoreLevels": [],
+        "silvaScoreLevels": [],
+        "silvaLunaScoreLevels": [],
+        "order": "random",
+        "orderBy": "waifu_score",
+        "orderSeed": 7,
+        "sortDirection": "asc",
+        "lab": [
+          50,
+          1,
+          -2
+        ]
+      }
+    },
+    {
+      "state": {
+        "rating": [
+          4,
+          1
+        ],
+        "score": [
+          5,
+          0
+        ],
+        "tags": [],
+        "extension": [],
+        "waifuScoreLevels": [],
+        "silvaScoreLevels": [],
+        "silvaLunaScoreLevels": []
+      },
+      "page": "/recently",
+      "sort": "id",
+      "order": "desc",
+      "seed": 7,
+      "out": {
+        "rating": [
+          4,
+          1
+        ],
+        "score": [
+          5,
+          0
+        ],
+        "tags": [],
+        "extension": [],
+        "waifuScoreLevels": [],
+        "silvaScoreLevels": [],
+        "silvaLunaScoreLevels": [],
+        "order": "desc",
+        "orderBy": "last_accessed_at"
+      }
+    },
+    {
+      "state": {
+        "rating": [
+          4,
+          1
+        ],
+        "score": [
+          5,
+          0
+        ],
+        "tags": [],
+        "extension": [],
+        "waifuScoreLevels": [],
+        "silvaScoreLevels": [],
+        "silvaLunaScoreLevels": []
+      },
+      "page": "/recently",
+      "sort": "id",
+      "order": "desc",
+      "seed": 7,
+      "lab": [
+        50,
+        1,
+        -2
+      ],
+      "out": {
+        "rating": [
+          4,
+          1
+        ],
+        "score": [
+          5,
+          0
+        ],
+        "tags": [],
+        "extension": [],
+        "waifuScoreLevels": [],
+        "silvaScoreLevels": [],
+        "silvaLunaScoreLevels": [],
+        "order": "desc",
+        "orderBy": "last_accessed_at",
+        "lab": [
+          50,
+          1,
+          -2
+        ]
+      }
+    },
+    {
+      "state": {
+        "rating": [
+          4,
+          1
+        ],
+        "score": [
+          5,
+          0
+        ],
+        "tags": [],
+        "extension": [],
+        "waifuScoreLevels": [],
+        "silvaScoreLevels": [],
+        "silvaLunaScoreLevels": []
+      },
+      "page": "/recently",
+      "sort": "waifu_score",
+      "order": "asc",
+      "seed": 7,
+      "out": {
+        "rating": [
+          4,
+          1
+        ],
+        "score": [
+          5,
+          0
+        ],
+        "tags": [],
+        "extension": [],
+        "waifuScoreLevels": [],
+        "silvaScoreLevels": [],
+        "silvaLunaScoreLevels": [],
+        "order": "desc",
+        "orderBy": "last_accessed_at"
+      }
+    },
+    {
+      "state": {
+        "rating": [
+          4,
+          1
+        ],
+        "score": [
+          5,
+          0
+        ],
+        "tags": [],
+        "extension": [],
+        "waifuScoreLevels": [],
+        "silvaScoreLevels": [],
+        "silvaLunaScoreLevels": []
+      },
+      "page": "/recently",
+      "sort": "waifu_score",
+      "order": "asc",
+      "seed": 7,
+      "lab": [
+        50,
+        1,
+        -2
+      ],
+      "out": {
+        "rating": [
+          4,
+          1
+        ],
+        "score": [
+          5,
+          0
+        ],
+        "tags": [],
+        "extension": [],
+        "waifuScoreLevels": [],
+        "silvaScoreLevels": [],
+        "silvaLunaScoreLevels": [],
+        "order": "desc",
+        "orderBy": "last_accessed_at",
+        "lab": [
+          50,
+          1,
+          -2
+        ]
+      }
+    },
+    {
+      "state": {
+        "rating": [],
+        "score": [],
+        "tags": [
+          "long hair",
+          "a,b",
+          "cat"
+        ],
+        "extension": [
+          "png",
+          ""
+        ],
+        "waifuScoreLevels": [],
+        "silvaScoreLevels": [],
+        "silvaLunaScoreLevels": []
+      },
+      "page": "/all",
+      "sort": "id",
+      "order": "desc",
+      "seed": 7,
+      "out": {
+        "rating": [],
+        "score": [],
+        "tags": [
+          "long hair",
+          "a,b",
+          "cat"
+        ],
+        "extension": [
+          "png",
+          ""
+        ],
+        "waifuScoreLevels": [],
+        "silvaScoreLevels": [],
+        "silvaLunaScoreLevels": [],
+        "order": "desc",
+        "orderBy": "id"
+      }
+    },
+    {
+      "state": {
+        "rating": [],
+        "score": [],
+        "tags": [
+          "long hair",
+          "a,b",
+          "cat"
+        ],
+        "extension": [
+          "png",
+          ""
+        ],
+        "waifuScoreLevels": [],
+        "silvaScoreLevels": [],
+        "silvaLunaScoreLevels": []
+      },
+      "page": "/all",
+      "sort": "id",
+      "order": "desc",
+      "seed": 7,
+      "lab": [
+        50,
+        1,
+        -2
+      ],
+      "out": {
+        "rating": [],
+        "score": [],
+        "tags": [
+          "long hair",
+          "a,b",
+          "cat"
+        ],
+        "extension": [
+          "png",
+          ""
+        ],
+        "waifuScoreLevels": [],
+        "silvaScoreLevels": [],
+        "silvaLunaScoreLevels": [],
+        "order": "desc",
+        "orderBy": "id",
+        "lab": [
+          50,
+          1,
+          -2
+        ]
+      }
+    },
+    {
+      "state": {
+        "rating": [],
+        "score": [],
+        "tags": [
+          "long hair",
+          "a,b",
+          "cat"
+        ],
+        "extension": [
+          "png",
+          ""
+        ],
+        "waifuScoreLevels": [],
+        "silvaScoreLevels": [],
+        "silvaLunaScoreLevels": []
+      },
+      "page": "/all",
+      "sort": "waifu_score",
+      "order": "asc",
+      "seed": 7,
+      "out": {
+        "rating": [],
+        "score": [],
+        "tags": [
+          "long hair",
+          "a,b",
+          "cat"
+        ],
+        "extension": [
+          "png",
+          ""
+        ],
+        "waifuScoreLevels": [],
+        "silvaScoreLevels": [],
+        "silvaLunaScoreLevels": [],
+        "order": "asc",
+        "orderBy": "waifu_score"
+      }
+    },
+    {
+      "state": {
+        "rating": [],
+        "score": [],
+        "tags": [
+          "long hair",
+          "a,b",
+          "cat"
+        ],
+        "extension": [
+          "png",
+          ""
+        ],
+        "waifuScoreLevels": [],
+        "silvaScoreLevels": [],
+        "silvaLunaScoreLevels": []
+      },
+      "page": "/all",
+      "sort": "waifu_score",
+      "order": "asc",
+      "seed": 7,
+      "lab": [
+        50,
+        1,
+        -2
+      ],
+      "out": {
+        "rating": [],
+        "score": [],
+        "tags": [
+          "long hair",
+          "a,b",
+          "cat"
+        ],
+        "extension": [
+          "png",
+          ""
+        ],
+        "waifuScoreLevels": [],
+        "silvaScoreLevels": [],
+        "silvaLunaScoreLevels": [],
+        "order": "asc",
+        "orderBy": "waifu_score",
+        "lab": [
+          50,
+          1,
+          -2
+        ]
+      }
+    },
+    {
+      "state": {
+        "rating": [],
+        "score": [],
+        "tags": [
+          "long hair",
+          "a,b",
+          "cat"
+        ],
+        "extension": [
+          "png",
+          ""
+        ],
+        "waifuScoreLevels": [],
+        "silvaScoreLevels": [],
+        "silvaLunaScoreLevels": []
+      },
+      "page": "/random",
+      "sort": "id",
+      "order": "desc",
+      "seed": 7,
+      "out": {
+        "rating": [],
+        "score": [],
+        "tags": [
+          "long hair",
+          "a,b",
+          "cat"
+        ],
+        "extension": [
+          "png",
+          ""
+        ],
+        "waifuScoreLevels": [],
+        "silvaScoreLevels": [],
+        "silvaLunaScoreLevels": [],
+        "order": "random",
+        "orderSeed": 7
+      }
+    },
+    {
+      "state": {
+        "rating": [],
+        "score": [],
+        "tags": [
+          "long hair",
+          "a,b",
+          "cat"
+        ],
+        "extension": [
+          "png",
+          ""
+        ],
+        "waifuScoreLevels": [],
+        "silvaScoreLevels": [],
+        "silvaLunaScoreLevels": []
+      },
+      "page": "/random",
+      "sort": "id",
+      "order": "desc",
+      "seed": 7,
+      "lab": [
+        50,
+        1,
+        -2
+      ],
+      "out": {
+        "rating": [],
+        "score": [],
+        "tags": [
+          "long hair",
+          "a,b",
+          "cat"
+        ],
+        "extension": [
+          "png",
+          ""
+        ],
+        "waifuScoreLevels": [],
+        "silvaScoreLevels": [],
+        "silvaLunaScoreLevels": [],
+        "order": "random",
+        "orderSeed": 7,
+        "lab": [
+          50,
+          1,
+          -2
+        ]
+      }
+    },
+    {
+      "state": {
+        "rating": [],
+        "score": [],
+        "tags": [
+          "long hair",
+          "a,b",
+          "cat"
+        ],
+        "extension": [
+          "png",
+          ""
+        ],
+        "waifuScoreLevels": [],
+        "silvaScoreLevels": [],
+        "silvaLunaScoreLevels": []
+      },
+      "page": "/random",
+      "sort": "waifu_score",
+      "order": "asc",
+      "seed": 7,
+      "out": {
+        "rating": [],
+        "score": [],
+        "tags": [
+          "long hair",
+          "a,b",
+          "cat"
+        ],
+        "extension": [
+          "png",
+          ""
+        ],
+        "waifuScoreLevels": [],
+        "silvaScoreLevels": [],
+        "silvaLunaScoreLevels": [],
+        "order": "random",
+        "orderBy": "waifu_score",
+        "orderSeed": 7,
+        "sortDirection": "asc"
+      }
+    },
+    {
+      "state": {
+        "rating": [],
+        "score": [],
+        "tags": [
+          "long hair",
+          "a,b",
+          "cat"
+        ],
+        "extension": [
+          "png",
+          ""
+        ],
+        "waifuScoreLevels": [],
+        "silvaScoreLevels": [],
+        "silvaLunaScoreLevels": []
+      },
+      "page": "/random",
+      "sort": "waifu_score",
+      "order": "asc",
+      "seed": 7,
+      "lab": [
+        50,
+        1,
+        -2
+      ],
+      "out": {
+        "rating": [],
+        "score": [],
+        "tags": [
+          "long hair",
+          "a,b",
+          "cat"
+        ],
+        "extension": [
+          "png",
+          ""
+        ],
+        "waifuScoreLevels": [],
+        "silvaScoreLevels": [],
+        "silvaLunaScoreLevels": [],
+        "order": "random",
+        "orderBy": "waifu_score",
+        "orderSeed": 7,
+        "sortDirection": "asc",
+        "lab": [
+          50,
+          1,
+          -2
+        ]
+      }
+    },
+    {
+      "state": {
+        "rating": [],
+        "score": [],
+        "tags": [
+          "long hair",
+          "a,b",
+          "cat"
+        ],
+        "extension": [
+          "png",
+          ""
+        ],
+        "waifuScoreLevels": [],
+        "silvaScoreLevels": [],
+        "silvaLunaScoreLevels": []
+      },
+      "page": "/recently",
+      "sort": "id",
+      "order": "desc",
+      "seed": 7,
+      "out": {
+        "rating": [],
+        "score": [],
+        "tags": [
+          "long hair",
+          "a,b",
+          "cat"
+        ],
+        "extension": [
+          "png",
+          ""
+        ],
+        "waifuScoreLevels": [],
+        "silvaScoreLevels": [],
+        "silvaLunaScoreLevels": [],
+        "order": "desc",
+        "orderBy": "last_accessed_at"
+      }
+    },
+    {
+      "state": {
+        "rating": [],
+        "score": [],
+        "tags": [
+          "long hair",
+          "a,b",
+          "cat"
+        ],
+        "extension": [
+          "png",
+          ""
+        ],
+        "waifuScoreLevels": [],
+        "silvaScoreLevels": [],
+        "silvaLunaScoreLevels": []
+      },
+      "page": "/recently",
+      "sort": "id",
+      "order": "desc",
+      "seed": 7,
+      "lab": [
+        50,
+        1,
+        -2
+      ],
+      "out": {
+        "rating": [],
+        "score": [],
+        "tags": [
+          "long hair",
+          "a,b",
+          "cat"
+        ],
+        "extension": [
+          "png",
+          ""
+        ],
+        "waifuScoreLevels": [],
+        "silvaScoreLevels": [],
+        "silvaLunaScoreLevels": [],
+        "order": "desc",
+        "orderBy": "last_accessed_at",
+        "lab": [
+          50,
+          1,
+          -2
+        ]
+      }
+    },
+    {
+      "state": {
+        "rating": [],
+        "score": [],
+        "tags": [
+          "long hair",
+          "a,b",
+          "cat"
+        ],
+        "extension": [
+          "png",
+          ""
+        ],
+        "waifuScoreLevels": [],
+        "silvaScoreLevels": [],
+        "silvaLunaScoreLevels": []
+      },
+      "page": "/recently",
+      "sort": "waifu_score",
+      "order": "asc",
+      "seed": 7,
+      "out": {
+        "rating": [],
+        "score": [],
+        "tags": [
+          "long hair",
+          "a,b",
+          "cat"
+        ],
+        "extension": [
+          "png",
+          ""
+        ],
+        "waifuScoreLevels": [],
+        "silvaScoreLevels": [],
+        "silvaLunaScoreLevels": [],
+        "order": "desc",
+        "orderBy": "last_accessed_at"
+      }
+    },
+    {
+      "state": {
+        "rating": [],
+        "score": [],
+        "tags": [
+          "long hair",
+          "a,b",
+          "cat"
+        ],
+        "extension": [
+          "png",
+          ""
+        ],
+        "waifuScoreLevels": [],
+        "silvaScoreLevels": [],
+        "silvaLunaScoreLevels": []
+      },
+      "page": "/recently",
+      "sort": "waifu_score",
+      "order": "asc",
+      "seed": 7,
+      "lab": [
+        50,
+        1,
+        -2
+      ],
+      "out": {
+        "rating": [],
+        "score": [],
+        "tags": [
+          "long hair",
+          "a,b",
+          "cat"
+        ],
+        "extension": [
+          "png",
+          ""
+        ],
+        "waifuScoreLevels": [],
+        "silvaScoreLevels": [],
+        "silvaLunaScoreLevels": [],
+        "order": "desc",
+        "orderBy": "last_accessed_at",
+        "lab": [
+          50,
+          1,
+          -2
+        ]
+      }
+    },
+    {
+      "state": {
+        "rating": [],
+        "score": [],
+        "tags": [],
+        "extension": [],
+        "waifuScoreLevels": [
+          "A",
+          "UNSCORED"
+        ],
+        "silvaScoreLevels": [
+          "good"
+        ],
+        "silvaLunaScoreLevels": [
+          "E"
+        ]
+      },
+      "page": "/all",
+      "sort": "id",
+      "order": "desc",
+      "seed": 7,
+      "out": {
+        "rating": [],
+        "score": [],
+        "tags": [],
+        "extension": [],
+        "waifuScoreLevels": [
+          "A",
+          "UNSCORED"
+        ],
+        "silvaScoreLevels": [
+          "good"
+        ],
+        "silvaLunaScoreLevels": [
+          "E"
+        ],
+        "order": "desc",
+        "orderBy": "id"
+      }
+    },
+    {
+      "state": {
+        "rating": [],
+        "score": [],
+        "tags": [],
+        "extension": [],
+        "waifuScoreLevels": [
+          "A",
+          "UNSCORED"
+        ],
+        "silvaScoreLevels": [
+          "good"
+        ],
+        "silvaLunaScoreLevels": [
+          "E"
+        ]
+      },
+      "page": "/all",
+      "sort": "id",
+      "order": "desc",
+      "seed": 7,
+      "lab": [
+        50,
+        1,
+        -2
+      ],
+      "out": {
+        "rating": [],
+        "score": [],
+        "tags": [],
+        "extension": [],
+        "waifuScoreLevels": [
+          "A",
+          "UNSCORED"
+        ],
+        "silvaScoreLevels": [
+          "good"
+        ],
+        "silvaLunaScoreLevels": [
+          "E"
+        ],
+        "order": "desc",
+        "orderBy": "id",
+        "lab": [
+          50,
+          1,
+          -2
+        ]
+      }
+    },
+    {
+      "state": {
+        "rating": [],
+        "score": [],
+        "tags": [],
+        "extension": [],
+        "waifuScoreLevels": [
+          "A",
+          "UNSCORED"
+        ],
+        "silvaScoreLevels": [
+          "good"
+        ],
+        "silvaLunaScoreLevels": [
+          "E"
+        ]
+      },
+      "page": "/all",
+      "sort": "waifu_score",
+      "order": "asc",
+      "seed": 7,
+      "out": {
+        "rating": [],
+        "score": [],
+        "tags": [],
+        "extension": [],
+        "waifuScoreLevels": [
+          "A",
+          "UNSCORED"
+        ],
+        "silvaScoreLevels": [
+          "good"
+        ],
+        "silvaLunaScoreLevels": [
+          "E"
+        ],
+        "order": "asc",
+        "orderBy": "waifu_score"
+      }
+    },
+    {
+      "state": {
+        "rating": [],
+        "score": [],
+        "tags": [],
+        "extension": [],
+        "waifuScoreLevels": [
+          "A",
+          "UNSCORED"
+        ],
+        "silvaScoreLevels": [
+          "good"
+        ],
+        "silvaLunaScoreLevels": [
+          "E"
+        ]
+      },
+      "page": "/all",
+      "sort": "waifu_score",
+      "order": "asc",
+      "seed": 7,
+      "lab": [
+        50,
+        1,
+        -2
+      ],
+      "out": {
+        "rating": [],
+        "score": [],
+        "tags": [],
+        "extension": [],
+        "waifuScoreLevels": [
+          "A",
+          "UNSCORED"
+        ],
+        "silvaScoreLevels": [
+          "good"
+        ],
+        "silvaLunaScoreLevels": [
+          "E"
+        ],
+        "order": "asc",
+        "orderBy": "waifu_score",
+        "lab": [
+          50,
+          1,
+          -2
+        ]
+      }
+    },
+    {
+      "state": {
+        "rating": [],
+        "score": [],
+        "tags": [],
+        "extension": [],
+        "waifuScoreLevels": [
+          "A",
+          "UNSCORED"
+        ],
+        "silvaScoreLevels": [
+          "good"
+        ],
+        "silvaLunaScoreLevels": [
+          "E"
+        ]
+      },
+      "page": "/random",
+      "sort": "id",
+      "order": "desc",
+      "seed": 7,
+      "out": {
+        "rating": [],
+        "score": [],
+        "tags": [],
+        "extension": [],
+        "waifuScoreLevels": [
+          "A",
+          "UNSCORED"
+        ],
+        "silvaScoreLevels": [
+          "good"
+        ],
+        "silvaLunaScoreLevels": [
+          "E"
+        ],
+        "order": "random",
+        "orderSeed": 7
+      }
+    },
+    {
+      "state": {
+        "rating": [],
+        "score": [],
+        "tags": [],
+        "extension": [],
+        "waifuScoreLevels": [
+          "A",
+          "UNSCORED"
+        ],
+        "silvaScoreLevels": [
+          "good"
+        ],
+        "silvaLunaScoreLevels": [
+          "E"
+        ]
+      },
+      "page": "/random",
+      "sort": "id",
+      "order": "desc",
+      "seed": 7,
+      "lab": [
+        50,
+        1,
+        -2
+      ],
+      "out": {
+        "rating": [],
+        "score": [],
+        "tags": [],
+        "extension": [],
+        "waifuScoreLevels": [
+          "A",
+          "UNSCORED"
+        ],
+        "silvaScoreLevels": [
+          "good"
+        ],
+        "silvaLunaScoreLevels": [
+          "E"
+        ],
+        "order": "random",
+        "orderSeed": 7,
+        "lab": [
+          50,
+          1,
+          -2
+        ]
+      }
+    },
+    {
+      "state": {
+        "rating": [],
+        "score": [],
+        "tags": [],
+        "extension": [],
+        "waifuScoreLevels": [
+          "A",
+          "UNSCORED"
+        ],
+        "silvaScoreLevels": [
+          "good"
+        ],
+        "silvaLunaScoreLevels": [
+          "E"
+        ]
+      },
+      "page": "/random",
+      "sort": "waifu_score",
+      "order": "asc",
+      "seed": 7,
+      "out": {
+        "rating": [],
+        "score": [],
+        "tags": [],
+        "extension": [],
+        "waifuScoreLevels": [
+          "A",
+          "UNSCORED"
+        ],
+        "silvaScoreLevels": [
+          "good"
+        ],
+        "silvaLunaScoreLevels": [
+          "E"
+        ],
+        "order": "random",
+        "orderBy": "waifu_score",
+        "orderSeed": 7,
+        "sortDirection": "asc"
+      }
+    },
+    {
+      "state": {
+        "rating": [],
+        "score": [],
+        "tags": [],
+        "extension": [],
+        "waifuScoreLevels": [
+          "A",
+          "UNSCORED"
+        ],
+        "silvaScoreLevels": [
+          "good"
+        ],
+        "silvaLunaScoreLevels": [
+          "E"
+        ]
+      },
+      "page": "/random",
+      "sort": "waifu_score",
+      "order": "asc",
+      "seed": 7,
+      "lab": [
+        50,
+        1,
+        -2
+      ],
+      "out": {
+        "rating": [],
+        "score": [],
+        "tags": [],
+        "extension": [],
+        "waifuScoreLevels": [
+          "A",
+          "UNSCORED"
+        ],
+        "silvaScoreLevels": [
+          "good"
+        ],
+        "silvaLunaScoreLevels": [
+          "E"
+        ],
+        "order": "random",
+        "orderBy": "waifu_score",
+        "orderSeed": 7,
+        "sortDirection": "asc",
+        "lab": [
+          50,
+          1,
+          -2
+        ]
+      }
+    },
+    {
+      "state": {
+        "rating": [],
+        "score": [],
+        "tags": [],
+        "extension": [],
+        "waifuScoreLevels": [
+          "A",
+          "UNSCORED"
+        ],
+        "silvaScoreLevels": [
+          "good"
+        ],
+        "silvaLunaScoreLevels": [
+          "E"
+        ]
+      },
+      "page": "/recently",
+      "sort": "id",
+      "order": "desc",
+      "seed": 7,
+      "out": {
+        "rating": [],
+        "score": [],
+        "tags": [],
+        "extension": [],
+        "waifuScoreLevels": [
+          "A",
+          "UNSCORED"
+        ],
+        "silvaScoreLevels": [
+          "good"
+        ],
+        "silvaLunaScoreLevels": [
+          "E"
+        ],
+        "order": "desc",
+        "orderBy": "last_accessed_at"
+      }
+    },
+    {
+      "state": {
+        "rating": [],
+        "score": [],
+        "tags": [],
+        "extension": [],
+        "waifuScoreLevels": [
+          "A",
+          "UNSCORED"
+        ],
+        "silvaScoreLevels": [
+          "good"
+        ],
+        "silvaLunaScoreLevels": [
+          "E"
+        ]
+      },
+      "page": "/recently",
+      "sort": "id",
+      "order": "desc",
+      "seed": 7,
+      "lab": [
+        50,
+        1,
+        -2
+      ],
+      "out": {
+        "rating": [],
+        "score": [],
+        "tags": [],
+        "extension": [],
+        "waifuScoreLevels": [
+          "A",
+          "UNSCORED"
+        ],
+        "silvaScoreLevels": [
+          "good"
+        ],
+        "silvaLunaScoreLevels": [
+          "E"
+        ],
+        "order": "desc",
+        "orderBy": "last_accessed_at",
+        "lab": [
+          50,
+          1,
+          -2
+        ]
+      }
+    },
+    {
+      "state": {
+        "rating": [],
+        "score": [],
+        "tags": [],
+        "extension": [],
+        "waifuScoreLevels": [
+          "A",
+          "UNSCORED"
+        ],
+        "silvaScoreLevels": [
+          "good"
+        ],
+        "silvaLunaScoreLevels": [
+          "E"
+        ]
+      },
+      "page": "/recently",
+      "sort": "waifu_score",
+      "order": "asc",
+      "seed": 7,
+      "out": {
+        "rating": [],
+        "score": [],
+        "tags": [],
+        "extension": [],
+        "waifuScoreLevels": [
+          "A",
+          "UNSCORED"
+        ],
+        "silvaScoreLevels": [
+          "good"
+        ],
+        "silvaLunaScoreLevels": [
+          "E"
+        ],
+        "order": "desc",
+        "orderBy": "last_accessed_at"
+      }
+    },
+    {
+      "state": {
+        "rating": [],
+        "score": [],
+        "tags": [],
+        "extension": [],
+        "waifuScoreLevels": [
+          "A",
+          "UNSCORED"
+        ],
+        "silvaScoreLevels": [
+          "good"
+        ],
+        "silvaLunaScoreLevels": [
+          "E"
+        ]
+      },
+      "page": "/recently",
+      "sort": "waifu_score",
+      "order": "asc",
+      "seed": 7,
+      "lab": [
+        50,
+        1,
+        -2
+      ],
+      "out": {
+        "rating": [],
+        "score": [],
+        "tags": [],
+        "extension": [],
+        "waifuScoreLevels": [
+          "A",
+          "UNSCORED"
+        ],
+        "silvaScoreLevels": [
+          "good"
+        ],
+        "silvaLunaScoreLevels": [
+          "E"
+        ],
+        "order": "desc",
+        "orderBy": "last_accessed_at",
+        "lab": [
+          50,
+          1,
+          -2
+        ]
+      }
+    },
+    {
+      "state": {
+        "rating": [
+          0
+        ],
+        "score": [],
+        "tags": [],
+        "extension": [],
+        "waifuScoreLevels": [],
+        "silvaScoreLevels": [],
+        "silvaLunaScoreLevels": [],
+        "waifuScoreRange": [
+          2,
+          8
+        ]
+      },
+      "page": "/all",
+      "sort": "id",
+      "order": "desc",
+      "seed": 7,
+      "out": {
+        "rating": [
+          0
+        ],
+        "score": [],
+        "tags": [],
+        "extension": [],
+        "waifuScoreLevels": [],
+        "silvaScoreLevels": [],
+        "silvaLunaScoreLevels": [],
+        "waifuScoreRange": [
+          2,
+          8
+        ],
+        "order": "desc",
+        "orderBy": "id"
+      }
+    },
+    {
+      "state": {
+        "rating": [
+          0
+        ],
+        "score": [],
+        "tags": [],
+        "extension": [],
+        "waifuScoreLevels": [],
+        "silvaScoreLevels": [],
+        "silvaLunaScoreLevels": [],
+        "waifuScoreRange": [
+          2,
+          8
+        ]
+      },
+      "page": "/all",
+      "sort": "id",
+      "order": "desc",
+      "seed": 7,
+      "lab": [
+        50,
+        1,
+        -2
+      ],
+      "out": {
+        "rating": [
+          0
+        ],
+        "score": [],
+        "tags": [],
+        "extension": [],
+        "waifuScoreLevels": [],
+        "silvaScoreLevels": [],
+        "silvaLunaScoreLevels": [],
+        "waifuScoreRange": [
+          2,
+          8
+        ],
+        "order": "desc",
+        "orderBy": "id",
+        "lab": [
+          50,
+          1,
+          -2
+        ]
+      }
+    },
+    {
+      "state": {
+        "rating": [
+          0
+        ],
+        "score": [],
+        "tags": [],
+        "extension": [],
+        "waifuScoreLevels": [],
+        "silvaScoreLevels": [],
+        "silvaLunaScoreLevels": [],
+        "waifuScoreRange": [
+          2,
+          8
+        ]
+      },
+      "page": "/all",
+      "sort": "waifu_score",
+      "order": "asc",
+      "seed": 7,
+      "out": {
+        "rating": [
+          0
+        ],
+        "score": [],
+        "tags": [],
+        "extension": [],
+        "waifuScoreLevels": [],
+        "silvaScoreLevels": [],
+        "silvaLunaScoreLevels": [],
+        "waifuScoreRange": [
+          2,
+          8
+        ],
+        "order": "asc",
+        "orderBy": "waifu_score"
+      }
+    },
+    {
+      "state": {
+        "rating": [
+          0
+        ],
+        "score": [],
+        "tags": [],
+        "extension": [],
+        "waifuScoreLevels": [],
+        "silvaScoreLevels": [],
+        "silvaLunaScoreLevels": [],
+        "waifuScoreRange": [
+          2,
+          8
+        ]
+      },
+      "page": "/all",
+      "sort": "waifu_score",
+      "order": "asc",
+      "seed": 7,
+      "lab": [
+        50,
+        1,
+        -2
+      ],
+      "out": {
+        "rating": [
+          0
+        ],
+        "score": [],
+        "tags": [],
+        "extension": [],
+        "waifuScoreLevels": [],
+        "silvaScoreLevels": [],
+        "silvaLunaScoreLevels": [],
+        "waifuScoreRange": [
+          2,
+          8
+        ],
+        "order": "asc",
+        "orderBy": "waifu_score",
+        "lab": [
+          50,
+          1,
+          -2
+        ]
+      }
+    },
+    {
+      "state": {
+        "rating": [
+          0
+        ],
+        "score": [],
+        "tags": [],
+        "extension": [],
+        "waifuScoreLevels": [],
+        "silvaScoreLevels": [],
+        "silvaLunaScoreLevels": [],
+        "waifuScoreRange": [
+          2,
+          8
+        ]
+      },
+      "page": "/random",
+      "sort": "id",
+      "order": "desc",
+      "seed": 7,
+      "out": {
+        "rating": [
+          0
+        ],
+        "score": [],
+        "tags": [],
+        "extension": [],
+        "waifuScoreLevels": [],
+        "silvaScoreLevels": [],
+        "silvaLunaScoreLevels": [],
+        "waifuScoreRange": [
+          2,
+          8
+        ],
+        "order": "random",
+        "orderSeed": 7
+      }
+    },
+    {
+      "state": {
+        "rating": [
+          0
+        ],
+        "score": [],
+        "tags": [],
+        "extension": [],
+        "waifuScoreLevels": [],
+        "silvaScoreLevels": [],
+        "silvaLunaScoreLevels": [],
+        "waifuScoreRange": [
+          2,
+          8
+        ]
+      },
+      "page": "/random",
+      "sort": "id",
+      "order": "desc",
+      "seed": 7,
+      "lab": [
+        50,
+        1,
+        -2
+      ],
+      "out": {
+        "rating": [
+          0
+        ],
+        "score": [],
+        "tags": [],
+        "extension": [],
+        "waifuScoreLevels": [],
+        "silvaScoreLevels": [],
+        "silvaLunaScoreLevels": [],
+        "waifuScoreRange": [
+          2,
+          8
+        ],
+        "order": "random",
+        "orderSeed": 7,
+        "lab": [
+          50,
+          1,
+          -2
+        ]
+      }
+    },
+    {
+      "state": {
+        "rating": [
+          0
+        ],
+        "score": [],
+        "tags": [],
+        "extension": [],
+        "waifuScoreLevels": [],
+        "silvaScoreLevels": [],
+        "silvaLunaScoreLevels": [],
+        "waifuScoreRange": [
+          2,
+          8
+        ]
+      },
+      "page": "/random",
+      "sort": "waifu_score",
+      "order": "asc",
+      "seed": 7,
+      "out": {
+        "rating": [
+          0
+        ],
+        "score": [],
+        "tags": [],
+        "extension": [],
+        "waifuScoreLevels": [],
+        "silvaScoreLevels": [],
+        "silvaLunaScoreLevels": [],
+        "waifuScoreRange": [
+          2,
+          8
+        ],
+        "order": "random",
+        "orderBy": "waifu_score",
+        "orderSeed": 7,
+        "sortDirection": "asc"
+      }
+    },
+    {
+      "state": {
+        "rating": [
+          0
+        ],
+        "score": [],
+        "tags": [],
+        "extension": [],
+        "waifuScoreLevels": [],
+        "silvaScoreLevels": [],
+        "silvaLunaScoreLevels": [],
+        "waifuScoreRange": [
+          2,
+          8
+        ]
+      },
+      "page": "/random",
+      "sort": "waifu_score",
+      "order": "asc",
+      "seed": 7,
+      "lab": [
+        50,
+        1,
+        -2
+      ],
+      "out": {
+        "rating": [
+          0
+        ],
+        "score": [],
+        "tags": [],
+        "extension": [],
+        "waifuScoreLevels": [],
+        "silvaScoreLevels": [],
+        "silvaLunaScoreLevels": [],
+        "waifuScoreRange": [
+          2,
+          8
+        ],
+        "order": "random",
+        "orderBy": "waifu_score",
+        "orderSeed": 7,
+        "sortDirection": "asc",
+        "lab": [
+          50,
+          1,
+          -2
+        ]
+      }
+    },
+    {
+      "state": {
+        "rating": [
+          0
+        ],
+        "score": [],
+        "tags": [],
+        "extension": [],
+        "waifuScoreLevels": [],
+        "silvaScoreLevels": [],
+        "silvaLunaScoreLevels": [],
+        "waifuScoreRange": [
+          2,
+          8
+        ]
+      },
+      "page": "/recently",
+      "sort": "id",
+      "order": "desc",
+      "seed": 7,
+      "out": {
+        "rating": [
+          0
+        ],
+        "score": [],
+        "tags": [],
+        "extension": [],
+        "waifuScoreLevels": [],
+        "silvaScoreLevels": [],
+        "silvaLunaScoreLevels": [],
+        "waifuScoreRange": [
+          2,
+          8
+        ],
+        "order": "desc",
+        "orderBy": "last_accessed_at"
+      }
+    },
+    {
+      "state": {
+        "rating": [
+          0
+        ],
+        "score": [],
+        "tags": [],
+        "extension": [],
+        "waifuScoreLevels": [],
+        "silvaScoreLevels": [],
+        "silvaLunaScoreLevels": [],
+        "waifuScoreRange": [
+          2,
+          8
+        ]
+      },
+      "page": "/recently",
+      "sort": "id",
+      "order": "desc",
+      "seed": 7,
+      "lab": [
+        50,
+        1,
+        -2
+      ],
+      "out": {
+        "rating": [
+          0
+        ],
+        "score": [],
+        "tags": [],
+        "extension": [],
+        "waifuScoreLevels": [],
+        "silvaScoreLevels": [],
+        "silvaLunaScoreLevels": [],
+        "waifuScoreRange": [
+          2,
+          8
+        ],
+        "order": "desc",
+        "orderBy": "last_accessed_at",
+        "lab": [
+          50,
+          1,
+          -2
+        ]
+      }
+    },
+    {
+      "state": {
+        "rating": [
+          0
+        ],
+        "score": [],
+        "tags": [],
+        "extension": [],
+        "waifuScoreLevels": [],
+        "silvaScoreLevels": [],
+        "silvaLunaScoreLevels": [],
+        "waifuScoreRange": [
+          2,
+          8
+        ]
+      },
+      "page": "/recently",
+      "sort": "waifu_score",
+      "order": "asc",
+      "seed": 7,
+      "out": {
+        "rating": [
+          0
+        ],
+        "score": [],
+        "tags": [],
+        "extension": [],
+        "waifuScoreLevels": [],
+        "silvaScoreLevels": [],
+        "silvaLunaScoreLevels": [],
+        "waifuScoreRange": [
+          2,
+          8
+        ],
+        "order": "desc",
+        "orderBy": "last_accessed_at"
+      }
+    },
+    {
+      "state": {
+        "rating": [
+          0
+        ],
+        "score": [],
+        "tags": [],
+        "extension": [],
+        "waifuScoreLevels": [],
+        "silvaScoreLevels": [],
+        "silvaLunaScoreLevels": [],
+        "waifuScoreRange": [
+          2,
+          8
+        ]
+      },
+      "page": "/recently",
+      "sort": "waifu_score",
+      "order": "asc",
+      "seed": 7,
+      "lab": [
+        50,
+        1,
+        -2
+      ],
+      "out": {
+        "rating": [
+          0
+        ],
+        "score": [],
+        "tags": [],
+        "extension": [],
+        "waifuScoreLevels": [],
+        "silvaScoreLevels": [],
+        "silvaLunaScoreLevels": [],
+        "waifuScoreRange": [
+          2,
+          8
+        ],
+        "order": "desc",
+        "orderBy": "last_accessed_at",
+        "lab": [
+          50,
+          1,
+          -2
+        ]
+      }
+    },
+    {
+      "state": {
+        "rating": [
+          3
+        ],
+        "score": [],
+        "tags": [],
+        "extension": [],
+        "waifuScoreLevels": [],
+        "silvaScoreLevels": [],
+        "silvaLunaScoreLevels": [],
+        "folder": "a/b"
+      },
+      "page": "/all",
+      "sort": "id",
+      "order": "desc",
+      "seed": 7,
+      "out": {
+        "rating": [
+          3
+        ],
+        "score": [],
+        "tags": [],
+        "extension": [],
+        "waifuScoreLevels": [],
+        "silvaScoreLevels": [],
+        "silvaLunaScoreLevels": [],
+        "folder": "a/b",
+        "order": "desc",
+        "orderBy": "id"
+      }
+    },
+    {
+      "state": {
+        "rating": [
+          3
+        ],
+        "score": [],
+        "tags": [],
+        "extension": [],
+        "waifuScoreLevels": [],
+        "silvaScoreLevels": [],
+        "silvaLunaScoreLevels": [],
+        "folder": "a/b"
+      },
+      "page": "/all",
+      "sort": "id",
+      "order": "desc",
+      "seed": 7,
+      "lab": [
+        50,
+        1,
+        -2
+      ],
+      "out": {
+        "rating": [
+          3
+        ],
+        "score": [],
+        "tags": [],
+        "extension": [],
+        "waifuScoreLevels": [],
+        "silvaScoreLevels": [],
+        "silvaLunaScoreLevels": [],
+        "folder": "a/b",
+        "order": "desc",
+        "orderBy": "id",
+        "lab": [
+          50,
+          1,
+          -2
+        ]
+      }
+    },
+    {
+      "state": {
+        "rating": [
+          3
+        ],
+        "score": [],
+        "tags": [],
+        "extension": [],
+        "waifuScoreLevels": [],
+        "silvaScoreLevels": [],
+        "silvaLunaScoreLevels": [],
+        "folder": "a/b"
+      },
+      "page": "/all",
+      "sort": "waifu_score",
+      "order": "asc",
+      "seed": 7,
+      "out": {
+        "rating": [
+          3
+        ],
+        "score": [],
+        "tags": [],
+        "extension": [],
+        "waifuScoreLevels": [],
+        "silvaScoreLevels": [],
+        "silvaLunaScoreLevels": [],
+        "folder": "a/b",
+        "order": "asc",
+        "orderBy": "waifu_score"
+      }
+    },
+    {
+      "state": {
+        "rating": [
+          3
+        ],
+        "score": [],
+        "tags": [],
+        "extension": [],
+        "waifuScoreLevels": [],
+        "silvaScoreLevels": [],
+        "silvaLunaScoreLevels": [],
+        "folder": "a/b"
+      },
+      "page": "/all",
+      "sort": "waifu_score",
+      "order": "asc",
+      "seed": 7,
+      "lab": [
+        50,
+        1,
+        -2
+      ],
+      "out": {
+        "rating": [
+          3
+        ],
+        "score": [],
+        "tags": [],
+        "extension": [],
+        "waifuScoreLevels": [],
+        "silvaScoreLevels": [],
+        "silvaLunaScoreLevels": [],
+        "folder": "a/b",
+        "order": "asc",
+        "orderBy": "waifu_score",
+        "lab": [
+          50,
+          1,
+          -2
+        ]
+      }
+    },
+    {
+      "state": {
+        "rating": [
+          3
+        ],
+        "score": [],
+        "tags": [],
+        "extension": [],
+        "waifuScoreLevels": [],
+        "silvaScoreLevels": [],
+        "silvaLunaScoreLevels": [],
+        "folder": "a/b"
+      },
+      "page": "/random",
+      "sort": "id",
+      "order": "desc",
+      "seed": 7,
+      "out": {
+        "rating": [
+          3
+        ],
+        "score": [],
+        "tags": [],
+        "extension": [],
+        "waifuScoreLevels": [],
+        "silvaScoreLevels": [],
+        "silvaLunaScoreLevels": [],
+        "folder": "a/b",
+        "order": "random",
+        "orderSeed": 7
+      }
+    },
+    {
+      "state": {
+        "rating": [
+          3
+        ],
+        "score": [],
+        "tags": [],
+        "extension": [],
+        "waifuScoreLevels": [],
+        "silvaScoreLevels": [],
+        "silvaLunaScoreLevels": [],
+        "folder": "a/b"
+      },
+      "page": "/random",
+      "sort": "id",
+      "order": "desc",
+      "seed": 7,
+      "lab": [
+        50,
+        1,
+        -2
+      ],
+      "out": {
+        "rating": [
+          3
+        ],
+        "score": [],
+        "tags": [],
+        "extension": [],
+        "waifuScoreLevels": [],
+        "silvaScoreLevels": [],
+        "silvaLunaScoreLevels": [],
+        "folder": "a/b",
+        "order": "random",
+        "orderSeed": 7,
+        "lab": [
+          50,
+          1,
+          -2
+        ]
+      }
+    },
+    {
+      "state": {
+        "rating": [
+          3
+        ],
+        "score": [],
+        "tags": [],
+        "extension": [],
+        "waifuScoreLevels": [],
+        "silvaScoreLevels": [],
+        "silvaLunaScoreLevels": [],
+        "folder": "a/b"
+      },
+      "page": "/random",
+      "sort": "waifu_score",
+      "order": "asc",
+      "seed": 7,
+      "out": {
+        "rating": [
+          3
+        ],
+        "score": [],
+        "tags": [],
+        "extension": [],
+        "waifuScoreLevels": [],
+        "silvaScoreLevels": [],
+        "silvaLunaScoreLevels": [],
+        "folder": "a/b",
+        "order": "random",
+        "orderBy": "waifu_score",
+        "orderSeed": 7,
+        "sortDirection": "asc"
+      }
+    },
+    {
+      "state": {
+        "rating": [
+          3
+        ],
+        "score": [],
+        "tags": [],
+        "extension": [],
+        "waifuScoreLevels": [],
+        "silvaScoreLevels": [],
+        "silvaLunaScoreLevels": [],
+        "folder": "a/b"
+      },
+      "page": "/random",
+      "sort": "waifu_score",
+      "order": "asc",
+      "seed": 7,
+      "lab": [
+        50,
+        1,
+        -2
+      ],
+      "out": {
+        "rating": [
+          3
+        ],
+        "score": [],
+        "tags": [],
+        "extension": [],
+        "waifuScoreLevels": [],
+        "silvaScoreLevels": [],
+        "silvaLunaScoreLevels": [],
+        "folder": "a/b",
+        "order": "random",
+        "orderBy": "waifu_score",
+        "orderSeed": 7,
+        "sortDirection": "asc",
+        "lab": [
+          50,
+          1,
+          -2
+        ]
+      }
+    },
+    {
+      "state": {
+        "rating": [
+          3
+        ],
+        "score": [],
+        "tags": [],
+        "extension": [],
+        "waifuScoreLevels": [],
+        "silvaScoreLevels": [],
+        "silvaLunaScoreLevels": [],
+        "folder": "a/b"
+      },
+      "page": "/recently",
+      "sort": "id",
+      "order": "desc",
+      "seed": 7,
+      "out": {
+        "rating": [
+          3
+        ],
+        "score": [],
+        "tags": [],
+        "extension": [],
+        "waifuScoreLevels": [],
+        "silvaScoreLevels": [],
+        "silvaLunaScoreLevels": [],
+        "folder": "a/b",
+        "order": "desc",
+        "orderBy": "last_accessed_at"
+      }
+    },
+    {
+      "state": {
+        "rating": [
+          3
+        ],
+        "score": [],
+        "tags": [],
+        "extension": [],
+        "waifuScoreLevels": [],
+        "silvaScoreLevels": [],
+        "silvaLunaScoreLevels": [],
+        "folder": "a/b"
+      },
+      "page": "/recently",
+      "sort": "id",
+      "order": "desc",
+      "seed": 7,
+      "lab": [
+        50,
+        1,
+        -2
+      ],
+      "out": {
+        "rating": [
+          3
+        ],
+        "score": [],
+        "tags": [],
+        "extension": [],
+        "waifuScoreLevels": [],
+        "silvaScoreLevels": [],
+        "silvaLunaScoreLevels": [],
+        "folder": "a/b",
+        "order": "desc",
+        "orderBy": "last_accessed_at",
+        "lab": [
+          50,
+          1,
+          -2
+        ]
+      }
+    },
+    {
+      "state": {
+        "rating": [
+          3
+        ],
+        "score": [],
+        "tags": [],
+        "extension": [],
+        "waifuScoreLevels": [],
+        "silvaScoreLevels": [],
+        "silvaLunaScoreLevels": [],
+        "folder": "a/b"
+      },
+      "page": "/recently",
+      "sort": "waifu_score",
+      "order": "asc",
+      "seed": 7,
+      "out": {
+        "rating": [
+          3
+        ],
+        "score": [],
+        "tags": [],
+        "extension": [],
+        "waifuScoreLevels": [],
+        "silvaScoreLevels": [],
+        "silvaLunaScoreLevels": [],
+        "folder": "a/b",
+        "order": "desc",
+        "orderBy": "last_accessed_at"
+      }
+    },
+    {
+      "state": {
+        "rating": [
+          3
+        ],
+        "score": [],
+        "tags": [],
+        "extension": [],
+        "waifuScoreLevels": [],
+        "silvaScoreLevels": [],
+        "silvaLunaScoreLevels": [],
+        "folder": "a/b"
+      },
+      "page": "/recently",
+      "sort": "waifu_score",
+      "order": "asc",
+      "seed": 7,
+      "lab": [
+        50,
+        1,
+        -2
+      ],
+      "out": {
+        "rating": [
+          3
+        ],
+        "score": [],
+        "tags": [],
+        "extension": [],
+        "waifuScoreLevels": [],
+        "silvaScoreLevels": [],
+        "silvaLunaScoreLevels": [],
+        "folder": "a/b",
+        "order": "desc",
+        "orderBy": "last_accessed_at",
+        "lab": [
+          50,
+          1,
+          -2
+        ]
+      }
+    }
+  ],
+  "chips": [
+    {
+      "state": {
+        "rating": [],
+        "score": [],
+        "tags": [],
+        "extension": [],
+        "waifuScoreLevels": [],
+        "silvaScoreLevels": [],
+        "silvaLunaScoreLevels": []
+      },
+      "text": "",
+      "out": []
+    },
+    {
+      "state": {
+        "rating": [],
+        "score": [],
+        "tags": [],
+        "extension": [],
+        "waifuScoreLevels": [],
+        "silvaScoreLevels": [],
+        "silvaLunaScoreLevels": []
+      },
+      "text": " cat ",
+      "color": "#abcdef",
+      "out": [
+        {
+          "id": "text",
+          "icon": "i-tabler-search",
+          "label": "cat"
+        },
+        {
+          "id": "sort-color",
+          "icon": "i-tabler-palette",
+          "label": "#ABCDEF"
+        }
+      ]
+    },
+    {
+      "state": {
+        "rating": [
+          4,
+          1
+        ],
+        "score": [
+          5,
+          0
+        ],
+        "tags": [],
+        "extension": [],
+        "waifuScoreLevels": [],
+        "silvaScoreLevels": [],
+        "silvaLunaScoreLevels": []
+      },
+      "text": "",
+      "out": [
+        {
+          "id": "rating:4",
+          "icon": "i-tabler-thumb-up",
+          "label": "rating.explicit|null|"
+        },
+        {
+          "id": "rating:1",
+          "icon": "i-tabler-thumb-up",
+          "label": "rating.general|null|"
+        },
+        {
+          "id": "score:5",
+          "icon": "i-tabler-star",
+          "label": "filter.star|{\"n\":5}|5"
+        },
+        {
+          "id": "score:0",
+          "icon": "i-tabler-star",
+          "label": "filter.star|{\"n\":0}|0"
+        }
+      ]
+    },
+    {
+      "state": {
+        "rating": [
+          4,
+          1
+        ],
+        "score": [
+          5,
+          0
+        ],
+        "tags": [],
+        "extension": [],
+        "waifuScoreLevels": [],
+        "silvaScoreLevels": [],
+        "silvaLunaScoreLevels": []
+      },
+      "text": " cat ",
+      "color": "#abcdef",
+      "out": [
+        {
+          "id": "text",
+          "icon": "i-tabler-search",
+          "label": "cat"
+        },
+        {
+          "id": "rating:4",
+          "icon": "i-tabler-thumb-up",
+          "label": "rating.explicit|null|"
+        },
+        {
+          "id": "rating:1",
+          "icon": "i-tabler-thumb-up",
+          "label": "rating.general|null|"
+        },
+        {
+          "id": "score:5",
+          "icon": "i-tabler-star",
+          "label": "filter.star|{\"n\":5}|5"
+        },
+        {
+          "id": "score:0",
+          "icon": "i-tabler-star",
+          "label": "filter.star|{\"n\":0}|0"
+        },
+        {
+          "id": "sort-color",
+          "icon": "i-tabler-palette",
+          "label": "#ABCDEF"
+        }
+      ]
+    },
+    {
+      "state": {
+        "rating": [],
+        "score": [],
+        "tags": [
+          "long hair",
+          "a,b",
+          "cat"
+        ],
+        "extension": [
+          "png",
+          ""
+        ],
+        "waifuScoreLevels": [],
+        "silvaScoreLevels": [],
+        "silvaLunaScoreLevels": []
+      },
+      "text": "",
+      "out": [
+        {
+          "id": "tag:long hair",
+          "icon": "i-tabler-tag",
+          "label": "long hair"
+        },
+        {
+          "id": "tag:a,b",
+          "icon": "i-tabler-tag",
+          "label": "a,b"
+        },
+        {
+          "id": "tag:cat",
+          "icon": "i-tabler-tag",
+          "label": "cat"
+        },
+        {
+          "id": "ext:png",
+          "icon": "i-tabler-file",
+          "label": "png"
+        },
+        {
+          "id": "ext:",
+          "icon": "i-tabler-file",
+          "label": "filter.noExtension|null|"
+        }
+      ]
+    },
+    {
+      "state": {
+        "rating": [],
+        "score": [],
+        "tags": [
+          "long hair",
+          "a,b",
+          "cat"
+        ],
+        "extension": [
+          "png",
+          ""
+        ],
+        "waifuScoreLevels": [],
+        "silvaScoreLevels": [],
+        "silvaLunaScoreLevels": []
+      },
+      "text": " cat ",
+      "color": "#abcdef",
+      "out": [
+        {
+          "id": "text",
+          "icon": "i-tabler-search",
+          "label": "cat"
+        },
+        {
+          "id": "tag:long hair",
+          "icon": "i-tabler-tag",
+          "label": "long hair"
+        },
+        {
+          "id": "tag:a,b",
+          "icon": "i-tabler-tag",
+          "label": "a,b"
+        },
+        {
+          "id": "tag:cat",
+          "icon": "i-tabler-tag",
+          "label": "cat"
+        },
+        {
+          "id": "ext:png",
+          "icon": "i-tabler-file",
+          "label": "png"
+        },
+        {
+          "id": "ext:",
+          "icon": "i-tabler-file",
+          "label": "filter.noExtension|null|"
+        },
+        {
+          "id": "sort-color",
+          "icon": "i-tabler-palette",
+          "label": "#ABCDEF"
+        }
+      ]
+    },
+    {
+      "state": {
+        "rating": [],
+        "score": [],
+        "tags": [],
+        "extension": [],
+        "waifuScoreLevels": [
+          "A",
+          "UNSCORED"
+        ],
+        "silvaScoreLevels": [
+          "good"
+        ],
+        "silvaLunaScoreLevels": [
+          "E"
+        ]
+      },
+      "text": "",
+      "out": [
+        {
+          "id": "waifu:A",
+          "icon": "i-tabler-heart",
+          "label": "Waifu filter.bucketBest|null|"
+        },
+        {
+          "id": "waifu:UNSCORED",
+          "icon": "i-tabler-heart",
+          "label": "Waifu common.unscored|null|"
+        },
+        {
+          "id": "silva:good",
+          "icon": "i-tabler-rosette",
+          "label": "SILVA filter.bucketGood|null|"
+        },
+        {
+          "id": "luna:E",
+          "icon": "i-tabler-moon",
+          "label": "Luna filter.bucketWorst|null|"
+        }
+      ]
+    },
+    {
+      "state": {
+        "rating": [],
+        "score": [],
+        "tags": [],
+        "extension": [],
+        "waifuScoreLevels": [
+          "A",
+          "UNSCORED"
+        ],
+        "silvaScoreLevels": [
+          "good"
+        ],
+        "silvaLunaScoreLevels": [
+          "E"
+        ]
+      },
+      "text": " cat ",
+      "color": "#abcdef",
+      "out": [
+        {
+          "id": "text",
+          "icon": "i-tabler-search",
+          "label": "cat"
+        },
+        {
+          "id": "waifu:A",
+          "icon": "i-tabler-heart",
+          "label": "Waifu filter.bucketBest|null|"
+        },
+        {
+          "id": "waifu:UNSCORED",
+          "icon": "i-tabler-heart",
+          "label": "Waifu common.unscored|null|"
+        },
+        {
+          "id": "silva:good",
+          "icon": "i-tabler-rosette",
+          "label": "SILVA filter.bucketGood|null|"
+        },
+        {
+          "id": "luna:E",
+          "icon": "i-tabler-moon",
+          "label": "Luna filter.bucketWorst|null|"
+        },
+        {
+          "id": "sort-color",
+          "icon": "i-tabler-palette",
+          "label": "#ABCDEF"
+        }
+      ]
+    },
+    {
+      "state": {
+        "rating": [
+          0
+        ],
+        "score": [],
+        "tags": [],
+        "extension": [],
+        "waifuScoreLevels": [],
+        "silvaScoreLevels": [],
+        "silvaLunaScoreLevels": [],
+        "waifuScoreRange": [
+          2,
+          8
+        ]
+      },
+      "text": "",
+      "out": [
+        {
+          "id": "rating:0",
+          "icon": "i-tabler-thumb-up",
+          "label": "rating.unrated|null|"
+        },
+        {
+          "id": "waifu-range",
+          "icon": "i-tabler-heart",
+          "label": "2–8"
+        }
+      ]
+    },
+    {
+      "state": {
+        "rating": [
+          0
+        ],
+        "score": [],
+        "tags": [],
+        "extension": [],
+        "waifuScoreLevels": [],
+        "silvaScoreLevels": [],
+        "silvaLunaScoreLevels": [],
+        "waifuScoreRange": [
+          2,
+          8
+        ]
+      },
+      "text": " cat ",
+      "color": "#abcdef",
+      "out": [
+        {
+          "id": "text",
+          "icon": "i-tabler-search",
+          "label": "cat"
+        },
+        {
+          "id": "rating:0",
+          "icon": "i-tabler-thumb-up",
+          "label": "rating.unrated|null|"
+        },
+        {
+          "id": "waifu-range",
+          "icon": "i-tabler-heart",
+          "label": "2–8"
+        },
+        {
+          "id": "sort-color",
+          "icon": "i-tabler-palette",
+          "label": "#ABCDEF"
+        }
+      ]
+    },
+    {
+      "state": {
+        "rating": [
+          3
+        ],
+        "score": [],
+        "tags": [],
+        "extension": [],
+        "waifuScoreLevels": [],
+        "silvaScoreLevels": [],
+        "silvaLunaScoreLevels": [],
+        "folder": "a/b"
+      },
+      "text": "",
+      "out": [
+        {
+          "id": "rating:3",
+          "icon": "i-tabler-thumb-up",
+          "label": "rating.questionable|null|"
+        }
+      ]
+    },
+    {
+      "state": {
+        "rating": [
+          3
+        ],
+        "score": [],
+        "tags": [],
+        "extension": [],
+        "waifuScoreLevels": [],
+        "silvaScoreLevels": [],
+        "silvaLunaScoreLevels": [],
+        "folder": "a/b"
+      },
+      "text": " cat ",
+      "color": "#abcdef",
+      "out": [
+        {
+          "id": "text",
+          "icon": "i-tabler-search",
+          "label": "cat"
+        },
+        {
+          "id": "rating:3",
+          "icon": "i-tabler-thumb-up",
+          "label": "rating.questionable|null|"
+        },
+        {
+          "id": "sort-color",
+          "icon": "i-tabler-palette",
+          "label": "#ABCDEF"
+        }
+      ]
+    }
+  ]
+}

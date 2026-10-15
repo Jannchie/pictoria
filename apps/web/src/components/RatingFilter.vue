@@ -2,7 +2,7 @@
 import { computed, useTemplateRef } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { v2GetRatingCount } from '@/api'
-import { activateOptionOnKey, facetOptionLabel, facetTriggerLabel, initialOptionIndex, useFacetFilter, useFacetListbox } from '@/composables/useFacetFilter'
+import { facetOptionLabel, facetTriggerLabel, initialOptionIndex, useFacetFilter, useFacetListbox } from '@/composables/useFacetFilter'
 import { RATING_LEVEL_COLORS, RATING_LEVEL_ICONS, RATING_LEVEL_LABEL_KEYS, RATING_UNRATED_ICON, RATING_UNRATED_LABEL_KEY } from '@/shared/ratings'
 
 const { t } = useI18n()
@@ -38,12 +38,16 @@ const btnText = computed(() => {
   return item.length === 0 ? t('filter.rating') : item.map(s => getRatingName(s)).join(', ')
 })
 
-const listbox = useTemplateRef<HTMLElement>('listbox')
-useFacetListbox(listbox)
+const listbox = useTemplateRef<{ el: HTMLElement | null }>('listbox')
+useFacetListbox(() => listbox.value?.el)
 const autofocusIndex = computed(() => initialOptionIndex(DISPLAY_ORDER, hasRating))
 const triggerLabel = computed(() => facetTriggerLabel(t, t('filter.rating'), sortedSelection.value.map(getRatingName)))
 function optionLabel(rating: number) {
   return facetOptionLabel(t, getRatingName(rating), countQuery.data.value ? scoreCountList.value[rating] : undefined)
+}
+
+function ratingCount(rating: number): number | undefined {
+  return scoreCountList.value[rating]
 }
 
 function ratingIcon(rating: number) {
@@ -85,45 +89,27 @@ function getRatingName(rating: number) {
         </span>
       </PButton>
       <template #content>
-        <div
+        <PFacetList
           ref="listbox"
-          role="listbox"
-          aria-multiselectable="true"
           :aria-label="$t('filter.rating')"
           class="p-popover-panel min-w-52"
+          :items="DISPLAY_ORDER"
+          :selected="hasRating"
+          :option-label="optionLabel"
+          :typeahead="getRatingName"
+          :autofocus-index="autofocusIndex"
+          :count="ratingCount"
+          :share="pct"
+          @toggle="toggle"
         >
-          <div
-            v-for="(rating, i) in DISPLAY_ORDER"
-            :key="rating"
-            role="option"
-            :aria-selected="hasRating(rating)"
-            :aria-label="optionLabel(rating)"
-            :data-typeahead="getRatingName(rating)"
-            :data-autofocus="i === autofocusIndex || undefined"
-            class="text-xs px-2 py-1 rounded flex gap-2 w-full cursor-pointer items-center hover:bg-surface-2 focus-visible:[outline-offset:-2px]"
-            @click="toggle(rating)"
-            @keydown="activateOptionOnKey($event, () => toggle(rating))"
-          >
-            <PCheckbox
-              class="flex-shrink-0 pointer-events-none"
-              :model-value="hasRating(rating)"
-              inert
-              aria-hidden="true"
-            />
+          <template #default="{ item: rating }">
             <div class="flex flex-grow gap-1 items-center">
               <span :class="{ 'text-fg-subtle italic': rating === 0 }">
                 {{ getRatingName(rating) }}
               </span>
             </div>
-            <div
-              v-if="scoreCountList[rating] || hasRating(rating)"
-              class="font-mono inline-flex flex-shrink-0 tabular-nums"
-            >
-              <span class="text-right flex-shrink-0 w-10" :class="scoreCountList[rating] ? 'text-fg-muted' : 'text-fg-subtle'">{{ scoreCountList[rating] }}</span>
-              <span v-if="scoreCountList[rating]" class="text-fg-subtle text-right flex-shrink-0 w-14">{{ pct(scoreCountList[rating]) }}%</span>
-            </div>
-          </div>
-        </div>
+          </template>
+        </PFacetList>
       </template>
     </PPopover>
   </div>
