@@ -125,9 +125,12 @@ html.is-theme-switching *::after {
 /* Dark scheme — default for Pictoria (gallery viewer is dark by design). */
 :root,
 html[data-scheme="dark"] {
-  --p-primary-rgb:        var(--p-brand-500-rgb);
-  --p-primary-hover-rgb:  var(--p-brand-400-rgb);
-  --p-primary-active-rgb: var(--p-brand-300-rgb);
+  /* Primary sits two steps lighter than the brand base so a filled button
+     reads against the dark chrome (7.7:1 vs --p-surface) and its label
+     clears AAA (on-primary 8.7:1). */
+  --p-primary-rgb:        var(--p-brand-300-rgb);
+  --p-primary-hover-rgb:  var(--p-brand-200-rgb);
+  --p-primary-active-rgb: var(--p-brand-100-rgb);
   --p-on-primary-rgb:     14 8 22;
 
   --p-bg-rgb:        18 18 20;
@@ -140,23 +143,25 @@ html[data-scheme="dark"] {
   --p-border-strong-rgb: 84 84 92;
   --p-border-subtle-rgb: 42 42 47;
 
-  /* Contrast against --p-surface, all AA or better: fg 15:1, muted 8.0:1,
-     subtle 5.0:1. `subtle` carries real text (thumbnail captions, sidebar
-     counts), so it is not allowed to sit at the 3.5:1 it used to. */
+  /* Contrast against --p-surface: fg 15:1, muted 10.5:1, subtle 6.9:1
+     (still 5.7:1 on --p-surface-2, the darkest ground it lands on in
+     hovered/selected rows). `subtle` carries real text (thumbnail captions,
+     sidebar counts), so it keeps clear of AA even on raised surfaces. */
   --p-fg-rgb:          244 244 246;
-  --p-fg-muted-rgb:    176 176 184;
-  --p-fg-subtle-rgb:   138 138 147;
-  --p-fg-disabled-rgb:  88  88  97;
+  --p-fg-muted-rgb:    200 200 208;
+  --p-fg-subtle-rgb:   162 162 171;
+  --p-fg-disabled-rgb: 108 108 117;
 
   --p-success-rgb: 16 185 129;
   --p-warning-rgb: 245 158 11;
   --p-danger-rgb:  239 68 68;
-  --p-info-rgb:    var(--p-brand-400-rgb);
+  --p-info-rgb:    var(--p-brand-300-rgb);
 
   --p-on-success-rgb: 255 255 255;
   --p-on-warning-rgb: 26 29 36;
   --p-on-danger-rgb:  255 255 255;
-  --p-on-info-rgb:    255 255 255;
+  /* info shares primary's light violet here, so it takes primary's dark label. */
+  --p-on-info-rgb:    var(--p-on-primary-rgb);
 
   --p-shadow-sm: 0 1px 2px rgb(0 0 0 / 0.35);
   --p-shadow-md: 0 1px 2px rgb(0 0 0 / 0.35), 0 6px 16px rgb(0 0 0 / 0.35);
@@ -167,9 +172,10 @@ html[data-scheme="dark"] {
 
 /* Light scheme — opt-in via html[data-scheme="light"]. */
 html[data-scheme="light"] {
-  --p-primary-rgb:        var(--p-brand-600-rgb);
-  --p-primary-hover-rgb:  var(--p-brand-700-rgb);
-  --p-primary-active-rgb: var(--p-brand-800-rgb);
+  /* White on brand-700 is 7.1:1. */
+  --p-primary-rgb:        var(--p-brand-700-rgb);
+  --p-primary-hover-rgb:  var(--p-brand-800-rgb);
+  --p-primary-active-rgb: var(--p-brand-900-rgb);
   --p-on-primary-rgb:     255 255 255;
 
   --p-bg-rgb:        243 243 245;
@@ -183,16 +189,16 @@ html[data-scheme="light"] {
   --p-border-subtle-rgb: 224 224 229;
 
   /* Same targets as dark, measured against --p-bg (the darker of the two
-     grounds text sits on here): muted 6.8:1, subtle 5.3:1. */
+     grounds text sits on here): muted 9.9:1, subtle 7.4:1. */
   --p-fg-rgb:           24  24  27;
-  --p-fg-muted-rgb:     82  82  92;
-  --p-fg-subtle-rgb:   100 100 111;
-  --p-fg-disabled-rgb: 160 160 170;
+  --p-fg-muted-rgb:     60  60  68;
+  --p-fg-subtle-rgb:    78  78  88;
+  --p-fg-disabled-rgb: 145 145 155;
 
   --p-success-rgb:   4 120  87;
   --p-warning-rgb: 180  83   9;
   --p-danger-rgb:  185  28  28;
-  --p-info-rgb:    var(--p-brand-700-rgb);
+  --p-info-rgb:    var(--p-brand-800-rgb);
 
   --p-on-success-rgb: 255 255 255;
   --p-on-warning-rgb: 255 255 255;

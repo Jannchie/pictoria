@@ -74,7 +74,7 @@ function isChecked(i: number) {
 .annotate-choice--active {
   background: var(--p-primary);
   border-color: var(--p-primary);
-  color: white;
+  color: var(--p-on-primary);
 }
 .annotate-choice kbd {
   font-family: var(--p-font-mono);

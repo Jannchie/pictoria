@@ -210,7 +210,7 @@ onBeforeUnmount(removeAfterEach)
 <template>
   <a
     href="#main-content"
-    class="text-fg px-3 py-2 rounded bg-primary sr-only focus:left-2 focus:top-2 focus:absolute focus:z-9999 focus:not-sr-only"
+    class="text-on-primary px-3 py-2 rounded bg-primary sr-only focus:left-2 focus:top-2 focus:absolute focus:z-9999 focus:not-sr-only"
   >
     {{ $t('common.skipToMain') }}
   </a>

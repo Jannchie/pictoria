@@ -834,7 +834,7 @@ const submitKeyAria = isMac ? 'Meta+Enter' : 'Control+Enter'
 }
 .listwise-card__rank--best {
   background: var(--p-primary);
-  color: white;
+  color: var(--p-on-primary);
 }
 
 .listwise-lightbox:focus {
