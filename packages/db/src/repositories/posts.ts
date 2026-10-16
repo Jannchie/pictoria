@@ -548,12 +548,20 @@ export function listPostTriples(sqlite: BetterSqlite3.Database): PostTripleRow[]
 export function insertPostTriples(sqlite: BetterSqlite3.Database, triples: readonly PostTriple[]): void {
   if (!triples.length)
     return
-  const ins = sqlite.prepare('INSERT INTO posts(file_path, file_name, extension) VALUES (?, ?, ?)')
+  // OR IGNORE：sync 的快照和并发写入（上传端点）之间，同一个文件可能已经被别人登记了。
+  // 唯一索引会挡住重复行，但普通 INSERT 撞上它会让整批回滚，这一轮的其余新文件跟着丢。
+  const ins = sqlite.prepare('INSERT OR IGNORE INTO posts(file_path, file_name, extension) VALUES (?, ?, ?)')
   const firstId = sqlite.transaction(() => {
-    const ids = triples.map(t => Number(ins.run(t[0], t[1], t[2]).lastInsertRowid))
-    return ids[0]!
+    let first: number | undefined
+    for (const t of triples) {
+      const r = ins.run(t[0], t[1], t[2])
+      if (r.changes)
+        first ??= Number(r.lastInsertRowid)
+    }
+    return first
   })()
-  notifyRepending(sqlite, BACKFILL_WORKERS, firstId)
+  if (firstId !== undefined)
+    notifyRepending(sqlite, BACKFILL_WORKERS, firstId)
 }
 
 /** 一个目录（`posts.file_path` 精确相等，不含子目录）下已有的 `file_name`。 */

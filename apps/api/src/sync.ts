@@ -181,15 +181,25 @@ const MASS_DELETE_FLOOR = 100
  */
 export async function syncMetadata(
   sqlite: SqliteHandle,
-  { log = console, allowMassDelete = false }: { log?: Log, allowMassDelete?: boolean } = {},
+  { log = console, allowMassDelete = false, scan = scanLibrary }: {
+    log?: Log
+    allowMassDelete?: boolean
+    /** 测试缝：在扫描前后插入并发写入。 */
+    scan?: typeof scanLibrary
+  } = {},
 ): Promise<SyncResult> {
   const root = targetDir()
-  const t0 = Date.now()
-  const { files: onDisk, failedDirs } = await scanLibrary(root, { log })
-  log.info(`[sync] 扫描 ${onDisk.length} 个文件，${((Date.now() - t0) / 1000).toFixed(2)}s`)
-
+  // ⚠️ **先读库、再扫盘**，顺序不能反。删除判定是"库里有、盘上没看见"，而扫描是异步的、
+  // 要走好几秒：先扫后读的话，某个目录被 readdir 之后才落地的一张上传图（上传端点先建行
+  // 再写文件）在库里有、在扫描结果里没有，于是被当成已删除 —— 连刚写下的原图一起 unlink。
+  // 先读库，删除判定就只涉及**扫描开始前**已经存在的行，而它们的文件在扫描开始前也已经
+  // 在盘上了。代价是反方向：读库之后才落地的文件会被再登记一次，由唯一索引 +
+  // `INSERT OR IGNORE`（`insertPostTriples`）吸收。
   const key = (t: FileTriple) => `${t[0]}\0${t[1]}\0${t[2]}`
   const dbByKey = new Map(listPostTriples(sqlite).map(r => [key([r.file_path, r.file_name, r.extension]), r]))
+  const t0 = Date.now()
+  const { files: onDisk, failedDirs } = await scan(root, { log })
+  log.info(`[sync] 扫描 ${onDisk.length} 个文件，${((Date.now() - t0) / 1000).toFixed(2)}s`)
   // 一趟走完 22.3 万个文件：key 只拼一次，两个产物同时出来。分成 `map` + `filter`
   // 会多留一个和 `onDisk` 靠下标对齐的平行数组 —— 以后谁给 `onDisk` 加一次
   // filter/sort 就会静默错位。

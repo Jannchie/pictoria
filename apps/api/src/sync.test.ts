@@ -225,3 +225,47 @@ describe('syncMetadata 的删除闸门', () => {
     expect(r.added).toBe(1)
   })
 })
+
+describe('syncMetadata 与并发写入', () => {
+  // 上传端点先建行、再写文件（同一个 tick 里）。sync 的扫描是异步的：某个目录被
+  // readdir 之后、读库之前落地的一张上传图，在"磁盘"侧缺席、在"库"侧在场 ——
+  // 原来的顺序（先扫盘再读库）会把它判成已删除，连刚写下的原图一起 unlink。
+  it('扫描之后才落地的上传不会被当成已删除', async () => {
+    const { root, sqlite } = seedLibrary(1, 1)
+    const { scanLibrary, syncMetadata } = await loadSync(root)
+
+    const r = await syncMetadata(sqlite, {
+      log: quiet,
+      scan: async (dir, opts) => {
+        const result = await scanLibrary(dir, opts)
+        // 目录已经读完，这时一张上传图落地
+        sqlite.prepare('INSERT INTO posts(file_path, file_name, extension) VALUES (\'.\', \'late\', \'jpg\')').run()
+        fs.writeFileSync(path.join(root, 'late.jpg'), 'x')
+        return result
+      },
+    })
+
+    expect(r.removed).toBe(0)
+    expect(postCount(sqlite)).toBe(2)
+    expect(fs.existsSync(path.join(root, 'late.jpg'))).toBe(true)
+  })
+
+  // 反过来：读库之后、扫描之前落地的那张，磁盘上有、快照里没有 —— sync 会再登记一次。
+  // 唯一索引挡住了重复行；它不能让整批插入失败、把这一轮的其余新文件一起丢掉。
+  it('读库之后才落地的上传不会让登记失败', async () => {
+    const { root, sqlite } = seedLibrary(0, 0)
+    fs.writeFileSync(path.join(root, 'other.jpg'), 'x')
+    const { scanLibrary, syncMetadata } = await loadSync(root)
+
+    await syncMetadata(sqlite, {
+      log: quiet,
+      scan: async (dir, opts) => {
+        sqlite.prepare('INSERT INTO posts(file_path, file_name, extension) VALUES (\'.\', \'early\', \'jpg\')').run()
+        fs.writeFileSync(path.join(root, 'early.jpg'), 'x')
+        return scanLibrary(dir, opts)
+      },
+    })
+
+    expect(postCount(sqlite)).toBe(2)
+  })
+})
