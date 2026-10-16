@@ -64,7 +64,7 @@ export async function scanLibrary(root: string, { log = console }: { log?: Log }
   const failedDirs: string[] = []
   // 边走边建新表，走完整体替换。缓存只按 mtime 判新旧，自己发现不了"这个目录没了"；
   // 而"本轮走到过的目录"恰好就是"本轮该留的缓存"，所以不需要额外记一份再回头清扫 ——
-  // 没走到的目录天然不在新表里。（`syncMetadata` 用 `running` 保证不并发。）
+  // 没走到的目录天然不在新表里。（`startSync` 用 `current` 保证不并发。）
   const next: ScanCache = new Map()
 
   // 读不动的目录：记下它的相对路径并保留它上一轮的缓存内容。保留是重点 —— 网络盘
@@ -137,9 +137,6 @@ export async function scanLibrary(root: string, { log = console }: { log?: Log }
   return { files: out, failedDirs }
 }
 
-/** 一次同步只跑一个。第二次调用不排队而是记一笔补跑，见 `startSync`。 */
-let running = false
-
 export interface SyncResult {
   onDisk: number
   inDb: number
@@ -205,17 +202,20 @@ export async function syncMetadata(
   // 下面三趟各走 31 万项（拼 key、建 Map / Set、求差），一趟就是几百毫秒的纯 JS ——
   // sync 在上传期间频繁地跑，不切开的话每次都让前端卡一下。快照已经取好，中间让出
   // 不会把并发写入卷进删除判定（见上一段）。
+  // 判断是同步的，只在真要让出时才 await —— 每项都 await 一个 async 函数的话，
+  // 93 万项就是 93 万个 Promise。
   let sinceYield = 0
-  const tick = async () => {
-    if (++sinceYield >= yieldEvery) {
-      sinceYield = 0
-      await yieldToEventLoop()
-    }
+  const due = () => {
+    if (++sinceYield < yieldEvery)
+      return false
+    sinceYield = 0
+    return true
   }
   const dbByKey = new Map<string, PostTripleRow>()
   for (const r of listPostTriples(sqlite)) {
     dbByKey.set(key([r.file_path, r.file_name, r.extension]), r)
-    await tick()
+    if (due())
+      await yieldToEventLoop()
   }
   const t0 = Date.now()
   const { files: onDisk, failedDirs } = await scan(root, { log })
@@ -230,7 +230,8 @@ export async function syncMetadata(
     diskKeys.add(k)
     if (!dbByKey.has(k))
       newTriples.push(t)
-    await tick()
+    if (due())
+      await yieldToEventLoop()
   }
   log.info(`[sync] 库里 ${dbByKey.size} 个文件，磁盘上 ${diskKeys.size} 个`)
 
@@ -238,7 +239,8 @@ export async function syncMetadata(
   for (const [k, row] of dbByKey) {
     if (!diskKeys.has(k))
       deleted.push({ id: row.id, dir: row.file_path })
-    await tick()
+    if (due())
+      await yieldToEventLoop()
   }
 
   // 闸门一：读不动的目录按子树豁免。`'.'`（库根读不动）盖住一切。
@@ -310,7 +312,10 @@ export async function syncMetadata(
  */
 let pendingRerun = false
 
-/** 正在跑的那一次；文件监视的冷却靠它知道"这一轮什么时候结束"。 */
+/**
+ * 正在跑的那一次。一次同步只跑一个：它非空时再调用不排队而是记一笔补跑（见 `startSync`）；
+ * 文件监视的冷却也靠它知道"这一轮什么时候结束"。
+ */
 let current: Promise<void> | null = null
 
 /** 等正在跑的同步结束；没在跑就立即返回。 */
@@ -329,11 +334,10 @@ export function startSync(
   onDone?: (r: SyncResult) => void,
   { log = console, allowMassDelete = false }: { log?: Log, allowMassDelete?: boolean } = {},
 ): boolean {
-  if (running) {
+  if (current) {
     pendingRerun = true
     return false
   }
-  running = true
   // fire-and-forget：请求立刻返回，扫描在后台跑。
   current = (async () => {
     try {
@@ -344,7 +348,6 @@ export function startSync(
       log.warn(`[sync] 失败：${String(err)}`)
     }
     finally {
-      running = false
       current = null
     }
     if (pendingRerun) {

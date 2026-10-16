@@ -221,28 +221,41 @@ export function listSilvaPending(
   limit?: number,
   { force = false }: PendingScanOpts = {},
 ): number[] {
-  // 一个 scorer 一条水位线：silva 打完了不该把还在跑的 silva_luna 一起推过头。
-  const key = scorer
-  const floor = readFloor(sqlite, key, force)
+  const candidates = silvaScan(scorer)
+  const floor = readFloor(sqlite, scorer, force)
   const maxId = maxPostId(sqlite)
 
-  const candidate = `FROM posts p WHERE p.id >= ? `
-    + `AND NOT EXISTS (SELECT 1 FROM ${AESTHETIC_SCORES_TABLE} pas WHERE pas.post_id = p.id AND pas.scorer = ?) `
-    + `AND ${notFailedClause('p')} `
   // 水位线记的是**第一个候选**，不是第一个 pending：候选里没向量的那些仍然是待办
   // （只是这一轮还算不了），把水位推过它们等于等它们拿到向量之后再也不来看一眼。
   // 先取它，再从它起查 pending —— 它以下没有候选，两条查询就不必各扫一遍已算完的前缀。
   const firstCandidate = sqlite
-    .prepare<unknown[], number>(`SELECT p.id ${candidate}ORDER BY p.id LIMIT 1`)
+    .prepare<unknown[], number>(`SELECT p.id ${floorSql(candidates)}ORDER BY p.id LIMIT 1`)
     .pluck()
-    .get(floor, scorer, failureKey(scorer))
-  writeFloor(sqlite, key, firstCandidate ?? maxId + 1)
+    .get(...floorParams(candidates, floor))
+  writeFloor(sqlite, scorer, firstCandidate ?? maxId + 1)
   if (firstCandidate === undefined)
     return []
+  const pending = silvaScan(scorer, { withVector: true })
   return sqlite
-    .prepare<unknown[], number>(`SELECT p.id ${candidate}AND ${HAS_VECTOR} ORDER BY p.id${limit === undefined ? '' : ' LIMIT ?'}`)
+    .prepare<unknown[], number>(`SELECT p.id ${floorSql(pending)}ORDER BY p.id${limit === undefined ? '' : ' LIMIT ?'}`)
     .pluck()
-    .all(firstCandidate, scorer, failureKey(scorer), ...(limit === undefined ? [] : [limit]))
+    .all(...floorParams(pending, firstCandidate), ...(limit === undefined ? [] : [limit]))
+}
+
+/**
+ * silva 的"算待办"条件，`listSilvaPending` 和 `countSilvaPending` 共用。一个 scorer 一条
+ * 水位线（`key`）：silva 打完了不该把还在跑的 silva_luna 一起推过头。
+ *
+ * `withVector` 区分候选和 pending：还没有向量的候选算不了，但仍是待办（水位线要停在它们
+ * 前面，见 `listSilvaPending`）。
+ */
+function silvaScan(scorer: AestheticScorerName, { withVector = false } = {}): FloorScan {
+  return {
+    key: scorer,
+    where: `NOT EXISTS (SELECT 1 FROM ${AESTHETIC_SCORES_TABLE} pas WHERE pas.post_id = p.id AND pas.scorer = ?)`
+      + (withVector ? ` AND ${HAS_VECTOR}` : ''),
+    whereParams: [scorer],
+  }
 }
 
 /**
@@ -679,16 +692,9 @@ export function countEmbeddingPending(sqlite: BetterSqlite3.Database, chunkRows?
 /**
  * `listSilvaPending` 不限量时会返回的条数，分块给出：水位线以上、有向量、还没有这个
  * scorer 分数的。还没有向量的候选不算 —— 它们要先等 embedding，算进来 ETA 就是错的。
- *
- * 比 `listSilvaPending` 多一条扩展名过滤（`floorSql` 带的），结果不变：有向量就意味着
- * 过了 embedding 那一关，而那一关本来就只收图片扩展名。
  */
 export function countSilvaPending(sqlite: BetterSqlite3.Database, scorer: AestheticScorerName, chunkRows?: number): Generator<number, void, undefined> {
-  return countByFloor(sqlite, {
-    key: scorer,
-    where: `NOT EXISTS (SELECT 1 FROM ${AESTHETIC_SCORES_TABLE} pas WHERE pas.post_id = p.id AND pas.scorer = ?) AND ${HAS_VECTOR}`,
-    whereParams: [scorer],
-  }, chunkRows)
+  return countByFloor(sqlite, silvaScan(scorer, { withVector: true }), chunkRows)
 }
 
 /**

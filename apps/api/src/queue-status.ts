@@ -78,7 +78,6 @@ export interface LoopStatus {
   lastError: string | null
 }
 
-
 /** 全部循环共用的计数串行链，理由见文件头注第 2 条。 */
 let countChain: Promise<void> = Promise.resolve()
 
