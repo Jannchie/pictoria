@@ -748,6 +748,19 @@ describe('待办计数', () => {
     for (const [, count] of cases) expect(sum(count())).toBe(0)
   })
 
+  // 计数和待办查询都靠 vec0 的影子表 `_rowids` 判断"有没有向量"（`HAS_VECTOR`）——
+  // 那是 sqlite-vec 的内部结构。换版本时这里先红，而不是待办静悄悄地算错。
+  it('影子表 _rowids 与 vec0 逐行一致：插入、覆盖、删除之后都是', () => {
+    for (const id of [1, 2, 3]) insertPost(id)
+    upsertVectors(sqlite, [1, 2, 3].map(postId => ({ postId, embedding: vectorBlob(postId) })))
+    upsertVectors(sqlite, [{ postId: 2, embedding: vectorBlob(9) }])
+    sqlite.prepare('DELETE FROM post_vectors_siglip2 WHERE post_id = ?').run(BigInt(1))
+    const shadow = sqlite.prepare('SELECT rowid FROM post_vectors_siglip2_rowids ORDER BY rowid').pluck().all()
+    const direct = sqlite.prepare('SELECT post_id FROM post_vectors_siglip2 ORDER BY post_id').pluck().all()
+    expect(shadow).toEqual([2, 3])
+    expect(shadow).toEqual(direct)
+  })
+
   it('具体数值：embedding 不算被拉黑的和非图片，silva 只算有向量且没分的', () => {
     seed()
     expect(sum(countEmbeddingPending(sqlite))).toBe(2) // 1、5

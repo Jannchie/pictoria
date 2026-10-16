@@ -202,23 +202,18 @@ function* countByFloor(sqlite: BetterSqlite3.Database, scan: FloorScan, chunkRow
  * `post_id`（`INTEGER PRIMARY KEY` 声明的那一列），在它上面是主键点查。真实库上核对过
  * 两边逐行一致（30.2 万行，0 条对不上）。
  *
- * ⚠️ 影子表是 sqlite-vec 的内部结构。`backfill.test.ts` 的"计数等于待办查询条数"用例
- * 拿它和直接扫 vec0 的 `listEmbeddingPending` / `listSilvaPending` 对拍，换 sqlite-vec
- * 版本时那里会先红。
+ * ⚠️ 影子表是 sqlite-vec 的内部结构。`backfill.test.ts` 的"影子表 _rowids 与 vec0 逐行一致"
+ * 直接拿两者对拍，换 sqlite-vec 版本时那里会先红。
  */
 const HAS_VECTOR = `EXISTS (SELECT 1 FROM ${SIGLIP2_TABLE}_rowids r WHERE r.rowid = p.id)`
 
 /**
  * 有 SigLIP2 向量、但还没有 `scorer` 分数的 post id，按 id 升序。
  *
- * "有没有向量"用一次 vec0 的 post_id 列全扫做集合求交，而不是每行一个
- * `EXISTS` —— vec0 的点查是虚表探测不是 B-tree 探测，逐行探在库规模上要几十秒。
- * 候选顺序（p.id 升序）在过滤后保持不变。
- *
- * 候选是**流式**过的（`.iterate()` + 够数就 break），不是 `.all()` 之后再 `.slice()`：
- * "有向量"这个条件没法用 SQL 表达，所以 `LIMIT` 只能推到 JS 这一侧的循环里。全量物化
- * 的代价在刚导入完的库上是每批白建一个 22.9 万个 id 的数组（一批只要 64 个），而
- * silva 有两个 scorer、每批都来一次。
+ * "有没有向量"走影子表的主键点查（`HAS_VECTOR`），于是 `LIMIT` 能推进 SQL。原来是把
+ * 水位线以上的 vec0 `post_id` 全扫进一个 JS Set 再求交：vec0 不认 `post_id >= ?` 这个
+ * 范围约束，每次都是全表扫（31 万行 60 ms），加上建 Set —— 上传期间新图没向量、水位线
+ * 被压在下面，两个 scorer 每批各来一次，实测 10 分钟累计 28 s 的主线程时间。
  */
 export function listSilvaPending(
   sqlite: BetterSqlite3.Database,
@@ -231,42 +226,23 @@ export function listSilvaPending(
   const floor = readFloor(sqlite, key, force)
   const maxId = maxPostId(sqlite)
 
-  const rows = sqlite
-    .prepare<[number, string, string], { id: number }>(
-      `SELECT p.id FROM posts p `
-      + `WHERE p.id >= ? `
-      + `AND NOT EXISTS (SELECT 1 FROM ${AESTHETIC_SCORES_TABLE} pas WHERE pas.post_id = p.id AND pas.scorer = ?) `
-      + `AND ${notFailedClause('p')} `
-      + `ORDER BY p.id`,
-    )
-    .iterate(floor, scorer, failureKey(scorer))
-
-  // 那次 vec0 扫描推迟到**真的出现第一个候选**才付：全库打完分之后候选恒为空，
-  // 被 notifyRepending 强制重扫的那些轮次也就不必白扫一遍虚表。
-  // better-sqlite3 允许在一个迭代器打开期间跑别的**读**语句（写才会报
-  // "database connection is busy"），所以懒加载放在循环里是安全的。
-  let embedded: Set<number> | undefined
-  const pending: number[] = []
+  const candidate = `FROM posts p WHERE p.id >= ? `
+    + `AND NOT EXISTS (SELECT 1 FROM ${AESTHETIC_SCORES_TABLE} pas WHERE pas.post_id = p.id AND pas.scorer = ?) `
+    + `AND ${notFailedClause('p')} `
   // 水位线记的是**第一个候选**，不是第一个 pending：候选里没向量的那些仍然是待办
   // （只是这一轮还算不了），把水位推过它们等于等它们拿到向量之后再也不来看一眼。
-  let firstCandidate: number | undefined
-  for (const row of rows) {
-    firstCandidate ??= row.id
-    // 判断放在 push 之前：limit === 0 时要返回空，而不是"至少一个"。
-    if (limit !== undefined && pending.length >= limit)
-      break
-    embedded ??= new Set(
-      sqlite
-        .prepare<[number], { post_id: number }>(`SELECT post_id FROM ${SIGLIP2_TABLE} WHERE post_id >= ?`)
-        .all(floor)
-        .map(r => r.post_id),
-    )
-    if (embedded.has(row.id))
-      pending.push(row.id)
-  }
-
+  // 先取它，再从它起查 pending —— 它以下没有候选，两条查询就不必各扫一遍已算完的前缀。
+  const firstCandidate = sqlite
+    .prepare<unknown[], number>(`SELECT p.id ${candidate}ORDER BY p.id LIMIT 1`)
+    .pluck()
+    .get(floor, scorer, failureKey(scorer))
   writeFloor(sqlite, key, firstCandidate ?? maxId + 1)
-  return pending
+  if (firstCandidate === undefined)
+    return []
+  return sqlite
+    .prepare<unknown[], number>(`SELECT p.id ${candidate}AND ${HAS_VECTOR} ORDER BY p.id${limit === undefined ? '' : ' LIMIT ?'}`)
+    .pluck()
+    .all(firstCandidate, scorer, failureKey(scorer), ...(limit === undefined ? [] : [limit]))
 }
 
 /**
@@ -673,55 +649,21 @@ const SHADOWED_ERROR = 'all auto tags shadowed by manual tags'
 /**
  * 还没有 SigLIP2 向量、且没被拉黑的图片，按 id 升序。
  *
- * "已经有向量了吗"用一次 vec0 post_id 列全扫做集合求差，而不是
- * `LEFT JOIN ... IS NULL` —— vec0 的点查是虚表探测不是 B-tree 探测，join 会让它
- * 每行 posts 跑一次（17 万行时是几十秒）。
- *
- * 门控（见 `scanFloor`）最早就是为这条循环写的：它是五个待办查询里唯一没法用 SQL
- * 做反连接的 —— `NOT EXISTS (SELECT 1 FROM vec WHERE post_id = p.id)` 不会走 rowid
- * 点查而是**每行都全扫一遍虚表**，实测 7,335 ms，比这里"两次全扫 + JS 差集"的
- * 401 ms 还慢 18 倍。所以那两次扫描留着，改成让水位线把它们的范围压到库尾：
- * `p.id >= ?` 之外，vec0 那次也带上 `post_id >= ?`（实测 76 ms → 39 ms）。
- *
- * ⚠️ 不能用"`count(posts) == count(vec0)` 就返回空"那种门控：两边的差不只是待办，
- * 还有孤儿向量（迁移 0015 清了 67 条存量，`upsertVectors` 堵了源头）。只要有一条
- * 孤儿，那个门控就永远不命中。
+ * 和 waifu / tagger / basics 走同一个 `scanByFloor`："有没有向量"是影子表上的主键点查
+ * （`HAS_VECTOR`），反连接和 `LIMIT` 都能推进 SQL。原来是把水位线以上的 vec0 `post_id`
+ * 全扫进 JS 求差：vec0 是虚表，`post_id >= ?` 不走索引，每批一次全表扫。
  */
 export function listEmbeddingPending(
   sqlite: BetterSqlite3.Database,
   limit?: number,
   { force = false }: PendingScanOpts = {},
 ): PendingImage[] {
-  const floor = readFloor(sqlite, 'embedding', force)
-  const maxId = maxPostId(sqlite)
-
-  const candidates = sqlite
-    .prepare<[number, string], { id: number, full_path: string }>(
-      `SELECT p.id, p.full_path FROM posts p `
-      + `WHERE p.id >= ? AND ${IMAGE_EXT_WHERE} AND ${notFailedClause('p')} ORDER BY p.id`,
-    )
-    .all(floor, failureKey('embedding'))
-
-  // 候选为空 = 水位线以上一张图都没有，vec0 那次扫描问不出任何东西。这是稳态
-  // （全库算完、水位线在 MAX(id)+1）的常态，而 vec0 是虚表：`post_id >= ?` 不走
-  // rowid 索引，即便一行都不返回也要 40 ms。空转的每一轮都省这一下。
-  if (!candidates.length) {
-    writeFloor(sqlite, 'embedding', maxId + 1)
-    return []
-  }
-
-  const embedded = new Set(
-    sqlite
-      .prepare<[number], { post_id: number }>(`SELECT post_id FROM ${SIGLIP2_TABLE} WHERE post_id >= ?`)
-      .all(floor)
-      .map(r => r.post_id),
-  )
-  const pending = candidates.filter(r => !embedded.has(r.id))
-  // 这里可以推到第一个 **pending** 而不是第一个候选（silva 那边不行）：已经有向量的
-  // 候选就是已完成，跳过它和跳过任何一行已完成的行是同一件事。
-  writeFloor(sqlite, 'embedding', pending[0]?.id ?? maxId + 1)
-  const slice = limit === undefined ? pending : pending.slice(0, limit)
-  return slice.map(r => ({ postId: r.id, relPath: r.full_path }))
+  const rows = scanByFloor<{ id: number, full_path: string }>(sqlite, EMBEDDING_SCAN, {
+    columns: 'p.id, p.full_path',
+    limit,
+    force,
+  })
+  return rows.map(r => ({ postId: r.id, relPath: r.full_path }))
 }
 
 const EMBEDDING_SCAN: FloorScan = {
