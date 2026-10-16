@@ -142,6 +142,8 @@ export interface WorkerSpec<
    * （近重复重组）。时机见 `scheduler.ts` 的 `startBackfill`。
    */
   onDrained?: (ctx: { sqlite: SqliteHandle, tasks: Pick<CairnQ, 'call'>, log: Log }) => Promise<void>
+  /** `onDrained` 两次之间至少隔多久，从上一次**结束**算；期间的清空合并成一次。缺省 0。 */
+  drainCooldownMs?: number
 }
 
 /** 只有图片路径的待办 → 任务里的 `ImageItem`。waifu / tagger / embedding 共用。 */
@@ -278,8 +280,12 @@ export const embeddingSpec: WorkerSpec<PendingImage, EmbeddingPayload, Embedding
   },
   // 失败只记一行：重组是尽力而为的，下一次清空还会再来。
   onDrained: async ({ sqlite, tasks, log }) => {
-    await rebuildGroups(sqlite, tasks).catch((err: unknown) => log.warn(`[dedup] 重建失败：${String(err)}`))
+    await rebuildGroups(sqlite, tasks, { log }).catch((err: unknown) => log.warn(`[dedup] 重建失败：${String(err)}`))
   },
+  // 一次重建是全库的：31 万条向量导出 + GPU 矩阵乘 + 换组，主线程上就是 10 s 以上的 CPU。
+  // 上传 / 导入时 embedding 每几十秒清空一次，不合并的话实测 10 分钟跑约 20 轮。新图晚
+  // 几分钟被认出是重复图没有代价；重建是全量、确定性的，合并成一轮结果完全一样。
+  drainCooldownMs: 5 * 60_000,
 }
 
 /**

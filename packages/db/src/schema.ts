@@ -124,7 +124,7 @@ export const postHasColor = sqliteTable('post_has_color', {
 /**
  * 用户对近重复分组的手动决定（migration 0018）。
  *
- * 全量重建会清空全部 canonical 指针，所以「拆开」「设为封面」必须存在 posts 之外
+ * 全量重建按边重算全部 canonical 指针，所以「拆开」「设为封面」必须存在 posts 之外
  * 才能活过下一次重建。`kind` 在 SQL 侧有 CHECK (kind IN ('standalone','canonical'))。
  */
 export const postGroupOverrides = sqliteTable('post_group_overrides', {

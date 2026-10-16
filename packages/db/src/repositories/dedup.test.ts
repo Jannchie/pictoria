@@ -70,7 +70,7 @@ afterAll(() => {
 })
 
 beforeEach(() => {
-  for (const t of ['post_vectors_siglip2', 'posts']) sqlite.exec(`DELETE FROM ${t}`)
+  for (const t of ['post_vectors_siglip2', 'post_has_tag', 'tags', 'posts']) sqlite.exec(`DELETE FROM ${t}`)
 })
 
 /** 一条边，strength 默认 1（worker 目前只回传"在阈值内"，不回传距离）。 */
@@ -168,13 +168,13 @@ describe('union-find 分配', () => {
 })
 
 describe('向量导出', () => {
-  it('按 post_id 升序写出裸 float32，行序与返回的 ids 平行', () => {
+  it('按 post_id 升序写出裸 float32，行序与返回的 ids 平行', async () => {
     for (const id of [30, 10, 20]) {
       insertPost(id)
       insertVector(id)
     }
     const file = path.join(tmpDir, 'm.f32')
-    const { ids, count, dim } = exportVectorMatrix(sqlite, file)
+    const { ids, count, dim } = await exportVectorMatrix(sqlite, file, { pageSize: 2 })
 
     // 升序不是为了好看：worker 回传的是行下标，行序一抖，同一个库两次重建
     // 就会得到不同的边序（进而不同的组）
@@ -188,15 +188,41 @@ describe('向量导出', () => {
     expect(raw.subarray(1152 * 4, 1152 * 8)).toEqual(unitBlob(20))
   })
 
-  it('空库导出零字节', () => {
+  it('空库导出零字节', async () => {
     const file = path.join(tmpDir, 'empty.f32')
-    expect(exportVectorMatrix(sqlite, file)).toEqual({ ids: [], count: 0, dim: 0 })
+    expect(await exportVectorMatrix(sqlite, file)).toEqual({ ids: [], count: 0, dim: 0 })
     expect(fs.readFileSync(file).length).toBe(0)
+  })
+
+  it('分页之间让出事件循环，而且让出时连接是空闲的', async () => {
+    // 全库 31 万行 / 1.4 GB 一口气同步导出，实测让 API 的事件循环停摆 10 s 以上 ——
+    // 期间连一个 404 都回不了。分页之间必须让出；而让出时游标不能开着，
+    // 否则别的请求在同一个连接上会撞 "connection is busy"。
+    for (const id of [1, 2, 3, 4, 5]) {
+      insertPost(id)
+      insertVector(id)
+    }
+    const file = path.join(tmpDir, 'yield.f32')
+    let interleaved: unknown
+    setImmediate(() => {
+      interleaved = sqlite.prepare('SELECT COUNT(*) AS n FROM posts').get()
+    })
+    const { ids } = await exportVectorMatrix(sqlite, file, { pageSize: 2 })
+    expect(ids).toEqual([1, 2, 3, 4, 5])
+    expect(interleaved).toEqual({ n: 5 })
+  })
+
+  it('没有 post 的孤儿向量不进矩阵', async () => {
+    insertPost(1)
+    insertVector(1)
+    insertVector(2)
+    const file = path.join(tmpDir, 'orphan.f32')
+    expect((await exportVectorMatrix(sqlite, file)).ids).toEqual([1])
   })
 })
 
 describe('原子换组', () => {
-  it('清空旧指针再写新的', () => {
+  it('旧指针换成新的，而不是叠加', () => {
     for (const id of [1, 2, 3]) insertPost(id)
     replaceAllGroups(sqlite, [[2, 1], [3, 1]])
     expect([canonicalOf(1), canonicalOf(2), canonicalOf(3)]).toEqual([null, 1, 1])
@@ -218,6 +244,31 @@ describe('原子换组', () => {
     // 所以死 canonical 的组被丢弃（成员保持独立），活着的照常。
     replaceAllGroups(sqlite, [[1, 999], [2, 999], [3, 1]])
     expect([canonicalOf(1), canonicalOf(2), canonicalOf(3)]).toEqual([null, null, 1])
+  })
+
+  it('分组没变时一行都不写 —— 包括触发器', () => {
+    // 原来的实现先清空全部指针再写回：6 万个成员、近 400 万条 tag 关联，每次重建
+    // 触发器把 tags.post_count 来回改约 800 万次，一个同步事务占住事件循环几十秒。
+    for (const id of [1, 2, 3, 4]) insertPost(id)
+    replaceAllGroups(sqlite, [[2, 1], [3, 1]])
+    const changes = () => sqlite.prepare<[], { n: number }>('SELECT total_changes() AS n').get()!.n
+    const before = changes()
+    replaceAllGroups(sqlite, [[3, 1], [2, 1]])
+    expect(changes() - before).toBe(0)
+  })
+
+  it('只改变化的行，tags.post_count 仍然只数可见的 canonical', () => {
+    for (const id of [1, 2, 3, 4]) insertPost(id)
+    sqlite.exec(`INSERT INTO tags (name) VALUES ('t')`)
+    const tag = sqlite.prepare(`INSERT INTO post_has_tag (post_id, tag_name) VALUES (?, 't')`)
+    for (const id of [1, 2, 3, 4]) tag.run(id)
+    const count = () => sqlite.prepare<[], { n: number }>(`SELECT post_count AS n FROM tags WHERE name = 't'`).get()!.n
+    replaceAllGroups(sqlite, [[2, 1], [3, 1]])
+    expect(count()).toBe(2)
+    // 3 换组（1 → 4 当代表）、2 移出、1 变成成员：三种迁移一次走完
+    replaceAllGroups(sqlite, [[3, 4], [1, 4]])
+    expect([canonicalOf(1), canonicalOf(2), canonicalOf(3), canonicalOf(4)]).toEqual([4, null, 4, null])
+    expect(count()).toBe(2)
   })
 
   it('member 在计算期间被删掉时那条 UPDATE 是空操作', () => {

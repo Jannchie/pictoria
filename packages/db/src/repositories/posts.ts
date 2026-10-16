@@ -106,7 +106,7 @@ export function postExists(sqlite: BetterSqlite3.Database, postId: number): bool
 /**
  * 解组：把这些 id 提回独立的 canonical post，并记下"用户拆的"。
  *
- * 光清指针活不过下一次重建 —— `replaceAllGroups` 清空全部指针再按边重算，几分钟后
+ * 光清指针活不过下一次重建 —— `replaceAllGroups` 按边重算全部指针，几分钟后
  * 的 embedding 回填排空就会把这几张图原样合回去。所以同一个事务里再写一条
  * `post_group_overrides(kind='standalone')`，让重建绕开它们（migration 0018）。
  *
@@ -257,8 +257,8 @@ function readPointers(
  * 三件事必须在同一个事务里，因为它们各自单独都不足以让这次合并活下来：
  *
  * 1. 指针 —— 立刻可见的那一半：非 canonical 的成员指向 canonical。
- * 2. `user_verdict='same'` 边 —— 活过重建的那一半。重建（`replaceAllGroups`）清空
- *    全部指针再按边重算，用户裁决过的边以最高强度强制成组（dedup.ts 读
+ * 2. `user_verdict='same'` 边 —— 活过重建的那一半。重建（`replaceAllGroups`）按边
+ *    重算全部指针，用户裁决过的边以最高强度强制成组（dedup.ts 读
  *    `listUserVerdicts`）。只写指针的话这次合并的寿命是几分钟。
  * 3. 删掉这些 id 的 `standalone` override —— 用户以前把某张拆出来过，那条意图会让
  *    重建继续绕开它，于是重建之后这张图又从组里掉出来。两种意图互斥，新的覆盖旧的。

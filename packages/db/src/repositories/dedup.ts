@@ -15,14 +15,14 @@
  * `assignFromEdges` → `replaceAllGroups`）。逐个 vec0 KNN 在 17 万行的表上约 1 秒
  * 一条，17 万条不可行（实测约 48 小时），所以只能一次性把全部向量喂给一次分块
  * `X @ X.T`。新图不走增量挂载，而是在 embedding backfill 排空后触发一次重建
- * （见 `apps/api/src/index.ts` 的 `onDrained`）—— 重建是确定性的，增量不是。
+ * （见 `apps/api/src/workers.ts` 的 `onDrained`，带冷却合并）—— 重建是确定性的，增量不是。
  *
  * 重建重算一切，所以用户的手动决定（拆组 / 钉封面）不能只写在
  * `posts.canonical_post_id` 上，否则活不过下一次排空。它们存在
  * `post_group_overrides`（migration 0018），由这里的 `excluded` / `pinned` 消费。
  */
 import type BetterSqlite3 from 'better-sqlite3'
-import { closeSync, openSync, writeSync } from 'node:fs'
+import { open } from 'node:fs/promises'
 import { SIGLIP2_TABLE } from './vectors.js'
 
 /**
@@ -36,46 +36,58 @@ import { SIGLIP2_TABLE } from './vectors.js'
  * 但行序仍然要稳定 —— 同一个库两次导出必须给出同一份矩阵，否则 worker 回传的对、
  * 以及等强度边的合并顺序都会跟着抖，重建就不再是可复现的。
  *
- * 逐行写而不是先在内存里拼一个大 Buffer —— 1 GB 的 Buffer 会顶到 Node 的堆上限，
- * 而 better-sqlite3 的 iterate 本来就是流式的。
+ * ⚠️ **分页 + 异步**，而且必须是。一口气同步 iterate + writeSync 在 31 万行的库上
+ * 实测让 API 的事件循环停摆 10 s 以上，期间前端的每个请求都挂着。分页之间 await
+ * 一次文件写，事件循环就有了让出点；而页与页之间**不能**留着游标 —— better-sqlite3
+ * 的 iterate 没走完时，同一个连接上的任何别的查询都会抛 "connection is busy"。
+ * 所以按 `id > 上一页末尾` 做 keyset 分页，每页 `.all()` 取完即关。
+ *
+ * 由 posts 驱动、`CROSS JOIN` 钉住顺序：反过来由 vec0 驱动时，它不认 `post_id > ?`
+ * 这个范围约束，每一页都是一次全表扫（实测第 6 页 455 ms，越往后越慢），而 posts 的
+ * 主键范围扫每页 1024 行约 27 ms（全库 31 万行 10 s，事件循环最长空档 67 ms）。
+ *
+ * join posts 同时挡掉孤儿向量（post 已删、向量还在，vec0 不参与 FK 级联）：孤儿一旦
+ * 当上 canonical，`replaceAllGroups` 的 UPDATE 就会撞 `REFERENCES posts(id)`。
+ * 分页期间新增 / 删除的 post 会让这份"快照"不那么瞬时 —— 无妨：导出到落库之间本来
+ * 就隔着几分钟的 GPU 计算，期间的删除由 `replaceAllGroups` 在自己的事务里按存活 id
+ * 过滤，新增的等下一轮。
  */
-export function exportVectorMatrix(
+export async function exportVectorMatrix(
   sqlite: BetterSqlite3.Database,
   filePath: string,
-): { ids: number[], count: number, dim: number } {
+  { pageSize = 1024 }: { pageSize?: number } = {},
+): Promise<{ ids: number[], count: number, dim: number }> {
   const ids: number[] = []
   let dim = 0
-  const fd = openSync(filePath, 'w')
+  const page = sqlite.prepare<[number, number], { post_id: number, embedding: Buffer }>(
+    `SELECT p.id AS post_id, v.embedding FROM posts p `
+    + `CROSS JOIN ${SIGLIP2_TABLE} v ON v.post_id = p.id `
+    + `WHERE p.id > ? ORDER BY p.id ASC LIMIT ?`,
+  )
+  const file = await open(filePath, 'w')
   try {
-    // join posts：vec0 不参与 FK 级联，孤儿向量（post 已删、向量还在）会跟着进矩阵。
-    // 后果不是多算几行而已 —— `assignFromEdges` 取组内最小 id 当 canonical，孤儿一旦
-    // 当上 canonical，`replaceAllGroups` 的 UPDATE 就会撞 `REFERENCES posts(id)`，
-    // 整个重建事务回滚。join 的代价实测 +3.4%（9.34 s → 9.66 s，22.3 万行 / 1.03 GB）：
-    // 只多一次 rowid 点查，而这一步本来就是分钟级重建里的一小段。
-    //
-    // join 只挡得住**此刻**的孤儿。导出到落库之间隔着几分钟的 GPU 计算，期间被删的
-    // post 照样在快照里 —— 那一半由 `replaceAllGroups` 在自己的事务里按存活 id 过滤。
-    const rows = sqlite
-      .prepare<[], { post_id: number, embedding: Buffer }>(
-        `SELECT v.post_id, v.embedding FROM ${SIGLIP2_TABLE} v `
-        + `JOIN posts p ON p.id = v.post_id ORDER BY v.post_id ASC`,
-      )
-      .iterate()
-    for (const row of rows) {
-      const blob = row.embedding
-      const width = blob.length / 4
-      // 宽度不一致的行会让 worker 那边的 reshape 静默错位 —— 与其算出一堆噪声，
-      // 不如在这里就停下（同 `codec.py` 里检查宽度而不是推断宽度的理由）。
-      if (dim === 0)
-        dim = width
-      else if (width !== dim)
-        throw new Error(`post ${row.post_id} 的向量是 ${width} 维，与前面的 ${dim} 维不一致`)
-      writeSync(fd, blob)
-      ids.push(Number(row.post_id))
+    let last = 0
+    for (;;) {
+      const rows = page.all(last, pageSize)
+      if (rows.length === 0)
+        break
+      for (const row of rows) {
+        const width = row.embedding.length / 4
+        // 宽度不一致的行会让 worker 那边的 reshape 静默错位 —— 与其算出一堆噪声，
+        // 不如在这里就停下（同 `codec.py` 里检查宽度而不是推断宽度的理由）。
+        if (dim === 0)
+          dim = width
+        else if (width !== dim)
+          throw new Error(`post ${row.post_id} 的向量是 ${width} 维，与前面的 ${dim} 维不一致`)
+        ids.push(Number(row.post_id))
+      }
+      // 一页一次写：这个 await 就是让出点。writev 直接写各行的 blob，不先拼一份。
+      await file.writev(rows.map(r => r.embedding))
+      last = Number(rows.at(-1)!.post_id)
     }
   }
   finally {
-    closeSync(fd)
+    await file.close()
   }
   return { ids, count: ids.length, dim }
 }
@@ -221,15 +233,22 @@ export function assignFromEdges(
  * 一次事务内换掉全部分组指针。
  *
  * `assignments` 是完整的新分组；没列进来的 post 就是（或恢复成）canonical。
- * 清空 + 重设必须在**同一个事务**里：分开做的话，从清空到写完之间（一次 GPU
- * 计算加上两万多条 UPDATE，分钟级）每个成员都会在列表里冒出来。
+ * 必须在**同一个事务**里换完：分开做的话，换到一半时库里是新旧两套分组的混合。
+ *
+ * ⚠️ **只写变化的行**。原来是"全部清空再全部写回"，语义一样，但每一行的
+ * NULL ↔ 非 NULL 迁移都会触发 `trg_posts_canonical_(un)grouped`，把这张图的每个 tag
+ * 的 `post_count` 改一遍 —— 6 万个成员、近 400 万条 tag 关联的库上，一次重建就是约
+ * 800 万次 UPDATE，一个同步事务占住 API 的事件循环几十秒（上传图片时 embedding 反复
+ * 排空、重建一轮接一轮，前端就一直卡着）。而两次重建之间分组几乎不变，diff 之后
+ * 稳态下这里是毫秒级。成员从一个组挪到另一个组（非 NULL → 非 NULL）不触发计数
+ * 触发器，它本来也不改变可见性。
  *
  * ⚠️ `assignments` 基于的是**几分钟前**的快照（`exportVectorMatrix` → GPU 计算），
  * 期间 sync 或用户删掉的 post 可能还挂在里面。member 已删无所谓 —— UPDATE 匹配
  * 0 行是空操作；canonical 已删则会撞 `REFERENCES posts(id)`，让整个事务回滚、
  * 几分钟的 GPU 白算。所以在**事务内**逐个探测 canonical 的存活再过滤：distinct
- * canonical 只有组数那么多（几千），逐个 rowid 点查是毫秒级，比在写事务里物化
- * 全表 22 万个 id 便宜得多；而这层过滤和 UPDATE 同处一个事务，中间不可能再有
+ * canonical 只有组数那么多（几万），逐个 rowid 点查是毫秒级，比在写事务里物化
+ * 全表 30 万个 id 便宜得多；而这层过滤和 UPDATE 同处一个事务，中间不可能再有
  * 删除挤进来。
  *
  * ⚠️ 同一个窗口里用户可能刚拆过一个组。`assignFromEdges` 拿到的 `excluded` 是
@@ -249,8 +268,8 @@ export function replaceAllGroups(
   sqlite: BetterSqlite3.Database,
   assignments: Array<[number, number]>,
 ): void {
-  const clear = sqlite.prepare(
-    'UPDATE posts SET canonical_post_id = NULL WHERE canonical_post_id IS NOT NULL',
+  const current = sqlite.prepare<[], { id: number, canonical_post_id: number }>(
+    'SELECT id, canonical_post_id FROM posts WHERE canonical_post_id IS NOT NULL',
   )
   const set = sqlite.prepare(
     'UPDATE posts SET canonical_post_id = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?',
@@ -267,9 +286,18 @@ export function replaceAllGroups(
         live.add(c)
     }
     const standalone = new Set(standaloneRows.all().map(r => r.post_id))
-    clear.run()
+    const wanted = new Map<number, number>()
     for (const [member, canonical] of assignments) {
       if (live.has(canonical) && !standalone.has(member))
+        wanted.set(member, canonical)
+    }
+    const had = new Map(current.all().map(r => [r.id, r.canonical_post_id]))
+    for (const member of had.keys()) {
+      if (!wanted.has(member))
+        set.run(null, member)
+    }
+    for (const [member, canonical] of wanted) {
+      if (had.get(member) !== canonical)
         set.run(canonical, member)
     }
   })()

@@ -57,7 +57,7 @@
 - 证据: `packages/db/src/repositories/backfill.ts:341-359` 无 LIMIT、无门控; 其他待办查询(`listWaifuPending`/`listTaggerPending`/`listBasicsPending`)都带 SQL `LIMIT` 或提前退出, 唯独 embedding 循环即使库已全算完也每 30s 物化 ~22 万行 posts + ~22 万 vec0 id
 - 修复: 先做 count 对比门控(`count(posts) = count(vec0)` 则直接返回空)
 
-**B5. `replaceAllGroups` 单事务分钟级冻结单写者 + 事件循环**
+**B5. `replaceAllGroups` 单事务分钟级冻结单写者 + 事件循环** ✅ 已落地(只写变化的行, 稳态 6 万成员 191 ms)
 - 证据: `packages/db/src/repositories/dedup.ts:117-131` 把数万条 UPDATE 放一个事务, 每条还触发 migration 0009 的 `tags.post_count` 触发器(每成员 ≈ 1 + N 条 tag 更新)
 - 修复: 分批执行(块间让出事件循环) + 分组完成后一次性重算 `tags.post_count`
 
@@ -68,7 +68,7 @@
 | B6 | 标注时间线三张表缺 `created_at` 索引 → 全 UNION 物化 + 全局排序 | `packages/db/src/repositories/annotations.ts:47-59,141-153`; migrations 0011/0013/0014 均未建 |
 | B7 | `VACUUM INTO` 快照同步跑在请求线程 (大库 = 分钟级冻结) | `apps/api/src/routes/commands.ts:376-384` |
 | B8 | 批量删帖/删目录逐文件同步 `fs.rmSync` | `apps/api/src/post-files.ts:23-31` |
-| B9 | `exportVectorMatrix` 主线程同步写 ~1GB | `packages/db/src/repositories/dedup.ts:32-62` |
+| B9 | ✅ 已落地(keyset 分页 + 页间让出, 最长空档 67 ms) `exportVectorMatrix` 主线程同步写 ~1GB | `packages/db/src/repositories/dedup.ts:32-62` |
 | B10 | silva 回填期间每批全扫 posts + vec0 | `backfill.ts:38-63`(全算完后有提前退出, 回填中仍每批全扫) |
 | B11 | `ensureCanonicalTagGroups` 每批重复 8 条语句 | `backfill.ts:213-226`; 进程级缓存一次即可 |
 

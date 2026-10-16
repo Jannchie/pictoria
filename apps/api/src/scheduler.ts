@@ -92,6 +92,45 @@ function sleep(ms: number, signal: AbortSignal, waker: { resolve?: () => void })
 }
 
 /**
+ * 把一串请求合并成"冷却期满后跑一次"。`WorkerSpec.drainCooldownMs` 用它。
+ *
+ * 跑着的时候来的请求不丢，记一笔，等这一轮**结束**再过 `cooldownMs` 补跑一次；冷却期内
+ * 来多少次都只补一次。第一次请求（或冷却期早已过去时的请求）立即跑。`run` 的失败
+ * 在这里吞掉 —— 调用方负责记日志，这里只保证一次失败不会让后面的请求再也跑不起来。
+ */
+export function coalesceWithCooldown(run: () => Promise<unknown>, cooldownMs: number): () => void {
+  let running = false
+  let pending = false
+  let timer: NodeJS.Timeout | null = null
+  let lastFinished = Number.NEGATIVE_INFINITY
+
+  const fire = () => {
+    timer = null
+    if (!pending)
+      return
+    pending = false
+    running = true
+    void run().catch(() => {}).finally(() => {
+      running = false
+      lastFinished = Date.now()
+      if (pending)
+        schedule()
+    })
+  }
+  const schedule = () => {
+    if (running || timer)
+      return
+    timer = setTimeout(fire, Math.max(0, lastFinished + cooldownMs - Date.now()))
+    // 一个等着的补跑不该把进程钉住
+    timer.unref?.()
+  }
+  return () => {
+    pending = true
+    schedule()
+  }
+}
+
+/**
  * 一批的结果：落库了几条、拉黑了几条。`tick` 在待办查询**扫空**时返回 `null`。
  *
  * 两者要分开：`null` 证明了此刻没有待办（状态区据此显示精确的 0），而 `{0, 0}` 只是
@@ -239,6 +278,9 @@ function loop(
  * 触发时机是**待办清空的那一刻**，不是每一批之后 —— 一次重建是全库分块矩阵乘，
  * 分钟级；每 16 张图触发一次等于让 GPU 什么正事都干不成。Python 侧 `run_all_backfill`
  * 跑完整轮才 fire 一次，这里的"清空即一轮结束"是它的等价物。
+ *
+ * 钩子是**即发即弃**的，并按 `spec.drainCooldownMs` 合并：持续上传时待办每几十秒就
+ * 清空一次，原来每次都 await 一次全库重建，循环自己停着，API 也被重建的同步段拖住。
  */
 export function startBackfill(
   sqlite: SqliteHandle,
@@ -247,15 +289,20 @@ export function startBackfill(
   { log = console }: { log?: Log } = {},
 ): BackfillHandle {
   let writtenSinceIdle = 0
+  const onDrained = spec.onDrained
+  // 钩子不在循环里 await：它是分钟级的（重组），等它的话这条循环在这期间一张图都不处理。
+  // 合并 + 冷却之后，跑着时或冷却期里的清空只记一笔，到点补跑一次。
+  const requestDrained = onDrained && coalesceWithCooldown(
+    () => onDrained({ sqlite, tasks, log }),
+    spec.drainCooldownMs ?? 0,
+  )
   return loop(sqlite, spec, async ({ force }) => {
     const outcome = await runBatch(sqlite, tasks, spec, { force, log })
     if (outcome === null) {
-      if (writtenSinceIdle && spec.onDrained) {
-        log.info(`[${spec.name}] 待办清空，本轮写入 ${writtenSinceIdle} 条，触发后置钩子`)
-        // 先清零再 await：后置钩子（重组）是分钟级的，期间新写进来的东西属于**下一轮**，
-        // 不该被这一次的计数吞掉。
+      if (writtenSinceIdle && requestDrained) {
+        log.info(`[${spec.name}] 待办清空，本轮写入 ${writtenSinceIdle} 条，请求后置钩子`)
         writtenSinceIdle = 0
-        await spec.onDrained({ sqlite, tasks, log })
+        requestDrained()
       }
       return null
     }

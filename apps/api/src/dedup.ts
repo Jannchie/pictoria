@@ -427,7 +427,7 @@ async function doRebuild(
   try {
     // 导出也在 try 里：它中途失败（磁盘满）会留下一个半截的 1 GB 文件，
     // 而 finally 是唯一会去删它的地方。
-    const { ids, count, dim } = exportVectorMatrix(sqlite, file)
+    const { ids, count, dim } = await exportVectorMatrix(sqlite, file)
     // 少于两条向量就没有"对"可言。仍然要 replaceAllGroups —— 库被清空之后
     // 残留的分组指针得跟着清掉，而不是留在那儿指向已经不存在的东西。
     if (count < 2) {
