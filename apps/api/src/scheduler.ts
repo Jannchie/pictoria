@@ -19,6 +19,7 @@
 import type { CairnQ } from 'cairnq'
 import { queueOf } from '@pictoria/contracts'
 import { onRepending, recordFailures, type SqliteHandle } from '@pictoria/db'
+import { coalesceWithCooldown } from './event-loop.js'
 import { registerLoop } from './queue-status.js'
 import { BACKFILL_SPECS, type WorkerSpec } from './workers.js'
 
@@ -89,45 +90,6 @@ function sleep(ms: number, signal: AbortSignal, waker: { resolve?: () => void })
     waker.resolve = finish
     signal.addEventListener('abort', finish, { once: true })
   })
-}
-
-/**
- * 把一串请求合并成"冷却期满后跑一次"。`WorkerSpec.drainCooldownMs` 用它。
- *
- * 跑着的时候来的请求不丢，记一笔，等这一轮**结束**再过 `cooldownMs` 补跑一次；冷却期内
- * 来多少次都只补一次。第一次请求（或冷却期早已过去时的请求）立即跑。`run` 的失败
- * 在这里吞掉 —— 调用方负责记日志，这里只保证一次失败不会让后面的请求再也跑不起来。
- */
-export function coalesceWithCooldown(run: () => Promise<unknown>, cooldownMs: number): () => void {
-  let running = false
-  let pending = false
-  let timer: NodeJS.Timeout | null = null
-  let lastFinished = Number.NEGATIVE_INFINITY
-
-  const fire = () => {
-    timer = null
-    if (!pending)
-      return
-    pending = false
-    running = true
-    void run().catch(() => {}).finally(() => {
-      running = false
-      lastFinished = Date.now()
-      if (pending)
-        schedule()
-    })
-  }
-  const schedule = () => {
-    if (running || timer)
-      return
-    timer = setTimeout(fire, Math.max(0, lastFinished + cooldownMs - Date.now()))
-    // 一个等着的补跑不该把进程钉住
-    timer.unref?.()
-  }
-  return () => {
-    pending = true
-    schedule()
-  }
 }
 
 /**

@@ -27,6 +27,7 @@
  */
 
 import { BACKFILL_WORKERS } from '@pictoria/db'
+import { yieldToEventLoop } from './event-loop.js'
 
 /**
  * 后台循环的 key，按启动顺序 —— 就是 `@pictoria/db` 的 `BACKFILL_WORKERS`（silva 家族
@@ -77,7 +78,6 @@ export interface LoopStatus {
   lastError: string | null
 }
 
-const yieldToEventLoop = () => new Promise<void>(resolve => setImmediate(resolve))
 
 /** 全部循环共用的计数串行链，理由见文件头注第 2 条。 */
 let countChain: Promise<void> = Promise.resolve()

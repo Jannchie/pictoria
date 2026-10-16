@@ -269,3 +269,27 @@ describe('syncMetadata 与并发写入', () => {
     expect(postCount(sqlite)).toBe(2)
   })
 })
+
+describe('syncMetadata 不独占事件循环', () => {
+  // 31 万项的 diff 循环一趟几百毫秒；上传期间 sync 频繁地跑，每次都让前端卡一下。
+  it('diff 循环中途让出', async () => {
+    const { root, sqlite } = seedLibrary(5, 5)
+    const { scanLibrary, syncMetadata } = await loadSync(root)
+    let interleaved = false
+
+    await syncMetadata(sqlite, {
+      log: quiet,
+      yieldEvery: 2,
+      scan: async (dir, opts) => {
+        const result = await scanLibrary(dir, opts)
+        // 扫描已经结束，剩下的只有同步的 diff —— 不让出的话这个回调排在 sync 返回之后
+        setImmediate(() => {
+          interleaved = true
+        })
+        return result
+      },
+    })
+
+    expect(interleaved).toBe(true)
+  })
+})

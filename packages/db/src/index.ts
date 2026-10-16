@@ -27,7 +27,7 @@ export type { AestheticScore, PostColor, PostDetail, PostTag, TagInfo } from './
 export { listPaginated, listSimpleByIdsPreservingOrder, searchByTextVector, searchPosts } from './queries/post-search.js'
 export type { PaginatedPosts, PostFilterWithOrder } from './queries/post-search.js'
 export { bulkUpdateField, clearCanonical, createPost, deleteManyReturningPaths, getPostPath, groupHeadOf, groupTogether, insertPostTriples, isImagePath, listFileNamesInDir, listGroupOverrides, listIdsInFolder, listPostTriples, makeCanonical, markDifferent, postExists, touchAccessed, updateField, updateForRotate } from './repositories/posts.js'
-export type { PostPath, PostTriple } from './repositories/posts.js'
+export type { PostPath, PostTriple, PostTripleRow } from './repositories/posts.js'
 export { countPairwise, editAnnotation, groupsWithSilva, insertContentFlag, latestContentFlag, listAbsoluteForPost, listListwiseForPost, listPairwiseForPost, listwiseShapeError, MUTABLE_KINDS, type MutableKind, pairsWithPosts, parseTimelineCursor, postsById, postsInOrder, recordAbsolute, recordListwise, recordPairwise, retractAnnotations, timelinePage } from './repositories/annotations.js'
 export type { AbsoluteAnnotationRow, AbsoluteEventIn, ContentFlagRow, ListwiseAnnotationRow, ListwiseEventIn, PairwiseAnnotationRow, PairwiseEventIn, QueueItemPost, QueueRef, TimelineCursor, TimelineEntry, TimelineRow } from './repositories/annotations.js'
 export { createAbsoluteQueue, createListwiseQueue, createPairwiseQueue, listQueues, nextAbsoluteItems, nextListwiseItems, nextPairwiseItems } from './repositories/annotation-queues.js'

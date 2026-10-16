@@ -8,10 +8,11 @@
  *    空列（`@pictoria/db` 的 `repending.ts`）—— 活是 worker 干的，不占着这个请求（这个
  *    端点本来就是 fire-and-forget）。
  */
-import { insertPostTriples, listPostTriples, type PostTriple, type SqliteHandle } from '@pictoria/db'
+import { insertPostTriples, listPostTriples, type PostTriple, type PostTripleRow, type SqliteHandle } from '@pictoria/db'
 import fs from 'node:fs'
 import path from 'node:path'
 import process from 'node:process'
+import { coalesceWithCooldown, yieldToEventLoop } from './event-loop.js'
 import { pictoriaDir, targetDir } from './paths.js'
 import { deletePostFiles } from './post-files.js'
 
@@ -164,6 +165,9 @@ export interface SyncResult {
 const MASS_DELETE_RATIO = 0.5
 const MASS_DELETE_FLOOR = 100
 
+/** diff 循环每处理多少项让出一次事件循环。1 万项约几毫秒。 */
+const YIELD_EVERY = 10_000
+
 /**
  * 对账一次。**不要直接调**：并发控制和补跑都在 `startSync` 里。
  *
@@ -181,11 +185,13 @@ const MASS_DELETE_FLOOR = 100
  */
 export async function syncMetadata(
   sqlite: SqliteHandle,
-  { log = console, allowMassDelete = false, scan = scanLibrary }: {
+  { log = console, allowMassDelete = false, scan = scanLibrary, yieldEvery = YIELD_EVERY }: {
     log?: Log
     allowMassDelete?: boolean
     /** 测试缝：在扫描前后插入并发写入。 */
     scan?: typeof scanLibrary
+    /** 测试缝：diff 循环每处理多少项让出一次。 */
+    yieldEvery?: number
   } = {},
 ): Promise<SyncResult> {
   const root = targetDir()
@@ -196,7 +202,21 @@ export async function syncMetadata(
   // 在盘上了。代价是反方向：读库之后才落地的文件会被再登记一次，由唯一索引 +
   // `INSERT OR IGNORE`（`insertPostTriples`）吸收。
   const key = (t: FileTriple) => `${t[0]}\0${t[1]}\0${t[2]}`
-  const dbByKey = new Map(listPostTriples(sqlite).map(r => [key([r.file_path, r.file_name, r.extension]), r]))
+  // 下面三趟各走 31 万项（拼 key、建 Map / Set、求差），一趟就是几百毫秒的纯 JS ——
+  // sync 在上传期间频繁地跑，不切开的话每次都让前端卡一下。快照已经取好，中间让出
+  // 不会把并发写入卷进删除判定（见上一段）。
+  let sinceYield = 0
+  const tick = async () => {
+    if (++sinceYield >= yieldEvery) {
+      sinceYield = 0
+      await yieldToEventLoop()
+    }
+  }
+  const dbByKey = new Map<string, PostTripleRow>()
+  for (const r of listPostTriples(sqlite)) {
+    dbByKey.set(key([r.file_path, r.file_name, r.extension]), r)
+    await tick()
+  }
   const t0 = Date.now()
   const { files: onDisk, failedDirs } = await scan(root, { log })
   log.info(`[sync] 扫描 ${onDisk.length} 个文件，${((Date.now() - t0) / 1000).toFixed(2)}s`)
@@ -210,6 +230,7 @@ export async function syncMetadata(
     diskKeys.add(k)
     if (!dbByKey.has(k))
       newTriples.push(t)
+    await tick()
   }
   log.info(`[sync] 库里 ${dbByKey.size} 个文件，磁盘上 ${diskKeys.size} 个`)
 
@@ -217,6 +238,7 @@ export async function syncMetadata(
   for (const [k, row] of dbByKey) {
     if (!diskKeys.has(k))
       deleted.push({ id: row.id, dir: row.file_path })
+    await tick()
   }
 
   // 闸门一：读不动的目录按子树豁免。`'.'`（库根读不动）盖住一切。
@@ -288,6 +310,14 @@ export async function syncMetadata(
  */
 let pendingRerun = false
 
+/** 正在跑的那一次；文件监视的冷却靠它知道"这一轮什么时候结束"。 */
+let current: Promise<void> | null = null
+
+/** 等正在跑的同步结束；没在跑就立即返回。 */
+export function syncSettled(): Promise<void> {
+  return current ?? Promise.resolve()
+}
+
 /**
  * 加了忙检查的一次性入口；忙的话返回 false，调用方据此报"已在跑"。
  *
@@ -305,7 +335,7 @@ export function startSync(
   }
   running = true
   // fire-and-forget：请求立刻返回，扫描在后台跑。
-  void (async () => {
+  current = (async () => {
     try {
       const result = await syncMetadata(sqlite, { log, allowMassDelete })
       onDone?.(result)
@@ -315,6 +345,7 @@ export function startSync(
     }
     finally {
       running = false
+      current = null
     }
     if (pendingRerun) {
       pendingRerun = false
@@ -337,6 +368,14 @@ export function startSync(
  * 文件系统兜底（网络盘尤其）。两个都要，缺一个就会有"图进来了但半天不出现"的情况。
  */
 const WATCH_DEBOUNCE_MS = 1500
+/**
+ * 文件监视触发的两次同步之间至少隔多久，从上一次**结束**算。
+ *
+ * 上传端点自己会建行，监视器对它们只是重复劳动；而持续上传时文件事件不断，防抖
+ * 每 1.5 秒就放行一次，实测 10 分钟跑了 53 次全库对账。监视器真正要兜的是外部拷进来
+ * 的文件，晚半分钟登记无所谓。
+ */
+const WATCH_COOLDOWN_MS = 30_000
 const POLL_INTERVAL_MS = 600_000
 
 export interface AutoSyncHandle {
@@ -359,6 +398,12 @@ export function startAutoSync(
     }, { log })
   }
 
+  // 防抖之后再过一道冷却：等这一轮真的跑完（`syncSettled`）才开始计时。
+  const requestWatchSync = coalesceWithCooldown(async () => {
+    fire('watch')
+    await syncSettled()
+  }, WATCH_COOLDOWN_MS)
+
   let debounce: NodeJS.Timeout | undefined
   let watcher: fs.FSWatcher | undefined
   try {
@@ -370,7 +415,7 @@ export function startAutoSync(
       if (path.resolve(root, filename.toString()).startsWith(pictoriaDir()))
         return
       clearTimeout(debounce)
-      debounce = setTimeout(() => fire('watch'), WATCH_DEBOUNCE_MS)
+      debounce = setTimeout(requestWatchSync, WATCH_DEBOUNCE_MS)
     })
   }
   catch (err) {
