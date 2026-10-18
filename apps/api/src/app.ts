@@ -13,10 +13,12 @@ import type { AppEnv, TaskSource } from './env.js'
 import { OpenAPIHono } from '@hono/zod-openapi'
 import { compress } from 'hono/compress'
 import { cors } from 'hono/cors'
+import { DanbooruImports } from './danbooru-imports.js'
 import { fail } from './openapi.js'
 import { annotationQueuesRoutes } from './routes/annotation-queues.js'
 import { annotationsRoutes } from './routes/annotations.js'
 import { commandsRoutes } from './routes/commands.js'
+import { danbooruImportsRoutes } from './routes/danbooru-imports.js'
 import { foldersRoutes } from './routes/folders.js'
 import { imagesRoutes } from './routes/images.js'
 import { postCountsRoutes } from './routes/post-counts.js'
@@ -33,9 +35,14 @@ export interface AppDeps {
   db: SqliteHandle
   /** cairnq 句柄的来源。生产是 `tasks.ts` 的 `getTasks`/`peekTasks`。 */
   tasks: TaskSource
+  /**
+   * Danbooru 导入作业队列。省略时（生产）每个 app 新建一个；测试传自己建的实例，好拿着
+   * 它的句柄等后台作业跑完（`idle()`）、或调小块大小和并发。
+   */
+  danbooruImports?: DanbooruImports
 }
 
-export function createApp({ db, tasks }: AppDeps) {
+export function createApp({ db, tasks, danbooruImports = new DanbooruImports(db, tasks) }: AppDeps) {
   const app = new OpenAPIHono<AppEnv>()
 
   /**
@@ -56,10 +63,11 @@ export function createApp({ db, tasks }: AppDeps) {
   // CPU），也跳过 206。
   app.use('*', compress())
 
-  // 依赖注入：路由只认 `c.var.db` / `c.var.tasks`（见 `env.ts`）。
+  // 依赖注入：路由只认 `c.var.db` / `c.var.tasks` / `c.var.danbooruImports`（见 `env.ts`）。
   app.use('*', async (c, next) => {
     c.set('db', db)
     c.set('tasks', tasks)
+    c.set('danbooruImports', danbooruImports)
     await next()
   })
 
@@ -71,6 +79,7 @@ export function createApp({ db, tasks }: AppDeps) {
   app.route('/', annotationsRoutes)
   app.route('/', annotationQueuesRoutes)
   app.route('/', commandsRoutes)
+  app.route('/', danbooruImportsRoutes)
   app.route('/', imagesRoutes)
   // ⚠️ 顺序有意义：Hono 按注册顺序匹配，字面量路径必须排在带参数的前面。
   // postWrites 里有 /v2/posts/bulk/*，若排在 /v2/posts/{post_id}/* 之后，

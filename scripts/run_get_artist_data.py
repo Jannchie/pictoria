@@ -2,12 +2,21 @@
 # requires-python = ">=3.12"
 # dependencies = ["httpx", "rich"]
 # ///
-"""批量触发本地服务从 Danbooru 拉取指定 tag 的图片。
+"""批量让本地服务从 Danbooru 拉取指定 tag 的图片。
 
-并发默认压到 2 是经过权衡的：
-- 服务端每个 tag 已用 16 线程下载，且 CDN 侧是 pool-wide ≈1 req/s 的节流，再叠并发只是加长排队
-- listing 走的是另一条 ≈5 req/s 的 API 节流；默认并发下请求本来就来得比这慢，闸门几乎不生效
-- 如需更激进可用 `--concurrency` 调高
+服务端是作业制：``POST /v2/danbooru-imports`` 立即回一个作业，导入（翻列表 + 分块下载，
+每块落一次库）在服务端后台跑，这里每 ``--poll-interval`` 秒 ``GET`` 一次看进度，直到
+done / failed。所以不再有长请求、不再有读超时：一个几百张新图的 tag 下十几分钟也只是
+多轮询几次。
+
+去重在服务端：同一个 tag 已有排队中或在跑的作业时，再提交拿回的是**同一个**作业。所以
+网络抖动后的重提、API 重启后的重提都是安全的，永远不会让两个导入抢同一份 CDN 配额。
+
+并发：服务端同时只跑 2 个作业（CDN 侧是 pool-wide ≈1 req/s 的节流，再多只是把配额
+劈碎），多提交的在服务端排队。这里默认同时在飞 4 个 tag，是为了让服务端一个作业结束时
+队列里已经有下一个，流水线不断档。
+
+Ctrl+C 只停这一侧：已经提交的作业照样在服务端跑完、落库。
 
 重复运行的成本由两层挡掉：
 - 本层：``--skip-recent``（默认 3 天）读 state 文件，跳过近期已成功的 tag，连请求都不发
@@ -27,6 +36,7 @@ import time
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from pathlib import Path
+from typing import Any
 
 # Force UTF-8 on stdout/stderr so the rich ✓/✗ glyphs don't crash on
 # Windows terminals whose default codec (e.g. cp932 / cp936) can't encode them.
@@ -47,19 +57,27 @@ from rich.progress import (
     TimeRemainingColumn,
 )
 
-LOCAL_API = "http://localhost:4777/v2/cmd/download-from-danbooru"
+LOCAL_API = "http://localhost:4777/v2/danbooru-imports"
 TAGS_FILE = Path(__file__).parent / "tags.txt"
 STATE_FILE = Path(__file__).parent / ".run_get_artist_data_state.jsonl"
 #: 整份重写的旧格式；存在就读一次作为底，不再写入。
 LEGACY_STATE_FILE = Path(__file__).parent / ".run_get_artist_data_state.json"
 
-# 读超时不会取消服务端的工作——那个 import 仍在跑同一个 tag。隔 2 秒重发只会让
-# 两个 import 抢同一个目录，并把服务端 pool-wide 的 CDN 配额劈成两半，于是双方
-# 都更慢、更容易再次超时。等久一点让原请求自己跑完，重试多半直接命中「已导入」
-# 而秒回。
-_TIMEOUT_BACKOFF = 60.0
-# 网络抖动 / 5xx 是另一回事：服务端那边没有留下在跑的工作，快速重试即可。
-_ERROR_BACKOFF = 2.0
+#: 每个请求都是短的（提交 / 查一次状态），30 秒还不回就是 API 卡住了，当网络错误重试。
+_HTTP_TIMEOUT = httpx.Timeout(30.0)
+#: 网络错误 / 5xx 的退避：从 1 秒翻倍到 30 秒封顶，总时长受 ``--api-patience`` 约束。
+_BACKOFF_START = 1.0
+_BACKOFF_MAX = 30.0
+#: 轮询拿到 404（API 重启过，内存里的作业没了）时最多重提几次。
+_MAX_RESUBMITS = 3
+
+
+class TagFailedError(Exception):
+    """这个 tag 这一轮算失败：作业 failed、或重提次数用完。"""
+
+
+class JobLostError(Exception):
+    """轮询到 404：作业在服务端不存在了（API 重启或已过期）。"""
 
 
 @dataclass
@@ -68,13 +86,16 @@ class Totals:
     skipped: int = 0
     failed_files: int = 0
     failed_tags: list[tuple[str, str]] = field(default_factory=list)
+    #: 在飞作业的下载进度：作业 id → (processed, pending)。
+    in_flight: dict[str, tuple[int, int]] = field(default_factory=dict)
 
     def summary(self) -> str:
-        return (
-            f"[green]DL {self.downloaded}[/] "
-            f"[yellow]SK {self.skipped}[/] "
-            f"[red]ER {self.failed_files}[/]"
-        )
+        text = f"[green]DL {self.downloaded}[/] [yellow]SK {self.skipped}[/] [red]ER {self.failed_files}[/]"
+        if self.in_flight:
+            done = sum(p for p, _ in self.in_flight.values())
+            total = sum(n for _, n in self.in_flight.values())
+            text += f" [dim]· running {done}/{total}[/]"
+        return text
 
 
 class TagState:
@@ -139,59 +160,110 @@ class Job:
     console: Console
     totals: Totals
     state: TagState
-    retries: int
     full_scan: bool
+    poll_interval: float
+    api_patience: float
+    progress: Progress
+    task_id: TaskID
 
 
-def _record_fail(tag: str, exc: Exception, totals: Totals, console: Console, start: float) -> None:
-    err = f"{type(exc).__name__}: {exc}"
-    totals.failed_tags.append((tag, err))
-    elapsed = time.monotonic() - start
-    console.print(f"[red]✗[/] {tag} [dim]{elapsed:.1f}s[/] - {err}")
-
-
-def _retry_backoff(exc: Exception, attempt: int) -> float | None:
-    """重试前该等多久；None = 这个异常不值得重试。
-
-    超时单独一档：读超时不会取消服务端的工作（见 ``_TIMEOUT_BACKOFF``），其余
-    可重试的错误服务端没留下在跑的活，快速重试即可。
-    """
-    if isinstance(exc, httpx.TimeoutException):
-        return _TIMEOUT_BACKOFF
+def _is_retryable(exc: Exception) -> bool:
+    """API 暂时不可用（重启中、卡住、5xx）—— 值得等一等再来。"""
     if isinstance(exc, httpx.HTTPStatusError):
-        return _ERROR_BACKOFF * attempt if exc.response.status_code >= 500 else None
-    if isinstance(exc, httpx.TransportError):
-        return _ERROR_BACKOFF * attempt
-    return None
+        return exc.response.status_code >= httpx.codes.INTERNAL_SERVER_ERROR
+    return isinstance(exc, httpx.TransportError)  # 含 TimeoutException
 
 
-async def _post_tag(job: Job, tag: str, start: float) -> None:
-    totals, console, retries = job.totals, job.console, job.retries
-    params = {"tags": tag, "full_scan": job.full_scan}
-    # The server's /download-from-danbooru is idempotent (already-downloaded
-    # posts are skipped), so retrying a timed-out/5xx tag is safe and, with a
-    # finite read timeout, the only way a transient stall doesn't kill the tag.
-    for attempt in range(1, retries + 1):
+async def _request(job: Job, method: str, url: str, **kwargs: Any) -> httpx.Response:
+    """发一个短请求；网络错误 / 5xx 按退避重试，直到 ``--api-patience`` 用完。
+
+    404 原样交回调用方（轮询要据此重提），其余 4xx 直接抛 —— 那是请求本身不对，
+    重试也一样。
+    """
+    deadline = time.monotonic() + job.api_patience
+    backoff = _BACKOFF_START
+    while True:
         try:
-            resp = await job.client.post(LOCAL_API, params=params)
-            resp.raise_for_status()
-        except Exception as exc:  # noqa: BLE001 — classified by _retry_backoff
-            backoff = _retry_backoff(exc, attempt)
-            if backoff is None or attempt >= retries:
-                _record_fail(tag, exc, totals, console, start)
-                return
+            resp = await job.client.request(method, url, **kwargs)
+            if resp.status_code != httpx.codes.NOT_FOUND:
+                resp.raise_for_status()
+        except httpx.HTTPError as exc:
+            if not _is_retryable(exc) or time.monotonic() + backoff > deadline:
+                raise
+            await asyncio.sleep(backoff)
+            backoff = min(backoff * 2, _BACKOFF_MAX)
+            continue
+        return resp
+
+
+async def _submit(job: Job, tag: str) -> str:
+    """提交（幂等：同 tag 已有在排队 / 在跑的作业时服务端回那一个），返回作业 id。"""
+    resp = await _request(job, "POST", LOCAL_API, json={"tags": tag, "fullScan": job.full_scan})
+    if resp.status_code == httpx.codes.NOT_FOUND:
+        # 提交端点本身 404 = 服务端还是旧代码。
+        msg = f"{LOCAL_API} not found — is the API running the job-based import? please restart it"
+        raise TagFailedError(msg)
+    return resp.json()["id"]
+
+
+async def _wait(job: Job, job_id: str) -> dict[str, Any]:
+    """轮询一个作业直到 done / failed。404 → :class:`JobLostError`。"""
+    while True:
+        resp = await _request(job, "GET", f"{LOCAL_API}/{job_id}")
+        if resp.status_code == httpx.codes.NOT_FOUND:
+            raise JobLostError(job_id)
+        body = resp.json()
+        if body["state"] in {"done", "failed"}:
+            return body
+        if body.get("phase") == "downloading":
+            job.totals.in_flight[job_id] = (int(body["processed"]), int(body["pending"]))
+            job.progress.update(job.task_id, totals=job.totals.summary())
+        await asyncio.sleep(job.poll_interval)
+
+
+async def _run_tag(job: Job, tag: str) -> dict[str, Any]:
+    """提交并等到结束，返回 done 的作业。
+
+    作业丢了（API 重启）就重提 —— 导入幂等，已经落库的不会再下 —— 最多 ``_MAX_RESUBMITS`` 次。
+    作业 failed 不重试：它没进冷却，下次运行自然会再跑。
+    """
+    for attempt in range(_MAX_RESUBMITS + 1):
+        job_id = await _submit(job, tag)
+        try:
+            final = await _wait(job, job_id)
+        except JobLostError:
+            if attempt < _MAX_RESUBMITS:
+                job.console.print(f"[yellow]…[/] {tag} [dim]job lost (API restarted?), resubmitting[/]")
+            continue
+        finally:
+            job.totals.in_flight.pop(job_id, None)
+        if final["state"] == "failed":
+            raise TagFailedError(final.get("error") or "import failed")
+        return final
+    msg = f"job lost {_MAX_RESUBMITS + 1} times in a row"
+    raise TagFailedError(msg)
+
+
+def _record_fail(job: Job, tag: str, err: str, start: float) -> None:
+    job.totals.failed_tags.append((tag, err))
+    elapsed = time.monotonic() - start
+    job.console.print(f"[red]✗[/] {tag} [dim]{elapsed:.1f}s[/] - {err}")
+
+
+async def download_one(job: Job, tag: str, sem: asyncio.Semaphore) -> None:
+    async with sem:
+        start = time.monotonic()
+        try:
+            final = await _run_tag(job, tag)
+        except TagFailedError as exc:
+            _record_fail(job, tag, str(exc), start)
+        except Exception as exc:  # 一个 tag 的意外（包括 API 耐心用完）不该拖垮整轮
+            _record_fail(job, tag, f"{type(exc).__name__}: {exc}", start)
         else:
-            body = resp.text
-            if not body or body in ("null", "{}"):
-                msg = "empty response — server likely running old code, please restart it"
-                totals.failed_tags.append((tag, msg))
-                elapsed = time.monotonic() - start
-                console.print(f"[yellow]?[/] {tag} [dim]{elapsed:.1f}s[/] - {msg}")
-                return
-            stats = resp.json()
-            dl = int(stats.get("downloaded", 0))
-            sk = int(stats.get("skipped", 0))
-            fl = int(stats.get("failed", 0))
+            dl = int(final.get("downloaded", 0))
+            sk = int(final.get("skipped", 0))
+            fl = int(final.get("failed", 0))
+            totals = job.totals
             totals.downloaded += dl
             totals.skipped += sk
             totals.failed_files += fl
@@ -199,60 +271,39 @@ async def _post_tag(job: Job, tag: str, start: float) -> None:
             if fl == 0:
                 job.state.mark_ok(tag, datetime.now(tz=UTC))
             elapsed = time.monotonic() - start
-            console.print(
-                f"[green]✓[/] {tag} "
-                f"([cyan]dl={dl}[/] [yellow]sk={sk}[/] [red]err={fl}[/]) "
-                f"[dim]{elapsed:.1f}s[/]"
-            )
-            return
-        # Reached only on a retryable failure with attempts left.
-        console.print(
-            f"[yellow]…[/] {tag} [dim]retry {attempt}/{retries - 1} in {backoff:.0f}s[/]"
-        )
-        await asyncio.sleep(backoff)
-
-
-async def download_one(
-    job: Job,
-    tag: str,
-    sem: asyncio.Semaphore,
-    progress: Progress,
-    task_id: TaskID,
-) -> None:
-    async with sem:
-        start = time.monotonic()
-        try:
-            await _post_tag(job, tag, start)
+            job.console.print(f"[green]✓[/] {tag} ([cyan]dl={dl}[/] [yellow]sk={sk}[/] [red]err={fl}[/]) [dim]{elapsed:.1f}s[/]")
         finally:
-            progress.update(task_id, advance=1, totals=job.totals.summary())
+            job.progress.update(job.task_id, advance=1, totals=job.totals.summary())
 
 
 async def main() -> None:
-    parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--concurrency", type=int, default=2, help="同时处理的 tag 数（默认 2）")
-    parser.add_argument("--tags-file", type=Path, default=TAGS_FILE, help="tag 列表文件路径")
+    parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument(
-        "--read-timeout",
-        type=float,
-        default=600.0,
-        help="单个 tag 请求的读超时秒数（默认 600）。服务端处理期间不返回数据，"
-        "所以这是单请求的总处理上限；超时后按 --retries 重试（请求幂等）",
+        "--concurrency",
+        type=int,
+        default=4,
+        help="同时在飞的 tag 数（默认 4）。服务端同时只跑 2 个作业，多提交的在服务端排队，保证一个作业结束时下一个已经就位",
     )
-    parser.add_argument("--retries", type=int, default=3, help="单个 tag 超时/5xx 时的最大尝试次数（默认 3）")
+    parser.add_argument("--tags-file", type=Path, default=TAGS_FILE, help="tag 列表文件路径")
+    parser.add_argument("--poll-interval", type=float, default=2.0, help="轮询作业状态的间隔秒数（默认 2）")
+    parser.add_argument(
+        "--api-patience",
+        type=float,
+        default=300.0,
+        help="API 连不上 / 5xx 时最多等多少秒（默认 300），超过才算这个 tag 失败。用来扛过 API 重启；重启丢掉的作业会被自动重新提交",
+    )
     parser.add_argument(
         "--skip-recent",
         type=float,
         default=3.0,
         metavar="DAYS",
-        help="跳过最近 N 天内已成功导入的 tag（默认 3，设 0 关闭）。"
-        "代价是这段时间内的新图要等冷却过后才会被发现",
+        help="跳过最近 N 天内已成功导入的 tag（默认 3，设 0 关闭）。代价是这段时间内的新图要等冷却过后才会被发现",
     )
     parser.add_argument("--state-file", type=Path, default=STATE_FILE, help="冷却状态文件路径")
     parser.add_argument(
         "--full",
         action="store_true",
-        help="忽略冷却，并让服务端走完整分页（不在「整页已导入」处早停）。"
-        "用来补齐 Danbooru 事后才补标到旧图的 post，建议定期跑一次",
+        help="忽略冷却，并让服务端走完整分页（不在「整页已导入」处早停）。用来补齐 Danbooru 事后才补标到旧图的 post，建议定期跑一次",
     )
     args = parser.parse_args()
 
@@ -272,25 +323,14 @@ async def main() -> None:
     cooled = len(tags) - len(pending)
 
     mode = "full scan" if args.full else "incremental"
-    console.print(
-        f"Loaded [cyan]{len(tags)}[/] tags from {args.tags_file}, "
-        f"concurrency=[cyan]{args.concurrency}[/], mode=[cyan]{mode}[/]"
-    )
+    console.print(f"Loaded [cyan]{len(tags)}[/] tags from {args.tags_file}, concurrency=[cyan]{args.concurrency}[/], mode=[cyan]{mode}[/]")
     if cooled:
-        console.print(
-            f"Skipping [dim]{cooled}[/] tags imported within {args.skip_recent:g}d "
-            f"(--skip-recent 0 或 --full 可绕过)"
-        )
+        console.print(f"Skipping [dim]{cooled}[/] tags imported within {args.skip_recent:g}d (--skip-recent 0 或 --full 可绕过)")
     if not pending:
         console.print("[green]Nothing to do — every tag is inside its cooldown.[/]")
         return
 
     sem = asyncio.Semaphore(args.concurrency)
-    # A finite read timeout (was None = wait forever) so a stalled server turns
-    # into a retry instead of an invisible hang. Sized to cover a legitimately
-    # long import (CDN download is throttled to ~1 req/s server-side); raise
-    # --read-timeout for tags with thousands of new files.
-    timeout = httpx.Timeout(connect=30.0, read=args.read_timeout, write=30.0, pool=30.0)
     limits = httpx.Limits(max_connections=args.concurrency, max_keepalive_connections=args.concurrency)
     total_start = time.monotonic()
 
@@ -307,20 +347,21 @@ async def main() -> None:
         transient=False,
     )
 
-    async with httpx.AsyncClient(timeout=timeout, limits=limits) as client:
-        job = Job(
-            client=client,
-            console=console,
-            totals=totals,
-            state=state,
-            retries=args.retries,
-            full_scan=args.full,
-        )
+    async with httpx.AsyncClient(timeout=_HTTP_TIMEOUT, limits=limits) as client:
         with progress:
             task_id = progress.add_task("tags", total=len(pending), totals=totals.summary())
-            await asyncio.gather(
-                *(download_one(job, tag, sem, progress, task_id) for tag in pending),
+            job = Job(
+                client=client,
+                console=console,
+                totals=totals,
+                state=state,
+                full_scan=args.full,
+                poll_interval=args.poll_interval,
+                api_patience=args.api_patience,
+                progress=progress,
+                task_id=task_id,
             )
+            await asyncio.gather(*(download_one(job, tag, sem) for tag in pending))
 
     total_elapsed = time.monotonic() - total_start
     cooled_part = f" / [dim]{cooled} cooled[/]" if cooled else ""

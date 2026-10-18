@@ -19,7 +19,8 @@ import { describe, expect, it } from 'vitest'
 import {
   basicsTask,
   captionTask,
-  danbooruImportTask,
+  danbooruDownloadTask,
+  danbooruListTask,
   dedupTask,
   embeddingTask,
   lpipsVerifyTask,
@@ -95,6 +96,7 @@ const postRow = {
   publishedAt: 'string',
   tags: 'record',
 } as const
+const danbooruItem = { fileUrl: 'string', fileSize: 'number', row: postRow } as const
 const galleryItem = {
   downloadUrl: 'string',
   fileName: 'string',
@@ -187,25 +189,30 @@ const CONTRACTS: Contract[] = [
     }],
     failures: [failure],
   }),
-  contract(danbooruImportTask, {
+  contract(danbooruListTask, {
     tags: 'string',
     limit: 'number',
     fullScan: 'boolean',
     importedIds: 'array',
-    saveDir: 'string',
     filePathStr: 'string',
     typeToGroupId: 'record',
   }, {
-    rows: [postRow],
+    items: [danbooruItem],
     stats: {
       total: 'number',
-      with_url: 'number',
+      withUrl: 'number',
       filtered: 'number',
-      downloaded: 'number',
-      skipped: 'number',
-      failed: 'number',
-      early_stopped: 'boolean',
+      earlyStopped: 'boolean',
     },
+  }),
+  contract(danbooruDownloadTask, {
+    items: [danbooruItem],
+    saveDir: 'string',
+  }, {
+    rows: [postRow],
+    downloaded: 'number',
+    skipped: 'number',
+    failed: 'number',
   }),
   contract(urlScanTask, { url: 'string' }, {
     fetched: 'number',

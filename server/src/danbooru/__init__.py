@@ -3,11 +3,11 @@ import os
 import random
 import threading
 import time
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 from datetime import datetime
 from logging import getLogger
 from pathlib import Path
-from typing import Literal
+from typing import Literal, Protocol
 
 import httpx
 from pydantic import BaseModel, HttpUrl
@@ -48,10 +48,11 @@ _API_INTERVAL_MAX = 0.25
 #
 # Bounded by wall clock rather than by a count on purpose: the cool-down steps
 # escalate 5→15→45→120, so "6 waits" is anywhere from 30s to 425s depending on
-# where the escalation already stood. The number that matters to everything
-# upstream — a Litestar request under the script's --read-timeout — is seconds,
-# so that is what we bound. It lives next to the schedule it has to be tuned
-# against, and both are constructor parameters of the gate that owns them.
+# where the escalation already stood. The number that matters upstream — how
+# long one ``danbooru-download`` chunk task runs, which the API waits on with a
+# finite timeout — is seconds, so that is what we bound. It lives next to the
+# schedule it has to be tuned against, and both are constructor parameters of
+# the gate that owns them.
 _MAX_THROTTLE_SECONDS = 120.0
 
 # The two statuses donmai.us uses to turn us away, on both the API and the CDN.
@@ -206,6 +207,26 @@ class DanbooruPost(BaseModel):
     file_url: HttpUrl | None = None
     large_file_url: HttpUrl | None = None
     preview_file_url: HttpUrl | None = None
+
+
+class Downloadable(Protocol):
+    """What the downloader actually reads off a post — and nothing else.
+
+    ``DanbooruPost`` satisfies it, and so does the light target the worker
+    rebuilds from a ``danbooru-download`` payload item: the listing and the
+    download run as separate tasks now, so the full model is long gone by the
+    time the bytes are fetched. Read-only properties so a pydantic field, a
+    dataclass field and a ``SimpleNamespace`` attribute all fit.
+    """
+
+    @property
+    def id(self) -> int: ...
+    @property
+    def file_url(self) -> HttpUrl | str | None: ...
+    @property
+    def file_ext(self) -> str: ...
+    @property
+    def file_size(self) -> int: ...
 
 
 def _parse_posts(raw: list[dict]) -> list[DanbooruPost]:
@@ -381,7 +402,7 @@ class DanbooruClient:
             before_id = min(post["id"] for post in posts)
         return all_posts
 
-    def download_image(self, post: DanbooruPost, target_dir: str, retries: int = 3) -> DownloadStatus:
+    def download_image(self, post: Downloadable, target_dir: str, retries: int = 3) -> DownloadStatus:
         if post.file_url is None:
             return "failed"
         url = str(post.file_url)
@@ -433,7 +454,7 @@ class DanbooruClient:
 
     def _download_attempt(
         self,
-        post: DanbooruPost,
+        post: Downloadable,
         url: str,
         part_path: Path,
         attempt: int,
@@ -501,7 +522,7 @@ class DanbooruClient:
 
     def download_posts(
         self,
-        posts: list[DanbooruPost],
+        posts: Sequence[Downloadable],
         target_dir: os.PathLike,
         n_worker: int = 16,
     ) -> dict[DownloadStatus, int]:

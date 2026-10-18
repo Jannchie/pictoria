@@ -13,16 +13,22 @@ Two things the payload has to carry, because this process has no database:
   knowledge; the worker only flattens Danbooru's ``tag_string_*`` fields
   through the map it's given.
 
-Download-before-persist is preserved by construction: this returns rows only
-for posts whose bytes are already on disk, and TS writes them afterwards. A row
-must never exist before its file, or a concurrent ``sync-metadata`` sees it as
-"file deleted from disk" and removes it mid-download.
+Danbooru runs as two tasks, like gallery-dl: ``danbooru-list`` walks the
+listing and returns what is still to import, ``danbooru-download`` fetches one
+chunk of it at a time so TS can persist (and report progress) per chunk.
+
+Download-before-persist is preserved by construction: the download half returns
+rows only for posts whose bytes are already on disk, and TS writes them
+afterwards. A row must never exist before its file, or a concurrent
+``sync-metadata`` sees it as "file deleted from disk" and removes it
+mid-download.
 """
 
 from __future__ import annotations
 
 import asyncio
 import os
+from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 
 from paths import pictoria_dir
@@ -146,26 +152,27 @@ def _row_for(post: DanbooruPost, file_path_str: str, tag_map: dict[str, int]) ->
     }
 
 
-async def handle_danbooru_import(payload: dict[str, Any]) -> dict[str, Any]:
-    """Fetch a Danbooru tag listing, download the new files, return rows.
+async def handle_danbooru_list(payload: dict[str, Any]) -> dict[str, Any]:
+    """Walk a Danbooru tag listing, return the posts still to import.
 
-    Everything up to (but not including) the database write. The pagination
-    stopper is the subtle part — see :func:`_settled_page_stopper`.
+    The first half of a tag import; :func:`handle_danbooru_download` is the
+    second. Split so TS can download in chunks and persist after each one — a
+    tag with hundreds of new files is a quarter of an hour at the CDN's ~1 req/s,
+    and as one task it showed no progress and persisted nothing on a mid-way
+    failure.
+
+    Each item's row is built here, not after the download: the tag map comes
+    from the listing's ``tag_string_*`` fields, which the download half never
+    sees. The pagination stopper is the subtle part — see
+    :func:`_settled_page_stopper`.
     """
     client = _get_danbooru_client()
     tags = payload["tags"]
-    # Same containment rule as every other payload path: the importer writes
-    # files, and a ``saveDir`` outside the library is not somewhere it may.
-    save_dir = _resolve_inside(payload["saveDir"])
     file_path_str = payload["filePathStr"]
     imported_ids = set(payload["importedIds"])
     type_to_group_id = payload["typeToGroupId"]
     limit = int(payload["limit"])
     full_scan = bool(payload["fullScan"])
-
-    # off-loop: a mkdir on a cold network path is not free, and this handler's
-    # event loop is also renewing the task lease.
-    await asyncio.to_thread(save_dir.mkdir, parents=True, exist_ok=True)
 
     stopper = None if full_scan else _settled_page_stopper(imported_ids)
     early_stopped = False
@@ -185,31 +192,88 @@ async def handle_danbooru_import(payload: dict[str, Any]) -> dict[str, Any]:
 
     posts_orig = await asyncio.to_thread(_fetch)
     filtered = [p for p in posts_orig if _is_importable(p)]
-    to_persist = [p for p in filtered if _is_pending(p, imported_ids)]
-
-    if to_persist:
-        dl_stats = await asyncio.to_thread(client.download_posts, to_persist, save_dir)
-    else:
-        dl_stats = {"downloaded": 0, "skipped": 0, "failed": 0}
-
-    # Only posts whose bytes actually landed. A download can 4xx, and a row
-    # without its file is exactly what the sync reconciler deletes.
-    def _on_disk(post: DanbooruPost) -> bool:
-        return (save_dir / f"{post.id}.{post.file_ext}").exists()
-
-    landed = await asyncio.to_thread(lambda: [p for p in to_persist if _on_disk(p)])
+    to_import = [p for p in filtered if _is_pending(p, imported_ids)]
 
     return {
-        "rows": [_row_for(p, file_path_str, _build_tag_to_group(p, type_to_group_id)) for p in landed],
+        "items": [
+            {
+                "fileUrl": str(p.file_url),
+                "fileSize": p.file_size,
+                "row": _row_for(p, file_path_str, _build_tag_to_group(p, type_to_group_id)),
+            }
+            for p in to_import
+        ],
         "stats": {
             "total": len(posts_orig),
-            "with_url": sum(1 for p in posts_orig if p.file_url),
+            "withUrl": sum(1 for p in posts_orig if p.file_url),
             "filtered": len(filtered),
-            "downloaded": dl_stats.get("downloaded", 0),
-            "skipped": (len(filtered) - len(to_persist)) + dl_stats.get("skipped", 0),
-            "failed": dl_stats.get("failed", 0),
-            "early_stopped": early_stopped,
+            "earlyStopped": early_stopped,
         },
+    }
+
+
+@dataclass(frozen=True, slots=True)
+class _DownloadTarget:
+    """The four fields ``DanbooruClient.download_posts`` reads (``danbooru.Downloadable``).
+
+    Rebuilt from a payload item: the listing's ``DanbooruPost`` did not survive
+    the hop between the two tasks, and the downloader never needed the rest of
+    it. ``id`` / ``file_ext`` come from the row because they *are* its
+    ``fileName`` / ``extension`` — the file lands at ``<id>.<file_ext>``, which
+    is exactly the path the row names.
+    """
+
+    id: int
+    file_url: str
+    file_ext: str
+    file_size: int
+
+
+async def handle_danbooru_download(payload: dict[str, Any]) -> dict[str, Any]:
+    """Download one chunk of listed items, return rows for the ones on disk.
+
+    A file that is already there counts as ``skipped`` and still comes back as
+    a row: that is how a chunk whose bytes landed but whose rows never got
+    persisted (the API died between the two) heals on the next run.
+    """
+    # Same containment rule as every other payload path: the importer writes
+    # files, and a ``saveDir`` outside the library is not somewhere it may.
+    save_dir = _resolve_inside(payload["saveDir"])
+    raw_items = payload["items"]
+    if not raw_items:
+        return {"rows": [], "downloaded": 0, "skipped": 0, "failed": 0}
+
+    # off-loop: a mkdir on a cold network path is not free, and this handler's
+    # event loop is also renewing the task lease.
+    await asyncio.to_thread(save_dir.mkdir, parents=True, exist_ok=True)
+
+    pairs = [
+        (
+            _DownloadTarget(
+                id=int(it["row"]["fileName"]),
+                file_url=it["fileUrl"],
+                file_ext=it["row"]["extension"],
+                file_size=int(it["fileSize"]),
+            ),
+            it["row"],
+        )
+        for it in raw_items
+    ]
+    client = _get_danbooru_client()
+    dl_stats = await asyncio.to_thread(client.download_posts, [t for t, _ in pairs], save_dir)
+
+    # Only items whose bytes actually landed. A download can 4xx, and a row
+    # without its file is exactly what the sync reconciler deletes.
+    def _on_disk(target: _DownloadTarget) -> bool:
+        return (save_dir / f"{target.id}.{target.file_ext}").exists()
+
+    landed = await asyncio.to_thread(lambda: [row for t, row in pairs if _on_disk(t)])
+
+    return {
+        "rows": landed,
+        "downloaded": dl_stats.get("downloaded", 0),
+        "skipped": dl_stats.get("skipped", 0),
+        "failed": dl_stats.get("failed", 0),
     }
 
 

@@ -8,9 +8,16 @@ have a home that can be exercised directly.
 from __future__ import annotations
 
 from types import SimpleNamespace
+from typing import TYPE_CHECKING, Any
+
+import pytest
 
 from utils import rating_to_int
-from worker.importers import _build_tag_to_group, _row_for, _settled_page_stopper
+from worker import handlers, importers
+from worker.importers import _build_tag_to_group, _row_for, _settled_page_stopper, handle_danbooru_download
+
+if TYPE_CHECKING:
+    from pathlib import Path
 
 
 def _post(post_id: int, *, ext: str = "jpg", url: str | None = "https://cdn/x") -> SimpleNamespace:
@@ -88,3 +95,59 @@ def test_danbooru_rows_carry_the_api_one_letter_rating() -> None:
     # imported post to 0 ("not rated").
     post = SimpleNamespace(id=7, file_ext="png", source="", rating="q", created_at=None)
     assert _row_for(post, "danbooru/x", {})["rating"] == 3
+
+
+def _item(post_id: int, ext: str = "png") -> dict[str, Any]:
+    return {
+        "fileUrl": f"https://cdn/{post_id}.{ext}",
+        "fileSize": 3,
+        "row": {
+            "filePath": "danbooru/x",
+            "fileName": str(post_id),
+            "extension": ext,
+            "source": f"https://danbooru.donmai.us/posts/{post_id}",
+            "rating": 1,
+            "publishedAt": None,
+            "tags": {"x": 1},
+        },
+    }
+
+
+@pytest.fixture
+def library(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
+    root = tmp_path.resolve()
+    monkeypatch.setattr(handlers, "_ROOT", root)
+    return root
+
+
+async def test_download_returns_rows_only_for_files_that_landed(library: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    # A row must never exist before its file: sync would see it as deleted from
+    # disk and remove it. So an item the client failed to fetch gets no row,
+    # even though the listing handed it over with one already built.
+    seen: list[Any] = []
+
+    class Client:
+        def download_posts(self, posts: list[Any], save_dir: Path) -> dict[str, int]:
+            seen.extend(posts)
+            (save_dir / f"{posts[0].id}.{posts[0].file_ext}").write_bytes(b"abc")
+            return {"downloaded": 1, "skipped": 0, "failed": len(posts) - 1}
+
+    monkeypatch.setattr(importers, "_danbooru_client", Client())
+    save_dir = library / "danbooru" / "x"
+
+    result = await handle_danbooru_download({"items": [_item(11), _item(12, "jpg")], "saveDir": str(save_dir)})
+
+    assert [r["fileName"] for r in result["rows"]] == ["11"]
+    assert (result["downloaded"], result["skipped"], result["failed"]) == (1, 0, 1)
+    # The download target is rebuilt from the row: id and extension name the file.
+    assert [(t.id, t.file_ext, t.file_url, t.file_size) for t in seen] == [
+        (11, "png", "https://cdn/11.png", 3),
+        (12, "jpg", "https://cdn/12.jpg", 3),
+    ]
+
+
+@pytest.mark.usefixtures("library")
+async def test_download_refuses_a_save_dir_outside_the_library(tmp_path_factory: pytest.TempPathFactory) -> None:
+    outside = tmp_path_factory.mktemp("elsewhere")
+    with pytest.raises(ValueError, match="escapes"):
+        await handle_danbooru_download({"items": [_item(1)], "saveDir": str(outside)})

@@ -553,7 +553,22 @@ export interface NormalizedPostRow {
   tags: Record<string, number>
 }
 
-export interface DanbooruImportPayload {
+/**
+ * Danbooru 列表里一条待下载的 post。
+ *
+ * `row` 在**列表阶段**就算好：tag → 组的映射要读 Danbooru 的 `tag_string_*`，那些字段
+ * 只在列表响应里有；而 TS 侧只需要把它原样送进下载任务、拿回落了盘的那些。
+ */
+export interface DanbooruItem {
+  /** CDN 上原图的地址。 */
+  fileUrl: string
+  /** API 报的原图字节数，下载完拿它校验截断（0 = 不校验）。 */
+  fileSize: number
+  /** 落盘之后要写的行。`fileName` 就是 Danbooru post id，`extension` 就是 `file_ext`。 */
+  row: NormalizedPostRow
+}
+
+export interface DanbooruListPayload {
   tags: string
   limit: number
   fullScan: boolean
@@ -563,48 +578,68 @@ export interface DanbooruImportPayload {
    * 去重过滤器和翻页停止条件都要用它，而 worker 没有库可查，所以必须随 payload 走。
    */
   importedIds: string[]
-  /** 落盘目录的绝对路径。 */
-  saveDir: string
   /** 相对图库根的目录，写进 `posts.file_path`。 */
   filePathStr: string
   /** 规范 tag 组的 `{类型: group_id}`，按优先级排序。 */
   typeToGroupId: Record<string, number>
 }
 
-export interface DanbooruStats {
-  total: number
-  with_url: number
-  filtered: number
-  downloaded: number
-  skipped: number
-  failed: number
-  early_stopped: boolean
-}
-
-export interface DanbooruImportResult {
-  /** 只包含**字节已经落盘**的那些 —— 行不能早于文件存在。 */
-  rows: NormalizedPostRow[]
-  stats: DanbooruStats
+export interface DanbooruListResult {
+  /** 还没导入过的那些（`_is_pending`），按列表顺序。 */
+  items: DanbooruItem[]
+  stats: {
+    /** 列表一共回了多少条。 */
+    total: number
+    /** 其中带 `file_url` 的（删除 / 封禁的没有）。 */
+    withUrl: number
+    /** 其中这个导入器收的（有 url、扩展名是支持的图片）。 */
+    filtered: number
+    /** 翻页是不是被"整页已导入"的停止条件提前结束的。 */
+    earlyStopped: boolean
+  }
 }
 
 /**
- * Danbooru 标签导入。
+ * Danbooru 标签导入的前半：只翻列表，不下载。
  *
  * 抓取和下载留在 Python 不是妥协，是同一条规则：那个客户端带着两道调好的限流闸
  * （API 和 CDN 各一道）和一个很微妙的翻页停止条件，重写一遍只会漂移。落库照旧
  * 在 TS —— 于是 §D1 依然成立。
  *
- * 走 IO 队列：全是网络和磁盘，一点显存都不占。
+ * 和下载拆成两个任务（同 url-scan / url-download）是为了让 TS 能**分块**下载、每块
+ * 落一次库：CDN 被限到约 1 req/s，一个几百张新图的标签要下十几分钟，一次任务全下完
+ * 意味着这段时间里没有进度、中途失败就整批不落库。
+ *
+ * 走 IO 队列：全是网络，一点显存都不占。
  */
-export const danbooruImportTask = defineTask<DanbooruImportPayload, DanbooruImportResult>('danbooru-import')
+export const danbooruListTask = defineTask<DanbooruListPayload, DanbooruListResult>('danbooru-list')
+
+export interface DanbooruDownloadPayload {
+  /** 这一块要下的项，原样来自 `DanbooruListResult.items`。 */
+  items: DanbooruItem[]
+  /** 落盘目录的绝对路径。必须在图库根之内。 */
+  saveDir: string
+}
+
+export interface DanbooruDownloadResult {
+  /** 只包含**字节已经落盘**的那些 —— 行不能早于文件存在。 */
+  rows: NormalizedPostRow[]
+  downloaded: number
+  /** 文件已在盘上、没有重下的。它们的行照样在 `rows` 里（补上可能缺的 tag）。 */
+  skipped: number
+  failed: number
+}
+
+/** Danbooru 标签导入的后半：下一块，回传可以落库的行。 */
+export const danbooruDownloadTask = defineTask<DanbooruDownloadPayload, DanbooruDownloadResult>('danbooru-download')
 
 /**
- * 一次标签列表最多翻多少条。随 `DanbooruImportPayload.limit` 传给 worker，worker
+ * 一次标签列表最多翻多少条。随 `DanbooruListPayload.limit` 传给 worker，worker
  * 自己没有默认值。
  *
  * 原本是 99999，也就是最多约 500 页串行请求。绝大多数画师标签在第一页就短路了，
- * 但大的版权/角色标签会在一次调用里翻上几分钟 —— 而客户端的读超时是关掉的，
- * 调用方看到的就是卡死。
+ * 但大的版权/角色标签会在一次列表任务里翻上几分钟、再领回上万条待下载项 —— 那是
+ * 一次导入几个小时的 CDN 配额，不该由一次运行默默吞下。
  */
 export const DANBOORU_LISTING_LIMIT = 5000
 
@@ -688,7 +723,8 @@ export const TASK_QUEUES = {
   'rotate': IO_QUEUE,
   'caption': IO_QUEUE,
   'basics': IO_QUEUE,
-  'danbooru-import': IO_QUEUE,
+  'danbooru-list': IO_QUEUE,
+  'danbooru-download': IO_QUEUE,
   'url-scan': IO_QUEUE,
   'url-download': IO_QUEUE,
 } as const satisfies Record<string, Queue>

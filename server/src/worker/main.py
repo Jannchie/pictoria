@@ -56,7 +56,7 @@ from worker.handlers import (
     handle_waifu,
     set_root,
 )
-from worker.importers import handle_danbooru_import, handle_url_download, handle_url_scan
+from worker.importers import handle_danbooru_download, handle_danbooru_list, handle_url_download, handle_url_scan
 
 if TYPE_CHECKING:
     from collections.abc import Awaitable, Callable
@@ -122,7 +122,8 @@ TASKS: dict[str, tuple[str, Handler]] = {
     "rotate": (IO_QUEUE, handle_rotate),
     "caption": (IO_QUEUE, handle_caption),
     "basics": (IO_QUEUE, handle_basics),
-    "danbooru-import": (IO_QUEUE, handle_danbooru_import),
+    "danbooru-list": (IO_QUEUE, handle_danbooru_list),
+    "danbooru-download": (IO_QUEUE, handle_danbooru_download),
     "url-scan": (IO_QUEUE, handle_url_scan),
     "url-download": (IO_QUEUE, handle_url_download),
 }

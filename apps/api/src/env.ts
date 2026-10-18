@@ -12,6 +12,7 @@
 import type { RouteConfig, RouteHandler } from '@hono/zod-openapi'
 import type { CairnQ } from 'cairnq'
 import type { SqliteHandle } from '@pictoria/db'
+import type { DanbooruImports } from './danbooru-imports.js'
 import { OpenAPIHono } from '@hono/zod-openapi'
 import { zodErrorHook } from './openapi.js'
 
@@ -31,6 +32,8 @@ export interface TaskSource {
 export interface AppVariables {
   db: SqliteHandle
   tasks: TaskSource
+  /** Danbooru 导入的后台作业队列。每个 app 一个（纯内存），见 `danbooru-imports.ts`。 */
+  danbooruImports: DanbooruImports
 }
 
 export interface AppEnv {

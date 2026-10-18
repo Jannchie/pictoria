@@ -573,19 +573,6 @@ export type SnapshotResult = {
 };
 
 /**
- * DanbooruDownloadStats
- */
-export type DanbooruDownloadStats = {
-    total: number;
-    withUrl: number;
-    filtered: number;
-    downloaded: number;
-    skipped: number;
-    failed: number;
-    earlyStopped: boolean;
-};
-
-/**
  * UrlImportStatus
  */
 export type UrlImportStatus = {
@@ -607,6 +594,66 @@ export type GalleryDlStats = {
     new?: number;
     downloaded?: number;
     failed?: number;
+};
+
+/**
+ * DanbooruImportJob
+ */
+export type DanbooruImportJob = {
+    id: string;
+    tags: string;
+    fullScan: boolean;
+    state: 'queued' | 'running' | 'done' | 'failed';
+    /**
+     * 只在 running 时非 null。
+     */
+    phase: 'listing' | 'downloading' | null;
+    /**
+     * 列表一共回了多少条。
+     */
+    total: number;
+    withUrl: number;
+    /**
+     * 其中这个导入器收的（支持的图片）。
+     */
+    filtered: number;
+    /**
+     * 列表阶段得出的待下载数（进度条的分母）。
+     */
+    pending: number;
+    /**
+     * 下载阶段已处理的条数（进度条的分子）。
+     */
+    processed: number;
+    downloaded: number;
+    /**
+     * 已经导入过的，加上下载时文件已在盘上的。
+     */
+    skipped: number;
+    failed: number;
+    earlyStopped: boolean;
+    /**
+     * 列表失败的原因，或最后一次下载块的错误（此时作业仍是 done）。
+     */
+    error: string | null;
+    createdAt: string;
+    startedAt: string | null;
+    finishedAt: string | null;
+};
+
+/**
+ * DanbooruImportCreate
+ */
+export type DanbooruImportCreate = {
+    tags: string;
+    fullScan?: boolean;
+};
+
+/**
+ * DanbooruImportList
+ */
+export type DanbooruImportList = {
+    jobs: Array<DanbooruImportJob>;
 };
 
 /**
@@ -2219,34 +2266,6 @@ export type V2SyncMetadataEndpointResponses = {
 
 export type V2SyncMetadataEndpointResponse = V2SyncMetadataEndpointResponses[keyof V2SyncMetadataEndpointResponses];
 
-export type V2DownloadFromDanbooruData = {
-    body?: never;
-    path?: never;
-    query: {
-        tags: string;
-        full_scan?: boolean;
-    };
-    url: '/v2/cmd/download-from-danbooru';
-};
-
-export type V2DownloadFromDanbooruErrors = {
-    /**
-     * Bad Request
-     */
-    400: ErrorBody;
-};
-
-export type V2DownloadFromDanbooruError = V2DownloadFromDanbooruErrors[keyof V2DownloadFromDanbooruErrors];
-
-export type V2DownloadFromDanbooruResponses = {
-    /**
-     * Created
-     */
-    201: DanbooruDownloadStats;
-};
-
-export type V2DownloadFromDanbooruResponse = V2DownloadFromDanbooruResponses[keyof V2DownloadFromDanbooruResponses];
-
 export type V2ImportFromUrlEndpointData = {
     body?: never;
     path?: never;
@@ -2289,6 +2308,74 @@ export type V2ImportFromUrlStatusResponses = {
 };
 
 export type V2ImportFromUrlStatusResponse = V2ImportFromUrlStatusResponses[keyof V2ImportFromUrlStatusResponses];
+
+export type V2ListDanbooruImportsData = {
+    body?: never;
+    path?: never;
+    query?: never;
+    url: '/v2/danbooru-imports';
+};
+
+export type V2ListDanbooruImportsResponses = {
+    /**
+     * OK
+     */
+    200: DanbooruImportList;
+};
+
+export type V2ListDanbooruImportsResponse = V2ListDanbooruImportsResponses[keyof V2ListDanbooruImportsResponses];
+
+export type V2CreateDanbooruImportData = {
+    body: DanbooruImportCreate;
+    path?: never;
+    query?: never;
+    url: '/v2/danbooru-imports';
+};
+
+export type V2CreateDanbooruImportErrors = {
+    /**
+     * Bad Request
+     */
+    400: ErrorBody;
+};
+
+export type V2CreateDanbooruImportError = V2CreateDanbooruImportErrors[keyof V2CreateDanbooruImportErrors];
+
+export type V2CreateDanbooruImportResponses = {
+    /**
+     * Accepted
+     */
+    202: DanbooruImportJob;
+};
+
+export type V2CreateDanbooruImportResponse = V2CreateDanbooruImportResponses[keyof V2CreateDanbooruImportResponses];
+
+export type V2GetDanbooruImportData = {
+    body?: never;
+    path: {
+        job_id: string;
+    };
+    query?: never;
+    url: '/v2/danbooru-imports/{job_id}';
+};
+
+export type V2GetDanbooruImportErrors = {
+    /**
+     * Not Found
+     */
+    404: ErrorBody;
+};
+
+export type V2GetDanbooruImportError = V2GetDanbooruImportErrors[keyof V2GetDanbooruImportErrors];
+
+export type V2GetDanbooruImportResponses = {
+    /**
+     * OK
+     */
+    200: DanbooruImportJob;
+};
+
+export type V2GetDanbooruImportResponse = V2GetDanbooruImportResponses[keyof V2GetDanbooruImportResponses];
 
 export type V2GetOriginalByIdData = {
     body?: never;

@@ -1,0 +1,43 @@
+{
+  "queue": "io",
+  "payload": {
+    "items": [
+      {
+        "fileUrl": "https://cdn.donmai.us/original/12/34/1234567.png",
+        "fileSize": 1024,
+        "row": {
+          "filePath": "danbooru/some_artist",
+          "fileName": "1234567",
+          "extension": "png",
+          "source": "https://danbooru.donmai.us/posts/1234567",
+          "rating": 1,
+          "publishedAt": "2026-01-02T03:04:05+00:00",
+          "tags": {
+            "some_artist": 1,
+            "1girl": 4
+          }
+        }
+      }
+    ],
+    "saveDir": "/library/danbooru/some_artist"
+  },
+  "result": {
+    "rows": [
+      {
+        "filePath": "danbooru/some_artist",
+        "fileName": "1234567",
+        "extension": "png",
+        "source": "https://danbooru.donmai.us/posts/1234567",
+        "rating": 1,
+        "publishedAt": "2026-01-02T03:04:05+00:00",
+        "tags": {
+          "some_artist": 1,
+          "1girl": 4
+        }
+      }
+    ],
+    "downloaded": 1,
+    "skipped": 0,
+    "failed": 0
+  }
+}

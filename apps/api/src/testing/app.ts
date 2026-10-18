@@ -36,6 +36,7 @@ import process from 'node:process'
 import { createTestDb } from '@pictoria/db'
 import { afterAll } from 'vitest'
 import { createApp } from '../app.js'
+import { DanbooruImports, type DanbooruImportsOptions } from '../danbooru-imports.js'
 import { targetDir, thumbnailPathFor } from '../paths.js'
 
 let libraryRoot: string | undefined
@@ -96,11 +97,13 @@ export interface InsertPostOptions {
   rating?: number
 }
 
-export function createTestApp(options: { tasks?: TaskSource } = {}) {
+export function createTestApp(options: { tasks?: TaskSource, danbooruImports?: DanbooruImportsOptions } = {}) {
   const root = ensureLibrary()
   const sqlite: SqliteHandle = createTestDb()
   const tasks = options.tasks ?? fakeTasks()
-  const app = createApp({ db: sqlite, tasks })
+  // 每个用例一个全新的作业队列；测试拿着它好 `await danbooruImports.idle()`。
+  const danbooruImports = new DanbooruImports(sqlite, tasks, options.danbooruImports)
+  const app = createApp({ db: sqlite, tasks, danbooruImports })
 
   /** 插一行 post，返回 id；`filePath` 是相对图库根的目录（根是 `'.'`）。 */
   function insertPost(filePath: string, fileName: string, extension: string, opts: InsertPostOptions = {}): number {
@@ -130,7 +133,7 @@ export function createTestApp(options: { tasks?: TaskSource } = {}) {
       fs.rmSync(path.join(root, name), { recursive: true, force: true })
   }
 
-  return { app, sqlite, tasks, root, insertPost, writeFile, close }
+  return { app, sqlite, tasks, danbooruImports, root, insertPost, writeFile, close }
 }
 
 export type TestApp = ReturnType<typeof createTestApp>

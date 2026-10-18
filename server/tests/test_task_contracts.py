@@ -48,7 +48,7 @@ LIB = "/library/"
 
 #: Mappings whose keys are data (tag names, group types), not contract fields.
 #: Same set as ``'record'`` in the TS suite's shapes.
-RECORD_PATHS = frozenset({"typeToGroupId", "rows[].tags", "items[].tagsByCategory"})
+RECORD_PATHS = frozenset({"typeToGroupId", "rows[].tags", "items[].tagsByCategory", "items[].row.tags"})
 
 
 # ─── key recording ──────────────────────────────────────────────────────────
@@ -313,6 +313,7 @@ def _danbooru_post(post_id: int) -> SimpleNamespace:
         id=post_id,
         file_url=f"https://cdn.donmai.us/{post_id}.png",
         file_ext="png",
+        file_size=1024,
         rating="g",
         source="",
         created_at=datetime(2026, 1, 2, 3, 4, 5, tzinfo=UTC),
@@ -324,17 +325,20 @@ def _danbooru_post(post_id: int) -> SimpleNamespace:
     )
 
 
+class _FakeDanbooruClient:
+    """No network: a fixed two-post listing, and a downloader that writes real files."""
+
+    def get_posts(self, **_kwargs: Any) -> list[Any]:
+        return [_danbooru_post(1234567), _danbooru_post(1234000)]
+
+    def download_posts(self, posts: list[Any], save_dir: Path) -> dict[str, int]:
+        for p in posts:
+            _image(save_dir / f"{p.id}.{p.file_ext}")
+        return {"downloaded": len(posts), "skipped": 0, "failed": 0}
+
+
 def _setup_danbooru(monkeypatch: pytest.MonkeyPatch, _root: Path) -> None:
-    class Client:
-        def get_posts(self, **_kwargs: Any) -> list[Any]:
-            return [_danbooru_post(1234567), _danbooru_post(1234000)]
-
-        def download_posts(self, posts: list[Any], save_dir: Path) -> dict[str, int]:
-            for p in posts:
-                _image(save_dir / f"{p.id}.{p.file_ext}")
-            return {"downloaded": len(posts), "skipped": 0, "failed": 0}
-
-    monkeypatch.setattr(importers, "_danbooru_client", Client())
+    monkeypatch.setattr(importers, "_danbooru_client", _FakeDanbooruClient())
 
 
 def _setup_url_scan(monkeypatch: pytest.MonkeyPatch, _root: Path) -> None:
@@ -370,7 +374,8 @@ SETUPS: dict[str, Callable[[pytest.MonkeyPatch, Path], None]] = {
     "rotate": _setup_rotate,
     "caption": _setup_caption,
     "basics": _setup_basics,
-    "danbooru-import": _setup_danbooru,
+    "danbooru-list": _setup_danbooru,
+    "danbooru-download": _setup_danbooru,
     "url-scan": _setup_url_scan,
     "url-download": _setup_url_download,
 }
