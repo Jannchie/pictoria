@@ -13,6 +13,7 @@ import type { RouteConfig, RouteHandler } from '@hono/zod-openapi'
 import type { CairnQ } from 'cairnq'
 import type { SqliteHandle } from '@pictoria/db'
 import type { DanbooruImports } from './danbooru-imports.js'
+import type { Reads } from './read-pool.js'
 import { OpenAPIHono } from '@hono/zod-openapi'
 import { zodErrorHook } from './openapi.js'
 
@@ -34,6 +35,11 @@ export interface AppVariables {
   tasks: TaskSource
   /** Danbooru 导入的后台作业队列。每个 app 一个（纯内存），见 `danbooru-imports.ts`。 */
   danbooruImports: DanbooruImports
+  /**
+   * 整库向量 KNN（相似图、文搜图）。生产是读线程池，别在主线程上跑它们 —— 一次 1.5–3 秒，
+   * 期间整个事件循环停摆。见 `read-pool.ts`。
+   */
+  reads: Reads
 }
 
 export interface AppEnv {

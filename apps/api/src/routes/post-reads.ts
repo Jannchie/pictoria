@@ -2,7 +2,7 @@
  * posts 的按 id 读取：详情、同组成员、差分证据、图搜图。
  */
 import { createRoute, z } from '@hono/zod-openapi'
-import { getGroupMembers, groupHeadOf, knn, listEdgesFor, listSimpleByIdsPreservingOrder } from '@pictoria/db'
+import { getGroupMembers, groupHeadOf, listEdgesFor, listSimpleByIdsPreservingOrder } from '@pictoria/db'
 import { newRoutes } from '../env.js'
 import { OK, errors } from '../openapi.js'
 import { PostDetailPublic, PostSimplePublic, toPostSimple } from '../schemas.js'
@@ -117,7 +117,7 @@ postReadsRoutes.openapi(
       ...errors(400),
     },
   }),
-  (c) => {
+  async (c) => {
     const { post_id: postId } = c.req.valid('param')
     const { limit } = c.req.valid('query')
     const sqlite = c.var.db
@@ -132,7 +132,10 @@ postReadsRoutes.openapi(
 
     // 取多于 limit 再过滤：onlyCanonical 的剔除发生在拿到 k 个近邻**之后**，
     // 直接取 limit + 1 会让"邻居里恰好有几个成员"的图只返回三四条。
-    const sims = knn(sqlite, postId, limit * 2 + 2)
+    //
+    // KNN 走读线程（`c.var.reads`）：34 万行的暴力扫描要 1.5–3 秒，放在主线程上整个
+    // 进程都得等它。下面两步是毫秒级的点查，留在主线程。
+    const sims = (await c.var.reads.knn(postId, limit * 2 + 2))
       .filter(([id]) => id !== postId && id !== head)
     if (!sims.length)
       return c.json([], 200)

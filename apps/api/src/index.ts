@@ -3,7 +3,9 @@ import process from 'node:process'
 import { serve } from '@hono/node-server'
 import { createApp } from './app.js'
 import { getDb, migrate } from './db.js'
+import { dbPath } from './paths.js'
 import { BACKFILL_LOOP_KEYS, setSchedulerError } from './queue-status.js'
+import { createReadPool, inProcessReads, readThreadsFromEnv } from './read-pool.js'
 import { startBackfills } from './scheduler.js'
 import { startAutoSync } from './sync.js'
 import { getTasks, peekTasks } from './tasks.js'
@@ -19,7 +21,15 @@ const PORT = Number(process.env.PICTORIA_API_PORT ?? 4777)
 // schema 先于流量：迁移失败就不该开始服务，否则第一批请求会打在半旧的 schema 上。
 migrate()
 
-const app = createApp({ db: getDb().sqlite, tasks: { get: getTasks, peek: peekTasks } })
+// 相似图 / 文搜图的整库 KNN 放到读线程上（见 `read-pool.ts`）。迁移之后再起：线程开的是
+// 只读连接，跑不了 DDL，得看到迁移完的 schema。`PICTORIA_READ_THREADS=0` 退回主线程，
+// 用来二分定位线程那边的问题。线程是 unref 的，进程退出时随之结束，不需要单独关。
+const readThreads = readThreadsFromEnv()
+const reads = readThreads > 0
+  ? createReadPool({ dbPath: dbPath(), size: readThreads })
+  : inProcessReads(getDb().sqlite)
+
+const app = createApp({ db: getDb().sqlite, tasks: { get: getTasks, peek: peekTasks }, reads })
 
 serve({ fetch: app.fetch, port: PORT }, (info) => {
   console.warn(`[pictoria-api] listening on http://127.0.0.1:${info.port}`)

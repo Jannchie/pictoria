@@ -20,7 +20,7 @@ export type SqliteHandle = Database.Database
 export interface OpenOptions {
   /** SQLite 文件路径。 */
   path: string
-  /** 只读打开（分析脚本用）。只读连接不设写相关 PRAGMA。 */
+  /** 只读打开（分析脚本、API 的读线程池用）。只读连接不设写相关 PRAGMA。 */
   readonly?: boolean
 }
 
@@ -52,13 +52,18 @@ export function createDb({ path, readonly = false }: OpenOptions) {
   // 而外部脚本（对拍、分析）撞上这个窗口拿到的是 SQLITE_BUSY 而不是稍等一下。
   sqlite.pragma('busy_timeout = 30000')
 
+  // 日志模式和落盘策略是写侧的事，只读连接设不了也不需要（WAL 是库级持久设置，
+  // 写连接设过一次，只读连接打开时自动沿用）。
   if (!readonly) {
     sqlite.pragma('journal_mode = WAL')
     sqlite.pragma('synchronous = NORMAL')
-    sqlite.pragma('temp_store = MEMORY')
-    // 30 GB 上限，OS 会按实际内存夹紧。让 22 万行的向量表尽量走 page cache。
-    sqlite.pragma('mmap_size = 30000000000')
   }
+
+  // 这两条是读侧的性能设置，只读连接一样要：`apps/api` 的读线程池（`read-pool.ts`）
+  // 用只读连接跑整库向量 KNN，34 万行 FLOAT[1152] 不走 mmap 就是逐页 read() 拷贝。
+  sqlite.pragma('temp_store = MEMORY')
+  // 30 GB 上限，OS 会按实际内存夹紧。让向量表尽量走 page cache。
+  sqlite.pragma('mmap_size = 30000000000')
 
   return { sqlite }
 }

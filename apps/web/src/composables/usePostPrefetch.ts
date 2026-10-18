@@ -51,21 +51,31 @@ function warmThumbnails(posts: PostSimplePublic[]) {
  * 历史、相似图，以及相似图首屏和组成员的缩略图。选项和各自的 useQuery 出自
  * 同一个工厂（shared/postQueries），翻过去时直接命中缓存。预取失败静默 ——
  * 真正翻到那张时 useQuery 会自己再试并报错。
+ *
+ * `similar: false` 跳过相似图：它是整库向量 KNN（34 万行要 1.5–3 秒），调用方
+ * 不确定用户会不会真的打开这张时别替它付这个钱。
  */
-export function prefetchPostData(queryClient: QueryClient, id: number) {
+export function prefetchPostData(queryClient: QueryClient, id: number, { similar = true }: PrefetchOptions = {}) {
   queryClient.prefetchQuery(postQueryOptions(id))
   queryClient.prefetchQuery(postGroupEvidenceQueryOptions(id))
   queryClient.prefetchQuery(postAnnotationsQueryOptions(id))
   queryClient.fetchQuery(postGroupQueryOptions(id))
     .then(warmThumbnails, () => {})
-  queryClient.fetchQuery(similarPostsQueryOptions(id))
-    .then(posts => warmThumbnails(posts.slice(0, SIMILAR_THUMBS_AHEAD)), () => {})
+  if (similar) {
+    queryClient.fetchQuery(similarPostsQueryOptions(id))
+      .then(posts => warmThumbnails(posts.slice(0, SIMILAR_THUMBS_AHEAD)), () => {})
+  }
+}
+
+export interface PrefetchOptions {
+  /** 是否连相似图一起预取（默认是）。见 prefetchPostData。 */
+  similar?: boolean
 }
 
 /** 原图 + 详情请求一起预取：接下来多半要打开这一张。 */
-export function prefetchPost(queryClient: QueryClient, post: PostSimplePublic) {
+export function prefetchPost(queryClient: QueryClient, post: PostSimplePublic, options?: PrefetchOptions) {
   preloadImage(getPostImageURL(post))
-  prefetchPostData(queryClient, post.id)
+  prefetchPostData(queryClient, post.id, options)
 }
 
 /**

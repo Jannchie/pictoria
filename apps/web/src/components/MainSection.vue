@@ -209,12 +209,16 @@ const queryClient = useQueryClient()
 const { pushToast } = useToast()
 
 // 单选停在一张上时，下一步多半是回车 / 双击打开它：提前把原图和详情页的请求
-// （相似图等；详情、分组、标注历史右侧栏已经在拉）发掉。停稳才发 —— 方向键扫
-// 过去的那些不值得各拉一张原图。
+// （详情、分组、标注历史右侧栏已经在拉）发掉。停稳才发 —— 方向键扫过去的那些
+// 不值得各拉一张原图。
+//
+// 相似图刻意不预取：单选多半是为了打分，而 similar 是整库向量 KNN（34 万行
+// 1.5–3 秒）。它已经挪到 API 的读线程上、不再卡住打分请求，但仍然占着一条读线程
+// —— 连点几张就会把真正打开那张的 similar 排到后面。打开详情时 useQuery 自己会拉。
 watchDebounced(soleSelectedId, (id) => {
   const post = id === undefined ? undefined : toRaw(posts.value).find(p => p.id === id)
   if (post) {
-    prefetchPost(queryClient, post)
+    prefetchPost(queryClient, post, { similar: false })
   }
 }, { debounce: 300 })
 

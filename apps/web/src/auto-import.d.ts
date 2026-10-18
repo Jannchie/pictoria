@@ -424,6 +424,9 @@ declare global {
   export type { GroupEvidenceItem } from './composables/usePostGroupEvidenceQuery'
   import('./composables/usePostGroupEvidenceQuery')
   // @ts-ignore
+  export type { PrefetchOptions } from './composables/usePostPrefetch'
+  import('./composables/usePostPrefetch')
+  // @ts-ignore
   export type { TagTreeNode, TopCategoryGroup } from './composables/useTagTree'
   import('./composables/useTagTree')
   // @ts-ignore

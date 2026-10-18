@@ -15,6 +15,7 @@ import { compress } from 'hono/compress'
 import { cors } from 'hono/cors'
 import { DanbooruImports } from './danbooru-imports.js'
 import { fail } from './openapi.js'
+import { inProcessReads, type Reads } from './read-pool.js'
 import { annotationQueuesRoutes } from './routes/annotation-queues.js'
 import { annotationsRoutes } from './routes/annotations.js'
 import { commandsRoutes } from './routes/commands.js'
@@ -40,9 +41,14 @@ export interface AppDeps {
    * 它的句柄等后台作业跑完（`idle()`）、或调小块大小和并发。
    */
   danbooruImports?: DanbooruImports
+  /**
+   * 重读查询（向量 KNN）。省略时在主线程上同步跑 `db` —— 测试要的就是这个；生产在
+   * `index.ts` 传读线程池。
+   */
+  reads?: Reads
 }
 
-export function createApp({ db, tasks, danbooruImports = new DanbooruImports(db, tasks) }: AppDeps) {
+export function createApp({ db, tasks, danbooruImports = new DanbooruImports(db, tasks), reads = inProcessReads(db) }: AppDeps) {
   const app = new OpenAPIHono<AppEnv>()
 
   /**
@@ -63,11 +69,12 @@ export function createApp({ db, tasks, danbooruImports = new DanbooruImports(db,
   // CPU），也跳过 206。
   app.use('*', compress())
 
-  // 依赖注入：路由只认 `c.var.db` / `c.var.tasks` / `c.var.danbooruImports`（见 `env.ts`）。
+  // 依赖注入：路由只认 `c.var.db` / `c.var.tasks` / `c.var.danbooruImports` / `c.var.reads`（见 `env.ts`）。
   app.use('*', async (c, next) => {
     c.set('db', db)
     c.set('tasks', tasks)
     c.set('danbooruImports', danbooruImports)
+    c.set('reads', reads)
     await next()
   })
 

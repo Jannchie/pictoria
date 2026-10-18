@@ -3,7 +3,7 @@
  */
 import { createRoute, z } from '@hono/zod-openapi'
 import { decodeVector, INTERACTIVE_QUEUE, textEmbedTask } from '@pictoria/contracts'
-import { listPaginated, listSimpleByIdsPreservingOrder, searchByTextVector, searchPosts, unratedArtistPickIds, type PostFilter as DbPostFilter, type PostFilterWithOrder } from '@pictoria/db'
+import { listPaginated, listSimpleByIdsPreservingOrder, searchPosts, unratedArtistPickIds, type PostFilter as DbPostFilter, type PostFilterWithOrder } from '@pictoria/db'
 import { newRoutes } from '../env.js'
 import { PostFilterWithOrderSchema, TextSearchRequestSchema as TextSearchRequest } from '../filter-schema.js'
 import { OK, errors } from '../openapi.js'
@@ -168,7 +168,8 @@ postListRoutes.openapi(
       maxAttempts: 1,
     })
 
-    const rows = searchByTextVector(c.var.db, decodeVector(embedding), data as DbPostFilter, { limit })
+    // 整库 KNN，走读线程（`c.var.reads`），不占事件循环。
+    const rows = await c.var.reads.searchByTextVector(decodeVector(embedding), data as DbPostFilter, { limit })
     // SigLIP 官方的打分方式：sigmoid(scale * cos + bias)。向量在源头就已 L2 归一化
     // （ai/siglip_embed.py），所以 vec0 的余弦距离恰好是 (1 - cos)，能直接反推 cos。
     for (const r of rows) {
