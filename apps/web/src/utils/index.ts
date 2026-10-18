@@ -9,7 +9,7 @@ export function isImageExtension(extension: string | null | undefined) {
   return IMAGE_EXTENSIONS.has(extension.toLowerCase())
 }
 
-interface PostImageRef { filePath: string, fileName: string, extension: string, sha256?: string, md5?: string }
+export interface PostImageRef { filePath: string, fileName: string, extension: string, sha256?: string, md5?: string }
 
 function buildPostImageURL(type: 'original' | 'thumbnails', post: PostImageRef) {
   const hash = post.sha256 ?? post.md5

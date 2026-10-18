@@ -5,9 +5,10 @@ import { useI18n } from 'vue-i18n'
 import { useRoute } from 'vue-router'
 import ArthashPlaceholder from '@/components/ArthashPlaceholder.vue'
 import { galleryGridKey } from '@/composables/useGalleryGrid'
+import { useViewportHiRes } from '@/composables/useViewportHiRes'
 import { formatDate } from '@/locale'
 import { addToSelection, collapseSelectionTo, commitPendingSelection, enableArthash, enableFancyPlaceholder, gridCursorId, hideNSFW, isCommittedSelected, isSelected, postSort, RATING_LEVEL_COLORS, RATING_LEVEL_ICONS, RATING_LEVEL_LABEL_KEYS, RATING_UNRATED_LABEL_KEY, SCORE_LEVEL_COLORS, selectOnly, setGridCursor, toggle, togglePendingAt, waifuLevelRgb } from '@/shared'
-import { getPostThumbnailURL, isImageExtension } from '@/utils'
+import { isImageExtension } from '@/utils'
 import { colorNumToHex, labToRgbaString } from '@/utils/color'
 
 // A thumbnail is an `option` of the gallery listbox (MainSection /
@@ -141,6 +142,10 @@ function getIconByExtension(extension: string) {
     }
   }
 }
+const contentRef = ref<HTMLElement | null>(null)
+// Thumbnail by default; the original while this tile is on screen and drawn
+// wider than the thumbnail (few columns / high DPR).
+const { src: imageSrc } = useViewportHiRes(contentRef, post)
 const imageLoaded = ref(false)
 function onImageLoad(e: Event) {
   const img = e.target as HTMLImageElement
@@ -283,11 +288,12 @@ const sortBadgeStyle = computed(() => {
       class="rounded-md bg-surface-1 w-full"
     >
       <div
+        ref="contentRef"
         class="post-content rounded-md relative overflow-hidden"
         :style="placeholderStyle"
       >
         <img
-          :src="getPostThumbnailURL(post)"
+          :src="imageSrc"
           :alt="post.fileName"
           :width="post.width ?? undefined"
           :height="post.height ?? undefined"
