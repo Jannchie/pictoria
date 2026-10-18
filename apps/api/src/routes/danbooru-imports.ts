@@ -6,31 +6,9 @@
  * 永远不会让两个导入抢同一份 CDN 配额。
  */
 import { createRoute, z } from '@hono/zod-openapi'
+import { DanbooruImportJobSchema as DanbooruImportJob } from '../danbooru-imports.js'
 import { newRoutes } from '../env.js'
 import { errors, fail, OK, validationError } from '../openapi.js'
-
-const DanbooruImportJob = z
-  .object({
-    id: z.string(),
-    tags: z.string(),
-    fullScan: z.boolean(),
-    state: z.enum(['queued', 'running', 'done', 'failed']),
-    phase: z.enum(['listing', 'downloading']).nullable().openapi({ description: '只在 running 时非 null。' }),
-    total: z.int().openapi({ description: '列表一共回了多少条。' }),
-    withUrl: z.int(),
-    filtered: z.int().openapi({ description: '其中这个导入器收的（支持的图片）。' }),
-    pending: z.int().openapi({ description: '列表阶段得出的待下载数（进度条的分母）。' }),
-    processed: z.int().openapi({ description: '下载阶段已处理的条数（进度条的分子）。' }),
-    downloaded: z.int(),
-    skipped: z.int().openapi({ description: '已经导入过的，加上下载时文件已在盘上的。' }),
-    failed: z.int(),
-    earlyStopped: z.boolean(),
-    error: z.string().nullable().openapi({ description: '列表失败的原因，或最后一次下载块的错误（此时作业仍是 done）。' }),
-    createdAt: z.string(),
-    startedAt: z.string().nullable(),
-    finishedAt: z.string().nullable(),
-  })
-  .openapi('DanbooruImportJob')
 
 const DanbooruImportCreate = z
   .object({

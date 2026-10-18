@@ -14,7 +14,7 @@
  * * **已导入 id 在作业开始跑时才读**，不是提交时 —— 排在后面的作业能看到前面作业
  *   落的库。
  * * **分块下载、每块落一次库**：有进度可看，中途失败也只丢那一块（而它的文件若已落盘，
- *   下次运行下载会 skip 并照样回传行，自愈）。
+ *   下次运行下载会 skip 并照样报告为已落盘，自愈）。
  *
  * 纯内存，不落库：API 重启作业就丢了。那没关系 —— 导入本身幂等，脚本那一侧轮询到
  * 404 会重新提交。
@@ -24,6 +24,7 @@ import type { CairnQ } from 'cairnq'
 import type { TaskSource } from './env.js'
 import { randomUUID } from 'node:crypto'
 import path from 'node:path'
+import { z } from '@hono/zod-openapi'
 import {
   DANBOORU_LISTING_LIMIT,
   danbooruDownloadTask,
@@ -34,46 +35,44 @@ import {
 import { ensureCanonicalTagGroups, listImportedDanbooruIds, persistPostsWithTags } from '@pictoria/db'
 import { targetDir } from './paths.js'
 
-export type DanbooruImportState = 'queued' | 'running' | 'done' | 'failed'
-export type DanbooruImportPhase = 'listing' | 'downloading'
+/**
+ * 一个导入作业，也是 API 回的 JSON —— 形状只在这里定义一次，类型由它推导，路由直接
+ * 拿它当响应 schema。`.openapi(...)` 的描述会进 OpenAPI 文档；只给读代码的人看的补充
+ * 写成普通注释。
+ */
+export const DanbooruImportJobSchema = z
+  .object({
+    id: z.string(),
+    tags: z.string(),
+    fullScan: z.boolean(),
+    state: z.enum(['queued', 'running', 'done', 'failed']),
+    phase: z.enum(['listing', 'downloading']).nullable().openapi({ description: '只在 running 时非 null。' }),
+    total: z.int().openapi({ description: '列表一共回了多少条。' }),
+    // 其中带 `file_url` 的。
+    withUrl: z.int(),
+    filtered: z.int().openapi({ description: '其中这个导入器收的（支持的图片）。' }),
+    pending: z.int().openapi({ description: '列表阶段得出的待下载数（进度条的分母）。' }),
+    // 成功、跳过、失败都算。
+    processed: z.int().openapi({ description: '下载阶段已处理的条数（进度条的分子）。' }),
+    downloaded: z.int(),
+    // = `filtered - pending`，加上下载阶段 skip 的。
+    skipped: z.int().openapi({ description: '已经导入过的，加上下载时文件已在盘上的。' }),
+    failed: z.int(),
+    earlyStopped: z.boolean(),
+    error: z.string().nullable().openapi({ description: '列表失败的原因，或最后一次下载块的错误（此时作业仍是 done）。' }),
+    createdAt: z.string(),
+    startedAt: z.string().nullable(),
+    finishedAt: z.string().nullable(),
+  })
+  .openapi('DanbooruImportJob')
 
-/** 一个导入作业。也是 API 回的 JSON。 */
-export interface DanbooruImportJob {
-  id: string
-  tags: string
-  fullScan: boolean
-  state: DanbooruImportState
-  /** 只在 running 时非 null。 */
-  phase: DanbooruImportPhase | null
-  /** 列表一共回了多少条。 */
-  total: number
-  /** 其中带 `file_url` 的。 */
-  withUrl: number
-  /** 其中这个导入器收的（支持的图片）。 */
-  filtered: number
-  /** 列表阶段得出的待下载数 —— 进度条的分母。 */
-  pending: number
-  /** 下载阶段已经处理完的条数（成功、跳过、失败都算）—— 进度条的分子。 */
-  processed: number
-  downloaded: number
-  /** `filtered - pending`（已经导入过的），加上下载阶段文件已在盘上的。 */
-  skipped: number
-  failed: number
-  earlyStopped: boolean
-  /** 列表失败时是失败原因；下载块失败时是最后一次块错误（作业仍是 done）。 */
-  error: string | null
-  createdAt: string
-  startedAt: string | null
-  finishedAt: string | null
-}
+export type DanbooruImportJob = z.infer<typeof DanbooruImportJobSchema>
 
 export interface DanbooruImportsOptions {
   /** 同时 running 的作业上限。默认 2 —— 再多只是把同一份 CDN 配额劈得更碎。 */
   concurrency?: number
   /** 下载一块多少条。默认 50，按 ~1 req/s 约一分钟落一次库。 */
   chunkSize?: number
-  /** 已结束的作业保留多久。默认 6 小时。 */
-  retainMs?: number
   /** 已结束的作业最多保留多少个。默认 1000。 */
   maxRetained?: number
 }
@@ -108,15 +107,16 @@ function isActive(job: DanbooruImportJob): boolean {
 export class DanbooruImports {
   private readonly concurrency: number
   private readonly chunkSize: number
-  private readonly retainMs: number
   private readonly maxRetained: number
 
   /** 全部作业，插入顺序 = 创建顺序。 */
   private readonly jobs = new Map<string, DanbooruImportJob>()
-  /** tags → 它那个 queued / running 的作业。去重就靠这张表。 */
+  /**
+   * tags → 它那个 queued / running 的作业。去重就靠这张表。排队的也在里面，所以在跑的
+   * 个数就是 `active.size - queue.length`，不另外记一个计数器。
+   */
   private readonly active = new Map<string, DanbooruImportJob>()
   private readonly queue: DanbooruImportJob[] = []
-  private running = 0
   private idleWaiters: Array<() => void> = []
 
   constructor(
@@ -126,7 +126,6 @@ export class DanbooruImports {
   ) {
     this.concurrency = Math.max(1, opts.concurrency ?? 2)
     this.chunkSize = Math.max(1, opts.chunkSize ?? 50)
-    this.retainMs = opts.retainMs ?? 6 * 60 * 60_000
     this.maxRetained = opts.maxRetained ?? 1000
   }
 
@@ -192,13 +191,12 @@ export class DanbooruImports {
   }
 
   private isIdle(): boolean {
-    return this.running === 0 && this.queue.length === 0
+    return this.active.size === 0
   }
 
   private pump(): void {
-    while (this.running < this.concurrency && this.queue.length) {
+    while (this.active.size - this.queue.length < this.concurrency && this.queue.length) {
       const job = this.queue.shift()!
-      this.running++
       void this.run(job)
     }
   }
@@ -206,7 +204,7 @@ export class DanbooruImports {
   /**
    * 跑一个作业，并且**无论如何**把它收尾。
    *
-   * 收尾全在 `finally`：置 finishedAt、让出并发槽、继续 pump。`execute` 里任何一处
+   * 收尾全在 `finally`：置 finishedAt、移出 `active`（这就是让出并发槽）、继续 pump。`execute` 里任何一处
    * `return`（列表为空、没有待下载）都不会跳过它 —— URL 导入第一版就是把提前退出和
    * 收尾写在一起，结果空结果的导入永远停在 running（见 `routes/commands.ts` 的
    * `importOnce`）。
@@ -229,9 +227,9 @@ export class DanbooruImports {
     finally {
       job.phase = null
       job.finishedAt = new Date().toISOString()
+      // 必须在 pump / isIdle 之前：在跑的个数是从 active 算出来的。
       if (this.active.get(job.tags) === job)
         this.active.delete(job.tags)
-      this.running--
       this.prune()
       this.pump()
       if (this.isIdle()) {
@@ -260,10 +258,8 @@ export class DanbooruImports {
     }, { queue: IO_QUEUE, timeoutMs: LIST_TIMEOUT_MS, pollMs: 500, maxAttempts: 1 })
 
     const { stats, items } = listing
-    job.total = stats.total
-    job.withUrl = stats.withUrl
-    job.filtered = stats.filtered
-    job.earlyStopped = stats.earlyStopped
+    // stats 的键（total / withUrl / filtered / earlyStopped）和作业上的同名。
+    Object.assign(job, stats)
     job.pending = items.length
     job.skipped = stats.filtered - items.length
 
@@ -273,22 +269,31 @@ export class DanbooruImports {
     for (let i = 0; i < items.length; i += this.chunkSize) {
       const chunk: DanbooruItem[] = items.slice(i, i + this.chunkSize)
       try {
-        const result = await tasks.call(danbooruDownloadTask, { items: chunk, saveDir }, {
+        // 行留在这边，不跟着下载走：worker 只要知道下什么、存成什么名字。
+        const downloadItems = chunk.map(i => ({
+          fileUrl: i.fileUrl,
+          fileSize: i.fileSize,
+          fileName: i.row.fileName,
+          extension: i.row.extension,
+        }))
+        const result = await tasks.call(danbooruDownloadTask, { items: downloadItems, saveDir }, {
           queue: IO_QUEUE,
           timeoutMs: DOWNLOAD_TIMEOUT_MS,
           pollMs: 500,
           maxAttempts: 1,
         })
-        // 每块回来立刻落库：行只含字节已落盘的那些（worker 保证），新行的空列由
-        // backfill 去填 —— persistPostsWithTags 自己叫醒循环。
-        persistPostsWithTags(this.db, result.rows)
+        // 每块回来立刻落库，只落 worker 报告字节已落盘的那些 —— 行绝不能早于文件。
+        // 本来就在盘上的也在 landed 里，所以上次落盘却没落库的块这次会补上。新行的
+        // 空列由 backfill 去填 —— persistPostsWithTags 自己叫醒循环。
+        const landed = new Set(result.landed)
+        persistPostsWithTags(this.db, chunk.filter(i => landed.has(i.row.fileName)).map(i => i.row))
         job.downloaded += result.downloaded
         job.skipped += result.skipped
         job.failed += result.failed
       }
       catch (err) {
         // 一块失败不中断整个作业：整块记为失败，接着下一块。这块里已经落盘、却没落库
-        // 的文件，下次运行下载会 skip 并照样回传行。
+        // 的文件，下次运行下载会 skip 并照样报告为 landed。
         job.failed += chunk.length
         job.error = String(err)
         console.warn(`[danbooru-import] ${job.tags} 第 ${i / this.chunkSize + 1} 块失败：${String(err)}`)
@@ -297,20 +302,23 @@ export class DanbooruImports {
     }
   }
 
-  /** 清理已结束的旧作业：超过 retainMs 的，以及超出 maxRetained 的最老那些。 */
+  /**
+   * 已结束的作业超出 maxRetained 时，删掉最老的那些。`jobs` 按插入（= 创建）顺序
+   * 迭代，所以从头删就是从最老的删；在跑、排队的跳过。
+   */
   private prune(): void {
-    const cutoff = Date.now() - this.retainMs
-    const finished: DanbooruImportJob[] = []
+    let excess = -this.maxRetained
     for (const job of this.jobs.values()) {
-      if (isActive(job))
-        continue
-      if (Date.parse(job.finishedAt!) < cutoff)
-        this.jobs.delete(job.id)
-      else
-        finished.push(job)
+      if (!isActive(job))
+        excess++
     }
-    // finished 按创建顺序排列，最老的在前。
-    for (const job of finished.slice(0, Math.max(0, finished.length - this.maxRetained)))
-      this.jobs.delete(job.id)
+    for (const job of this.jobs.values()) {
+      if (excess <= 0)
+        return
+      if (!isActive(job)) {
+        this.jobs.delete(job.id)
+        excess--
+      }
+    }
   }
 }

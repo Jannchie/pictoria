@@ -101,15 +101,8 @@ def _item(post_id: int, ext: str = "png") -> dict[str, Any]:
     return {
         "fileUrl": f"https://cdn/{post_id}.{ext}",
         "fileSize": 3,
-        "row": {
-            "filePath": "danbooru/x",
-            "fileName": str(post_id),
-            "extension": ext,
-            "source": f"https://danbooru.donmai.us/posts/{post_id}",
-            "rating": 1,
-            "publishedAt": None,
-            "tags": {"x": 1},
-        },
+        "fileName": str(post_id),
+        "extension": ext,
     }
 
 
@@ -120,10 +113,10 @@ def library(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     return root
 
 
-async def test_download_returns_rows_only_for_files_that_landed(library: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+async def test_download_reports_only_files_that_landed(library: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     # A row must never exist before its file: sync would see it as deleted from
-    # disk and remove it. So an item the client failed to fetch gets no row,
-    # even though the listing handed it over with one already built.
+    # disk and remove it. So an item the client failed to fetch is not reported
+    # as landed, and TS never persists the row the listing built for it.
     seen: list[Any] = []
 
     class Client:
@@ -137,13 +130,30 @@ async def test_download_returns_rows_only_for_files_that_landed(library: Path, m
 
     result = await handle_danbooru_download({"items": [_item(11), _item(12, "jpg")], "saveDir": str(save_dir)})
 
-    assert [r["fileName"] for r in result["rows"]] == ["11"]
+    assert result["landed"] == ["11"]
     assert (result["downloaded"], result["skipped"], result["failed"]) == (1, 0, 1)
-    # The download target is rebuilt from the row: id and extension name the file.
+    # The download target is rebuilt from the item: fileName and extension name the file.
     assert [(t.id, t.file_ext, t.file_url, t.file_size) for t in seen] == [
         (11, "png", "https://cdn/11.png", 3),
         (12, "jpg", "https://cdn/12.jpg", 3),
     ]
+
+
+async def test_download_counts_a_file_already_on_disk_as_landed(library: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    # A chunk whose bytes landed but whose rows were never persisted heals on the
+    # next run only if the skipped file is still reported as landed.
+    class Client:
+        def download_posts(self, posts: list[Any], _save_dir: Path) -> dict[str, int]:
+            return {"downloaded": 0, "skipped": len(posts), "failed": 0}
+
+    monkeypatch.setattr(importers, "_danbooru_client", Client())
+    save_dir = library / "danbooru" / "x"
+    save_dir.mkdir(parents=True)
+    (save_dir / "21.png").write_bytes(b"abc")
+
+    result = await handle_danbooru_download({"items": [_item(21)], "saveDir": str(save_dir)})
+
+    assert result == {"landed": ["21"], "downloaded": 0, "skipped": 1, "failed": 0}
 
 
 @pytest.mark.usefixtures("library")

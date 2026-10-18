@@ -7,35 +7,30 @@
  * 文本搜索的 `searchByTextVector` 是同一类扫描。
  *
  * 做法：`node:worker_threads` 起几个线程，每个开**自己的只读连接**（WAL 下读不阻塞写、
- * 也不被写阻塞，读到的是已提交数据），主线程按消息派发。线程里能调的只有下面
- * `Reads` 列出的两个函数（`read-worker.ts` 的白名单）—— 这不是一个任意 SQL 执行器，
+ * 也不被写阻塞，读到的是已提交数据），主线程按消息派发。线程里能调的只有
+ * `read-fns.ts` 登记的那几个函数（读线程按它校验）—— 这不是一个任意 SQL 执行器，
  * 写永远留在主线程那一条连接上。
  *
  * 路由经 `c.var.reads` 拿（`env.ts`）。测试和 `PICTORIA_READ_THREADS=0` 用
  * `inProcessReads`：同一组函数在主线程同步执行，包成 Promise。
  */
-import type { PostFilter, SqliteHandle } from '@pictoria/db'
+import type { SqliteHandle } from '@pictoria/db'
+import type { ReadArgs, ReadFnName, ReadResult } from './read-fns.js'
 import { createRequire } from 'node:module'
 import process from 'node:process'
 import { pathToFileURL } from 'node:url'
 import { Worker } from 'node:worker_threads'
-import { knn, searchByTextVector } from '@pictoria/db'
+import { READ_FN_NAMES, READ_FNS } from './read-fns.js'
 
-type SearchOptions = NonNullable<Parameters<typeof searchByTextVector>[3]>
-
-export interface Reads {
-  knn: (seedPostId: number, k: number) => Promise<Array<[number, number]>>
-  searchByTextVector: (vector: Float32Array, filter: PostFilter, opts: SearchOptions) => Promise<ReturnType<typeof searchByTextVector>>
+/** 每个登记的读函数一个异步方法（去掉连接参数），外加 `close`。由 `READ_FNS` 生成。 */
+export type Reads = { [K in ReadFnName]: (...args: ReadArgs<K>) => Promise<ReadResult<K>> } & {
   close: () => Promise<void>
 }
-
-/** 线程里允许调的函数名。和 `read-worker.ts` 的 `HANDLERS` 一一对应。 */
-export type ReadFn = Exclude<keyof Reads, 'close'>
 
 /** 主线程 → 读线程。 */
 export interface ReadRequest {
   id: number
-  fn: ReadFn
+  fn: ReadFnName
   args: unknown[]
 }
 
@@ -44,13 +39,26 @@ export type ReadReply
   = | { id: number, ok: true, value: unknown }
     | { id: number, ok: false, error: { name: string, message: string, stack?: string, code?: string } }
 
+type Invoke = (fn: ReadFnName, args: unknown[]) => Promise<unknown>
+
+/**
+ * 按 `READ_FN_NAMES` 生成方法对象。类型的对应在 `Reads` 的映射类型里，运行时这里只是
+ * 按名字转发 —— 所以要一次断言。
+ */
+function buildReads(invoke: Invoke, close: () => Promise<void>): Reads {
+  const methods: Record<string, unknown> = { close }
+  for (const fn of READ_FN_NAMES)
+    methods[fn] = (...args: unknown[]) => invoke(fn, args)
+  return methods as Reads
+}
+
 /** 在当前线程同步执行，包成 Promise。测试、兜底、`PICTORIA_READ_THREADS=0` 用。 */
 export function inProcessReads(db: SqliteHandle): Reads {
-  return {
-    knn: async (seedPostId, k) => knn(db, seedPostId, k),
-    searchByTextVector: async (vector, filter, opts) => searchByTextVector(db, vector, filter, opts),
-    close: async () => {},
-  }
+  // async：同步抛的错也变成 reject，和线程池那边的行为一致。
+  return buildReads(
+    async (fn, args) => (READ_FNS[fn] as (db: SqliteHandle, ...a: unknown[]) => unknown)(db, ...args),
+    async () => {},
+  )
 }
 
 const DEFAULT_READ_THREADS = 2
@@ -94,9 +102,7 @@ function workerEntry(): { url: URL, execArgv: string[] } {
 }
 
 interface Job {
-  id: number
-  fn: ReadFn
-  args: unknown[]
+  req: ReadRequest
   resolve: (value: any) => void
   reject: (err: unknown) => void
 }
@@ -111,7 +117,7 @@ interface Slot {
 export interface ReadPoolOptions {
   dbPath: string
   /** 线程数，≥ 1。`0` 的语义（不起线程）由调用方处理：那时没有路径可开，见 `index.ts`。 */
-  size?: number
+  size: number
   /** 测试用：换一个线程入口（比如一个按需自杀的假线程）。生产不传。 */
   entry?: { url: URL, execArgv: string[] }
 }
@@ -127,7 +133,7 @@ function errorFromReply(e: Extract<ReadReply, { ok: false }>['error']): Error {
   return err
 }
 
-export function createReadPool({ dbPath, size = DEFAULT_READ_THREADS, entry = workerEntry() }: ReadPoolOptions): Reads {
+export function createReadPool({ dbPath, size, entry = workerEntry() }: ReadPoolOptions): Reads {
   if (!Number.isInteger(size) || size < 1)
     throw new Error(`createReadPool: size 必须是正整数，拿到 ${size}`)
 
@@ -144,7 +150,7 @@ export function createReadPool({ dbPath, size = DEFAULT_READ_THREADS, entry = wo
 
     worker.on('message', (reply: ReadReply) => {
       const job = slot.job
-      if (!job || job.id !== reply.id)
+      if (!job || job.req.id !== reply.id)
         return
       slot.job = null
       slot.crashes = 0
@@ -206,36 +212,55 @@ export function createReadPool({ dbPath, size = DEFAULT_READ_THREADS, entry = wo
         continue
       const job = queue.shift()!
       slot.job = job
-      slot.worker.postMessage({ id: job.id, fn: job.fn, args: job.args } satisfies ReadRequest)
+      slot.worker.postMessage(job.req)
     }
   }
 
-  function call<T>(fn: ReadFn, args: unknown[]): Promise<T> {
+  function call(fn: ReadFnName, args: unknown[]): Promise<unknown> {
     if (closed)
       return Promise.reject(new Error('读线程池已关闭'))
-    return new Promise<T>((resolve, reject) => {
-      queue.push({ id: nextId++, fn, args, resolve, reject })
+    return new Promise((resolve, reject) => {
+      queue.push({ req: { id: nextId++, fn, args }, resolve, reject })
       dispatch()
     })
+  }
+
+  /**
+   * 同参数的并发调用共用一个 Promise，只派一次线程。
+   *
+   * 只对 `knn` 做：同一张图的 similar 撞在一起（来回切图、重复打开）时，每一次都是
+   * 1.5–3 秒的整表扫描，白扫一遍就是排在后面的请求再多等一遍；它的参数是两个数字，
+   * 拼 key 不花钱。`searchByTextVector` 的参数里有 Float32Array，JSON.stringify 出来是
+   * 按下标展开的对象，又贵又难得重复，不做。结果是共享的同一个对象，调用方不能改它。
+   */
+  const inflight = new Map<string, Promise<unknown>>()
+  const invoke: Invoke = (fn, args) => {
+    if (fn !== 'knn')
+      return call(fn, args)
+    const key = fn + JSON.stringify(args)
+    const hit = inflight.get(key)
+    if (hit)
+      return hit
+    const p = call(fn, args)
+    inflight.set(key, p)
+    const forget = () => inflight.delete(key)
+    p.then(forget, forget)
+    return p
   }
 
   for (let i = 0; i < size; i++)
     spawn(0)
 
-  return {
-    knn: (seedPostId, k) => call('knn', [seedPostId, k]),
-    searchByTextVector: (vector, filter, opts) => call('searchByTextVector', [vector, filter, opts]),
-    close: async () => {
-      if (closed)
-        return
-      closed = true
-      const err = new Error('读线程池已关闭')
-      for (const job of queue.splice(0))
-        job.reject(err)
-      const running = [...slots]
-      for (const slot of running)
-        failJob(slot, err)
-      await Promise.all(running.map(s => s.worker.terminate()))
-    },
-  }
+  return buildReads(invoke, async () => {
+    if (closed)
+      return
+    closed = true
+    const err = new Error('读线程池已关闭')
+    for (const job of queue.splice(0))
+      job.reject(err)
+    const running = [...slots]
+    for (const slot of running)
+      failJob(slot, err)
+    await Promise.all(running.map(s => s.worker.terminate()))
+  })
 }

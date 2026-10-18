@@ -206,10 +206,10 @@ const CONTRACTS: Contract[] = [
     },
   }),
   contract(danbooruDownloadTask, {
-    items: [danbooruItem],
+    items: [{ fileUrl: 'string', fileSize: 'number', fileName: 'string', extension: 'string' }],
     saveDir: 'string',
   }, {
-    rows: [postRow],
+    landed: 'array',
     downloaded: 'number',
     skipped: 'number',
     failed: 'number',

@@ -255,14 +255,14 @@ async def download_one(job: Job, tag: str, sem: asyncio.Semaphore) -> None:
         start = time.monotonic()
         try:
             final = await _run_tag(job, tag)
-        except TagFailedError as exc:
-            _record_fail(job, tag, str(exc), start)
         except Exception as exc:  # 一个 tag 的意外（包括 API 耐心用完）不该拖垮整轮
-            _record_fail(job, tag, f"{type(exc).__name__}: {exc}", start)
+            # TagFailedError 的消息本身就是给人看的失败原因；别的异常带上类型名才看得懂。
+            reason = str(exc) if isinstance(exc, TagFailedError) else f"{type(exc).__name__}: {exc}"
+            _record_fail(job, tag, reason, start)
         else:
-            dl = int(final.get("downloaded", 0))
-            sk = int(final.get("skipped", 0))
-            fl = int(final.get("failed", 0))
+            dl = final["downloaded"]
+            sk = final["skipped"]
+            fl = final["failed"]
             totals = job.totals
             totals.downloaded += dl
             totals.skipped += sk

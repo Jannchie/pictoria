@@ -557,7 +557,8 @@ export interface NormalizedPostRow {
  * Danbooru 列表里一条待下载的 post。
  *
  * `row` 在**列表阶段**就算好：tag → 组的映射要读 Danbooru 的 `tag_string_*`，那些字段
- * 只在列表响应里有；而 TS 侧只需要把它原样送进下载任务、拿回落了盘的那些。
+ * 只在列表响应里有。它留在 TS 侧，不进下载任务：下载只要知道下什么、存成什么名字
+ * （`DanbooruDownloadItem`），回来的是哪些落了盘，TS 再挑出对应的行落库。
  */
 export interface DanbooruItem {
   /** CDN 上原图的地址。 */
@@ -614,23 +615,38 @@ export interface DanbooruListResult {
  */
 export const danbooruListTask = defineTask<DanbooruListPayload, DanbooruListResult>('danbooru-list')
 
+/** 下载任务里的一项：`DanbooruItem` 去掉行，只留下载和命名要的。 */
+export interface DanbooruDownloadItem {
+  /** CDN 上原图的地址。 */
+  fileUrl: string
+  /** API 报的原图字节数，下载完拿它校验截断（0 = 不校验）。 */
+  fileSize: number
+  /** 落盘的文件名主干，即 `row.fileName`（Danbooru post id）。 */
+  fileName: string
+  /** 即 `row.extension`（`file_ext`）。 */
+  extension: string
+}
+
 export interface DanbooruDownloadPayload {
-  /** 这一块要下的项，原样来自 `DanbooruListResult.items`。 */
-  items: DanbooruItem[]
+  /** 这一块要下的项。 */
+  items: DanbooruDownloadItem[]
   /** 落盘目录的绝对路径。必须在图库根之内。 */
   saveDir: string
 }
 
 export interface DanbooruDownloadResult {
-  /** 只包含**字节已经落盘**的那些 —— 行不能早于文件存在。 */
-  rows: NormalizedPostRow[]
+  /**
+   * **字节已经落盘**的那些项的 `fileName` —— TS 只落这些的行，行不能早于文件存在。
+   * 本来就在盘上、没有重下的也算：上次落盘了却没落库的那块，这次照样补上行（和 tag）。
+   */
+  landed: string[]
   downloaded: number
-  /** 文件已在盘上、没有重下的。它们的行照样在 `rows` 里（补上可能缺的 tag）。 */
+  /** 文件已在盘上、没有重下的。它们照样在 `landed` 里。 */
   skipped: number
   failed: number
 }
 
-/** Danbooru 标签导入的后半：下一块，回传可以落库的行。 */
+/** Danbooru 标签导入的后半：下一块，回传哪些落了盘。 */
 export const danbooruDownloadTask = defineTask<DanbooruDownloadPayload, DanbooruDownloadResult>('danbooru-download')
 
 /**

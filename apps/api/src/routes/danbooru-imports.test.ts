@@ -2,7 +2,7 @@
  * `/v2/danbooru-imports` 与它背后的作业队列。
  *
  * worker 用 `fakeTasks` 顶替：`danbooru-list` 回一份脚本里的列表，`danbooru-download`
- * 把收到的项原样当成"已落盘"回传。需要卡住某一步时，reply 返回一个由测试手动放行的
+ * 把收到的项全部报告为"已落盘"。需要卡住某一步时，reply 返回一个由测试手动放行的
  * Promise。守的是 TS 这一侧的职责：去重、并发上限、分块落库、失败的收尾。
  */
 import { afterEach, describe, expect, it } from 'vitest'
@@ -62,7 +62,7 @@ function listing(payload: any, ids: number[]) {
 
 /** 把收到的项当作全部落盘。 */
 function downloadAll(payload: any) {
-  return { rows: payload.items.map((i: any) => i.row), downloaded: payload.items.length, skipped: 0, failed: 0 }
+  return { landed: payload.items.map((i: any) => i.fileName), downloaded: payload.items.length, skipped: 0, failed: 0 }
 }
 
 function postCount(t: TestApp): number {
@@ -106,6 +106,26 @@ describe('POST /v2/danbooru-imports', () => {
     expect(list.payload).toMatchObject({ tags: 'some_artist', fullScan: false, filePathStr: 'danbooru/some_artist', importedIds: [] })
     expect(list.opts).toMatchObject({ queue: 'io', maxAttempts: 1 })
     expect(tasks.calls[1]!.payload.saveDir.replaceAll('\\', '/')).toMatch(/\/danbooru\/some_artist$/)
+    // 下载任务不带行：只有下什么、存成什么名字。
+    expect(tasks.calls[1]!.payload.items[0]).toEqual({
+      fileUrl: 'https://cdn.donmai.us/1.png',
+      fileSize: 3,
+      fileName: '1',
+      extension: 'png',
+    })
+  })
+
+  it('只落 worker 报告已落盘的那些行', async () => {
+    const { t } = setup((task, payload) => task === 'danbooru-list'
+      ? listing(payload, [1, 2, 3])
+      : { landed: ['2'], downloaded: 1, skipped: 0, failed: 2 })
+
+    const { body } = await submit(t, 'some_artist')
+    await t.danbooruImports.idle()
+
+    const names = t.sqlite.prepare('SELECT file_name FROM posts').all() as Array<{ file_name: string }>
+    expect(names.map(r => r.file_name)).toEqual(['2'])
+    expect(t.danbooruImports.get(body.id)).toMatchObject({ state: 'done', downloaded: 1, failed: 2 })
   })
 
   it('tags 为空（trim 后）→ 400，不建作业', async () => {

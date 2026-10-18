@@ -12,6 +12,9 @@ import type { SqliteHandle } from './connection.js'
 import { createDb } from './connection.js'
 import { MIGRATIONS_DIR, runMigrations } from './migrate.js'
 
+// 包外的测试（`apps/api`）也要造 post 和向量：复用 db 包自己测试用的那几个，不另写一份。
+export { insertPost, insertVector, unitBlob } from './__fixtures__/testdb.js'
+
 export function createTestDb(): SqliteHandle {
   const { sqlite } = createDb({ path: ':memory:' })
   runMigrations(sqlite, MIGRATIONS_DIR)

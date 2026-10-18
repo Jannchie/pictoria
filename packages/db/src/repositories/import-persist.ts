@@ -107,6 +107,9 @@ export function persistPostsWithTags(
  * 可能先以无标签的形式进库 —— 磁盘对账会给任何已在盘上的文件插一条裸行，而一次
  * DB 重置或快照回滚也会留下没有 `post_has_tag` 的文件。按"行存在"去重会让那些裸行
  * 永远被跳过（它们的 file_name 就在那儿），Danbooru 的标签永远写不进去。
+ *
+ * 用 `EXISTS` 而不是 JOIN：JOIN 每个手工标签出一行，一张 Danbooru 图三十来个标签，
+ * 回给 worker 的 id 列表就膨胀三十多倍。
  */
 export function listImportedDanbooruIds(
   sqlite: BetterSqlite3.Database,
@@ -115,8 +118,8 @@ export function listImportedDanbooruIds(
   return sqlite
     .prepare<[string], { file_name: string }>(
       'SELECT p.file_name FROM posts p '
-      + 'JOIN post_has_tag pht ON pht.post_id = p.id AND pht.is_auto = 0 '
-      + 'WHERE p.file_path = ?',
+      + 'WHERE p.file_path = ? '
+      + 'AND EXISTS (SELECT 1 FROM post_has_tag pht WHERE pht.post_id = p.id AND pht.is_auto = 0)',
     )
     .all(filePathStr)
     .map(r => r.file_name)

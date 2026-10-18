@@ -7,42 +7,28 @@
  */
 import type { SqliteHandle } from '@pictoria/db'
 import type { Reads } from './read-pool.js'
-import { Buffer } from 'node:buffer'
 import fs from 'node:fs'
 import { createRequire } from 'node:module'
 import os from 'node:os'
 import path from 'node:path'
 import { pathToFileURL } from 'node:url'
-import { createDb, createTestDb, knn, MIGRATIONS_DIR, runMigrations, searchByTextVector, SIGLIP2_DIM, upsertVectors } from '@pictoria/db'
+import { createDb, createTestDb, insertPost, insertVector, knn, MIGRATIONS_DIR, runMigrations, searchByTextVector, unitBlob } from '@pictoria/db'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import { createReadPool, inProcessReads } from './read-pool.js'
 
 const POSTS = 40
 
-/** 确定性的伪随机单位向量：每个 id 一个，测试之间可复现。 */
+/** 文搜图的查询向量：和库里 post 的向量同一个生成器，换成 Float32Array。 */
 function unitVector(seed: number): Float32Array {
-  const v = new Float32Array(SIGLIP2_DIM)
-  let x = seed * 2654435761 % 2 ** 32
-  let norm = 0
-  for (let i = 0; i < v.length; i++) {
-    x = (x * 1664525 + 1013904223) % 2 ** 32
-    v[i] = x / 2 ** 32 - 0.5
-    norm += v[i]! * v[i]!
-  }
-  norm = Math.sqrt(norm)
-  for (let i = 0; i < v.length; i++) v[i]! /= norm
-  return v
+  const b = unitBlob(seed)
+  return new Float32Array(b.buffer, b.byteOffset, b.byteLength / 4)
 }
 
 function seed(sqlite: SqliteHandle): void {
-  const ins = sqlite.prepare('INSERT INTO posts (file_path, file_name, extension) VALUES (?, ?, ?)')
-  const rows: Array<{ postId: number, embedding: Buffer }> = []
-  for (let i = 1; i <= POSTS; i++) {
-    const id = Number(ins.run('.', `p${i}`, 'png').lastInsertRowid)
-    const v = unitVector(i)
-    rows.push({ postId: id, embedding: Buffer.from(v.buffer, v.byteOffset, v.byteLength) })
+  for (let id = 1; id <= POSTS; id++) {
+    insertPost(sqlite, { id })
+    insertVector(sqlite, id)
   }
-  upsertVectors(sqlite, rows)
 }
 
 describe('inProcessReads', () => {
@@ -104,30 +90,66 @@ describe('createReadPool（真实线程）', () => {
     }
   })
 
-  it('线程崩溃时手上的请求 reject，补位的新线程接着干活', async () => {
-    // 假线程：包住真读线程的 message 监听 —— 种子是 -1 就 process.exit(3)，否则照常处理。
-    // 包 `on` 而不是另挂一个监听：端口在第一个监听挂上时就开始投递，真线程的监听还在
-    // 加载（tsx 转译）时到达的消息会丢。MessagePort 也没有 prependListener。
+  /**
+   * 假线程：包住真读线程的 message 监听，`intercept` 是一段 JS，拿到消息 `m` 和真监听
+   * `fn`，自己决定怎么处理。包 `on` 而不是另挂一个监听：端口在第一个监听挂上时就开始
+   * 投递，真线程的监听还在加载（tsx 转译）时到达的消息会丢。MessagePort 也没有
+   * prependListener。
+   */
+  function wrappedEntry(name: string, prelude: string, intercept: string): { url: URL, execArgv: string[] } {
     const tsx = pathToFileURL(createRequire(import.meta.url).resolve('tsx')).href
-    const crashing = path.join(dir, 'crashing-worker.mjs')
+    const file = path.join(dir, `${name}.mjs`)
     const realWorker = new URL('./read-worker.ts', import.meta.url).href
-    fs.writeFileSync(crashing, [
+    fs.writeFileSync(file, [
       `import { parentPort } from 'node:worker_threads'`,
+      prelude,
       `const on = parentPort.on.bind(parentPort)`,
-      `parentPort.on = (ev, fn) => on(ev, ev === 'message' ? (m) => { if (m.args[0] === -1) process.exit(3); fn(m) } : fn)`,
+      `parentPort.on = (ev, fn) => on(ev, ev === 'message' ? (m) => { ${intercept} } : fn)`,
       `await import(${JSON.stringify(realWorker)})`,
     ].join('\n'))
+    return { url: pathToFileURL(file), execArgv: ['--import', tsx] }
+  }
 
+  it('线程崩溃时手上的请求 reject，补位的新线程接着干活', async () => {
+    // 种子是 -1 就 process.exit(3)，否则照常处理。
     const pool: Reads = createReadPool({
       dbPath: dbFile,
       size: 1,
-      entry: { url: pathToFileURL(crashing), execArgv: ['--import', tsx] },
+      entry: wrappedEntry('crashing-worker', '', 'if (m.args[0] === -1) process.exit(3); fn(m)'),
     })
     try {
       const doomed = pool.knn(-1, 5)
       const queued = pool.knn(4, 5)
       await expect(doomed).rejects.toThrow(/exit code 3/)
       expect(await queued).toEqual(knn(reference, 4, 5))
+    }
+    finally {
+      await pool.close()
+    }
+  })
+
+  it('同参数的并发 knn 只派一次线程，结束后不再复用', async () => {
+    // 线程数一数自己收到了几个请求；种子 -2 是探针，直接回这个数，不计入、不查库。
+    const pool = createReadPool({
+      dbPath: dbFile,
+      size: 1,
+      entry: wrappedEntry(
+        'counting-worker',
+        'let seen = 0',
+        'if (m.args[0] === -2) parentPort.postMessage({ id: m.id, ok: true, value: seen }); else { seen++; fn(m) }',
+      ),
+    })
+    const seen = async () => (await pool.knn(-2, 0)) as unknown as number
+    try {
+      const [a, b] = await Promise.all([pool.knn(5, 10), pool.knn(5, 10)])
+      expect(a).toEqual(knn(reference, 5, 10))
+      // 同一个对象：两个调用拿的是同一个 Promise 的结果。
+      expect(b).toBe(a)
+      expect(await seen()).toBe(1)
+
+      // 上一次已经结束，key 已删：同样的调用会重新派一次。
+      await pool.knn(5, 10)
+      expect(await seen()).toBe(2)
     }
     finally {
       await pool.close()
