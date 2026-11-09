@@ -48,6 +48,23 @@ export function choiceBindings(dimensions: string[], scale: number): ChoiceBindi
 
 // ── Sortable list (listwise ranking) ─────────────────────────────────────────
 
+/**
+ * Whether a listwise group's order may be submitted yet.
+ *
+ * The starting order is the server's random presentation order, so submitting it
+ * unchanged is almost always a slip — and it would land in the training export as
+ * a judgement. `untouched` therefore needs Enter twice: the first press only arms.
+ * Any move makes the order `adjusted` (a real judgement). This used to be two
+ * booleans (`touched`, `confirmArmed`) reset in pairs at five call sites; "armed
+ * after adjusting" was representable and meaningless.
+ */
+export type ListwiseGate = 'untouched' | 'armed' | 'adjusted'
+
+/** Enter on a group: submit now, or arm first if the order is still untouched. */
+export function gateOnSubmit(gate: ListwiseGate): { gate: ListwiseGate, submit: boolean } {
+  return gate === 'untouched' ? { gate: 'armed', submit: false } : { gate, submit: true }
+}
+
 /** Move `list[from]` to index `to` (clamped). Returns a new array. */
 export function moveItem<T>(list: readonly T[], from: number, to: number): T[] {
   const next = [...list]

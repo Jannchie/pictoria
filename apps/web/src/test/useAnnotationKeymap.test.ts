@@ -1,6 +1,6 @@
 // @vitest-environment happy-dom
 import { describe, expect, it } from 'vitest'
-import { activeKeys, choiceBindings, isForeignComposite, KEY_ROWS, keyToChoice, moveItem, sortableIntent, sortableTarget } from '@/composables/useAnnotationKeymap'
+import { activeKeys, choiceBindings, gateOnSubmit, isForeignComposite, KEY_ROWS, keyToChoice, moveItem, sortableIntent, sortableTarget } from '@/composables/useAnnotationKeymap'
 
 const DIMS = ['color', 'finish', 'composition']
 
@@ -61,6 +61,18 @@ describe('choicebindings', () => {
     const keys = choiceBindings(['a', 'b', 'c', 'd'], 5).map(b => b.key)
     expect(keys).toContain('z')
     expect(keys.every(k => !k.includes('+'))).toBe(true)
+  })
+})
+
+describe('gateonsubmit', () => {
+  it('an untouched order only arms on the first enter, then submits', () => {
+    const first = gateOnSubmit('untouched')
+    expect(first).toEqual({ gate: 'armed', submit: false })
+    expect(gateOnSubmit(first.gate)).toEqual({ gate: 'armed', submit: true })
+  })
+
+  it('an adjusted order submits at once', () => {
+    expect(gateOnSubmit('adjusted')).toEqual({ gate: 'adjusted', submit: true })
   })
 })
 

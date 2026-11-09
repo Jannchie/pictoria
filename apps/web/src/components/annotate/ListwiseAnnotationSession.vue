@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import type { QueueItemPostPublic, QueueSummaryPublic } from '@/api'
+import type { ListwiseGate } from '@/composables/useAnnotationKeymap'
 import type { AnnotationDimension } from '@/shared/annotationTypes'
 import { useQueryClient } from '@tanstack/vue-query'
 import { computed, nextTick, ref, useId, useTemplateRef, watch } from 'vue'
@@ -7,7 +8,7 @@ import { useI18n } from 'vue-i18n'
 import { v2NextListwise, v2SampleListwise } from '@/api'
 import AnnotationKeyHints from '@/components/annotate/AnnotationKeyHints.vue'
 import AnnotationLoadError from '@/components/annotate/AnnotationLoadError.vue'
-import { moveItem, noLayerOpen, sortableIntent, sortableTarget } from '@/composables/useAnnotationKeymap'
+import { gateOnSubmit, moveItem, noLayerOpen, sortableIntent, sortableTarget } from '@/composables/useAnnotationKeymap'
 import { useAnnotationSessionFrame, useAnnotationStream } from '@/composables/useAnnotationStream'
 import { useAPIError } from '@/composables/useAPIError'
 import { preloadImage } from '@/composables/usePostPrefetch'
@@ -77,11 +78,11 @@ const totalLabel = stream.progressLabel
 // 一字排开、拖拽定序：order 是当前行序（post_id，左 = 最好），初始 = 呈现顺序。
 // 呈现顺序由服务端随机化并存进 postIds，留作顺序效应审计。
 const order = ref<number[]>([])
-const touched = ref(false) // 至少拖动过一次才认为这是判断而不是初始随机序
-const confirmArmed = ref(false) // 未调整时 Enter 需要按两次，防止把随机序当标注提交
-// Keyboard pick-up (see the Keyboard section): the card being moved, and the order to
-// restore on Escape.
-interface Grab { id: number, original: number[], touched: boolean }
+// 至少拖动过一次才认为这是判断而不是初始随机序；未调整时 Enter 要按两次（见 ListwiseGate）。
+const gate = ref<ListwiseGate>('untouched')
+// Keyboard pick-up (see the Keyboard section): the card being moved, and the order and
+// gate to restore on Escape.
+interface Grab { id: number, original: number[], gate: ListwiseGate }
 const grabbed = ref<Grab | null>(null)
 const postById = computed(() => new Map((current.value?.posts ?? []).map(p => [p.id, p])))
 
@@ -229,8 +230,7 @@ function onPointerUp() {
     next.splice(d.to, 0, ...next.splice(d.from, 1))
     order.value = next
   }
-  touched.value = true
-  confirmArmed.value = false
+  gate.value = 'adjusted'
 }
 
 function onPointerCancel() {
@@ -317,8 +317,7 @@ function submit(ranking: number[]) {
       stillHere: () => dimension.value === judgedIn,
       onRevert: () => {
         order.value = ranking.length > 0 ? [...ranking] : item.posts.map(p => p.id)
-        touched.value = ranking.length > 0
-        confirmArmed.value = false
+        gate.value = ranking.length > 0 ? 'adjusted' : 'untouched'
         applyAgreement(item, ranking, -1)
       },
     })
@@ -372,8 +371,7 @@ function moveCard(pid: number, to: number) {
   }
   if (to !== from) {
     order.value = moveItem(order.value, from, to)
-    touched.value = true
-    confirmArmed.value = false
+    gate.value = 'adjusted'
     refocusCard(pid)
   }
   announce(t('annotate.listwise.moved', positionArgs(pid)))
@@ -390,7 +388,7 @@ function onCardKeydown(e: KeyboardEvent, pid: number) {
   e.preventDefault()
   switch (intent) {
     case 'grab': {
-      grabbed.value = { id: pid, original: [...order.value], touched: touched.value }
+      grabbed.value = { id: pid, original: [...order.value], gate: gate.value }
       announce(t('annotate.listwise.grabbed', positionArgs(pid)))
       break
     }
@@ -403,7 +401,7 @@ function onCardKeydown(e: KeyboardEvent, pid: number) {
       const g = grabbed.value!
       grabbed.value = null
       order.value = g.original
-      touched.value = g.touched
+      gate.value = g.gate
       refocusCard(pid)
       announce(t('annotate.listwise.cancelled', positionArgs(pid)))
       break
@@ -430,8 +428,9 @@ function trySubmit() {
     return
   }
   // 一次没拖过就提交，多半是误触 —— 初始序是随机呈现序，直接进库会污染数据。
-  if (!touched.value && !confirmArmed.value) {
-    confirmArmed.value = true
+  const step = gateOnSubmit(gate.value)
+  gate.value = step.gate
+  if (!step.submit) {
     announce(t('annotate.listwise.confirm', { enter: 'Enter' }))
     return
   }
@@ -483,8 +482,7 @@ watch(current, (cur) => {
   const same = ids.length === order.value.length && ids.every(id => order.value.includes(id))
   if (!same) {
     order.value = ids
-    touched.value = false
-    confirmArmed.value = false
+    gate.value = 'untouched'
     loadedIds.value.clear()
   }
   lightbox.value = null
@@ -493,8 +491,7 @@ watch(current, (cur) => {
 
 watch(() => [props.queue?.id, props.dimension] as const, () => {
   order.value = []
-  touched.value = false
-  confirmArmed.value = false
+  gate.value = 'untouched'
   agreeOk.value = 0
   agreeTotal.value = 0
   stream.reset()
@@ -547,14 +544,14 @@ const submitKeyAria = isMac ? 'Meta+Enter' : 'Control+Enter'
     </div>
 
     <div class="flex flex-1 flex-col min-h-0 min-w-0">
-      <div class="text-sm font-medium px-4 py-2 text-center p-divider shrink-0" :class="confirmArmed ? 'listwise-confirm' : 'text-fg'">
-        <i18n-t v-if="confirmArmed" keypath="annotate.listwise.confirm" tag="span" scope="global">
+      <div class="text-sm font-medium px-4 py-2 text-center p-divider shrink-0" :class="gate === 'armed' ? 'listwise-confirm' : 'text-fg'">
+        <i18n-t v-if="gate === 'armed'" keypath="annotate.listwise.confirm" tag="span" scope="global">
           <template #enter>
             <kbd class="listwise-kbd">Enter</kbd>
           </template>
         </i18n-t>
         <template v-else>
-          {{ $t('annotate.listwise.instructions') }}<i18n-t v-if="touched" keypath="annotate.listwise.submitHint" tag="span" scope="global">
+          {{ $t('annotate.listwise.instructions') }}<i18n-t v-if="gate === 'adjusted'" keypath="annotate.listwise.submitHint" tag="span" scope="global">
             <template #enter>
               <kbd class="listwise-kbd">Enter</kbd>
             </template>
