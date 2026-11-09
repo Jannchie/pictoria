@@ -66,7 +66,7 @@ function fmtAvg(value: number | null | undefined, fractionDigits = 2): string {
     <template v-if="inGalleryView">
       <span class="flex gap-1 items-center">
         <i class="i-tabler-photo text-fg-subtle" aria-hidden="true" />
-        <span class="font-mono tabular-nums">{{ formatNumber(posts.length) }}</span>
+        <span class="tabular-nums">{{ formatNumber(posts.length) }}</span>
         <span class="text-fg-subtle">{{ $t('bottomBar.displayed') }}</span>
       </span>
       <span
@@ -74,7 +74,7 @@ function fmtAvg(value: number | null | undefined, fractionDigits = 2): string {
         class="text-primary flex gap-1 items-center"
       >
         <i class="i-tabler-checks" aria-hidden="true" />
-        <span class="font-mono tabular-nums">{{ formatNumber(selectedCount) }}</span>
+        <span class="tabular-nums">{{ formatNumber(selectedCount) }}</span>
         <span>{{ $t('bottomBar.selected') }}</span>
       </span>
       <template v-if="statsQuery.data.value">
@@ -84,18 +84,18 @@ function fmtAvg(value: number | null | undefined, fractionDigits = 2): string {
           :aria-label="$t('bottomBar.avgScoreAria', { n: statsQuery.data.value.scoredCount })"
         >
           <i class="i-tabler-star text-fg-subtle" aria-hidden="true" />
-          <span class="font-mono tabular-nums">{{ fmtAvg(statsQuery.data.value.avgScore) }}</span>
+          <span class="tabular-nums">{{ fmtAvg(statsQuery.data.value.avgScore) }}</span>
           <span class="text-fg-subtle" aria-hidden="true">·</span>
-          <span class="text-fg-subtle font-mono tabular-nums">{{ formatNumber(statsQuery.data.value.scoredCount) }}</span>
+          <span class="text-fg-subtle tabular-nums">{{ formatNumber(statsQuery.data.value.scoredCount) }}</span>
         </span>
         <span
           class="flex gap-1 items-center"
           :aria-label="$t('bottomBar.avgWaifuAria', { n: statsQuery.data.value.waifuCount })"
         >
           <i class="i-tabler-trophy text-fg-subtle" aria-hidden="true" />
-          <span class="font-mono tabular-nums">{{ fmtAvg(statsQuery.data.value.avgWaifuScore) }}</span>
+          <span class="tabular-nums">{{ fmtAvg(statsQuery.data.value.avgWaifuScore) }}</span>
           <span class="text-fg-subtle" aria-hidden="true">·</span>
-          <span class="text-fg-subtle font-mono tabular-nums">{{ formatNumber(statsQuery.data.value.waifuCount) }}</span>
+          <span class="text-fg-subtle tabular-nums">{{ formatNumber(statsQuery.data.value.waifuCount) }}</span>
         </span>
         <template v-if="ratingCounts.length > 0">
           <span class="bg-border-subtle h-3 w-px" aria-hidden="true" />
@@ -106,7 +106,7 @@ function fmtAvg(value: number | null | undefined, fractionDigits = 2): string {
             :aria-label="`${$t(r.fullKey)}: ${formatNumber(r.count)}`"
           >
             <span class="text-fg-subtle" aria-hidden="true">{{ r.short }}</span>
-            <span class="font-mono tabular-nums">{{ formatNumber(r.count) }}</span>
+            <span class="tabular-nums">{{ formatNumber(r.count) }}</span>
           </span>
         </template>
       </template>

@@ -62,7 +62,7 @@ const isOpen = computed({
       </span>
       <span
         v-if="summary !== undefined && !isOpen"
-        class="text-fg-subtle font-mono ml-auto tabular-nums"
+        class="text-fg-subtle ml-auto tabular-nums"
       >{{ summary }}</span>
     </button>
     <div

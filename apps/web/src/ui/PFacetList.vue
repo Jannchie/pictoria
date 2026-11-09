@@ -86,7 +86,7 @@ function onKeydown(e: KeyboardEvent, item: T, index: number) {
       <slot :item="item" :index="i" :selected="selected(item)" />
       <div
         v-if="count && (count(item) || selected(item))"
-        class="font-mono inline-flex flex-shrink-0 tabular-nums"
+        class="inline-flex flex-shrink-0 tabular-nums"
       >
         <span class="text-right flex-shrink-0 w-10" :class="count(item) ? 'text-fg-muted' : 'text-fg-subtle'">{{ count(item) || 0 }}</span>
         <span v-if="share && count(item)" class="text-fg-subtle text-right flex-shrink-0 w-14">{{ share(count(item)!) }}%</span>

@@ -110,7 +110,7 @@ export default defineConfig({
     'p-border': 'border border-border-default',
     'p-divider': 'border-b border-border-subtle',
     'p-popover-panel': 'p-1 border border-border-default rounded bg-surface shadow-md',
-    // Badge overlaid on a thumbnail image — white mono text on a translucent
+    // Badge overlaid on a thumbnail image — white tabular-nums text on a translucent
     // black scim. Used by the match-prob / sort / group badges in PostItem.
     // Position (absolute offsets) and exact bg opacity stay on the caller.
     // Key–value metadata grid (detail / multi-select panels): odd children are
@@ -118,6 +118,6 @@ export default defineConfig({
     // shrink and break anywhere, so a long path can't squeeze the key column.
     // Key colour stays on the caller.
     'p-kv-grid': 'grid grid-cols-[auto_minmax(0,1fr)] gap-x-3 children:[overflow-wrap:anywhere] odd:children:whitespace-nowrap',
-    'p-thumb-badge': 'text-2xs text-white tracking-wide font-bold font-mono px-1.5 py-0.5 rounded pointer-events-none tabular-nums',
+    'p-thumb-badge': 'text-2xs text-white tracking-wide font-bold px-1.5 py-0.5 rounded pointer-events-none tabular-nums',
   },
 })

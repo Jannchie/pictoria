@@ -729,7 +729,7 @@ const hintKeys = computed(() => [
               <span class="flex-grow" />
               <span
                 v-if="row.meta"
-                class="text-xs text-fg-subtle font-mono shrink-0 tabular-nums"
+                class="text-xs text-fg-subtle shrink-0 tabular-nums"
               >{{ row.meta }}</span>
               <kbd
                 v-if="row.shortcut"

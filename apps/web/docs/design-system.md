@@ -221,7 +221,7 @@ primitives:
 | Size controls in scoped CSS via `--p-control-*`                     | Nest panels / use a second surface level inside a layer |
 | Keep shadows on floating layers only (`sm` / `md`)                  | Use `shadow-lg` in `components/` or `views/`      |
 | Let `<PButton icon>` size itself — square box, button-sized glyph    | Give an icon-only button a filled variant or a call-site `w-*`/`h-*` |
-| Separate detail-panel groups with `p-divider`; render numbers with `tabular-nums` | Lean on bare spacing alone to group metadata rows |
+| Separate detail-panel groups with `p-divider`; render numbers with `tabular-nums` in the body font (`font-mono` is only for code, kbd, paths/URLs, extensions, hex) | Lean on bare spacing alone to group metadata rows |
 
 ## 7. Guard tests
 

@@ -100,7 +100,7 @@ function fmtAvg(value: number | null | undefined): string {
         </h2>
         <span
           v-if="stats"
-          class="text-fg-subtle font-mono ml-auto tabular-nums"
+          class="text-fg-subtle ml-auto tabular-nums"
         >{{ formatNumber(stats.total) }}</span>
       </div>
 
@@ -173,7 +173,7 @@ function fmtAvg(value: number | null | undefined): string {
                 :style="{ width: `${row.ratio * 100}%`, backgroundColor: row.color }"
               />
             </span>
-            <span class="text-fg-muted font-mono shrink-0 tabular-nums">{{ formatNumber(row.count) }}</span>
+            <span class="text-fg-muted shrink-0 tabular-nums">{{ formatNumber(row.count) }}</span>
           </button>
         </div>
       </section>
@@ -190,13 +190,13 @@ function fmtAvg(value: number | null | undefined): string {
         <div class="gap-x-3 gap-y-1.5 grid grid-cols-[auto_1fr_auto] items-center">
           <i class="i-tabler-star text-fg-subtle" aria-hidden="true" />
           <span class="text-fg-muted">{{ $t('post.scoreLabel') }}</span>
-          <span class="font-mono tabular-nums">
+          <span class="tabular-nums">
             {{ fmtAvg(stats.avgScore) }}
             <span class="text-fg-subtle">· {{ formatNumber(stats.scoredCount) }}</span>
           </span>
           <i class="i-tabler-trophy text-fg-subtle" aria-hidden="true" />
           <span class="text-fg-muted">{{ $t('post.waifuLabel') }}</span>
-          <span class="font-mono tabular-nums">
+          <span class="tabular-nums">
             {{ fmtAvg(stats.avgWaifuScore) }}
             <span class="text-fg-subtle">· {{ formatNumber(stats.waifuCount) }}</span>
           </span>

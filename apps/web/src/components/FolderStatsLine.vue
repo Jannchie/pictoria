@@ -74,7 +74,7 @@ const spoken = computed(() => {
       <i v-if="m.icon" class="text-fg-subtle h-3 w-3" :class="m.icon" aria-hidden="true" />
       <span v-else-if="m.label" class="text-fg-subtle">{{ m.label }}</span>
       <span
-        class="font-mono tabular-nums"
+        class="tabular-nums"
         :class="m.color ? '' : 'text-fg-muted'"
         :style="m.color ? { color: m.color } : undefined"
       >{{ m.value }}</span>

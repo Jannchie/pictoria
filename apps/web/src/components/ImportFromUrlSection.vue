@@ -134,7 +134,7 @@ function onImport() {
                   </template>
                 </i18n-t>
               </div>
-              <div class="text-xs text-fg-muted font-mono pl-6">
+              <div class="text-xs text-fg-muted pl-6 tabular-nums">
                 {{ $t('import.statFetched') }} {{ status.stats?.fetched }} · {{ $t('import.statImages') }} {{ status.stats?.images }} · {{ $t('import.statNew') }} {{ status.stats?.new }} · {{ $t('import.statDownloaded') }} {{ status.stats?.downloaded }} · {{ $t('import.statFailed') }} {{ status.stats?.failed }}
               </div>
               <i18n-t v-if="status.stats?.fetched === 0" keypath="import.noEntries" tag="p" scope="global" class="text-warning pl-6">

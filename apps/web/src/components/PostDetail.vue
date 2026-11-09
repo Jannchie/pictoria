@@ -374,7 +374,7 @@ const fileLabel = computed(() => `${post.value.fileName}.${post.value.extension}
         </span>
       </div>
       <div class="flex gap-2 items-center justify-center">
-        <div class="text-xs text-fg-muted font-mono w-32px tabular-nums" aria-hidden="true">
+        <div class="text-xs text-fg-muted w-32px tabular-nums" aria-hidden="true">
           {{ scaleStr }}%
         </div>
         <PSlider

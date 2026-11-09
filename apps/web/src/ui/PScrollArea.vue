@@ -140,9 +140,13 @@ defineExpose({
 <template>
   <!-- isolation:isolate makes this root its own stacking context, so the
        scrollbar's z-index only competes with its sibling scroll content and
-       never leaks into the surrounding layer stack (no --p-z-* step needed). -->
+       never leaks into the surrounding layer stack (no --p-z-* step needed).
+       The caller's class falls through to this root *and* is bound onto the
+       viewport below, so a caller's `overflow-y-auto` would make the root a
+       second scroller too. `overflow-clip!` (not `hidden`, which is still a
+       scroll container that scrollIntoView can move) keeps the viewport the only one. -->
   <div
-    class="relative overflow-hidden isolate"
+    class="relative isolate overflow-clip!"
   >
     <div
       v-if="scrollBarData"

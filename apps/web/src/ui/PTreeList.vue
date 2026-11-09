@@ -513,7 +513,7 @@ export default defineComponent({
       return (
         <span
           class={[
-            'ml-auto shrink-0 pl-1.5 text-[10px] font-mono tabular-nums transition-colors',
+            'ml-auto shrink-0 pl-1.5 text-[10px] tabular-nums transition-colors',
             selected ? 'text-primary' : 'text-fg-subtle group-hover/row:text-fg-muted',
           ]}
         >

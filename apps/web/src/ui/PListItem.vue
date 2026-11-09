@@ -182,7 +182,7 @@ defineExpose({
     </div>
     <div
       v-if="extraInfo"
-      class="text-xs text-fg-subtle font-mono flex-shrink-0 tabular-nums"
+      class="text-xs text-fg-subtle flex-shrink-0 tabular-nums"
     >
       {{ extraInfo }}
     </div>

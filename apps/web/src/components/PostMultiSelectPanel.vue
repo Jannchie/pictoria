@@ -286,7 +286,7 @@ const sectionTitleClass
           </div>
         </div>
         <div class="text-fg-subtle flex flex-wrap gap-x-2 gap-y-0.5 items-center">
-          <span v-if="totalSize > 0" class="font-mono tabular-nums">
+          <span v-if="totalSize > 0" class="tabular-nums">
             {{ filesize(totalSize) }}
           </span>
           <span v-if="totalSize > 0 && extensionDist.length > 0" class="op50" aria-hidden="true">·</span>
@@ -338,7 +338,7 @@ const sectionTitleClass
         </button>
         <div
           v-if="overflowCount > 0"
-          class="text-sm text-fg tracking-tight font-mono font-semibold px-2.5 py-1 rounded-full bg-surface pointer-events-none ring-1 ring-border-default shadow-sm left-1/2 top-1/2 absolute tabular-nums -translate-x-1/2 -translate-y-1/2"
+          class="text-sm text-fg tracking-tight font-semibold px-2.5 py-1 rounded-full bg-surface pointer-events-none ring-1 ring-border-default shadow-sm left-1/2 top-1/2 absolute tabular-nums -translate-x-1/2 -translate-y-1/2"
           :style="{ zIndex: Z_LEVELS }"
           aria-hidden="true"
         >
@@ -432,7 +432,7 @@ const sectionTitleClass
           <div class="flex flex-col gap-1">
             <div class="text-fg-subtle flex items-center justify-between">
               <span>{{ $t('post.ratingLabel') }}</span>
-              <span class="text-[10px] text-fg-subtle font-mono" aria-hidden="true">{{ RATING_LEGEND }}</span>
+              <span class="text-[10px] text-fg-subtle tabular-nums" aria-hidden="true">{{ RATING_LEGEND }}</span>
             </div>
             <!-- The bar is a picture; its numbers are in the sr-only list. -->
             <div class="rounded-full bg-surface-3 flex h-1.5 overflow-hidden" aria-hidden="true">
@@ -452,7 +452,7 @@ const sectionTitleClass
           <div class="flex flex-col gap-1">
             <div class="text-fg-subtle flex items-center justify-between">
               <span>{{ $t('post.scoreLabel') }}</span>
-              <span class="text-[10px] text-fg-subtle font-mono" aria-hidden="true">{{ SCORE_LEGEND }}</span>
+              <span class="text-[10px] text-fg-subtle tabular-nums" aria-hidden="true">{{ SCORE_LEGEND }}</span>
             </div>
             <div class="rounded-full bg-surface-3 flex h-1.5 overflow-hidden" aria-hidden="true">
               <div
@@ -496,14 +496,14 @@ const sectionTitleClass
             </span>
           </div>
           <div>{{ $t('multiSelect.width') }}</div>
-          <div v-if="widthRange" class="font-mono tabular-nums">
+          <div v-if="widthRange" class="tabular-nums">
             {{ formatNumber(widthRange.min) }} – {{ formatNumber(widthRange.max) }} px
           </div>
           <div v-else>
             —
           </div>
           <div>{{ $t('multiSelect.height') }}</div>
-          <div v-if="heightRange" class="font-mono tabular-nums">
+          <div v-if="heightRange" class="tabular-nums">
             {{ formatNumber(heightRange.min) }} – {{ formatNumber(heightRange.max) }} px
           </div>
           <div v-else>
