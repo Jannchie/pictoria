@@ -14,6 +14,7 @@ declare global {
   const GRID_OUTSIDE_SHORTCUTS: typeof import('./composables/useGalleryGrid').GRID_OUTSIDE_SHORTCUTS
   const KEY_ROWS: typeof import('./composables/useAnnotationKeymap').KEY_ROWS
   const SUPPORTED_LOCALES: typeof import('./locale/index').SUPPORTED_LOCALES
+  const THUMBNAIL_WIDTH: typeof import('./composables/useViewportHiRes').THUMBNAIL_WIDTH
   const UNCATEGORISED: typeof import('./composables/useTagTree').UNCATEGORISED
   const activateOptionOnKey: typeof import('./composables/useFacetFilter').activateOptionOnKey
   const activeKeys: typeof import('./composables/useAnnotationKeymap').activeKeys
@@ -59,6 +60,7 @@ declare global {
   const formatPct: typeof import('./composables/useFacetFilter').formatPct
   const formatRelativeTime: typeof import('./locale/index').formatRelativeTime
   const galleryGridKey: typeof import('./composables/useGalleryGrid').galleryGridKey
+  const gateOnSubmit: typeof import('./composables/useAnnotationKeymap').gateOnSubmit
   const gatedCountOptions: typeof import('./composables/useFacetFilter').gatedCountOptions
   const getCurrentInstance: typeof import('vue').getCurrentInstance
   const getCurrentScope: typeof import('vue').getCurrentScope
@@ -86,6 +88,7 @@ declare global {
   const markRaw: typeof import('vue').markRaw
   const matchTypeahead: typeof import('./composables/useTypeahead').matchTypeahead
   const moveItem: typeof import('./composables/useAnnotationKeymap').moveItem
+  const needsHiRes: typeof import('./composables/useViewportHiRes').needsHiRes
   const nextRovingIndex: typeof import('./composables/useRovingIndex').nextRovingIndex
   const nextTick: typeof import('vue').nextTick
   const noLayerOpen: typeof import('./composables/useAnnotationKeymap').noLayerOpen
@@ -196,6 +199,7 @@ declare global {
   const useClipboardItems: typeof import('@vueuse/core').useClipboardItems
   const useCloned: typeof import('@vueuse/core').useCloned
   const useColorMode: typeof import('@vueuse/core').useColorMode
+  const useConfirmAction: typeof import('./composables/useConfirmAction').useConfirmAction
   const useConfirmDialog: typeof import('@vueuse/core').useConfirmDialog
   const useCountdown: typeof import('@vueuse/core').useCountdown
   const useCounter: typeof import('@vueuse/core').useCounter
@@ -252,6 +256,8 @@ declare global {
   const useId: typeof import('vue').useId
   const useIdle: typeof import('@vueuse/core').useIdle
   const useImage: typeof import('@vueuse/core').useImage
+  const useImageLoadPhase: typeof import('./composables/useImageLoadPhase').useImageLoadPhase
+  const useInFlight: typeof import('./composables/useInFlight').useInFlight
   const useInfiniteScroll: typeof import('@vueuse/core').useInfiniteScroll
   const useIntersectionObserver: typeof import('@vueuse/core').useIntersectionObserver
   const useInterval: typeof import('@vueuse/core').useInterval
@@ -337,6 +343,7 @@ declare global {
   const useThrottle: typeof import('@vueuse/core').useThrottle
   const useThrottleFn: typeof import('@vueuse/core').useThrottleFn
   const useThrottledRefHistory: typeof import('@vueuse/core').useThrottledRefHistory
+  const useThumbPile: typeof import('./composables/useThumbPile').useThumbPile
   const useTimeAgo: typeof import('@vueuse/core').useTimeAgo
   const useTimeAgoIntl: typeof import('@vueuse/core').useTimeAgoIntl
   const useTimeout: typeof import('@vueuse/core').useTimeout
@@ -355,6 +362,7 @@ declare global {
   const useVModel: typeof import('@vueuse/core').useVModel
   const useVModels: typeof import('@vueuse/core').useVModels
   const useVibrate: typeof import('@vueuse/core').useVibrate
+  const useViewportHiRes: typeof import('./composables/useViewportHiRes').useViewportHiRes
   const useVirtualList: typeof import('@vueuse/core').useVirtualList
   const useWakeLock: typeof import('@vueuse/core').useWakeLock
   const useWatchRoute: typeof import('./composables/useWatchRoute').useWatchRoute
@@ -394,11 +402,14 @@ declare global {
   export type { FilterChip } from './composables/useActiveFilters'
   import('./composables/useActiveFilters')
   // @ts-ignore
-  export type { KeyChoice, ChoiceBinding, SortableIntent } from './composables/useAnnotationKeymap'
+  export type { KeyChoice, ChoiceBinding, ListwiseGate, SortableIntent } from './composables/useAnnotationKeymap'
   import('./composables/useAnnotationKeymap')
   // @ts-ignore
-  export type { StreamItem, AnnotationKind, AnnotationStreamOptions, UndoableJudgement, AnnotationStream } from './composables/useAnnotationStream'
+  export type { StreamItem, AnnotationKind, StreamLoadState, AnnotationStreamOptions, UndoableJudgement, AnnotationStream } from './composables/useAnnotationStream'
   import('./composables/useAnnotationStream')
+  // @ts-ignore
+  export type { ConfirmPhase, ConfirmRunOptions, ConfirmAction } from './composables/useConfirmAction'
+  import('./composables/useConfirmAction')
   // @ts-ignore
   export type { UseElementOffsetOptions, UseElementBoundingReturn } from './composables/useElementOffset'
   import('./composables/useElementOffset')
@@ -409,11 +420,17 @@ declare global {
   export type { FocusMode } from './composables/useFocusedPost'
   import('./composables/useFocusedPost')
   // @ts-ignore
-  export type { FolderTreeState } from './composables/useFolderTree'
+  export type { FolderDeleteTarget, FolderTreeState } from './composables/useFolderTree'
   import('./composables/useFolderTree')
   // @ts-ignore
   export type { GalleryGridContext, UseGalleryGridOptions, GalleryGrid } from './composables/useGalleryGrid'
   import('./composables/useGalleryGrid')
+  // @ts-ignore
+  export type { ImageLoadPhase } from './composables/useImageLoadPhase'
+  import('./composables/useImageLoadPhase')
+  // @ts-ignore
+  export type { InFlight } from './composables/useInFlight'
+  import('./composables/useInFlight')
   // @ts-ignore
   export type { KeyScope, KeyScopeInputs, ScoreScope } from './composables/useKeyScope'
   import('./composables/useKeyScope')
@@ -429,6 +446,12 @@ declare global {
   // @ts-ignore
   export type { TagTreeNode, TopCategoryGroup } from './composables/useTagTree'
   import('./composables/useTagTree')
+  // @ts-ignore
+  export type { ThumbPhase, ThumbTiming, DisplayedThumb } from './composables/useThumbPile'
+  import('./composables/useThumbPile')
+  // @ts-ignore
+  export type { HiResPost } from './composables/useViewportHiRes'
+  import('./composables/useViewportHiRes')
   // @ts-ignore
   export type { AppLocale, LocaleSetting } from './locale/index'
   import('./locale/index')
