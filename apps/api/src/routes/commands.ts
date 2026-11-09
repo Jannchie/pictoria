@@ -405,25 +405,44 @@ const UrlImportStatus = z
   })
   .openapi('UrlImportStatus')
 
+interface UrlImportStats { fetched: number, images: number, new: number, downloaded: number, failed: number }
+
+interface RunningUrlImport {
+  kind: 'running'
+  url: string
+  startedAt: string
+  /** 扫描回来之前是 null；之后下载阶段的数字原地更新，前端轮询看得到进度。 */
+  stats: UrlImportStats | null
+}
+
 /**
- * 当前 / 上一次 URL 导入的状态。
+ * 当前 / 上一次 URL 导入。进程内的一个值，不落库，重启即回到 idle。前端靠轮询拿进度。
  *
- * 进程内的一个对象，不落库，重启即回到 idle。前端靠轮询它拿进度。
+ * 原来是一个六个字段的扁平对象（`state` + 五个可空字段），"done 却没有 finishedAt"
+ * "running 却带着上一次的 error"都写得出来，转移又散在路由、`runUrlImport`、
+ * `importOnce` 三处。现在每个阶段只带它有的字段，转移只发生在 `runUrlImport`；
+ * 对外的 JSON 形状不变，由 `urlImportBody` 摊平。
  */
-let urlImportStatus: {
-  state: 'idle' | 'running' | 'done' | 'failed'
-  url: string | null
-  stats: { fetched: number, images: number, new: number, downloaded: number, failed: number } | null
-  error: string | null
-  startedAt: string | null
-  finishedAt: string | null
-} = {
-  state: 'idle',
-  url: null,
-  stats: null,
-  error: null,
-  startedAt: null,
-  finishedAt: null,
+type UrlImport
+  = | { kind: 'idle' }
+    | RunningUrlImport
+    | (Omit<RunningUrlImport, 'kind'> & { kind: 'done', finishedAt: string })
+    | (Omit<RunningUrlImport, 'kind'> & { kind: 'failed', finishedAt: string, error: string })
+
+let urlImport: UrlImport = { kind: 'idle' }
+
+/** 摊平成 `/v2/cmd/import-from-url/status` 的 JSON：不属于这个阶段的字段一律 null。 */
+function urlImportBody(s: UrlImport): z.infer<typeof UrlImportStatus> {
+  if (s.kind === 'idle')
+    return { state: 'idle', url: null, stats: null, error: null, startedAt: null, finishedAt: null }
+  return {
+    state: s.kind,
+    url: s.url,
+    stats: s.stats,
+    error: s.kind === 'failed' ? s.error : null,
+    startedAt: s.startedAt,
+    finishedAt: s.kind === 'running' ? null : s.finishedAt,
+  }
 }
 
 /**
@@ -433,33 +452,31 @@ let urlImportStatus: {
  * （读库）→ 下载 + 落库。gallery-dl 是个 Python 工具，所以扫描和下载只能在
  * worker；去重是数据库读，所以只能在这里。
  */
-async function runUrlImport(sqlite: SqliteHandle, tasks: TaskSource, url: string): Promise<void> {
-  const status = urlImportStatus
+async function runUrlImport(sqlite: SqliteHandle, tasks: TaskSource, run: RunningUrlImport): Promise<void> {
+  const { url } = run
   try {
-    await importOnce(sqlite, tasks, url, status)
+    await importOnce(sqlite, tasks, run)
   }
   catch (err) {
-    status.state = 'failed'
-    status.error = String(err)
-    status.finishedAt = new Date().toISOString()
+    urlImport = { ...run, kind: 'failed', finishedAt: new Date().toISOString(), error: String(err) }
     console.warn(`[url-import] ${url} 失败：${String(err)}`)
     return
   }
-  status.state = 'done'
-  status.finishedAt = new Date().toISOString()
+  urlImport = { ...run, kind: 'done', finishedAt: new Date().toISOString() }
   // 新图需要向量 / 分数 / 自动标签（kemono 的帖子根本不带标签）—— 踢一脚既有的
   // backfill 流程。已经有一轮在跑时 `startSync` 排一次补跑，新文件同样会被扫到。
   startSync(sqlite)
 }
 
 /**
- * 一次导入的三步。
+ * 一次导入的三步。只往 `run.stats` 里记进度，不碰阶段 —— 阶段归 `runUrlImport`。
  *
  * 单独一个函数是为了让"没有可导的东西"能用 `return` 干净地退出，而不会顺带跳过
- * 外面那句 `state = 'done'` —— 第一版把两者写在一起，结果空结果的导入永远停在
+ * 外面那句转入 done —— 第一版把两者写在一起，结果空结果的导入永远停在
  * `running`，前端会一直转圈。
  */
-async function importOnce(sqlite: SqliteHandle, source: TaskSource, url: string, status: typeof urlImportStatus): Promise<void> {
+async function importOnce(sqlite: SqliteHandle, source: TaskSource, run: RunningUrlImport): Promise<void> {
+  const { url } = run
   const tasks: CairnQ = await source.get()
 
   const scan = await tasks.call(urlScanTask, { url }, {
@@ -468,7 +485,8 @@ async function importOnce(sqlite: SqliteHandle, source: TaskSource, url: string,
     pollMs: 200,
     maxAttempts: 1,
   })
-  status.stats = { fetched: scan.fetched, images: scan.items.length, new: 0, downloaded: 0, failed: 0 }
+  const stats: UrlImportStats = { fetched: scan.fetched, images: scan.items.length, new: 0, downloaded: 0, failed: 0 }
+  run.stats = stats
   if (!scan.items.length)
     return
 
@@ -476,7 +494,7 @@ async function importOnce(sqlite: SqliteHandle, source: TaskSource, url: string,
   // 那边是后者）。
   const existing = new Set(listFileNamesInDir(sqlite, scan.filePath))
   const fresh = scan.items.filter((it: { fileName: string }) => !existing.has(it.fileName))
-  status.stats.new = fresh.length
+  stats.new = fresh.length
   if (!fresh.length)
     return
 
@@ -491,8 +509,8 @@ async function importOnce(sqlite: SqliteHandle, source: TaskSource, url: string,
     pollMs: 200,
     maxAttempts: 1,
   })
-  status.stats.downloaded = result.downloaded
-  status.stats.failed = result.failed
+  stats.downloaded = result.downloaded
+  stats.failed = result.failed
   persistPostsWithTags(sqlite, result.rows)
 }
 
@@ -515,19 +533,13 @@ commandsRoutes.openapi(
   }),
   (c) => {
     const { url } = c.req.valid('query')
-    if (urlImportStatus.state === 'running')
+    if (urlImport.kind === 'running')
       return c.json({ msg: 'Import already running' }, 201)
 
-    // 同步换掉整个状态对象，于是"忙不忙"的判断在单线程事件循环上没有竞态。
-    urlImportStatus = {
-      state: 'running',
-      url,
-      stats: null,
-      error: null,
-      startedAt: new Date().toISOString(),
-      finishedAt: null,
-        }
-    void runUrlImport(c.var.db, c.var.tasks, url)
+    // 同步换掉整个状态值，于是"忙不忙"的判断在单线程事件循环上没有竞态。
+    const run: RunningUrlImport = { kind: 'running', url, startedAt: new Date().toISOString(), stats: null }
+    urlImport = run
+    void runUrlImport(c.var.db, c.var.tasks, run)
     return c.json({ msg: 'Import started' }, 201)
   },
 )
@@ -543,5 +555,5 @@ commandsRoutes.openapi(
       200: { description: OK, content: { 'application/json': { schema: UrlImportStatus } } },
     },
   }),
-  c => c.json(urlImportStatus, 200),
+  c => c.json(urlImportBody(urlImport), 200),
 )

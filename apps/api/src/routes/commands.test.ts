@@ -8,6 +8,7 @@
 import fs from 'node:fs'
 import path from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
+import { syncSettled } from '../sync.js'
 import { createTestApp, fakeTasks, requestJson, type TestApp } from '../testing/app.js'
 
 let t: TestApp | undefined
@@ -107,6 +108,71 @@ describe('GET /v2/cmd/import-from-url/status', () => {
     const { status, body } = await requestJson(t.app, '/v2/cmd/import-from-url/status')
     expect(status).toBe(200)
     expect(body).toMatchObject({ state: 'idle', url: null, stats: null })
+  })
+})
+
+describe('POST /v2/cmd/import-from-url', () => {
+  /** 轮询到导入不再 running，返回那一次的状态。 */
+  async function settled(app: TestApp['app']) {
+    for (let i = 0; i < 100; i++) {
+      const { body } = await requestJson(app, '/v2/cmd/import-from-url/status')
+      if (body.state !== 'running')
+        return body
+      await new Promise(resolve => setTimeout(resolve, 5))
+    }
+    throw new Error('URL 导入一直停在 running')
+  }
+
+  afterEach(async () => {
+    // done 会踢一次同步；关库之前等它跑完。
+    await syncSettled()
+  })
+
+  it('扫描没东西 → done，带 stats 和结束时间，没有 error', async () => {
+    let release!: () => void
+    const gate = new Promise<void>((r) => { release = r })
+    const { t } = setup(async () => {
+      await gate
+      return { fetched: 3, items: [], filePath: 'kemono/x' }
+    })
+    const post = await requestJson(t.app, '/v2/cmd/import-from-url?url=https://example.com/a', { method: 'POST' })
+    expect(post.body.msg).toBe('Import started')
+
+    // 扫描还没回来：running、没有 stats、没有结束时间；再提交一次不会开第二个。
+    const running = await requestJson(t.app, '/v2/cmd/import-from-url/status')
+    expect(running.body).toMatchObject({ state: 'running', url: 'https://example.com/a', stats: null, error: null, finishedAt: null })
+    expect(running.body.startedAt).toEqual(expect.any(String))
+    const again = await requestJson(t.app, '/v2/cmd/import-from-url?url=https://example.com/b', { method: 'POST' })
+    expect(again.body.msg).toBe('Import already running')
+
+    release()
+    const body = await settled(t.app)
+    expect(body).toMatchObject({
+      state: 'done',
+      url: 'https://example.com/a',
+      stats: { fetched: 3, images: 0, new: 0, downloaded: 0, failed: 0 },
+      error: null,
+    })
+    expect(body.finishedAt).toEqual(expect.any(String))
+  })
+
+  it('扫描抛错 → failed，带原因；下一次导入从干净的 running 开始', async () => {
+    let fail = true
+    const { t } = setup(async () => {
+      if (fail)
+        throw new Error('gallery-dl exploded')
+      return { fetched: 0, items: [], filePath: 'kemono/x' }
+    })
+    await requestJson(t.app, '/v2/cmd/import-from-url?url=https://example.com/a', { method: 'POST' })
+    const failed = await settled(t.app)
+    expect(failed).toMatchObject({ state: 'failed', stats: null })
+    expect(failed.error).toContain('gallery-dl exploded')
+    expect(failed.finishedAt).toEqual(expect.any(String))
+
+    fail = false
+    await requestJson(t.app, '/v2/cmd/import-from-url?url=https://example.com/b', { method: 'POST' })
+    const done = await settled(t.app)
+    expect(done).toMatchObject({ state: 'done', url: 'https://example.com/b', error: null })
   })
 })
 
