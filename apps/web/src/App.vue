@@ -1,8 +1,8 @@
 <script setup lang="ts">
-import type { ComponentPublicInstance } from 'vue'
+import type { ComponentPublicInstance, Ref } from 'vue'
 import { useResizeObserver } from '@vueuse/core'
 import { Pane, Splitpanes } from 'splitpanes'
-import { computed, nextTick, onBeforeUnmount, ref, useTemplateRef, watch, watchEffect } from 'vue'
+import { computed, nextTick, onBeforeUnmount, ref, useTemplateRef, watchEffect } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { RouterLink, START_LOCATION, useRoute, useRouter } from 'vue-router'
 import { provideFolderTree } from '@/composables/useFolderTree'
@@ -68,23 +68,13 @@ const LEFT_PANE = { min: 8, max: 36 }
 const RIGHT_PANE = { min: 12, max: 36 }
 // Sizes (percent) live here so the keyboard splitters can set them; drags
 // write them back through @resize / @resized. The centre takes the rest.
-const leftSize = ref(12)
-const rightSize = ref(12)
-const centerSize = computed(() =>
-  100 - (leftPaneCollapsed.value ? 0 : leftSize.value) - (rightPaneCollapsed.value ? 0 : rightSize.value))
-function onPanesResized({ panes }: { panes: { size: number }[] }) {
-  let i = 0
-  if (!leftPaneCollapsed.value) {
-    if (panes[i]) {
-      leftSize.value = panes[i].size
-    }
-    i++
-  }
-  i++ // the centre pane
-  if (!rightPaneCollapsed.value && panes[i]) {
-    rightSize.value = panes[i].size
-  }
-}
+// What's stored is the user's *preferred* size; the rendered size is that
+// preference clamped to the current pixel floor (`leftMin`/`rightMin`, below).
+// Clamping on read instead of writing the floor back is what keeps a narrow
+// window from ratcheting the panes: shrinking used to raise the stored size to
+// the floor, and widening again kept it, so the side panes came back wider.
+const leftPref = ref(12)
+const rightPref = ref(12)
 
 const split = useTemplateRef<ComponentPublicInstance>('split')
 // Side panes also carry a pixel floor (min-w-64 = 256px). Below it the
@@ -104,16 +94,31 @@ function floorPct(base: { min: number, max: number }) {
 }
 const leftMin = computed(() => floorPct(LEFT_PANE))
 const rightMin = computed(() => floorPct(RIGHT_PANE))
-watch(leftMin, (min) => {
-  if (leftSize.value < min) {
-    leftSize.value = min
+function clampedSize(pref: Ref<number>, min: Ref<number>, max: number) {
+  return computed({
+    get: () => Math.min(max, Math.max(min.value, pref.value)),
+    set: (v: number) => {
+      pref.value = v
+    },
+  })
+}
+const leftSize = clampedSize(leftPref, leftMin, LEFT_PANE.max)
+const rightSize = clampedSize(rightPref, rightMin, RIGHT_PANE.max)
+const centerSize = computed(() =>
+  100 - (leftPaneCollapsed.value ? 0 : leftSize.value) - (rightPaneCollapsed.value ? 0 : rightSize.value))
+function onPanesResized({ panes }: { panes: { size: number }[] }) {
+  let i = 0
+  if (!leftPaneCollapsed.value) {
+    if (panes[i]) {
+      leftSize.value = panes[i].size
+    }
+    i++
   }
-})
-watch(rightMin, (min) => {
-  if (rightSize.value < min) {
-    rightSize.value = min
+  i++ // the centre pane
+  if (!rightPaneCollapsed.value && panes[i]) {
+    rightSize.value = panes[i].size
   }
-})
+}
 const navEl = useTemplateRef<HTMLElement>('navEl')
 const mainEl = useTemplateRef<HTMLElement>('mainEl')
 const asideEl = useTemplateRef<HTMLElement>('asideEl')
