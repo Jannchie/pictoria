@@ -25,6 +25,13 @@ const done = ref(false)
 // before starting the doneTimer — otherwise the timer races ahead of the
 // animation start and unmounts the wrapper mid-fade.
 const ready = ref(false)
+// One placeholder instance outlives its hash (Post.vue reuses it across posts),
+// so every hash change restarts decode → ready → dissolve → done from scratch.
+// Bumped per hash: a slow decode of an older hash checks it and bows out instead
+// of painting over the newer one; as the wrapper's key it also forces fresh DOM
+// (the previous run already regrouped / unmounted its nodes).
+const generation = ref(0)
+let doneTimer: ReturnType<typeof setTimeout> | null = null
 
 const FANCY_TOTAL_MS = 360
 const FANCY_PER_GROUP_MS = 140
@@ -39,11 +46,23 @@ const SVG_NS = 'http://www.w3.org/2000/svg'
 watch(
   () => props.hash,
   async (hash) => {
+    const gen = ++generation.value
+    if (doneTimer) {
+      clearTimeout(doneTimer)
+      doneTimer = null
+    }
+    svg.value = ''
+    ready.value = false
+    dissolving.value = false
+    done.value = false
     if (props.revealed || !hash) {
       done.value = true
       return
     }
     const decoded = (await decodeArthashSvg(hash)) ?? ''
+    if (gen !== generation.value) {
+      return
+    }
     // Race: image may have arrived during wasm decode. Skip rendering the
     // SVG entirely instead of mounting it just to immediately animate it out.
     if (props.revealed) {
@@ -51,6 +70,18 @@ watch(
       return
     }
     svg.value = decoded
+    if (!decoded) {
+      return
+    }
+    await nextTick()
+    if (gen !== generation.value) {
+      return
+    }
+    // Plain mode fades the wrapper as a single layer — no DOM restructuring needed.
+    if (props.fancy) {
+      groupShapes()
+    }
+    ready.value = true
   },
   { immediate: true },
 )
@@ -133,20 +164,6 @@ function groupShapes() {
   svgEl.append(fragment)
 }
 
-watch(svg, async (value) => {
-  if (!value) {
-    return
-  }
-  await nextTick()
-  // Plain mode fades the wrapper as a single layer — no DOM restructuring needed.
-  if (props.fancy) {
-    groupShapes()
-  }
-  ready.value = true
-})
-
-let doneTimer: ReturnType<typeof setTimeout> | null = null
-
 function maybeStartDissolve() {
   if (!props.revealed || !ready.value || dissolving.value || done.value) {
     return
@@ -174,6 +191,7 @@ watch(ready, () => {
 <template>
   <div
     v-if="!done"
+    :key="generation"
     ref="wrapper"
     class="arthash-placeholder"
     :class="{ dissolving, fancy }"

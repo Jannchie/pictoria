@@ -7,14 +7,14 @@ import { useI18n } from 'vue-i18n'
 import { onBeforeRouteLeave, useRoute, useRouter } from 'vue-router'
 import { Waterfall } from 'vue-wf'
 import { v2SearchPostsByText } from '@/api'
+import ConfirmActionDialog from '@/components/ConfirmActionDialog.vue'
+import { useConfirmAction } from '@/composables/useConfirmAction'
 import { GRID_OUTSIDE_SHORTCUTS, useGalleryGrid } from '@/composables/useGalleryGrid'
 import { useKeyScope, useScoreHotkeys } from '@/composables/useKeyScope'
 import { prefetchPost } from '@/composables/usePostPrefetch'
 import { announce, clear as clearSelection, commitRotate, commitScore, currentPostList, deletePosts, galleryScrollPositions, gridCursorId, lastViewedPostId, postFilter, queryKeys, selectedCount, selectedIdList, selectOnly, setGridCursor, soleSelectedId, textSearchQuery, useInfinityPostsQuery, waterfallRowCount } from '@/shared'
 import { GRID_GAP, GRID_PAD } from '@/shared/gridLayout'
 import { useToast } from '@/shared/toast'
-import { POverlay } from '@/ui'
-import PDialog from '@/ui/PDialog.vue'
 import { useHotkey } from '@/ui/useHotkey'
 import { isImageExtension } from '@/utils'
 import { nextCursorAfterRemoval } from '@/utils/gridSelection'
@@ -312,55 +312,43 @@ const menuData = computed<PMenuItem[]>(() => {
   ]
 })
 
-const showDeleteConfirm = ref(false)
 // Snapshot the ids when the dialog opens (instead of re-reading the live
 // selection on confirm) so the count shown is exactly what gets deleted, even
 // if the selection changes while the dialog is up (e.g. Ctrl+A still works).
-const pendingDeleteIds = ref<number[]>([])
-const isDeleting = ref(false)
+const deleteConfirm = useConfirmAction<number[]>()
 
 function requestDelete() {
   const ids = selectedIdList.value
   if (ids.length === 0) {
     return
   }
-  pendingDeleteIds.value = ids
-  showDeleteConfirm.value = true
+  deleteConfirm.request(ids)
 }
 
-async function confirmDelete() {
-  if (isDeleting.value) {
-    return
-  }
-  const ids = pendingDeleteIds.value
-  if (ids.length === 0) {
-    showDeleteConfirm.value = false
-    return
-  }
-  isDeleting.value = true
-  // Where the cursor lands: the next surviving post (else the previous one),
-  // computed against the order before the list shrinks.
-  const next = nextCursorAfterRemoval(postIds.value, ids, gridCursorId.value)
-  try {
-    await deletePosts(queryClient, ids)
-    if (next === null) {
-      clearSelection()
-    }
-    else {
-      selectOnly(next)
-    }
-    setGridCursor(next)
-    announce(t('gallery.deletedAnnounce', { n: ids.length }, ids.length))
-    settleFocusAfterDelete(next)
-  }
-  catch {
-    // The toast is itself announced (live region), so no separate announce.
-    pushToast({ type: 'error', message: t('gallery.deleteFailed'), duration: 6000, closeable: true })
-  }
-  finally {
-    isDeleting.value = false
-    showDeleteConfirm.value = false
-  }
+// On failure the dialog stays open (useConfirmAction returns to confirming)
+// so the user can retry or cancel; the toast says what happened.
+function confirmDelete() {
+  return deleteConfirm.confirm({
+    run: async (ids) => {
+      // Where the cursor lands: the next surviving post (else the previous
+      // one), computed against the order before the list shrinks.
+      const next = nextCursorAfterRemoval(postIds.value, ids, gridCursorId.value)
+      await deletePosts(queryClient, ids)
+      if (next === null) {
+        clearSelection()
+      }
+      else {
+        selectOnly(next)
+      }
+      setGridCursor(next)
+      announce(t('gallery.deletedAnnounce', { n: ids.length }, ids.length))
+      settleFocusAfterDelete(next)
+    },
+    onError: () => {
+      // The toast is itself announced (live region), so no separate announce.
+      pushToast({ type: 'error', message: t('gallery.deleteFailed'), duration: 6000, closeable: true })
+    },
+  })
 }
 
 // After the dialog closes (it returns focus itself) and the list has
@@ -376,10 +364,6 @@ function settleFocusAfterDelete(next: number | null) {
       grid.focusGrid()
     }
   })
-}
-
-function cancelDelete() {
-  showDeleteConfirm.value = false
 }
 
 async function onMenuSelect(value: string | number | symbol) {
@@ -640,26 +624,20 @@ onMounted(() => {
         </PButton>
       </div>
     </PMenu>
-    <POverlay
-      v-if="showDeleteConfirm"
-      class="flex items-center justify-center"
-      @click.self="cancelDelete"
+    <!-- Same dialog copy as the /post/:id page — reuses the post.deleteDialog* keys. -->
+    <ConfirmActionDialog
+      v-slot="{ target: ids }"
+      :action="deleteConfirm"
+      :title="$t('post.deleteDialogTitle')"
+      :confirm-label="ids => $t('post.deleteDialogConfirm', { n: ids.length })"
+      :busy-label="$t('post.deleteDialogDeleting')"
+      @confirm="confirmDelete"
     >
-      <!-- Same dialog copy as the /post/:id page — reuses the post.deleteDialog* keys. -->
-      <PDialog
-        :title="$t('post.deleteDialogTitle')"
-        :confirm-label="isDeleting ? $t('post.deleteDialogDeleting') : $t('post.deleteDialogConfirm', { n: pendingDeleteIds.length })"
-        :cancel-label="$t('common.cancel')"
-        variant="danger"
-        @confirm="confirmDelete"
-        @cancel="cancelDelete"
-      >
-        <i18n-t keypath="post.deleteDialogBody" tag="p" scope="global" :plural="pendingDeleteIds.length">
-          <template #n>
-            <span class="text-fg font-medium tabular-nums">{{ pendingDeleteIds.length }}</span>
-          </template>
-        </i18n-t>
-      </PDialog>
-    </POverlay>
+      <i18n-t keypath="post.deleteDialogBody" tag="p" scope="global" :plural="ids.length">
+        <template #n>
+          <span class="text-fg font-medium tabular-nums">{{ ids.length }}</span>
+        </template>
+      </i18n-t>
+    </ConfirmActionDialog>
   </PScrollArea>
 </template>

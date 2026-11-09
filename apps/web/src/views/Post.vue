@@ -3,7 +3,9 @@ import { useQueryClient } from '@tanstack/vue-query'
 import { useI18n } from 'vue-i18n'
 import { onBeforeRouteLeave, useRoute, useRouter } from 'vue-router'
 import ArthashPlaceholder from '@/components/ArthashPlaceholder.vue'
+import ConfirmActionDialog from '@/components/ConfirmActionDialog.vue'
 import PostDetail from '@/components/PostDetail.vue'
+import { useConfirmAction } from '@/composables/useConfirmAction'
 import { useEdgeProximity } from '@/composables/useEdgeProximity'
 import { useKeyScope } from '@/composables/useKeyScope'
 import { usePostNavAnnounce, usePostNavigation } from '@/composables/usePostNavigation'
@@ -11,8 +13,6 @@ import { useAdjacentPostPrefetch } from '@/composables/usePostPrefetch'
 import { announce, bottomBarInfo, clear as clearSelection, deletePosts, enableArthash, enableFancyPlaceholder, isCommittedSelected, lastViewedPostId, selectedIdList, selectOnly, showPostDetail, similarPostList, touchPost } from '@/shared'
 import { shortcuts } from '@/shared/shortcuts'
 import { useToast } from '@/shared/toast'
-import { POverlay } from '@/ui'
-import PDialog from '@/ui/PDialog.vue'
 import { useHotkey } from '@/ui/useHotkey'
 import { getPostImageURL } from '@/utils'
 import { colorNumToHex } from '@/utils/color'
@@ -244,9 +244,7 @@ useHotkey(shortcuts.postPage.openViewer.keys, openOverlay, {
 // 选区为空而焦点在主图上时删主图本身（等价于先点主图再按 Delete）。
 const queryClient = useQueryClient()
 const { pushToast } = useToast()
-const showDeleteConfirm = ref(false)
-const isDeleting = ref(false)
-const pendingDeleteIds = ref<number[]>([])
+const deleteConfirm = useConfirmAction<number[]>()
 
 function deleteTargets(e: KeyboardEvent): number[] {
   if (selectedIdList.value.length > 0) {
@@ -260,10 +258,10 @@ function deleteTargets(e: KeyboardEvent): number[] {
 }
 
 // 控件上也生效（选中相似图后焦点就在缩略图上），只是不抢文本框和目录树（后者
-// 有自己的删除目录）。
+// 有自己的删除目录）。删除进行中对话框不可关闭，request 也只在 closed 时生效，
+// 所以不会换掉正在删除的那批 id。
 useHotkey(shortcuts.postPage.deleteSelected.keys, (e) => {
-  pendingDeleteIds.value = deleteTargets(e)
-  showDeleteConfirm.value = true
+  deleteConfirm.request(deleteTargets(e))
 }, {
   when: onPage,
   allowInWidgets: true,
@@ -272,44 +270,32 @@ useHotkey(shortcuts.postPage.deleteSelected.keys, (e) => {
     || (e.target instanceof Element && e.target.closest('[role=tree]') !== null),
 })
 
+// 失败时对话框保持打开（回到 confirming），用户可重试或取消；toast 说明失败。
 async function confirmDelete() {
-  if (isDeleting.value) {
-    return
-  }
-  const ids = pendingDeleteIds.value
-  if (ids.length === 0) {
-    showDeleteConfirm.value = false
-    return
-  }
-  isDeleting.value = true
   let removingCurrent = false
-  try {
-    // 选区可能含当前正在看的大图（点了主图）；删掉它后这个详情页就空了，删完返回
-    // 上一页。只删相似图时留在原地，列表由 deletePosts 自动刷新。
-    removingCurrent = ids.includes(postId.value)
-    if (removingCurrent) {
-      // 在 deletePosts 把它从列表缓存里拿掉之前先找好邻居，画廊回来时落在它上面。
-      returnToId = (neighbor(1) ?? neighbor(-1))?.id
-    }
-    await deletePosts(queryClient, ids)
-    clearSelection()
-    announce(t('post.deleted', { n: ids.length }, ids.length))
-    if (removingCurrent) {
-      router.back()
-    }
-  }
-  catch {
-    returnToId = undefined
-    removingCurrent = false
-    // 错误 toast 自带 role=alert，不再另行 announce。
-    pushToast({ type: 'error', message: t('post.deleteFailed'), duration: 5000, closeable: true })
-  }
-  finally {
-    isDeleting.value = false
-    showDeleteConfirm.value = false
-    pendingDeleteIds.value = []
-  }
-  if (!removingCurrent) {
+  const ok = await deleteConfirm.confirm({
+    run: async (ids) => {
+      // 选区可能含当前正在看的大图（点了主图）；删掉它后这个详情页就空了，删完返回
+      // 上一页。只删相似图时留在原地，列表由 deletePosts 自动刷新。
+      removingCurrent = ids.includes(postId.value)
+      if (removingCurrent) {
+        // 在 deletePosts 把它从列表缓存里拿掉之前先找好邻居，画廊回来时落在它上面。
+        returnToId = (neighbor(1) ?? neighbor(-1))?.id
+      }
+      await deletePosts(queryClient, ids)
+      clearSelection()
+      announce(t('post.deleted', { n: ids.length }, ids.length))
+      if (removingCurrent) {
+        router.back()
+      }
+    },
+    onError: () => {
+      returnToId = undefined
+      // 错误 toast 自带 role=alert，不再另行 announce。
+      pushToast({ type: 'error', message: t('post.deleteFailed'), duration: 5000, closeable: true })
+    },
+  })
+  if (ok && !removingCurrent) {
     // 被删的缩略图带着焦点一起没了；等对话框自己的焦点归还（微任务）结束后，
     // 焦点若仍无处可去就落回主图。
     setTimeout(() => {
@@ -458,26 +444,20 @@ async function confirmDelete() {
       </template>
     </PEmpty>
   </div>
-  <POverlay
-    v-if="showDeleteConfirm"
-    class="flex items-center justify-center"
-    @click.self="showDeleteConfirm = false"
+  <ConfirmActionDialog
+    v-slot="{ target: ids }"
+    :action="deleteConfirm"
+    :title="$t('post.deleteDialogTitle')"
+    :confirm-label="ids => $t('post.deleteDialogConfirm', { n: ids.length })"
+    :busy-label="$t('post.deleteDialogDeleting')"
+    @confirm="confirmDelete"
   >
-    <PDialog
-      :title="$t('post.deleteDialogTitle')"
-      :confirm-label="isDeleting ? $t('post.deleteDialogDeleting') : $t('post.deleteDialogConfirm', { n: pendingDeleteIds.length })"
-      :cancel-label="$t('common.cancel')"
-      variant="danger"
-      @confirm="confirmDelete"
-      @cancel="showDeleteConfirm = false"
-    >
-      <i18n-t keypath="post.deleteDialogBody" tag="p" scope="global" :plural="pendingDeleteIds.length">
-        <template #n>
-          <span class="text-fg font-medium tabular-nums">{{ pendingDeleteIds.length }}</span>
-        </template>
-      </i18n-t>
-    </PDialog>
-  </POverlay>
+    <i18n-t keypath="post.deleteDialogBody" tag="p" scope="global" :plural="ids.length">
+      <template #n>
+        <span class="text-fg font-medium tabular-nums">{{ ids.length }}</span>
+      </template>
+    </i18n-t>
+  </ConfirmActionDialog>
 </template>
 
 <style lang="css" scoped>

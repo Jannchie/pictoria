@@ -100,6 +100,24 @@ function onPointerLeave() {
   syncTimer()
 }
 
+// The button that owns the pointer events can be swapped out under a resting
+// pointer (a failed undo shows an action-less error; Escape dismisses), and a
+// removed node fires no pointerleave — `hovered` would stay true and the next
+// snackbar would never auto-dismiss. Re-read it from the DOM after each change.
+const actionButton = useTemplateRef<HTMLElement>('actionButton')
+function isHovered(el: HTMLElement | null): boolean {
+  try {
+    return !!el?.matches(':hover')
+  }
+  catch {
+    return false
+  }
+}
+watch(data, () => {
+  hovered.value = isHovered(actionButton.value)
+  syncTimer()
+}, { flush: 'post' })
+
 function handFocusBack() {
   const target = returnTo
   returnTo = null
@@ -170,6 +188,7 @@ function onKeydown(e: KeyboardEvent) {
           <template #action>
             <button
               v-if="data.action"
+              ref="actionButton"
               type="button"
               class="text-primary font-medium px-2 py-0.5 rounded flex flex-shrink-0 gap-1 pointer-events-auto transition-colors items-center focus-visible:outline-2 focus-visible:outline-primary focus-visible:outline-offset-2 focus-visible:outline hover:bg-surface-2"
               :aria-keyshortcuts="shortcut?.aria"

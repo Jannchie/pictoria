@@ -22,13 +22,15 @@ const target = computed(() => props.target ?? document.documentElement)
 const mouse = useMouse()
 const startPoint = ref({ x: 0, y: 0 })
 const endPoint = ref({ x: 0, y: 0 })
-// pointerDown：左键已在 target 内按下；dragging：已移动超过阈值、真正进入框选。
-// 把两者分开是关键：纯点击（pointerDown 但从未越过阈值）绝不渲染选框层、也不在
+// idle：没按键；pressed：左键已在 target 内按下；dragging：已移动超过阈值、真正进入框选。
+// 把后两者分开是关键：纯点击（pressed 但从未越过阈值）绝不渲染选框层、也不在
 // 松手时 emit selectEnd。否则每一次点击都被当成一次框选——选框层(--p-z-popup)会盖在
 // 删除确认按钮(POverlay z-40)上方，pointerup 落到选框层而非按钮，click 不成立，
 // 于是“选框更优先，点不下按钮”；同时 selectEnd 还会无谓地重写 selectedPostIdSet。
-const pointerDown = ref(false)
-const dragging = ref(false)
+// 回到 idle 的路只有 finish()：pointerup / pointercancel / dragend，以及在窗口外
+// 松手（pointerup 落在窗口外收不到）后第一个不带左键的 pointermove。
+const phase = ref<'idle' | 'pressed' | 'dragging'>('idle')
+const dragging = computed(() => phase.value === 'dragging')
 // 指针按下后要移动超过这么多像素才算拖拽框选，否则视为普通点击。
 const DRAG_THRESHOLD = 5
 const targetBounds = useElementBounding(target)
@@ -58,28 +60,35 @@ useEventListener(target, 'pointerdown', (e) => {
   const p = relativePoint(e.pageX, e.pageY)
   startPoint.value = p
   endPoint.value = p
-  pointerDown.value = true
   // 先不进入 dragging——等移动超过阈值再说，让纯点击保持纯点击。
-  dragging.value = false
+  phase.value = 'pressed'
 })
 
-// 捕获任意元素的 pointerup
-useEventListener(globalThis, 'pointerup', (e) => {
-  const wasDragging = dragging.value
-  pointerDown.value = false
-  dragging.value = false
-  // 只有真正拖拽过才提交框选；纯点击不动 selectedPostIdSet。
+function finish(e: Event) {
+  const wasDragging = phase.value === 'dragging'
+  phase.value = 'idle'
+  // 只有真正拖拽过才提交框选；纯点击不动 selectedPostIdSet。拖拽中被打断
+  // （cancel / 窗口外松手）也要提交，否则 selection.ts 的临时层会一直挂着。
   if (wasDragging) {
     emit('selectEnd', currentArea(), { target: e.target, shift: shift.value, ctrl: ctrl.value })
   }
-})
+}
+
+// 捕获任意元素的 pointerup
+useEventListener(globalThis, 'pointerup', finish)
+useEventListener(globalThis, 'pointercancel', finish)
 
 useEventListener(target, 'pointermove', (e) => {
-  if (!pointerDown.value) {
+  if (phase.value === 'idle') {
+    return
+  }
+  // 在窗口外松开的左键：pointerup 没送到这里，按住状态得从 buttons 里读回来。
+  if (!(e.buttons & 1)) {
+    finish(e)
     return
   }
   endPoint.value = relativePoint(e.pageX, e.pageY)
-  if (!dragging.value) {
+  if (phase.value === 'pressed') {
     // 还没越过拖拽阈值——仍按普通点击对待，不渲染选框、不发选择事件。
     if (
       Math.abs(endPoint.value.x - startPoint.value.x) < DRAG_THRESHOLD
@@ -87,7 +96,7 @@ useEventListener(target, 'pointermove', (e) => {
     ) {
       return
     }
-    dragging.value = true
+    phase.value = 'dragging'
     emit('selectStart', { target: e.target, shift: shift.value, ctrl: ctrl.value })
   }
   emit('selectChange', currentArea(), { target: e.target, shift: shift.value, ctrl: ctrl.value })
@@ -106,10 +115,7 @@ useEventListener(parent, 'scroll', (e) => {
   emit('selectChange', currentArea(), { target: e.target, shift: shift.value, ctrl: ctrl.value })
 })
 
-useEventListener(globalThis, 'dragend', () => {
-  pointerDown.value = false
-  dragging.value = false
-})
+useEventListener(globalThis, 'dragend', finish)
 </script>
 
 <template>

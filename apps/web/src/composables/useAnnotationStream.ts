@@ -27,6 +27,14 @@ export interface StreamItem { position?: number }
 
 export type AnnotationKind = 'absolute' | 'pairwise' | 'listwise'
 
+/**
+ * Where the background refill stands. `loading` is also the one-at-a-time gate;
+ * `error` is a failed batch (the session offers a retry when nothing is left on
+ * screen, and the next refill tries again on its own); `exhausted` means the
+ * server ran dry and refill stops asking until an undo / reset brings items back.
+ */
+export type StreamLoadState = 'ready' | 'loading' | 'error' | 'exhausted'
+
 export interface AnnotationStreamOptions<T extends StreamItem> {
   /** Event kind: the undo endpoint's `kind` and the history list's entry kind. */
   kind: AnnotationKind
@@ -81,11 +89,16 @@ export interface AnnotationStream<T extends StreamItem> {
   /** The item being judged (head of the buffer). */
   current: ComputedRef<T | null>
   doneCount: Ref<number>
-  exhausted: Ref<boolean>
+  loadState: Readonly<Ref<StreamLoadState>>
+  /** Shorthand for `loadState === 'exhausted'`. */
+  exhausted: ComputedRef<boolean>
   submitting: Ref<boolean>
   /** "n done" / "done / total" for the session header. */
   progressLabel: ComputedRef<string>
-  /** Refill in the background if below the low-water mark (gated: one at a time). */
+  /**
+   * Refill in the background if below the low-water mark (gated: one at a
+   * time). Also the session's Retry after a failed batch.
+   */
   refill: () => Promise<void>
   /** Drop the head item: count it, re-arm the timer, preload, refill, announce. */
   advance: () => void
@@ -98,6 +111,8 @@ export interface AnnotationStream<T extends StreamItem> {
   /** Stream mode: mark a key as shown / forget it (local skip and its undo). */
   remember: (key: string) => void
   forget: (key: string) => void
+  /** Put an item back at the head of the buffer (undo); clears `exhausted`. */
+  putBack: (item: T) => void
   /** Start over (new queue / config): empty buffer, forget everything, refill. */
   reset: () => void
   /**
@@ -125,7 +140,8 @@ export function useAnnotationStream<T extends StreamItem>(options: AnnotationStr
   const buffer = ref<T[]>([]) as Ref<T[]>
   const current = computed(() => buffer.value[0] ?? null)
   const doneCount = ref(queue()?.done ?? 0)
-  const exhausted = ref(false)
+  const loadState = ref<StreamLoadState>('ready')
+  const exhausted = computed(() => loadState.value === 'exhausted')
   const submitting = ref(false)
 
   // Queue mode counts against the queue's total with the shared queue copy;
@@ -141,12 +157,10 @@ export function useAnnotationStream<T extends StreamItem>(options: AnnotationStr
   const announceProgress = useProgressAnnouncer(() => progressText('annotate.progress.queueAnnounce', options.streamProgress.announceKey))
 
   const seenKeys = new Set<string>()
-  let emptyStreak = 0
   let shownAt = performance.now()
-  // refill is not awaited on the key path, so it can be triggered twice at once.
-  // Without this gate both requests de-duplicate against each other and come back
-  // empty, which reads as "exhausted".
-  let refilling = false
+  // Bumped by reset(): a refill started before it belongs to the old queue /
+  // config, so its batch is dropped and it leaves loadState to the new refill.
+  let generation = 0
 
   function markShown() {
     shownAt = performance.now()
@@ -177,39 +191,50 @@ export function useAnnotationStream<T extends StreamItem>(options: AnnotationStr
     })
   }
 
-  // The gate sits on refill(), not here: the retry after an empty batch is the
-  // second round of the same refill, and going through refill() would bounce off
-  // its own gate and silently not retry.
-  async function refillOnce(): Promise<void> {
+  async function refill(): Promise<void> {
+    // refill is not awaited on the key path, so it can be triggered twice at once.
+    // Without the `loading` gate both requests de-duplicate against each other and
+    // come back empty, which reads as "exhausted".
+    if (loadState.value === 'loading' || loadState.value === 'exhausted' || buffer.value.length >= lowWater) {
+      return
+    }
+    const gen = generation
+    loadState.value = 'loading'
     try {
-      const fresh = dedupe(await fetchBatch())
-      buffer.value.push(...fresh)
       // One empty batch is not the end: a sampler that seeds from a few random
       // posts can draw only already-judged ones. Give up after `emptyLimit` in a row.
-      emptyStreak = fresh.length === 0 ? emptyStreak + 1 : 0
-      if (emptyStreak >= emptyLimit) {
-        exhausted.value = true
-      }
-      else if (fresh.length === 0) {
-        await refillOnce()
+      for (let empty = 0; ;) {
+        const batch = await fetchBatch()
+        if (gen !== generation) {
+          return
+        }
+        const fresh = dedupe(batch)
+        buffer.value.push(...fresh)
+        if (fresh.length > 0) {
+          loadState.value = 'ready'
+          break
+        }
+        empty += 1
+        if (empty >= emptyLimit) {
+          loadState.value = 'exhausted'
+          break
+        }
       }
       preloadAhead()
     }
     catch (error) {
+      if (gen !== generation) {
+        return
+      }
+      loadState.value = 'error'
       onLoadError(error)
     }
   }
 
-  async function refill(): Promise<void> {
-    if (exhausted.value || refilling || buffer.value.length >= lowWater) {
-      return
-    }
-    refilling = true
-    try {
-      await refillOnce()
-    }
-    finally {
-      refilling = false
+  function putBack(item: T) {
+    buffer.value.unshift(item)
+    if (loadState.value === 'exhausted') {
+      loadState.value = 'ready' // judging the last item set it; there is one again
     }
   }
 
@@ -226,10 +251,10 @@ export function useAnnotationStream<T extends StreamItem>(options: AnnotationStr
   }
 
   function reset() {
+    generation += 1
     buffer.value = []
     seenKeys.clear()
-    emptyStreak = 0
-    exhausted.value = false
+    loadState.value = 'ready'
     doneCount.value = queue()?.done ?? 0
     markShown()
     void refill()
@@ -277,8 +302,7 @@ export function useAnnotationStream<T extends StreamItem>(options: AnnotationStr
         if (stillHere && !stillHere()) {
           return
         }
-        buffer.value.unshift(item)
-        exhausted.value = false // judging the last item set it; there is one again
+        putBack(item)
         doneCount.value = Math.max(0, doneCount.value - 1)
         onRevert?.()
         markShown()
@@ -290,6 +314,7 @@ export function useAnnotationStream<T extends StreamItem>(options: AnnotationStr
     buffer,
     current,
     doneCount,
+    loadState,
     exhausted,
     submitting,
     progressLabel,
@@ -300,6 +325,7 @@ export function useAnnotationStream<T extends StreamItem>(options: AnnotationStr
     preloadAhead,
     remember: key => seenKeys.add(key),
     forget: key => seenKeys.delete(key),
+    putBack,
     reset,
     submitCurrent,
     pushUndoable,

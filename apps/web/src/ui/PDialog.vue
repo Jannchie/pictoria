@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, useId, useSlots, useTemplateRef } from 'vue'
+import { computed, useId, useSlots, useTemplateRef, watch } from 'vue'
 import { isWidgetTarget } from '@/utils/keyboard'
 import { useLayer } from './layers'
 import { useFocusTrap } from './useFocusTrap'
@@ -16,11 +16,17 @@ import { useHotkey } from './useHotkey'
 // - Enter fallback: Enter confirms only while focus sits on the dialog itself
 //   or on non-interactive text inside it (never on a textarea, input, link or
 //   button — those own Enter).
+// - Busy: while `busy` (the confirmed action is in flight) the dialog cannot
+//   be dismissed or re-confirmed — Escape, Enter and Cancel do nothing, and
+//   the confirm button shows its loading state. A scrim click is the
+//   caller's (components/ConfirmActionDialog.vue routes it through the
+//   action's `cancel`, which is a no-op while running).
 const props = withDefaults(defineProps<{
   title?: string
   confirmLabel?: string
   cancelLabel?: string
   variant?: 'primary' | 'danger'
+  busy?: boolean
 }>(), {
   variant: 'primary',
 })
@@ -40,16 +46,39 @@ const confirmButton = useTemplateRef<{ $el?: HTMLElement }>('confirmButton')
 const cancelButton = useTemplateRef<{ $el?: HTMLElement }>('cancelButton')
 const dialogEl = computed(() => surface.value?.$el ?? null)
 
+// Every confirm / cancel path (Escape, Enter, both buttons) goes through these,
+// so none can fire while `busy`.
+function emitConfirm() {
+  if (!props.busy) {
+    emit('confirm')
+  }
+}
+function emitCancel() {
+  if (!props.busy) {
+    emit('cancel')
+  }
+}
+
 const { isTop } = useLayer(true, {
   el: () => dialogEl.value,
   modal: true,
-  onEscape: () => emit('cancel'),
+  onEscape: emitCancel,
 })
 
 useFocusTrap(dialogEl, true, {
   initialFocus: () => props.variant === 'danger'
     ? (cancelButton.value?.$el ?? dialogEl.value)
     : confirmButton.value?.$el,
+})
+
+// Cancel is natively disabled while busy; if it held focus, hand focus to
+// the confirm button first (pre-flush, before the DOM update) so it never
+// falls to <body>.
+watch(() => props.busy, (busy) => {
+  const cancelEl = cancelButton.value?.$el
+  if (busy && cancelEl && document.activeElement === cancelEl) {
+    (confirmButton.value?.$el ?? dialogEl.value)?.focus()
+  }
 })
 
 function onKeydown(e: KeyboardEvent) {
@@ -61,13 +90,13 @@ function onKeydown(e: KeyboardEvent) {
     return
   }
   e.preventDefault()
-  emit('confirm')
+  emitConfirm()
 }
 
 // Focus fell to <body> (e.g. the element that had it was removed): Enter
 // still confirms, but only for the top-most dialog.
-useHotkey('Enter', () => emit('confirm'), {
-  when: () => isTop.value && document.activeElement === document.body,
+useHotkey('Enter', emitConfirm, {
+  when: () => isTop.value && !props.busy && document.activeElement === document.body,
   repeat: false,
 })
 </script>
@@ -80,6 +109,7 @@ useHotkey('Enter', () => emit('confirm'), {
       aria-modal="true"
       :aria-labelledby="hasTitle ? titleId : undefined"
       :aria-describedby="bodyId"
+      :aria-busy="busy || undefined"
       tabindex="-1"
       level="1"
       bordered
@@ -103,7 +133,8 @@ useHotkey('Enter', () => emit('confirm'), {
             v-if="cancelLabel"
             ref="cancelButton"
             variant="ghost"
-            @click="emit('cancel')"
+            :disabled="busy"
+            @click="emitCancel"
           >
             {{ cancelLabel }}
           </PButton>
@@ -111,7 +142,8 @@ useHotkey('Enter', () => emit('confirm'), {
             v-if="confirmLabel"
             ref="confirmButton"
             :variant="variant"
-            @click="emit('confirm')"
+            :loading="busy"
+            @click="emitConfirm"
           >
             {{ confirmLabel }}
           </PButton>

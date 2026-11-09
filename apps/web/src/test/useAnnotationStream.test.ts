@@ -67,14 +67,65 @@ describe('refill', () => {
     expect(ids(s.buffer.value)).toEqual([1])
   })
 
-  it('reports a failed batch and keeps going', async () => {
+  it('a failed batch is reported and lands in the error state, not a forever spinner', async () => {
     const onLoadError = vi.fn()
     const s = setup({ fetchBatch: vi.fn(async () => {
       throw new Error('boom')
     }), onLoadError })
     await s.refill()
     expect(onLoadError).toHaveBeenCalledOnce()
+    expect(s.loadState.value).toBe('error')
     expect(s.exhausted.value).toBe(false)
+  })
+
+  it('refill after a failure (the retry button) loads again', async () => {
+    const fetchBatch = vi.fn<() => Promise<Item[]>>()
+      .mockRejectedValueOnce(new Error('boom'))
+      .mockResolvedValueOnce([{ id: 1 }])
+    const s = setup({ fetchBatch })
+    await s.refill()
+    expect(s.loadState.value).toBe('error')
+    await s.refill()
+    expect(fetchBatch).toHaveBeenCalledTimes(2)
+    expect(s.loadState.value).toBe('ready')
+    expect(ids(s.buffer.value)).toEqual([1])
+  })
+
+  it('reset during an in-flight refill drops the stale batch and loads afresh', async () => {
+    let resolveOld!: (items: Item[]) => void
+    const fetchBatch = vi.fn<() => Promise<Item[]>>()
+      .mockImplementationOnce(() => new Promise((resolve) => {
+        resolveOld = resolve
+      }))
+      .mockResolvedValueOnce([{ id: 2 }])
+    const s = setup({ fetchBatch })
+    const old = s.refill()
+    expect(s.loadState.value).toBe('loading')
+    s.reset() // must not bounce off the old refill's gate
+    await vi.waitFor(() => expect(ids(s.buffer.value)).toEqual([2]))
+    resolveOld([{ id: 1 }])
+    await old
+    expect(ids(s.buffer.value)).toEqual([2])
+    expect(s.loadState.value).toBe('ready')
+    expect(fetchBatch).toHaveBeenCalledTimes(2)
+  })
+
+  it('a stale failure after reset does not flip the new state to error', async () => {
+    let rejectOld!: (error: unknown) => void
+    const onLoadError = vi.fn()
+    const fetchBatch = vi.fn<() => Promise<Item[]>>()
+      .mockImplementationOnce(() => new Promise((_, reject) => {
+        rejectOld = reject
+      }))
+      .mockResolvedValueOnce([{ id: 2 }])
+    const s = setup({ fetchBatch, onLoadError })
+    const old = s.refill()
+    s.reset()
+    await vi.waitFor(() => expect(ids(s.buffer.value)).toEqual([2]))
+    rejectOld(new Error('late'))
+    await old
+    expect(onLoadError).not.toHaveBeenCalled()
+    expect(s.loadState.value).toBe('ready')
   })
 })
 
@@ -168,8 +219,9 @@ async function judged(overrides: Partial<AnnotationStreamOptions<Item>> = {}) {
 
 describe('undo of a judgement', () => {
   it('deletes the events and puts the item back with the count rolled back', async () => {
-    const { s, item, onRevert, redoWrite } = await judged()
-    s.exhausted.value = true
+    // lowWater 2: judging 1 leaves [2], whose refill runs dry → exhausted.
+    const { s, item, onRevert, redoWrite } = await judged({ lowWater: 2 })
+    await vi.waitFor(() => expect(s.exhausted.value).toBe(true))
     s.pushUndoable({ item, ids: [41], label: 'judge', redo: redoWrite, onRevert })
     expect(s.doneCount.value).toBe(1)
 

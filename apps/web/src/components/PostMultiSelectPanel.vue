@@ -2,12 +2,14 @@
 import type { PostSimplePublic } from '@/api'
 import { useQueryClient } from '@tanstack/vue-query'
 import { filesize } from 'filesize'
-import { computed, onUnmounted, ref, useId, watch } from 'vue'
+import { computed, ref, useId } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useRoute } from 'vue-router'
 import { useAPIError } from '@/composables/useAPIError'
+import { useConfirmAction } from '@/composables/useConfirmAction'
 import { focusGalleryGrid } from '@/composables/useGalleryGrid'
 import { useSelectedPostStats } from '@/composables/useSelectedPostStats'
+import { useThumbPile } from '@/composables/useThumbPile'
 import { formatNumber } from '@/locale'
 import {
   announce,
@@ -127,109 +129,9 @@ function thumbTiming(id: number, idx: number) {
   }
 }
 
-// Self-managed display list — bypasses Vue's TransitionGroup entirely so we
-// can drive per-thumb opacity with setTimeout + CSS transition, in strict
-// z-layer order rather than v-for/DOM-insertion order.
-interface DisplayedThumb {
-  id: number
-  post: PostSimplePublic
-  idx: number
-  opacity: number
-  duration: number
-}
-const displayedThumbs = ref<DisplayedThumb[]>([])
-const thumbTimers = new Map<number, ReturnType<typeof setTimeout>[]>()
-
-function pushThumbTimer(id: number, fn: () => void, ms: number) {
-  const t = setTimeout(fn, ms)
-  let arr = thumbTimers.get(id)
-  if (!arr) {
-    arr = []
-    thumbTimers.set(id, arr)
-  }
-  arr.push(t)
-}
-function clearThumbTimers(id: number) {
-  const timers = thumbTimers.get(id)
-  if (timers) {
-    for (const t of timers) {
-      clearTimeout(t)
-    }
-  }
-  thumbTimers.delete(id)
-}
-// Schedule a transition target — wraps the final assignment in rAF so the
-// browser is guaranteed to paint the previous opacity once before the new
-// value is applied, otherwise Vue may batch the 0 → 1 flip into one frame
-// and the transition is silently dropped.
-function scheduleOpacity(item: DisplayedThumb, target: number, delayMs: number) {
-  pushThumbTimer(item.id, () => {
-    requestAnimationFrame(() => {
-      item.opacity = target
-    })
-  }, delayMs)
-}
-
-watch(
-  thumbs,
-  (next) => {
-    const nextIds = new Set(next.map(p => p.id))
-    const idxOf = new Map(next.map((p, i) => [p.id, i]))
-
-    // Incoming / refreshed: fade to 1 after enterDelay
-    for (const [idx, p] of next.entries()) {
-      const existing = displayedThumbs.value.find(d => d.id === p.id)
-      const timing = thumbTiming(p.id, idx)
-      if (existing) {
-        existing.idx = idx
-        existing.post = p
-        if (existing.opacity === 0) {
-          clearThumbTimers(p.id)
-          existing.duration = timing.duration
-          scheduleOpacity(existing, 1, timing.enterDelay)
-        }
-      }
-      else {
-        const item: DisplayedThumb = {
-          id: p.id,
-          post: p,
-          idx,
-          opacity: 0,
-          duration: timing.duration,
-        }
-        displayedThumbs.value.push(item)
-        scheduleOpacity(item, 1, timing.enterDelay)
-      }
-    }
-
-    // Outgoing: fade to 0 after leaveDelay, remove when transition completes
-    ;for (const d of displayedThumbs.value) {
-      if (!nextIds.has(d.id) && d.opacity !== 0) {
-        clearThumbTimers(d.id)
-        const timing = thumbTiming(d.id, idxOf.get(d.id) ?? d.idx)
-        d.duration = timing.duration
-        scheduleOpacity(d, 0, timing.leaveDelay)
-        pushThumbTimer(d.id, () => {
-          const i = displayedThumbs.value.findIndex(x => x.id === d.id)
-          if (i !== -1) {
-            displayedThumbs.value.splice(i, 1)
-          }
-          clearThumbTimers(d.id)
-        }, timing.leaveDelay + timing.duration + 40)
-      }
-    }
-  },
-  { immediate: true },
-)
-
-onUnmounted(() => {
-  for (const arr of thumbTimers.values()) {
-    for (const t of arr) {
-      clearTimeout(t)
-    }
-  }
-  thumbTimers.clear()
-})
+// Self-managed display list with per-thumb lifecycle (entering | shown |
+// leaving) — see useThumbPile.
+const displayedThumbs = useThumbPile(thumbs, thumbTiming)
 
 // The actions below empty or shrink the selection, so this panel is swapped
 // for another one while its button still holds focus. Send focus to the grid
@@ -298,32 +200,33 @@ async function groupSelected() {
   }
 }
 
-// Two-stage delete: first click arms the button, second confirms.
-const confirmingDelete = ref(false)
-async function deleteSelected() {
-  if (!confirmingDelete.value) {
-    confirmingDelete.value = true
+// Two-stage delete: first click arms the button (snapshotting the selected
+// ids), second confirms. While the request is in flight the button is loading
+// (PButton swallows clicks) and `request` / `cancel` are no-ops, so a third
+// click cannot send the same ids again; blur only disarms. A failed delete
+// stays armed so the user can retry, like the dialog-based delete flows.
+const deleteConfirm = useConfirmAction<number[]>()
+const { target: deleteTarget, isRunning: isDeleting } = deleteConfirm
+function deleteSelected() {
+  if (deleteTarget.value === null) {
+    const ids = selectedIdList.value
+    if (ids.length === 0) {
+      return
+    }
+    deleteConfirm.request(ids)
     // The button's label changes under focus; not every screen reader
     // re-reads it, so say the new state.
-    announce(t('multiSelect.deleteConfirm', { n: formatNumber(count.value) }))
+    announce(t('multiSelect.deleteConfirm', { n: formatNumber(ids.length) }))
     return
   }
-  const ids = selectedIdList.value
-  if (ids.length === 0) {
-    confirmingDelete.value = false
-    return
-  }
-  try {
-    await deletePosts(queryClient, ids)
-    clear()
-    focusGalleryGrid()
-  }
-  catch (error) {
-    handleAPIError(error)
-  }
-  finally {
-    confirmingDelete.value = false
-  }
+  return deleteConfirm.confirm({
+    run: async (ids) => {
+      await deletePosts(queryClient, ids)
+      clear()
+      focusGalleryGrid()
+    },
+    onError: error => handleAPIError(error),
+  })
 }
 
 const uid = useId()
@@ -423,7 +326,7 @@ const sectionTitleClass
           }"
           :title="`${d.post.fileName}.${d.post.extension}`"
           :aria-label="$t('multiSelect.showOnly', { name: `${d.post.fileName}.${d.post.extension}` })"
-          :tabindex="d.opacity === 0 ? -1 : undefined"
+          :tabindex="d.phase === 'shown' ? undefined : -1"
           @click="focusOne(d.id)"
         >
           <img
@@ -617,12 +520,13 @@ const sectionTitleClass
         <PButton
           size="sm"
           block
-          :variant="confirmingDelete ? 'danger' : 'subtle'"
+          :variant="deleteTarget === null ? 'subtle' : 'danger'"
+          :loading="isDeleting"
           @click="deleteSelected"
-          @blur="confirmingDelete = false"
+          @blur="deleteConfirm.cancel()"
         >
-          <i class="i-tabler-trash" aria-hidden="true" />
-          {{ confirmingDelete ? $t('multiSelect.deleteConfirm', { n: formatNumber(count) }) : $t('multiSelect.deleteSelected') }}
+          <i v-if="!isDeleting" class="i-tabler-trash" aria-hidden="true" />
+          {{ deleteTarget === null ? $t('multiSelect.deleteSelected') : $t('multiSelect.deleteConfirm', { n: formatNumber(deleteTarget.length) }) }}
         </PButton>
       </div>
     </div>

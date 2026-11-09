@@ -7,6 +7,7 @@ import { useId } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useRouter } from 'vue-router'
 import { useAPIError } from '@/composables/useAPIError'
+import { useInFlight } from '@/composables/useInFlight'
 import { useScoreHotkeys } from '@/composables/useKeyScope'
 import { usePostGroupEvidenceQuery } from '@/composables/usePostGroupEvidenceQuery'
 import { usePostGroupQuery } from '@/composables/usePostGroupQuery'
@@ -147,28 +148,28 @@ const silvaLunaScore = computed(
   () => post.value.aestheticScores?.find(s => s.scorer === SILVA_LUNA_SCORER)?.score,
 )
 
-// One in-flight flag per scorer, so the three buttons spin independently.
-const computing = ref<Record<ScorerKind, boolean>>({ waifu: false, silva: false, silvaLuna: false })
+// In-flight computes keyed by scorer AND post: the three buttons spin
+// independently, and since the panel is reused when it shows another post, a
+// compute still running for the previous one must not spin (or block) here.
+const computing = useInFlight<string>('computeScore')
+const computeKey = (kind: ScorerKind, postId: number) => `${kind}:${postId}`
+const isComputing = (kind: ScorerKind) => computing.has(computeKey(kind, post.value.id))
 const COMPUTE_FAILED_KEYS: Record<ScorerKind, string> = {
   waifu: 'error.waifuComputeFailed',
   silva: 'error.silvaComputeFailed',
   silvaLuna: 'error.silvaLunaComputeFailed',
 }
 
-async function onComputeScore(kind: ScorerKind) {
-  if (computing.value[kind]) {
-    return
-  }
-  computing.value[kind] = true
-  try {
-    await computeScore(queryClient, kind, post.value.id)
-  }
-  catch (error) {
-    handleAPIError(error, t(COMPUTE_FAILED_KEYS[kind]))
-  }
-  finally {
-    computing.value[kind] = false
-  }
+function onComputeScore(kind: ScorerKind) {
+  const postId = post.value.id
+  return computing.run(computeKey(kind, postId), async () => {
+    try {
+      await computeScore(queryClient, kind, postId)
+    }
+    catch (error) {
+      handleAPIError(error, t(COMPUTE_FAILED_KEYS[kind]))
+    }
+  })
 }
 
 // Shared section-heading style: a small uppercase label with a leading icon,
@@ -278,10 +279,10 @@ const sectionTitleClass
               <PButton
                 size="sm"
                 variant="subtle"
-                :loading="computing.waifu"
+                :loading="isComputing('waifu')"
                 @click="onComputeScore('waifu')"
               >
-                {{ computing.waifu ? $t('common.computing') : $t('common.compute') }}
+                {{ isComputing('waifu') ? $t('common.computing') : $t('common.compute') }}
               </PButton>
             </template>
           </div>
@@ -294,10 +295,10 @@ const sectionTitleClass
               <PButton
                 size="sm"
                 variant="subtle"
-                :loading="computing.silva"
+                :loading="isComputing('silva')"
                 @click="onComputeScore('silva')"
               >
-                {{ computing.silva ? $t('common.computing') : $t('common.compute') }}
+                {{ isComputing('silva') ? $t('common.computing') : $t('common.compute') }}
               </PButton>
             </template>
           </div>
@@ -310,10 +311,10 @@ const sectionTitleClass
               <PButton
                 size="sm"
                 variant="subtle"
-                :loading="computing.silvaLuna"
+                :loading="isComputing('silvaLuna')"
                 @click="onComputeScore('silvaLuna')"
               >
-                {{ computing.silvaLuna ? $t('common.computing') : $t('common.compute') }}
+                {{ isComputing('silvaLuna') ? $t('common.computing') : $t('common.compute') }}
               </PButton>
             </template>
           </div>
@@ -653,8 +654,8 @@ const sectionTitleClass
         :default-open="false"
       >
         <div class="flex flex-col gap-2">
-          <AutoGenerateTagBtn :post-id="post.id" />
-          <AutoGenerateCaptionBtn :post-id="post.id" />
+          <AutoGenerateBtn kind="tag" :post-id="post.id" />
+          <AutoGenerateBtn kind="caption" :post-id="post.id" />
         </div>
       </PDisclosure>
     </div>

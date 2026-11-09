@@ -30,6 +30,18 @@ const mutation = useMutation({
   // startUrlImport refreshes the status query, which then polls while running.
   mutationFn: () => startUrlImport(queryClient, url.value.trim()),
 })
+const busy = computed(() => isRunning.value || mutation.isPending.value)
+
+// A failed start is about the import as it stood then. Once the polled status
+// moves on (another import started, or one finished) that error no longer
+// describes what is on screen, so drop it; mutate() clears it on a new start.
+// Keyed on the task, not each poll: a start refused because one is already
+// running keeps its explanation while that run goes on.
+watch([() => status.value?.state, () => status.value?.url, () => status.value?.startedAt], () => {
+  if (mutation.error.value && !mutation.isPending.value) {
+    mutation.reset()
+  }
+})
 
 // New images land under <category>/<creator>/ — refresh the folder tree and
 // gallery once the background task finishes.
@@ -50,7 +62,7 @@ function onEnter(e: KeyboardEvent) {
 }
 
 function onImport() {
-  if (!urlValid.value || isRunning.value || mutation.isPending.value) {
+  if (!urlValid.value || busy.value) {
     return
   }
   mutation.mutate()
@@ -87,11 +99,11 @@ function onImport() {
           <PButton
             size="sm"
             variant="primary"
-            :disabled="!urlValid || isRunning"
+            :disabled="!urlValid || busy"
             @click="onImport"
           >
             <i
-              v-if="isRunning || mutation.status.value === 'pending'"
+              v-if="busy"
               class="i-svg-spinners-90-ring-with-bg"
               aria-hidden="true"
             />

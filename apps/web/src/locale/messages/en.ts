@@ -17,6 +17,7 @@ const en = {
     unscored: 'Unscored',
     compute: 'Compute',
     computing: 'Computing…',
+    retry: 'Retry',
     settings: 'Settings',
     skipToMain: 'Skip to main content',
     close: 'Close',
@@ -576,6 +577,7 @@ const en = {
       exitHint: 'Exit ({key})',
       submitting: 'Submitting…',
       exhaustedAnnounce: 'Nothing left to annotate',
+      loadFailed: 'Could not load more to annotate',
     },
     keys: {
       title: 'Keyboard shortcuts',

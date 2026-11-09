@@ -12,6 +12,7 @@ import { formatNumber } from '@/locale'
 import { announce, deleteFolder } from '@/shared'
 import PTreeList, { CHEVRON_SLOT, LEVEL_INDENT } from '@/ui/PTreeList.vue'
 import { findFolderNode, folderTreeItemHeight, parentFolder, ROOT_FOLDER } from '@/utils/folderTree'
+import ConfirmActionDialog from './ConfirmActionDialog.vue'
 import FolderTreeRow from './FolderTreeRow.vue'
 
 /**
@@ -36,7 +37,7 @@ const {
   folderTree,
   highlightChain,
   openPaths,
-  pendingDeleteFolder,
+  folderDelete,
   requestDeleteFolder,
 } = useFolderTree()
 
@@ -142,7 +143,6 @@ function onTreeMenuSelect(action: string | number | symbol) {
 // ── 删除目录（确认框；发起见 useFolderTree 的 requestDeleteFolder） ─────────
 const queryClient = useQueryClient()
 const { handle: handleAPIError } = useAPIError()
-const isDeletingFolder = ref(false)
 
 // After a delete the row is gone. Focus normally returns to it from the
 // dialog and PTreeList then falls back to its nearest surviving ancestor; if
@@ -157,29 +157,24 @@ function refocusTreeAfterDelete(path: string) {
   }, 50)
 }
 
-async function confirmDeleteFolder() {
-  const target = pendingDeleteFolder.value
-  if (!target || isDeletingFolder.value) {
-    return
-  }
-  isDeletingFolder.value = true
-  try {
-    await deleteFolder(queryClient, target.path)
-    // 正在浏览被删目录（或其子目录）时退回根，保留筛选 query。
-    const current = currentFolder.value
-    if (current === target.path || current.startsWith(`${target.path}/`)) {
-      router.push({ path: '/', query: route.query })
-    }
-    pendingDeleteFolder.value = null
-    announce(t('sidebar.folderDeleted', { title: target.title }))
-    refocusTreeAfterDelete(target.path)
-  }
-  catch (error) {
-    handleAPIError(error, t('sidebar.deleteFolderFailed', { title: target.title }))
-  }
-  finally {
-    isDeletingFolder.value = false
-  }
+// On failure the dialog stays open (back to confirming) so the user can retry
+// or cancel; handleAPIError toasts the reason.
+function confirmDeleteFolder() {
+  return folderDelete.confirm({
+    run: async (target) => {
+      await deleteFolder(queryClient, target.path)
+      // 正在浏览被删目录（或其子目录）时退回根，保留筛选 query。
+      const current = currentFolder.value
+      if (current === target.path || current.startsWith(`${target.path}/`)) {
+        router.push({ path: '/', query: route.query })
+      }
+      announce(t('sidebar.folderDeleted', { title: target.title }))
+      refocusTreeAfterDelete(target.path)
+    },
+    onError: (error, target) => {
+      handleAPIError(error, t('sidebar.deleteFolderFailed', { title: target.title }))
+    },
+  })
 }
 
 function clearFilter() {
@@ -320,27 +315,21 @@ function clearFilter() {
       </div>
     </PMenu>
   </div>
-  <POverlay
-    v-if="pendingDeleteFolder"
-    class="flex items-center justify-center"
-    @click.self="pendingDeleteFolder = null"
+  <ConfirmActionDialog
+    v-slot="{ target: folder }"
+    :action="folderDelete"
+    :title="$t('sidebar.deleteDialogTitle')"
+    :confirm-label="$t('sidebar.deleteDialogConfirm')"
+    :busy-label="$t('sidebar.deleteDialogDeleting')"
+    @confirm="confirmDeleteFolder"
   >
-    <PDialog
-      :title="$t('sidebar.deleteDialogTitle')"
-      :confirm-label="isDeletingFolder ? $t('sidebar.deleteDialogDeleting') : $t('sidebar.deleteDialogConfirm')"
-      :cancel-label="$t('common.cancel')"
-      variant="danger"
-      @confirm="confirmDeleteFolder"
-      @cancel="pendingDeleteFolder = null"
-    >
-      <i18n-t keypath="sidebar.deleteDialogBody" tag="p" scope="global" :plural="pendingDeleteFolder.postCount">
-        <template #title>
-          <span class="text-fg font-medium">{{ pendingDeleteFolder.title }}</span>
-        </template>
-        <template #count>
-          <span class="text-fg font-medium tabular-nums">{{ formatNumber(pendingDeleteFolder.postCount) }}</span>
-        </template>
-      </i18n-t>
-    </PDialog>
-  </POverlay>
+    <i18n-t keypath="sidebar.deleteDialogBody" tag="p" scope="global" :plural="folder.postCount">
+      <template #title>
+        <span class="text-fg font-medium">{{ folder.title }}</span>
+      </template>
+      <template #count>
+        <span class="text-fg font-medium tabular-nums">{{ formatNumber(folder.postCount) }}</span>
+      </template>
+    </i18n-t>
+  </ConfirmActionDialog>
 </template>

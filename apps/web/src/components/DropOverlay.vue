@@ -9,18 +9,26 @@ import { uploadFile } from '@/shared/mutations'
 const { t } = useI18n()
 const { handle: handleAPIError } = useAPIError()
 
-const isDraggingFiles = ref(false)
-const dragEnterCount = ref(0)
+// The drag in progress. dragenter / dragleave fire for every element crossed,
+// so `depth` counts unmatched enters (clamped at 0: a leave can arrive without
+// its enter, e.g. a drag that started inside the page); `files` is whether the
+// payload is files at all. Drop and dragend end it outright.
+interface DragState { depth: number, files: boolean }
+const IDLE: DragState = { depth: 0, files: false }
+const drag = ref<DragState>(IDLE)
 const queryClient = useQueryClient()
 
-// Files saved by the current drop; announced once when the drop finishes
-// (failures already surface as error toasts via handleAPIError).
-let savedCount = 0
+/**
+ * One drop's uploads. Each drop gets its own: a second drop while the first is
+ * still uploading must not reset the first one's count, or its "N saved"
+ * announcement comes out wrong. Failures surface as error toasts instead.
+ */
+interface DropUpload { saved: number }
 
-async function onUploadFile(file: File, path: string | null, source?: string) {
+async function onUploadFile(upload: DropUpload, file: File, path: string | null, source?: string) {
   try {
     await uploadFile(queryClient, { file, path, source })
-    savedCount++
+    upload.saved++
   }
   catch (error) {
     handleAPIError(error, t('error.uploadFailed'))
@@ -41,7 +49,7 @@ const baseFolder = computed(() => {
   return null
 })
 
-async function readDirectory(directoryEntry: FileSystemDirectoryEntry, path: string | null, source?: string) {
+async function readDirectory(upload: DropUpload, directoryEntry: FileSystemDirectoryEntry, path: string | null, source?: string) {
   const reader = directoryEntry.createReader()
   let entries: FileSystemEntry[] = []
 
@@ -70,19 +78,18 @@ async function readDirectory(directoryEntry: FileSystemDirectoryEntry, path: str
       const file = await new Promise<File>((resolve) => {
         (entry as FileSystemFileEntry).file(resolve)
       })
-      await onUploadFile(file, path, source)
+      await onUploadFile(upload, file, path, source)
     }
     else if (entry.isDirectory) {
       // 递归处理子文件夹
-      await readDirectory(entry as FileSystemDirectoryEntry, path, source)
+      await readDirectory(upload, entry as FileSystemDirectoryEntry, path, source)
     }
   }
 }
 useEventListener(globalThis, 'drop', async (event: DragEvent) => {
   event.preventDefault()
-  dragEnterCount.value = 0
-  isDraggingFiles.value = false
-  savedCount = 0
+  drag.value = IDLE
+  const upload: DropUpload = { saved: 0 }
   const source = event.dataTransfer?.getData('text/uri-list')
   const entries = [...event.dataTransfer?.items ?? []].map(item => item.webkitGetAsEntry())
   if (entries) {
@@ -94,12 +101,12 @@ useEventListener(globalThis, 'drop', async (event: DragEvent) => {
             const file = await new Promise<File>((resolve) => {
               (entry as FileSystemFileEntry).file(resolve)
             })
-            await onUploadFile(file, null, source)
+            await onUploadFile(upload, file, null, source)
           }
           else if (entry.isDirectory) {
             const folderName = entry.name
             const folder = baseFolder.value ? `${baseFolder.value}/${folderName}` : folderName
-            await readDirectory(entry as FileSystemDirectoryEntry, folder, source)
+            await readDirectory(upload, entry as FileSystemDirectoryEntry, folder, source)
           }
         }
       }
@@ -110,11 +117,11 @@ useEventListener(globalThis, 'drop', async (event: DragEvent) => {
   }
   if (event.dataTransfer?.files) {
     for (const file of event.dataTransfer.files) {
-      await onUploadFile(file, baseFolder.value, source)
+      await onUploadFile(upload, file, baseFolder.value, source)
     }
   }
-  if (savedCount > 0) {
-    announce(t('dropOverlay.saved', { n: savedCount }, savedCount))
+  if (upload.saved > 0) {
+    announce(t('dropOverlay.saved', { n: upload.saved }, upload.saved))
   }
 }, {
   passive: false,
@@ -126,19 +133,19 @@ useEventListener(globalThis, 'dragover', (e: DragEvent) => {
 })
 
 useEventListener(globalThis, 'dragend', () => {
-  dragEnterCount.value = 0
+  drag.value = IDLE
 })
 
+const carriesFiles = (event: DragEvent) => !!event.dataTransfer?.types.includes('Files')
 useEventListener(globalThis, 'dragenter', (event: DragEvent) => {
-  dragEnterCount.value++
-  isDraggingFiles.value = !!event.dataTransfer?.types.includes('Files')
+  drag.value = { depth: drag.value.depth + 1, files: carriesFiles(event) }
 }, {
   passive: true,
   capture: true,
 })
 useEventListener(globalThis, 'dragleave', (event: DragEvent) => {
-  dragEnterCount.value--
-  isDraggingFiles.value = !!event.dataTransfer?.types.includes('Files')
+  const depth = Math.max(0, drag.value.depth - 1)
+  drag.value = depth === 0 ? IDLE : { depth, files: carriesFiles(event) }
 }, {
   passive: true,
   capture: true,
@@ -148,7 +155,8 @@ useEventListener(globalThis, 'dragleave', (event: DragEvent) => {
 // screen reader read the hint at all times). Showing it announces the hint
 // once through the shared live region: flipping aria-hidden and inserting a
 // role=status in the same frame is read unreliably.
-const visible = computed(() => dragEnterCount.value > 0 && isDraggingFiles.value)
+// `files` is only ever set with depth > 0 (depth 0 resets to IDLE).
+const visible = computed(() => drag.value.files)
 watch(visible, (v) => {
   if (v) {
     announce(t('dropOverlay.hint'))

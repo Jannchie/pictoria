@@ -6,6 +6,7 @@ import { computed, ref, useTemplateRef, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { v2CountPairwise, v2NextPairwise, v2SamplePairwise } from '@/api'
 import AnnotationKeyHints from '@/components/annotate/AnnotationKeyHints.vue'
+import AnnotationLoadError from '@/components/annotate/AnnotationLoadError.vue'
 import AnnotationReviewBanner from '@/components/annotate/AnnotationReviewBanner.vue'
 import { noLayerOpen } from '@/composables/useAnnotationKeymap'
 import { useAnnotationReview } from '@/composables/useAnnotationReview'
@@ -85,7 +86,7 @@ const stream = useAnnotationStream<BufferItem>({
   streamProgress: { labelKey: 'annotate.progress.pairwise', announceKey: 'annotate.progress.pairwiseAnnounce' },
   postIdsOf: item => [item.postA.id, item.postB.id],
 })
-const { doneCount, exhausted, submitting, current } = stream
+const { doneCount, exhausted, loadState, submitting, current } = stream
 
 // 该维度数据库累计已判（decisive + tie，skip 不计）；流式模式下顶栏展示进度感。
 const cumulativeCount = ref<number | null>(null)
@@ -300,6 +301,7 @@ const hints = computed(() => [
             {{ $t('annotate.pairwise.exhaustedDetail', { n: formatNumber(doneCount) }) }}
           </div>
         </div>
+        <AnnotationLoadError v-else-if="loadState === 'error'" @retry="stream.refill()" />
         <div v-else role="status" class="text-sm text-fg-muted flex gap-2 items-center">
           <span class="pairwise-spinner" aria-hidden="true" />{{ $t('common.loading') }}
         </div>

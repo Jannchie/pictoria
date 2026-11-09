@@ -14,6 +14,7 @@ const zhHans: MessageSchema = {
     unscored: '未评分',
     compute: '计算',
     computing: '计算中…',
+    retry: '重试',
     settings: '设置',
     skipToMain: '跳到主内容',
     close: '关闭',
@@ -573,6 +574,7 @@ const zhHans: MessageSchema = {
       exitHint: '退出（{key}）',
       submitting: '提交中…',
       exhaustedAnnounce: '没有更多待标的了',
+      loadFailed: '待标内容加载失败',
     },
     keys: {
       title: '快捷键',

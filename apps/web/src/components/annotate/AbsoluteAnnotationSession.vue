@@ -7,6 +7,7 @@ import { useI18n } from 'vue-i18n'
 import { v2NextAbsolute, v2SampleAbsolute } from '@/api'
 import AnnotationChoiceGroup from '@/components/annotate/AnnotationChoiceGroup.vue'
 import AnnotationKeyHints from '@/components/annotate/AnnotationKeyHints.vue'
+import AnnotationLoadError from '@/components/annotate/AnnotationLoadError.vue'
 import AnnotationReviewBanner from '@/components/annotate/AnnotationReviewBanner.vue'
 import { choiceBindings, KEY_ROWS, noLayerOpen } from '@/composables/useAnnotationKeymap'
 import { useAnnotationReview } from '@/composables/useAnnotationReview'
@@ -81,7 +82,7 @@ const stream = useAnnotationStream<BufferItem>({
   streamProgress: { labelKey: 'annotate.progress.absolute', announceKey: 'annotate.progress.absoluteAnnounce' },
   postIdsOf: item => [item.post.id],
 })
-const { buffer, doneCount, exhausted, submitting, current } = stream
+const { buffer, doneCount, exhausted, loadState, submitting, current } = stream
 const totalLabel = stream.progressLabel
 const { review, amend } = useAnnotationReview({ kind: 'absolute', field: 'value', labelKey: 'history.annotatePost', submitting })
 // The picture on screen, and the dimensions to ask about. A record is ONE
@@ -92,12 +93,16 @@ const shownDimensions = computed(() => (review.value?.dimension ? [review.value.
 const shownScale = computed(() => review.value?.scale ?? scale.value)
 const choices = ref<Record<string, number>>({})
 const flagState = ref<ContentFlag>('none')
+// Bumped by every flag press and every item change: only the newest press may
+// roll the optimistic flag back, and never onto another item.
+let flagSeq = 0
 const elapsed = ref<Record<string, number>>({})
 
 function resetForNext() {
   choices.value = {}
   elapsed.value = {}
   flagState.value = 'none'
+  flagSeq += 1
   stream.markShown()
 }
 
@@ -125,6 +130,7 @@ function recordItem(item: BufferItem, ids: number[], label: string, redo: () => 
       choices.value = restore.choices
       elapsed.value = restore.elapsed
       flagState.value = restore.flag
+      flagSeq += 1
     },
   })
 }
@@ -213,6 +219,8 @@ async function cycleFlag() {
   }
   const next = flagState.value === 'none' ? 'love' : flagState.value === 'love' ? 'hate' : 'none'
   const post = current.value.post
+  const previous = flagState.value
+  const seq = ++flagSeq
   flagState.value = next
   try {
     const ids = await submitContentFlag(queryClient, { postId: post.id, flag: next, sessionId })
@@ -224,6 +232,9 @@ async function cycleFlag() {
     }
   }
   catch (error) {
+    if (seq === flagSeq) {
+      flagState.value = previous
+    }
     handleAPIError(error, t('annotate.error.flag'))
   }
 }
@@ -268,8 +279,7 @@ async function skipCurrent() {
       },
       revert: async () => {
         stream.forget(keyOf(item))
-        buffer.value.unshift(item)
-        exhausted.value = false
+        stream.putBack(item)
         resetForNext()
       },
     })
@@ -410,6 +420,7 @@ const hints = computed(() => [
             </template>
           </i18n-t>
         </div>
+        <AnnotationLoadError v-else-if="loadState === 'error'" @retry="stream.refill()" />
         <div v-else role="status" class="text-sm text-fg-muted flex gap-2 items-center">
           <span class="annotate-spinner" aria-hidden="true" />{{ $t('common.loading') }}
         </div>

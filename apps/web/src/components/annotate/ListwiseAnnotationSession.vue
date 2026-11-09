@@ -6,6 +6,7 @@ import { computed, nextTick, ref, useId, useTemplateRef, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { v2NextListwise, v2SampleListwise } from '@/api'
 import AnnotationKeyHints from '@/components/annotate/AnnotationKeyHints.vue'
+import AnnotationLoadError from '@/components/annotate/AnnotationLoadError.vue'
 import { moveItem, noLayerOpen, sortableIntent, sortableTarget } from '@/composables/useAnnotationKeymap'
 import { useAnnotationSessionFrame, useAnnotationStream } from '@/composables/useAnnotationStream'
 import { useAPIError } from '@/composables/useAPIError'
@@ -70,7 +71,7 @@ const stream = useAnnotationStream<BufferItem>({
   streamProgress: { labelKey: 'annotate.progress.listwise', announceKey: 'annotate.progress.listwiseAnnounce' },
   postIdsOf: item => item.posts.map(p => p.id),
 })
-const { doneCount, exhausted, submitting, current } = stream
+const { doneCount, exhausted, loadState, submitting, current } = stream
 const totalLabel = stream.progressLabel
 
 // 一字排开、拖拽定序：order 是当前行序（post_id，左 = 最好），初始 = 呈现顺序。
@@ -635,6 +636,7 @@ const submitKeyAria = isMac ? 'Meta+Enter' : 'Control+Enter'
             {{ $t('annotate.listwise.exhaustedDetail', { n: formatNumber(doneCount) }) }}
           </div>
         </div>
+        <AnnotationLoadError v-else-if="loadState === 'error'" @retry="stream.refill()" />
         <div v-else role="status" class="text-sm text-fg-muted flex gap-2 items-center">
           <span class="listwise-spinner" aria-hidden="true" />{{ $t('common.loading') }}
         </div>

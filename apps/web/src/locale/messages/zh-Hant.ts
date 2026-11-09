@@ -14,6 +14,7 @@ const zhHant: MessageSchema = {
     unscored: '未評分',
     compute: '計算',
     computing: '計算中…',
+    retry: '重試',
     settings: '設定',
     skipToMain: '跳到主內容',
     close: '關閉',
@@ -573,6 +574,7 @@ const zhHant: MessageSchema = {
       exitHint: '退出（{key}）',
       submitting: '提交中…',
       exhaustedAnnounce: '沒有更多待標的了',
+      loadFailed: '待標內容載入失敗',
     },
     keys: {
       title: '快速鍵',

@@ -1,4 +1,5 @@
 import type { ComputedRef, InjectionKey, Ref } from 'vue'
+import type { ConfirmAction } from './useConfirmAction'
 import type { TreeListItemData, TreeListLeafData } from '@/ui/PTreeList.vue'
 import type { FolderSortKey, FolderSortOrder } from '@/utils/folderTree'
 import { useLocalStorage } from '@vueuse/core'
@@ -8,6 +9,14 @@ import { focusedTreeFolder, isAnyDialogOpen, useCurrentFolder, useFoldersQuery }
 import { shortcuts } from '@/shared/shortcuts'
 import { useHotkey } from '@/ui/useHotkey'
 import { ancestorPaths, buildFolderTree, findFolderNode, ROOT_FOLDER } from '@/utils/folderTree'
+import { useConfirmAction } from './useConfirmAction'
+
+/** The folder a delete confirmation is about (snapshotted when it opens). */
+export interface FolderDeleteTarget {
+  path: string
+  title: string
+  postCount: number
+}
 
 /**
  * State of the sidebar folder tree that must outlive the tree itself.
@@ -28,8 +37,12 @@ export interface FolderTreeState {
   /** Ancestors of the current folder (the tree draws their guide lines). */
   highlightChain: ComputedRef<string[]>
   openPaths: Ref<Set<string>>
-  /** The folder awaiting delete confirmation, or null. */
-  pendingDeleteFolder: Ref<{ path: string, title: string, postCount: number } | null>
+  /**
+   * The folder delete confirmation (closed | confirming | running). Lives here,
+   * not in FolderTree.vue, so a pending or in-flight delete survives the left
+   * pane being collapsed.
+   */
+  folderDelete: ConfirmAction<FolderDeleteTarget>
   /** Ask to delete `path` (opens the confirmation); the root is never deletable. */
   requestDeleteFolder: (path: string | null | undefined) => void
 }
@@ -73,17 +86,17 @@ export function provideFolderTree(): FolderTreeState {
     }
   }, { immediate: true })
 
-  const pendingDeleteFolder = ref<{ path: string, title: string, postCount: number } | null>(null)
+  const folderDelete = useConfirmAction<FolderDeleteTarget>()
   function requestDeleteFolder(path: string | null | undefined) {
     if (!path || path === ROOT_FOLDER) {
       return // 根目录不可删
     }
     const node = findFolderNode(folderTree.value, path)
-    pendingDeleteFolder.value = {
+    folderDelete.request({
       path,
       title: node?.title ?? path,
       postCount: (node as TreeListLeafData | null)?.meta?.postCount ?? 0,
-    }
+    })
   }
 
   // 树行（role=treeitem，带 data-tree-value）获得焦点时按 Delete 删除该目录。树行是
@@ -102,7 +115,7 @@ export function provideFolderTree(): FolderTreeState {
     folderTree,
     highlightChain,
     openPaths,
-    pendingDeleteFolder,
+    folderDelete,
     requestDeleteFolder,
   }
   provide(folderTreeKey, state)
