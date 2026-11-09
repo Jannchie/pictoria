@@ -119,24 +119,34 @@ function onWheel(e: WheelEvent) {
   x.value = mx.value - offsetX * newScale
   y.value = my.value - offsetY * newScale
 }
-const movingCanvas = ref(false)
+// 一次指针手势：拖画布平移，或在小地图上拖视口。两者互斥，原来是两个各自独立的布尔
+// （`movingCanvas` / `dragging`）。按下时捕获指针，于是拖出元素边界照样跟手，松开或被
+// 系统取消时都会触发 lostpointercapture 收尾 —— 不再靠 mouseleave 提前掐断小地图拖拽，
+// 也不会因为在元素外松手而漏掉 pointerup。
+type Gesture = 'idle' | 'pan' | 'minimap'
+const gesture = ref<Gesture>('idle')
+
+function beginGesture(kind: Exclude<Gesture, 'idle'>, e: PointerEvent) {
+  (e.currentTarget as Element).setPointerCapture(e.pointerId)
+  gesture.value = kind
+}
+
+function endGesture() {
+  gesture.value = 'idle'
+}
 
 function onPointerDown(e: PointerEvent) {
   if (e.buttons === 1) {
     e.preventDefault()
-    movingCanvas.value = true
+    beginGesture('pan', e)
   }
 }
 
 function onPointermove(e: PointerEvent) {
-  if (e.buttons === 1 && movingCanvas.value) {
+  if (gesture.value === 'pan') {
     x.value = x.value + e.movementX
     y.value = y.value + e.movementY
   }
-}
-
-function onPointerUp() {
-  movingCanvas.value = false
 }
 
 const miniMapScale = computed(() => {
@@ -158,17 +168,12 @@ const miniMapViewBox = computed(() => ({
   y: -y.value * miniMapScale.value / scale.value,
 }))
 
-const dragging = ref(false)
-const startMiniMapViewBox = { x: 0, y: 0 }
-
 const miniMapRef = ref<HTMLDivElement | null>(null)
 
 const miniMapBounding = useElementBounding(miniMapRef)
 
 function onMiniMapPointerDown(e: PointerEvent) {
-  dragging.value = true
-  startMiniMapViewBox.x = -x.value * miniMapScale.value / scale.value
-  startMiniMapViewBox.y = -y.value * miniMapScale.value / scale.value
+  beginGesture('minimap', e)
 
   const clickX = e.clientX - miniMapBounding.left.value
   const clickY = e.clientY - miniMapBounding.top.value
@@ -181,17 +186,13 @@ function onMiniMapPointerDown(e: PointerEvent) {
 }
 
 function onMiniMapPointerMove(e: PointerEvent) {
-  if (dragging.value) {
+  if (gesture.value === 'minimap') {
     const offsetX = e.movementX / miniMapScale.value
     const offsetY = e.movementY / miniMapScale.value
 
     x.value -= offsetX * scale.value
     y.value -= offsetY * scale.value
   }
-}
-
-function onMiniMapPointerUp() {
-  dragging.value = false
 }
 
 function adjustForScaling(newScale: number, mouseX: number, mouseY: number) {
@@ -445,7 +446,7 @@ const fileLabel = computed(() => `${post.value.fileName}.${post.value.extension}
       style="touch-action: none;"
       @pointerdown.stop="onPointerDown"
       @pointermove.stop="onPointermove"
-      @pointerup.stop="onPointerUp"
+      @lostpointercapture="endGesture"
       @wheel.stop="onWheel"
     >
       <!-- 缩略图占位：与原图同几何叠放在下层，原图 onload 前顶着画面。 -->
@@ -512,9 +513,8 @@ const fileLabel = computed(() => `${post.value.fileName}.${post.value.extension}
         aria-hidden="true"
         class="border border-border-strong rounded bg-bg shadow-md bottom-4 left-4 absolute z-1 overflow-hidden"
         @pointerdown.stop="onMiniMapPointerDown"
-        @pointerup.stop="onMiniMapPointerUp"
         @pointermove.stop="onMiniMapPointerMove"
-        @mouseleave.stop="onMiniMapPointerUp"
+        @lostpointercapture.stop="endGesture"
       >
         <div
           class="relative"
