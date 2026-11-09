@@ -481,11 +481,15 @@ async function doRebuild(
       )
     }
 
+    // 用户意图（判定、拆出、设封面）在仲裁之后**重读**：仲裁可能跑上几个小时，这期间
+    // 用户在界面上做的分组修改要是拿开头那份快照来分，就会被这一轮的 `replaceAllGroups`
+    // 覆盖掉（下一轮才修回来）。从这里到落库是一段同步代码，中间插不进写入。
     const verdicts = listUserVerdicts(sqlite)
+    const latest = listGroupOverrides(sqlite)
     const edges = buildEdges(accepted, grey, distances, verdicts, lpipsThreshold)
     const assignments = assignFromEdges(edges, {
-      excluded: overrides.standalone,
-      pinned: overrides.canonical,
+      excluded: latest.standalone,
+      pinned: latest.canonical,
       ...(maxGroupSize == null ? {} : { maxGroupSize }),
     })
     if (!dryRun)
