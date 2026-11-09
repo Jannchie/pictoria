@@ -34,7 +34,7 @@ from PIL import Image
 from shared import logger
 
 if TYPE_CHECKING:
-    from collections.abc import Iterable, Mapping, Sequence
+    from collections.abc import Callable, Iterable, Mapping, Sequence
     from pathlib import Path
 
 MODEL_REPO = "deepghs/imgutils-models"
@@ -72,6 +72,32 @@ DIFF_BATCH = 16
 #: 与 `main.py` 里 CPU 队列的 concurrency 相乘应当不超过物理核数。
 INTRA_OP_THREADS = 4
 
+#: 两张图宽高比相差超过这个倍数，就先对齐再比（见 `overlap`）。
+#:
+#: 拉伸成正方形对裁切版/扩图版是致命的：每个空间位置都错开，距离被撑爆。2026-10-19
+#: 在库里实测，SigLIP 距离 0.01–0.02 的灰带对里，宽高比一致的被 LPIPS 拒 4%，相差
+#: 超过 10% 的被拒 66%；抽 40 对对齐后重算，33 对落回阈值内且逐一目检都是同一张画，
+#: 其余 7 对（0.51–0.72）是真不同的画面，照旧被拒。宽高比一致的对不受影响 ——
+#: 它们仍走原来那条按路径复用特征的路径。
+ASPECT_TOLERANCE = 1.1
+
+#: 对齐在灰度图上由粗到细做：只为找位置，不为判同。先在 ALIGN_COARSE_SIDE 长边上把
+#: 两个方向 × ALIGN_STEPS 档全扫一遍挑出方向和档位，再在 ALIGN_LONG_SIDE 上只细化
+#: 那一档左右 ALIGN_REFINE 档。skimage 的 match_template 在 256 上一次 ~11 ms，
+#: 全扫 52 次就是每对 ~650 ms（实测）；粗扫 + 细化把它压到 ~100 ms 以内。
+ALIGN_COARSE_SIDE = 96
+ALIGN_LONG_SIDE = 256
+ALIGN_REFINE = 2
+
+#: 被包含的那张在另一张里最小占多大（相对于它能放下的最大尺寸），以及在
+#: [ALIGN_MIN_COVER, 1] 上试多少档。裁切版通常贴满一条边（取 1 那档），26 档的
+#: 步长 2% 留给"既裁切又缩放"的情形。
+ALIGN_MIN_COVER = 0.5
+ALIGN_STEPS = 26
+
+#: 模板短边低于这么多像素就不试了：相关图会退化成噪声。
+ALIGN_MIN_TEMPLATE = 16
+
 
 def _download(filename: str) -> str:
     """Fetch one model file, local cache first.
@@ -105,6 +131,14 @@ def preprocess(image: Image.Image) -> np.ndarray:
     a square (aspect ratio is *not* preserved), HWC to CHW, divide by 255, no
     ImageNet normalisation (the LPIPS scaling layer is baked into the graph).
     """
+    # `Image.Resampling.BILINEAR` is imgutils' `Image.BILINEAR` -- the same
+    # enum member, spelled the way Pillow 10+ types it.
+    resized = _to_rgb(image).resize((INPUT_SIZE, INPUT_SIZE), resample=Image.Resampling.BILINEAR)
+    array = np.asarray(resized).transpose((2, 0, 1))
+    return (array / 255.0).astype(np.float32)
+
+
+def _to_rgb(image: Image.Image) -> Image.Image:
     # 白底合成，而不是 `ai.torch_runtime.to_rgb` 的 convert("RGB")。两者对带 alpha
     # 的 PNG 给出不同像素（convert 直接丢掉 alpha 通道，等于把透明区当成它底下的
     # 原始 RGB 值），而 0.45 这个阈值是在 imgutils 的白底语义上标定的。差一个背景色
@@ -114,16 +148,99 @@ def preprocess(image: Image.Image) -> np.ndarray:
         image = Image.alpha_composite(background, image)
     if image.mode != "RGB":
         image = image.convert("RGB")
-    # `Image.Resampling.BILINEAR` is imgutils' `Image.BILINEAR` -- the same
-    # enum member, spelled the way Pillow 10+ types it.
-    resized = image.resize((INPUT_SIZE, INPUT_SIZE), resample=Image.Resampling.BILINEAR)
-    array = np.asarray(resized).transpose((2, 0, 1))
-    return (array / 255.0).astype(np.float32)
+    return image
 
 
 def _load(path: Path) -> np.ndarray:
     with Image.open(path) as image:
         return preprocess(image)
+
+
+def _aspect_differs(left: Path, right: Path) -> bool:
+    # Image.open 只读文件头，不解码像素。
+    with Image.open(left) as a, Image.open(right) as b:
+        ratio = (a.width / a.height) / (b.width / b.height)
+    return max(ratio, 1 / ratio) > ASPECT_TOLERANCE
+
+
+def _gray(image: Image.Image, scale: float) -> np.ndarray:
+    size = (max(1, round(image.width * scale)), max(1, round(image.height * scale)))
+    return np.asarray(image.convert("L").resize(size, resample=Image.Resampling.BOX), dtype=np.float32)
+
+
+_COVERS = np.linspace(1.0, ALIGN_MIN_COVER, ALIGN_STEPS)
+
+
+def _placement(
+    inner: Image.Image,
+    outer: Image.Image,
+    long_side: int,
+    steps: Iterable[int],
+) -> tuple[float, int, tuple[int, int, int, int]]:
+    """Where ``inner`` best sits inside ``outer``: ``(ncc, step, box in outer's pixels)``.
+
+    ``step`` indexes _COVERS: ``inner`` at that fraction of the largest size
+    that fits. The correlation only locates the box; it is far too weak to say
+    "same picture" (a real crop scored 0.54, unrelated pictures by the same
+    artist 0.34-0.53), which stays LPIPS's job.
+    """
+    from skimage.feature import match_template  # noqa: PLC0415  # lazy: only aligned pairs need it
+
+    scale = long_side / max(outer.size)
+    field = _gray(outer, scale)
+    fit = min(outer.width / inner.width, outer.height / inner.height)
+    best = (-np.inf, 0, (0, 0, outer.width, outer.height))
+    for step in steps:
+        size = inner.width * fit * _COVERS[step], inner.height * fit * _COVERS[step]
+        template = _gray(inner, size[0] * scale / inner.width)
+        if min(template.shape) < ALIGN_MIN_TEMPLATE or any(t > f for t, f in zip(template.shape, field.shape, strict=True)):
+            continue
+        response = match_template(field, template)
+        y, x = np.unravel_index(int(np.argmax(response)), response.shape)
+        if response[y, x] > best[0]:
+            left, top = x / scale, y / scale
+            best = (float(response[y, x]), step, (round(left), round(top), round(left + size[0]), round(top + size[1])))
+    return best
+
+
+def overlap(left: Image.Image, right: Image.Image) -> tuple[Image.Image, Image.Image]:
+    """Cut a crop and its uncropped version down to the region they share.
+
+    Either side may be the crop, so both placements are scanned coarsely and the
+    better correlation picks the direction and size; only that size and its
+    neighbours are then searched at full alignment resolution. The contained
+    side is kept whole and the other is cut to the box it was found in. Both
+    then go through ``preprocess`` as usual, so the threshold still compares two
+    400x400 squares of the same framing.
+    """
+    left, right = _to_rgb(left), _to_rgb(right)
+    every = range(ALIGN_STEPS)
+    in_right = _placement(left, right, ALIGN_COARSE_SIDE, every)
+    in_left = _placement(right, left, ALIGN_COARSE_SIDE, every)
+    inner, outer, (_, step, _) = (left, right, in_right) if in_right[0] >= in_left[0] else (right, left, in_left)
+    near = range(max(0, step - ALIGN_REFINE), min(ALIGN_STEPS, step + ALIGN_REFINE + 1))
+    _, _, box = _placement(inner, outer, ALIGN_LONG_SIDE, near)
+    return (left, right.crop(box)) if inner is left else (left.crop(box), right)
+
+
+def _encode(count: int, load: Callable[[int], np.ndarray]) -> tuple[np.ndarray, ...]:
+    feature, _ = _sessions()
+    # Fill preallocated arrays in place rather than collecting per-batch chunks
+    # and concatenating at the end. The five feature maps are ~6.4 MB per image,
+    # so a 128-image task is ~820 MB -- and concatenating means both the chunks
+    # and the result are live at once, doubling that in a process the module
+    # docstring already describes as having no headroom.
+    out: list[np.ndarray] | None = None
+    for start in range(0, count, FEATURE_BATCH):
+        batch = np.stack([load(i) for i in range(start, min(start + FEATURE_BATCH, count))])
+        maps = feature.run(list(_FEATURE_OUTPUTS), {"input": batch})
+        if out is None:
+            out = [np.empty((count, *m.shape[1:]), dtype=np.float32) for m in maps]
+        for level, m in enumerate(maps):
+            out[level][start : start + len(batch)] = m
+    if out is None:  # nothing to encode
+        return ()
+    return tuple(out)
 
 
 def extract_features(paths: Sequence[Path]) -> tuple[np.ndarray, ...]:
@@ -132,23 +249,7 @@ def extract_features(paths: Sequence[Path]) -> tuple[np.ndarray, ...]:
     Returns five arrays shaped ``(len(paths), C, H, W)`` -- one per conv stage,
     in the order the diff model expects them.
     """
-    feature, _ = _sessions()
-    # Fill preallocated arrays in place rather than collecting per-batch chunks
-    # and concatenating at the end. The five feature maps are ~6.4 MB per image,
-    # so a 128-image task is ~820 MB -- and concatenating means both the chunks
-    # and the result are live at once, doubling that in a process the module
-    # docstring already describes as having no headroom.
-    out: list[np.ndarray] | None = None
-    for start in range(0, len(paths), FEATURE_BATCH):
-        batch = np.stack([_load(path) for path in paths[start : start + FEATURE_BATCH]])
-        maps = feature.run(list(_FEATURE_OUTPUTS), {"input": batch})
-        if out is None:
-            out = [np.empty((len(paths), *m.shape[1:]), dtype=np.float32) for m in maps]
-        for level, m in enumerate(maps):
-            out[level][start : start + len(batch)] = m
-    if out is None:  # no paths
-        return ()
-    return tuple(out)
+    return _encode(len(paths), lambda i: _load(paths[i]))
 
 
 def _distances(features: tuple[np.ndarray, ...], left: Sequence[int], right: Sequence[int]) -> list[float]:
@@ -180,10 +281,32 @@ def pair_distances(pairs: Iterable[tuple[Path, Path]]) -> list[float]:
     if not pair_list:
         return []
 
-    order: dict[Path, int] = {}
-    for left, right in pair_list:
-        for path in (left, right):
-            if path not in order:
-                order[path] = len(order)
-    features = extract_features(list(order))
-    return _distances(features, [order[left] for left, _ in pair_list], [order[right] for _, right in pair_list])
+    out: list[float] = [0.0] * len(pair_list)
+    aligned = [i for i, (left, right) in enumerate(pair_list) if _aspect_differs(left, right)]
+    plain = sorted(set(range(len(pair_list))) - set(aligned))
+
+    if plain:
+        order: dict[Path, int] = {}
+        for i in plain:
+            for path in pair_list[i]:
+                if path not in order:
+                    order[path] = len(order)
+        features = extract_features(list(order))
+        distances = _distances(features, [order[pair_list[i][0]] for i in plain], [order[pair_list[i][1]] for i in plain])
+        for i, distance in zip(plain, distances, strict=True):
+            out[i] = distance
+        del features  # free before the aligned half allocates its own
+
+    if aligned:
+        # The crops are pair-specific, so these features cannot be shared
+        # across pairs: two encodes per pair, left at 2k and right at 2k+1.
+        crops: list[np.ndarray] = []
+        for i in aligned:
+            left, right = pair_list[i]
+            with Image.open(left) as a, Image.open(right) as b:
+                crops.extend(preprocess(c) for c in overlap(a, b))
+        features = _encode(len(crops), crops.__getitem__)
+        distances = _distances(features, range(0, len(crops), 2), range(1, len(crops), 2))
+        for i, distance in zip(aligned, distances, strict=True):
+            out[i] = distance
+    return out

@@ -56,13 +56,58 @@ def test_preprocess_shape_scale_and_dtype() -> None:
 def test_preprocess_ignores_aspect_ratio() -> None:
     """A square output from a wide input is imgutils' behaviour, not a bug.
 
-    It is also the mechanism behind the one differential kind LPIPS cannot
-    judge: a crop changes the aspect ratio, so every spatial position shifts and
-    the distance blows up. Pinning it here keeps that trade-off explicit.
+    It is also why a crop cannot be compared to its original as-is: the aspect
+    ratio changes, so every spatial position shifts and the distance blows up.
+    ``overlap`` exists for that case; ``preprocess`` itself stays imgutils'.
     """
     from ai.lpips import INPUT_SIZE, preprocess
 
     assert preprocess(Image.new("RGB", (800, 100))).shape == (3, INPUT_SIZE, INPUT_SIZE)
+
+
+def _picture(width: int = 600, height: int = 800) -> Image.Image:
+    """Structure at every scale, so it survives the downscale alignment works at."""
+    grey = Image.effect_mandelbrot((width, height), (-2.2, -1.6, 1.0, 1.6), 100)
+    return Image.merge("RGB", (grey, grey.rotate(180), grey.transpose(Image.Transpose.FLIP_LEFT_RIGHT)))
+
+
+@pytest.mark.parametrize("crop_on_left", [True, False])
+def test_overlap_finds_the_crop_inside_the_full_picture(crop_on_left) -> None:
+    from ai.lpips import overlap
+
+    full = _picture()
+    box = (0, 60, 600, 590)  # full width, top part: the usual "bust crop" of a tall picture
+    crop = full.crop(box)
+
+    a, b = overlap(crop, full) if crop_on_left else overlap(full, crop)
+    found = b if crop_on_left else a
+
+    # The contained side comes back whole; the other is cut to (about) the crop's box.
+    assert (a if crop_on_left else b).size == crop.size
+    assert abs(found.width - crop.width) <= 12
+    assert abs(found.height - crop.height) <= 12
+
+
+def test_aspect_mismatched_pairs_take_the_aligned_path(monkeypatch, tmp_path) -> None:
+    """Only the mismatched pair is cut down; the matched pair keeps sharing features."""
+    from ai import lpips
+
+    calls: list[str] = []
+    monkeypatch.setattr(lpips, "overlap", lambda a, b: (calls.append("overlap"), (a.copy(), b.copy()))[1])
+    monkeypatch.setattr(
+        lpips,
+        "_sessions",
+        lambda: (
+            SimpleNamespace(run=lambda names, feeds: [np.zeros((len(feeds["input"]), 2, 2, 2), dtype=np.float32) for _ in names]),
+            SimpleNamespace(run=lambda _names, feeds: [np.zeros((len(feeds["feat_x_0"]), 1, 1, 1), dtype=np.float32)]),
+        ),
+    )
+
+    square = [_write(tmp_path / f"s{i}.png", Image.new("RGB", (40, 40))) for i in range(2)]
+    tall = _write(tmp_path / "tall.png", Image.new("RGB", (40, 60)))
+
+    assert len(lpips.pair_distances([(square[0], square[1]), (square[0], tall)])) == 2
+    assert calls == ["overlap"]
 
 
 def test_preprocess_composites_alpha_onto_white() -> None:
@@ -144,6 +189,20 @@ def test_local_edit_stays_far_below_the_threshold(tmp_path) -> None:
 
     (distance,) = pair_distances([(_write(tmp_path / "a.png", base), _write(tmp_path / "b.png", edited))])
     assert distance < LPIPS_SAME_THRESHOLD_DEFAULT
+
+
+@needs_weights
+def test_a_crop_of_the_same_picture_lands_below_the_threshold(tmp_path) -> None:
+    """The case alignment exists for: stretched to squares, crop and original disagree."""
+    from ai.lpips import LPIPS_SAME_THRESHOLD_DEFAULT, _distances, extract_features, pair_distances
+
+    full = _picture()
+    pair = (_write(tmp_path / "crop.png", full.crop((0, 60, 600, 590))), _write(tmp_path / "full.png", full))
+
+    (aligned,) = pair_distances([pair])
+    (stretched,) = _distances(extract_features(list(pair)), [0], [1])
+    assert aligned < LPIPS_SAME_THRESHOLD_DEFAULT
+    assert stretched > aligned
 
 
 # ---- handler-side pair resolution -------------------------------------------
