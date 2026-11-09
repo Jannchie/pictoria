@@ -7,6 +7,20 @@
 export const yieldToEventLoop = (): Promise<void> => new Promise(resolve => setImmediate(resolve))
 
 /**
+ * 一条让出队列：每次调用返回的 Promise 在**前一个调用者让出并跑完同步段之后**的下一轮
+ * 事件循环才 resolve —— 多个调用方排一条队，一轮事件循环只放行一个。
+ *
+ * 只 `await yieldToEventLoop()` 不够：几个调用方同时让出时，它们的 immediate 落在同一个
+ * check 阶段里接连执行，各自的同步段又叠成一整段停顿，中间插不进一个请求。串成一条链之后，
+ * 下一个 immediate 是在上一个调用方跑完（check 阶段之中）才排进去的，Node 把它留到下一轮
+ * —— 每两段之间都过一次 I/O 轮询。
+ */
+export function createYieldQueue(): () => Promise<void> {
+  let tail: Promise<void> = Promise.resolve()
+  return () => (tail = tail.then(yieldToEventLoop))
+}
+
+/**
  * 把一串请求合并成"冷却期满后跑一次"。`WorkerSpec.drainCooldownMs` 和 sync 的文件监视用它。
  *
  * 跑着的时候来的请求不丢，记一笔，等这一轮**结束**再过 `cooldownMs` 补跑一次；冷却期内

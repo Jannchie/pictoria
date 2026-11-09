@@ -160,13 +160,64 @@ function scanByFloor<R extends { id: number }>(
   const floor = readFloor(sqlite, scan.key, opts.force)
   // 必须在查询**之前**读，理由见 `scanFloor` 的注释。
   const maxId = maxPostId(sqlite)
+  const below = windowEnd(sqlite, floor, maxId)
 
   const sql = `SELECT ${opts.columns} ${floorSql(scan)}ORDER BY p.id${opts.limit === undefined ? '' : ' LIMIT ?'}`
-  const params = [...floorParams(scan, floor), ...(opts.limit === undefined ? [] : [opts.limit])]
+  const params = [...floorParams(scan, floor, below), ...(opts.limit === undefined ? [] : [opts.limit])]
   const rows = sqlite.prepare<unknown[], R>(sql).all(...params)
 
-  writeFloor(sqlite, scan.key, rows[0]?.id ?? maxId + 1)
+  advanceFloor(sqlite, scan.key, rows[0]?.id, below, maxId)
   return rows
+}
+
+/**
+ * 一次待办扫描最多判定多少行 posts。
+ *
+ * 水位线让稳态的扫描只碰表尾，但它是**按连接存在内存里**的：进程一重启，六条循环全部
+ * 从 id=0 起扫，而老 post 早就算完了，于是每条都要把整张表判定一遍才碰到第一个候选。
+ * 真实库（23 万行）上 tagger 那一条就是 2.1 秒的同步查询，六条加起来约 4 秒 —— 启动后
+ * 那几秒里 API 一个请求都不回。按窗口切开之后，一次查询只判定这么多行（tagger 约
+ * 45 ms），扫空一个窗口就把水位线推到窗口上界并报 `scanIncomplete`，调用方
+ * （`apps/api/src/scheduler.ts` 的 `runBatch`）让出事件循环再扫下一个窗口。
+ *
+ * 这是缓解而不是根治：根子在水位线（"这个 id 以下已算完"的证明）只存在内存里、重启即丢。
+ * 把它落盘要给每条"让老 post 重新待办"的写补上失效 —— 包括进程不在时脚本对库的写 ——
+ * 代价大得多，所以选择让重新证明变便宜。
+ *
+ * 只在**扫空**时起作用：窗口里一有候选，水位线照旧落在第一个候选上；`LIMIT` 不够数时
+ * 这一批就少几张，下一批从第一个候选（之后的）接着来，不影响正确性。
+ */
+export const SCAN_WINDOW_ROWS = 5_000
+
+/** 从 `from` 起第 `rows` 行的 id；不足 `rows` 行就是 `undefined`。主键跳跃定位。 */
+function idAtOffset(sqlite: BetterSqlite3.Database, from: number, rows: number): number | undefined {
+  return sqlite
+    .prepare<[number, number], number>('SELECT id FROM posts WHERE id >= ? ORDER BY id LIMIT 1 OFFSET ?')
+    .pluck()
+    .get(from, rows)
+}
+
+/**
+ * 这一窗的开上界；剩下的不足一窗就是 `undefined`（一直扫到表尾）。
+ *
+ * id 唯一，所以 `[floor, maxId]` 里最多 `maxId - floor + 1` 行 —— 不到一窗就不必跑那条
+ * `OFFSET` 查询。稳态下水位线贴着表尾，走的总是这条捷径。
+ */
+function windowEnd(sqlite: BetterSqlite3.Database, floor: number, maxId: number): number | undefined {
+  return maxId - floor < SCAN_WINDOW_ROWS ? undefined : idAtOffset(sqlite, floor, SCAN_WINDOW_ROWS)
+}
+
+/**
+ * 按 `scanFloor` 的规则落下这一轮证明出来的水位线：有候选就落在第一个候选上；没有候选、
+ * 但只扫了一窗，就落在窗口上界并标记 `windowed`；扫到表尾都没有，落在 `maxId + 1`。
+ */
+function advanceFloor(sqlite: BetterSqlite3.Database, key: BackfillWorker, first: number | undefined, below: number | undefined, maxId: number): void {
+  if (first !== undefined)
+    writeFloor(sqlite, key, first)
+  else if (below !== undefined)
+    writeFloor(sqlite, key, below, { windowed: true })
+  else
+    writeFloor(sqlite, key, maxId + 1)
 }
 
 /**
@@ -183,10 +234,9 @@ function scanByFloor<R extends { id: number }>(
  */
 function* countByFloor(sqlite: BetterSqlite3.Database, scan: FloorScan, chunkRows?: number): Generator<number, void, undefined> {
   const count = sqlite.prepare<unknown[], number>(`SELECT COUNT(*) ${floorSql(scan)}`).pluck()
-  // 从 `from` 起第 `chunkRows` 行的 id —— 这一块的上界；不足一块就数到表尾。主键跳跃定位。
-  const boundary = sqlite.prepare<[number, number], number>('SELECT id FROM posts WHERE id >= ? ORDER BY id LIMIT 1 OFFSET ?').pluck()
   for (let from = readFloor(sqlite, scan.key, false); ;) {
-    const to = chunkRows === undefined ? undefined : boundary.get(from, chunkRows)
+    // 这一块的上界；不足一块就数到表尾。
+    const to = chunkRows === undefined ? undefined : idAtOffset(sqlite, from, chunkRows)
     yield count.get(...floorParams(scan, from, to))!
     if (to === undefined)
       return
@@ -228,11 +278,12 @@ export function listSilvaPending(
   // 水位线记的是**第一个候选**，不是第一个 pending：候选里没向量的那些仍然是待办
   // （只是这一轮还算不了），把水位推过它们等于等它们拿到向量之后再也不来看一眼。
   // 先取它，再从它起查 pending —— 它以下没有候选，两条查询就不必各扫一遍已算完的前缀。
+  const below = windowEnd(sqlite, floor, maxId)
   const firstCandidate = sqlite
     .prepare<unknown[], number>(`SELECT p.id ${floorSql(candidates)}ORDER BY p.id LIMIT 1`)
     .pluck()
-    .get(...floorParams(candidates, floor))
-  writeFloor(sqlite, scorer, firstCandidate ?? maxId + 1)
+    .get(...floorParams(candidates, floor, below))
+  advanceFloor(sqlite, scorer, firstCandidate, below, maxId)
   if (firstCandidate === undefined)
     return []
   const pending = silvaScan(scorer, { withVector: true })

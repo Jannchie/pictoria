@@ -14,6 +14,8 @@ import Database from 'better-sqlite3'
 import * as sqliteVec from 'sqlite-vec'
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest'
 import { MIGRATIONS_DIR, runMigrations } from '../migrate.js'
+import { notifyRepending } from '../repending.js'
+import { scanIncomplete } from '../scan-floor.js'
 import { failureKey } from '../workers.js'
 import {
   CANONICAL_TAG_GROUPS,
@@ -33,6 +35,7 @@ import {
   ratingToInt,
   recordFailures,
   resetScanFloors,
+  SCAN_WINDOW_ROWS,
   upsertAestheticScores,
   upsertBasics,
   upsertVectors,
@@ -692,6 +695,71 @@ describe('待办水位线（waifu / tagger / basics）', () => {
       expect(forced.map(p => p.postId)).toEqual([1])
     })
   }
+})
+
+// 进程刚启动时水位线在 0，老 post 全都算完了：一次扫描只判定一个窗口，扫空就推到窗口
+// 上界并报"没扫完"，调用方让出事件循环再扫下一窗，而不是一条查询把整表判定完。
+describe('待办扫描按窗口切开', () => {
+  const total = SCAN_WINDOW_ROWS * 2 + 5
+  function seedAllDoneButLast(markDone: (id: number) => void): void {
+    sqlite.transaction(() => {
+      for (let id = 1; id <= total; id++) {
+        insertPost(id)
+        if (id < total)
+          markDone(id)
+      }
+    })()
+  }
+  /** 照调度器的用法反复扫，直到拿到候选或真的扫完；返回结果和扫了几窗。 */
+  function drain<T>(worker: Parameters<typeof scanIncomplete>[1], scan: () => T[]): { rows: T[], scans: number } {
+    let scans = 1
+    let rows = scan()
+    while (!rows.length && scanIncomplete(sqlite, worker)) {
+      rows = scan()
+      scans++
+    }
+    return { rows, scans }
+  }
+
+  it('waifu：扫空的窗口推进水位线，最后一窗扫出库尾的待办', () => {
+    const done = sqlite.prepare('INSERT INTO post_waifu_scores(post_id, score) VALUES (?, 0.5)')
+    seedAllDoneButLast(id => done.run(id))
+
+    expect(listWaifuPending(sqlite)).toEqual([])
+    expect(scanIncomplete(sqlite, 'waifu')).toBe(true)
+
+    const { rows, scans } = drain('waifu', () => listWaifuPending(sqlite).map(p => p.postId))
+    expect(rows).toEqual([total])
+    expect(scans).toBe(2)
+    expect(scanIncomplete(sqlite, 'waifu')).toBe(false)
+
+    // 全部算完：最后一窗扫到表尾，水位线落在 MAX(id)+1，不再报"没扫完"
+    done.run(total)
+    expect(listWaifuPending(sqlite)).toEqual([])
+    expect(scanIncomplete(sqlite, 'waifu')).toBe(false)
+  })
+
+  it('silva：同样按窗口推进，库尾有向量的候选照样扫得出来', () => {
+    const score = sqlite.prepare('INSERT INTO post_aesthetic_scores(post_id, scorer, score) VALUES (?, ?, 0.5)')
+    seedAllDoneButLast(id => score.run(id, 'silva'))
+    sqlite.prepare('INSERT INTO post_vectors_siglip2(post_id, embedding) VALUES (?, ?)').run(BigInt(total), vectorBlob(total))
+
+    expect(listSilvaPending(sqlite, 'silva')).toEqual([])
+    expect(scanIncomplete(sqlite, 'silva')).toBe(true)
+    expect(drain('silva', () => listSilvaPending(sqlite, 'silva')).rows).toEqual([total])
+  })
+
+  it('窗口之间退回的水位线照样生效', () => {
+    const done = sqlite.prepare('INSERT INTO post_waifu_scores(post_id, score) VALUES (?, 0.5)')
+    seedAllDoneButLast(id => done.run(id))
+    expect(listWaifuPending(sqlite)).toEqual([])
+    // 第一窗之后、下一窗之前，有人让 post 1 重新变成待办并带 id 发了信号：
+    // 水位线退回 1，下一窗从那里扫，而不是从推进后的窗口上界接着往后扫
+    sqlite.exec('DELETE FROM post_waifu_scores WHERE post_id = 1')
+    notifyRepending(sqlite, 'waifu', 1)
+    expect(scanIncomplete(sqlite, 'waifu')).toBe(true)
+    expect(listWaifuPending(sqlite).map(p => p.postId)).toEqual([1])
+  })
 })
 
 describe('待办计数', () => {

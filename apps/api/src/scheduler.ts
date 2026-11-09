@@ -18,8 +18,8 @@
  */
 import type { CairnQ } from 'cairnq'
 import { queueOf } from '@pictoria/contracts'
-import { onRepending, recordFailures, type SqliteHandle } from '@pictoria/db'
-import { coalesceWithCooldown } from './event-loop.js'
+import { onRepending, recordFailures, scanIncomplete, type SqliteHandle } from '@pictoria/db'
+import { coalesceWithCooldown, createYieldQueue } from './event-loop.js'
 import { registerLoop } from './queue-status.js'
 import { BACKFILL_SPECS, type WorkerSpec } from './workers.js'
 
@@ -108,6 +108,10 @@ export interface BatchOutcome {
   written: number
 }
 
+// 六条循环的扫描窗口共用一条让出队列：冷启动时它们同时在扫窗，各自让出的话六窗的
+// 同步查询会叠在同一轮事件循环里（见 `createYieldQueue`）。
+const scanTurn = createYieldQueue()
+
 /**
  * 通用的一批：取待办 → 组 payload → 提交并等结果 → 落库 → 按规格拉黑 → 打日志。
  *
@@ -119,7 +123,14 @@ export async function runBatch(
   spec: WorkerSpec<any, any, any>,
   { force, log = console }: { force: boolean, log?: Log },
 ): Promise<BatchOutcome | null> {
-  const pending = spec.listPending(sqlite, spec.batch, { force })
+  let pending = spec.listPending(sqlite, spec.batch, { force })
+  // 扫空了一个窗口但没到表尾（进程刚启动、水位线还在 0 时就是这样，见 packages/db 的
+  // `SCAN_WINDOW_ROWS`）：让出事件循环再扫下一窗，别把整表判定压成一次同步查询。
+  // `force` 只属于第一窗 —— 它已经把水位线清零，之后的窗口从推进后的水位线接着扫。
+  while (!pending.length && scanIncomplete(sqlite, spec.name)) {
+    await scanTurn()
+    pending = spec.listPending(sqlite, spec.batch, { force: false })
+  }
   if (!pending.length)
     return null
 
