@@ -48,6 +48,22 @@ describe('coalesceWithCooldown', () => {
     expect(run).toHaveBeenCalledTimes(2)
   })
 
+  it('跑着的时候来多少个请求，跑完都只补一次', async () => {
+    let finish!: () => void
+    const run = vi.fn(() => new Promise<void>((r) => { finish = r }))
+    const request = coalesceWithCooldown(run, 1_000)
+    request()
+    await vi.advanceTimersByTimeAsync(0)
+    for (let i = 0; i < 5; i++)
+      request()
+    finish()
+    await vi.advanceTimersByTimeAsync(1_000)
+    expect(run).toHaveBeenCalledTimes(2)
+    finish()
+    await vi.advanceTimersByTimeAsync(10_000)
+    expect(run).toHaveBeenCalledTimes(2)
+  })
+
   it('没有新请求就不再跑', async () => {
     const run = vi.fn(async () => {})
     coalesceWithCooldown(run, 60_000)()

@@ -14,33 +14,50 @@ export const yieldToEventLoop = (): Promise<void> => new Promise(resolve => setI
  * 在这里吞掉 —— 调用方负责记日志，这里只保证一次失败不会让后面的请求再也跑不起来。
  */
 export function coalesceWithCooldown(run: () => Promise<unknown>, cooldownMs: number): () => void {
-  let running = false
-  let pending = false
-  let timer: NodeJS.Timeout | null = null
+  /**
+   * 原来是 `running` / `pending` / `timer` 三个变量，"跑着又挂着定时器""定时器到点了却
+   * 没有请求"都表达得出来，只是碰巧走不到。三态各自只带自己用得上的东西：
+   * - `idle`：没事；下一个请求按 `lastFinished` 算还要等多久（可能是 0）。
+   * - `waiting`：有请求，等冷却期满 —— 冷却期内再来多少个都已经被它代表了。
+   * - `running`：正在跑；`rerun` = 期间又来了请求，跑完要再排一次。
+   */
+  type State
+    = | { kind: 'idle' }
+      | { kind: 'waiting', timer: NodeJS.Timeout }
+      | { kind: 'running', rerun: boolean }
+  let state: State = { kind: 'idle' }
   let lastFinished = Number.NEGATIVE_INFINITY
 
-  const fire = () => {
-    timer = null
-    if (!pending)
-      return
-    pending = false
-    running = true
-    void run().catch(() => {}).finally(() => {
-      running = false
-      lastFinished = Date.now()
-      if (pending)
-        schedule()
-    })
-  }
-  const schedule = () => {
-    if (running || timer)
-      return
-    timer = setTimeout(fire, Math.max(0, lastFinished + cooldownMs - Date.now()))
+  const wait = () => {
+    const timer = setTimeout(fire, Math.max(0, lastFinished + cooldownMs - Date.now()))
     // 一个等着的补跑不该把进程钉住
     timer.unref?.()
+    state = { kind: 'waiting', timer }
+  }
+  function fire() {
+    const current: State = { kind: 'running', rerun: false }
+    state = current
+    void run().catch(() => {}).finally(() => {
+      lastFinished = Date.now()
+      state = { kind: 'idle' }
+      if (current.rerun)
+        wait()
+    })
   }
   return () => {
-    pending = true
-    schedule()
+    switch (state.kind) {
+      case 'idle':
+        wait()
+        return
+      case 'waiting':
+        return
+      case 'running':
+        state.rerun = true
+        return
+      default: {
+        const unknown: never = state
+        return unknown
+      }
+    }
   }
 }
