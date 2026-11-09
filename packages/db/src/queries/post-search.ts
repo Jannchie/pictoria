@@ -33,6 +33,25 @@ export interface PostFilterWithOrder extends PostFilter {
   sortDirection?: 'asc' | 'desc' | null
 }
 
+/** 小于 2^31 且 ≡ 2 (mod 3) 的素数：x → x³ 在其上是双射，乘积不溢出 int64。 */
+const SHUFFLE_PRIME = 2147483579
+const SHUFFLE_MULTIPLIER = 1640531527
+
+/**
+ * `order='random'` 的种子洗牌键：`x = (id·A + seed) mod P`，再取 `x³ mod P`。
+ *
+ * 不能用 `(id * seed) % P` 这种线性哈希：按它排序时相邻结果的 id 差只有三种取值
+ * （三距离定理），翻出来的是等差的 id 序列，同一批导入的图会成片地规律出现。
+ * 立方是非线性的，相邻 id 差的分布与真随机一致。种子是校验过的整数，直接内联。
+ */
+function seededShuffleKey(orderSeed: number | null | undefined): string {
+  const P = SHUFFLE_PRIME
+  const seed = ((Math.trunc(orderSeed || 1) % P) + P) % P
+  // 先乘 A 把 x 撒满 [0, P)：否则种子很小时 id+seed 的立方还不到 P，排出来就是 id 序。
+  const x = `(((p.id % ${P}) * ${SHUFFLE_MULTIPLIER} + ${seed}) % ${P})`
+  return `(((${x} * ${x}) % ${P}) * ${x} % ${P})`
+}
+
 /** sqlite-vec 的 serialize_float32：小端 float32 blob。 */
 function serializeFloat32(values: number[]): Buffer {
   return Buffer.from(new Float32Array(values).buffer)
@@ -99,14 +118,11 @@ export function buildSearchQuery(
 
   const extraJoins: string[] = []
   let orderSql = ''
-  const orderParams: unknown[] = []
   let resortSql = ''
   const sortable = Boolean(f.orderBy) && ORDERABLE_COLUMNS.has(f.orderBy!)
 
   if (f.order === 'random') {
-    const seed = ((f.orderSeed || 1) % 2147483647) || 1
-    orderSql = 'ORDER BY ((p.id * ?) % 2147483647)'
-    orderParams.push(seed)
+    orderSql = `ORDER BY ${seededShuffleKey(f.orderSeed)}, p.id`
     if (sortable) {
       // 种子哈希决定主序；请求的列变成对 `_sort_col` 的外层重排。
       let selectExpr: string
@@ -147,7 +163,7 @@ export function buildSearchQuery(
     ? `SELECT * FROM (${selectCols} ${fromClause} ${wSql} ${orderSql} LIMIT ? OFFSET ?) ${resortSql}`
     : `${selectCols} ${fromClause} ${wSql} ${orderSql} LIMIT ? OFFSET ?`
 
-  return { sql, params: [...params, ...orderParams, limit, offset] }
+  return { sql, params: [...params, limit, offset] }
 }
 
 /** 搜索，返回可直接喂给 `PostSimplePublic` 的行。 */
