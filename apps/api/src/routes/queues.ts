@@ -33,8 +33,8 @@ const QueueDepth = z
 const QueuesStatus = z
   .object({
     scheduler: z.object({
-      running: z.boolean(),
-      error: z.string().nullable().openapi({ description: '调度器启动失败时的错误；正常为 `null`。' }),
+      state: z.enum(['disabled', 'starting', 'retrying', 'running', 'failed']).openapi({ description: '`disabled` = `PICTORIA_SCHEDULER=0`；`starting` = 正在开任务库；`retrying` = 开库失败、退避重试中（见 `error`）；`failed` = 启动流程抛了、不再重试（见 `error`）。' }),
+      error: z.string().nullable().openapi({ description: '`retrying` / `failed` 时的错误；其余状态为 `null`。' }),
     }),
     loops: z.array(LoopStatus),
     queues: z.array(QueueDepth).openapi({ description: 'cairnq 各队列此刻排队 / 运行中的任务数；任务库还没连上时为空。' }),
@@ -58,7 +58,7 @@ queuesRoutes.openapi(
     },
   }),
   async (c) => {
-    const { running, error, loops } = schedulerStatus()
+    const { state, error, loops } = schedulerStatus()
     const tasks = c.var.tasks.peek()
     // 按队列问，不问整张表：不带参数的 `stats()` 要把 retention 留着的全部终态行
     // （succeeded 1 小时、failed 24 小时）聚合一遍，而带队列名的走 (queue, status) 索引前缀。
@@ -68,6 +68,6 @@ queuesRoutes.openapi(
           return { name, queued: byStatus?.queued ?? 0, running: byStatus?.running ?? 0 }
         }))
       : []
-    return c.json({ scheduler: { running, error }, loops, queues }, 200)
+    return c.json({ scheduler: { state, error }, loops, queues }, 200)
   },
 )

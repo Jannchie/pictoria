@@ -106,7 +106,7 @@ describe('GET /v2/cmd/import-from-url/status', () => {
     const { t } = setup()
     const { status, body } = await requestJson(t.app, '/v2/cmd/import-from-url/status')
     expect(status).toBe(200)
-    expect(body).toMatchObject({ state: 'idle', url: null, stats: null, syncTriggered: false })
+    expect(body).toMatchObject({ state: 'idle', url: null, stats: null })
   })
 })
 

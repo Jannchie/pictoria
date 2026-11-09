@@ -4,7 +4,7 @@ import { serve } from '@hono/node-server'
 import { createApp } from './app.js'
 import { getDb, migrate } from './db.js'
 import { dbPath } from './paths.js'
-import { BACKFILL_LOOP_KEYS, setSchedulerError } from './queue-status.js'
+import { BACKFILL_LOOP_KEYS, setSchedulerState } from './queue-status.js'
 import { createReadPool, inProcessReads, readThreadsFromEnv } from './read-pool.js'
 import { startBackfills } from './scheduler.js'
 import { startAutoSync } from './sync.js'
@@ -52,13 +52,12 @@ async function tasksForScheduler(): Promise<CairnQ> {
   for (let delay = 2_000; ; delay = Math.min(delay * 2, 60_000)) {
     try {
       const tasks = await getTasks()
-      setSchedulerError(null)
       return tasks
     }
     catch (err) {
       // 带上整个 err（堆栈 + code）：只打 String(err) 时分不清是哪一步失败的。
       console.error(`[pictoria-api] 后台调度开库失败，${delay / 1000}s 后重试（HTTP 服务不受影响）：`, err)
-      setSchedulerError(err)
+      setSchedulerState({ kind: 'retrying', error: String(err) })
       await new Promise(resolve => setTimeout(resolve, delay))
     }
   }
@@ -77,6 +76,7 @@ if (process.env.PICTORIA_SCHEDULER !== '0') {
     startAutoSync(sqlite)
     console.warn(`[pictoria-api] backfill 调度已启动：${BACKFILL_LOOP_KEYS.join(', ')}`)
     console.warn('[pictoria-api] 文件监视 + 10 分钟轮询已启动')
+    setSchedulerState({ kind: 'running' })
   })().catch((err: unknown) => {
     // ⚠️ 这个 catch 不能省。上面整段是 fire-and-forget，开库之后的启动步骤抛出的
     // 异常会一路冒到这里 —— Node 默认 `--unhandled-rejections=throw`，于是一个**已经
@@ -84,6 +84,9 @@ if (process.env.PICTORIA_SCHEDULER !== '0') {
     // app.py 每条后台循环都包了 try/except，就是这个原因。
     console.error('[pictoria-api] 后台调度启动失败，HTTP 服务继续：', err)
     // 也报给前端的同步状态区：只有一行终端日志的话，调度停了很久都没人发现。
-    setSchedulerError(err)
+    setSchedulerState({ kind: 'failed', error: String(err) })
   })
+}
+else {
+  setSchedulerState({ kind: 'disabled' })
 }

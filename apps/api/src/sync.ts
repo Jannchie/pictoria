@@ -64,7 +64,7 @@ export async function scanLibrary(root: string, { log = console }: { log?: Log }
   const failedDirs: string[] = []
   // 边走边建新表，走完整体替换。缓存只按 mtime 判新旧，自己发现不了"这个目录没了"；
   // 而"本轮走到过的目录"恰好就是"本轮该留的缓存"，所以不需要额外记一份再回头清扫 ——
-  // 没走到的目录天然不在新表里。（`startSync` 用 `current` 保证不并发。）
+  // 没走到的目录天然不在新表里。（`startSync` 的单飞状态保证不并发。）
   const next: ScanCache = new Map()
 
   // 读不动的目录：记下它的相对路径并保留它上一轮的缓存内容。保留是重点 —— 网络盘
@@ -299,47 +299,56 @@ export async function syncMetadata(
 }
 
 /**
- * 一次同步跑完之后要不要再跑一次。
+ * 同步的单飞状态：要么没在跑，要么正在跑一次、外加"跑完要不要再来一次"。
  *
  * 在跑的时候来的触发不能直接丢：拷进来一批图触发了同步，同步还没跑完你删掉一张，
  * 那次删除的事件就没了，库里的行要等下一次 10 分钟轮询才消失（Python 侧继承来的
- * 毛病）。所以记一笔"跑完再来一次"。
+ * 毛病）。所以记一笔 `rerun`。
  *
- * ⚠️ 这个标志属于 `startSync` 而不是某一个调用方。它原来长在 `startAutoSync` 的
+ * ⚠️ 这份状态属于 `startSync` 而不是某一个调用方。补跑标志原来长在 `startAutoSync` 的
  * 闭包里，只有 watch/poll 那条路消费得到它 —— 而 `startSync` 另有两个调用方
- * （`/v2/cmd/sync-metadata` 和 danbooru 导入结束时），用户手工触发的那次扫描把
+ * （`/v2/cmd/sync-metadata` 和 URL 导入结束时），用户手工触发的那次扫描把
  * 标志顶起来之后没人管，于是补跑不发生、白等 10 分钟，还多跑一次全扫。
+ *
+ * `run` 是正在跑的那一次；文件监视的冷却靠它知道"这一轮什么时候结束"（`syncSettled`）。
  */
-let pendingRerun = false
+interface RunningSync { kind: 'running', run: Promise<void>, rerun: boolean }
+type SyncState = { kind: 'idle' } | RunningSync
 
-/**
- * 正在跑的那一次。一次同步只跑一个：它非空时再调用不排队而是记一笔补跑（见 `startSync`）；
- * 文件监视的冷却也靠它知道"这一轮什么时候结束"。
- */
-let current: Promise<void> | null = null
+let syncState: SyncState = { kind: 'idle' }
 
-/** 等正在跑的同步结束；没在跑就立即返回。 */
-export function syncSettled(): Promise<void> {
-  return current ?? Promise.resolve()
+/** 等正在跑的同步（连同已经排上的补跑）结束；没在跑就立即返回。 */
+export async function syncSettled(): Promise<void> {
+  while (syncState.kind === 'running')
+    await syncState.run
 }
 
 /**
- * 加了忙检查的一次性入口；忙的话返回 false，调用方据此报"已在跑"。
+ * `startSync` 的结果：`started` = 这次调用开了一轮；`queued` = 已经有一轮在跑，记了一笔
+ * 补跑 —— 两种情况下"调用之前落到磁盘上的变化"都会被某一轮同步看到。
+ */
+export type SyncStart = 'started' | 'queued'
+
+/**
+ * 加了单飞的一次性入口：没在跑就开一轮，在跑就排一次补跑（见 `SyncState`）。
  *
  * `allowMassDelete` 只对**这一次**生效：它表达的是"用户确认了这批删除是真的"，
- * 而补跑（`pendingRerun`）响应的是之后进来的新变化，不继承这份确认。
+ * 而补跑响应的是之后进来的新变化，不继承这份确认。
  */
 export function startSync(
   sqlite: SqliteHandle,
   onDone?: (r: SyncResult) => void,
   { log = console, allowMassDelete = false }: { log?: Log, allowMassDelete?: boolean } = {},
-): boolean {
-  if (current) {
-    pendingRerun = true
-    return false
+): SyncStart {
+  if (syncState.kind === 'running') {
+    syncState.rerun = true
+    return 'queued'
   }
-  // fire-and-forget：请求立刻返回，扫描在后台跑。
-  current = (async () => {
+  // fire-and-forget：请求立刻返回，扫描在后台跑。先登记状态再开跑 —— 下面的 async
+  // 函数在第一个 await 之前是同步执行的，那期间再来的调用也得看到"在跑"。
+  const state: RunningSync = { kind: 'running', rerun: false, run: Promise.resolve() }
+  syncState = state
+  state.run = (async () => {
     try {
       const result = await syncMetadata(sqlite, { log, allowMassDelete })
       onDone?.(result)
@@ -348,18 +357,17 @@ export function startSync(
       log.warn(`[sync] 失败：${String(err)}`)
     }
     finally {
-      current = null
+      syncState = { kind: 'idle' }
     }
-    if (pendingRerun) {
-      pendingRerun = false
-      // 下一个 tick，别在自己的 finally 里递归重入
-      setImmediate(() => {
-        log.info('[sync] 上一轮跑的时候还有变化进来，补一次')
-        startSync(sqlite, onDone, { log })
-      })
+    // 同步地接上补跑：中间不留空档，否则空档里进来的触发会开一轮，补跑再来时看到
+    // "在跑"又记一笔，平白多扫一遍全库。新一轮从 `syncMetadata` 的第一个 await 起
+    // 就交出控制权，所以这里不是递归加深。
+    if (state.rerun) {
+      log.info('[sync] 上一轮跑的时候还有变化进来，补一次')
+      startSync(sqlite, onDone, { log })
     }
   })()
-  return true
+  return 'started'
 }
 
 
@@ -390,7 +398,7 @@ export function startAutoSync(
   { log = console }: { log?: Log } = {},
 ): AutoSyncHandle {
   const root = targetDir()
-  // 同步进行中又来了事件时的补跑由 `startSync` 自己负责（见那边的 `pendingRerun`），
+  // 同步进行中又来了事件时的补跑由 `startSync` 自己负责（见那边的 `SyncState`），
   // 这里只管触发。
   const fire = (label: string) => {
     startSync(sqlite, (r) => {

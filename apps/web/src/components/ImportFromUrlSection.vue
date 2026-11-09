@@ -133,7 +133,7 @@ function onImport() {
               <p v-if="(status.stats?.failed ?? 0) > 0" class="text-warning pl-6">
                 {{ $t('import.failedRetry', { n: status.stats?.failed ?? 0 }, status.stats?.failed ?? 0) }}
               </p>
-              <p v-if="status.syncTriggered" class="text-fg-subtle pl-6">
+              <p class="text-fg-subtle pl-6">
                 {{ $t('import.metadataSync') }}
               </p>
             </div>

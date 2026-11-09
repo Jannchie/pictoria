@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import type { QueuesStatus } from '@/api'
 import { useQuery } from '@tanstack/vue-query'
 import { useStorage } from '@vueuse/core'
 import { computed, useId, watch } from 'vue'
@@ -33,7 +34,18 @@ const statusQuery = useQuery({
 const status = computed(() => statusQuery.data.value)
 const active = computed(() => status.value?.loops.filter(l => l.state !== 'idle') ?? [])
 const hasError = computed(() => active.value.some(l => l.state === 'error'))
-const schedulerDown = computed(() => status.value !== undefined && !status.value.scheduler.running)
+// What the header says about the scheduler itself; a missing entry = nothing
+// to report. `starting` is the first second or two of every API boot — not
+// worth a line, let alone an alarm. `retrying` heals on its own, `failed`
+// needs a restart, `disabled` (PICTORIA_SCHEDULER=0) is deliberate.
+type SchedulerState = QueuesStatus['scheduler']['state']
+const SCHEDULER_NOTICES: Partial<Record<SchedulerState, { tone: 'danger' | 'muted', labelKey: string, hintKey: string }>> = {
+  failed: { tone: 'danger', labelKey: 'syncStatus.schedulerDown', hintKey: 'syncStatus.schedulerDownHint' },
+  retrying: { tone: 'danger', labelKey: 'syncStatus.schedulerRetrying', hintKey: 'syncStatus.schedulerRetryingHint' },
+  disabled: { tone: 'muted', labelKey: 'syncStatus.schedulerDisabled', hintKey: 'syncStatus.schedulerDisabledHint' },
+}
+const schedulerNotice = computed(() => status.value ? SCHEDULER_NOTICES[status.value.scheduler.state] ?? null : null)
+const schedulerDown = computed(() => schedulerNotice.value?.tone === 'danger')
 const busyQueues = computed(() => status.value?.queues.filter(q => q.running + q.queued > 0) ?? [])
 
 // The slowest loop decides when the library is fully processed.
@@ -129,7 +141,7 @@ const rows = computed(() => active.value.map((loop) => {
 </script>
 
 <template>
-  <div v-if="status && (schedulerDown || active.length > 0)" class="px-2 pt-2">
+  <div v-if="status && (schedulerNotice || active.length > 0)" class="px-2 pt-2">
     <button
       type="button"
       class="text-xs px-4 rounded flex gap-2 min-h-7 w-full transition-colors items-center hover:bg-surface-1"
@@ -144,12 +156,17 @@ const rows = computed(() => active.value.map((loop) => {
         aria-hidden="true"
       />
       <i
+        v-else-if="schedulerNotice"
+        class="i-tabler-player-pause text-fg-subtle shrink-0 h-4 w-4"
+        aria-hidden="true"
+      />
+      <i
         v-else
         class="i-svg-spinners-90-ring-with-bg text-primary shrink-0 h-4 w-4"
         aria-hidden="true"
       />
       <span class="text-fg-muted text-left flex-1 truncate">
-        <template v-if="schedulerDown">{{ t('syncStatus.schedulerDown') }}</template>
+        <template v-if="schedulerNotice">{{ t(schedulerNotice.labelKey) }}</template>
         <template v-else>{{ t('syncStatus.working', { n: active.length }, active.length) }}</template>
       </span>
       <span
@@ -169,10 +186,11 @@ const rows = computed(() => active.value.map((loop) => {
       class="px-4 pb-1 pt-1 flex flex-col gap-2"
     >
       <p
-        v-if="schedulerDown && status.scheduler.error"
-        class="text-2xs text-danger break-words"
+        v-if="schedulerNotice"
+        class="text-2xs break-words"
+        :class="schedulerNotice.tone === 'danger' ? 'text-danger' : 'text-fg-subtle'"
       >
-        {{ t('syncStatus.schedulerDownHint', { error: status.scheduler.error }) }}
+        {{ t(schedulerNotice.hintKey, { error: status.scheduler.error ?? '' }) }}
       </p>
 
       <div

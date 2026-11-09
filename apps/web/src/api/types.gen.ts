@@ -17,9 +17,12 @@ export type WaifuScoreResult = {
  */
 export type QueuesStatus = {
     scheduler: {
-        running: boolean;
         /**
-         * 调度器启动失败时的错误；正常为 `null`。
+         * `disabled` = `PICTORIA_SCHEDULER=0`；`starting` = 正在开任务库；`retrying` = 开库失败、退避重试中（见 `error`）；`failed` = 启动流程抛了、不再重试（见 `error`）。
+         */
+        state: 'disabled' | 'starting' | 'retrying' | 'running' | 'failed';
+        /**
+         * `retrying` / `failed` 时的错误；其余状态为 `null`。
          */
         error: string | null;
     };
@@ -582,7 +585,6 @@ export type UrlImportStatus = {
     error?: string | null;
     startedAt?: string | null;
     finishedAt?: string | null;
-    syncTriggered?: boolean;
 };
 
 /**

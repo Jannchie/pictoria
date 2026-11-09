@@ -111,6 +111,33 @@ describe('loopTracker', () => {
     expect(await snap()).toMatchObject({ state: 'working', lastError: null })
   })
 
+  it('一批落库之后不再报"正在跑"：batchStartedAt 只在一批进行中非空', async () => {
+    const { batch, snap } = setup(100)
+    batch(1000, 0)
+    expect(await snap()).toMatchObject({ state: 'working', batchStartedAt: null })
+  })
+
+  it('出错后转入扫空，不把旧错误留在快照里', async () => {
+    const { tracker, snap } = setup(100)
+    tracker.begin()
+    tracker.error(new Error('boom'))
+    tracker.idle()
+    expect(await snap()).toMatchObject({ state: 'idle', lastError: null })
+  })
+
+  it('扫空之后第一批就出错：剩余去数，而不是沿用"精确的 0"', async () => {
+    const { tracker, state, batch, snap } = setup(100)
+    batch(1000, 10)
+    await snap() // 刚数过一次：限频期内不会因为到点而重数
+    tracker.idle()
+    tracker.begin()
+    tracker.error(new Error('boom'))
+    expect(await snap()).toMatchObject({ state: 'error', remaining: 90 })
+    batch(1000, 10)
+    expect(await snap()).toMatchObject({ state: 'working', remaining: 80, sessionDone: 10 })
+    expect(state.calls).toBe(2)
+  })
+
   it('计数抛错时沿用上一次的估计', async () => {
     let fail = false
     const { batch, advance, snap } = setup(0, () => {

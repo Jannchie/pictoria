@@ -293,3 +293,26 @@ describe('syncMetadata 不独占事件循环', () => {
     expect(interleaved).toBe(true)
   })
 })
+
+describe('startSync 单飞', () => {
+  it('在跑时再触发只排一次补跑，跑完紧接着补；syncSettled 等到补跑结束', async () => {
+    const { root, sqlite } = seedLibrary(0, 2)
+    const { startSync, syncSettled } = await loadSync(root)
+    const results: number[] = []
+    const onDone = (r: { added: number }) => results.push(r.added)
+
+    expect(startSync(sqlite, onDone, { log: quiet })).toBe('started')
+    // 两次触发合成一次补跑
+    expect(startSync(sqlite, onDone, { log: quiet })).toBe('queued')
+    expect(startSync(sqlite, onDone, { log: quiet })).toBe('queued')
+    await syncSettled()
+
+    // 第一轮登记两张，补跑没有新东西
+    expect(results).toEqual([2, 0])
+    expect(postCount(sqlite)).toBe(2)
+    // 都结束之后再触发就是新的一轮
+    expect(startSync(sqlite, onDone, { log: quiet })).toBe('started')
+    await syncSettled()
+    expect(results).toEqual([2, 0, 0])
+  })
+})

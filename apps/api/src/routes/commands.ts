@@ -380,7 +380,7 @@ commandsRoutes.openapi(
     const started = startSync(c.var.db, (r) => {
       console.warn(`[sync] 完成：新增 ${r.added}，删除 ${r.removed}`)
     }, { allowMassDelete })
-    return c.json({ msg: started ? 'Sync started' : 'Sync already running' }, 201)
+    return c.json({ msg: started === 'started' ? 'Sync started' : 'Sync already running' }, 201)
   },
 )
 
@@ -402,7 +402,6 @@ const UrlImportStatus = z
     error: z.string().nullable().optional(),
     startedAt: z.string().nullable().optional(),
     finishedAt: z.string().nullable().optional(),
-    syncTriggered: z.boolean().default(false),
   })
   .openapi('UrlImportStatus')
 
@@ -418,7 +417,6 @@ let urlImportStatus: {
   error: string | null
   startedAt: string | null
   finishedAt: string | null
-  syncTriggered: boolean
 } = {
   state: 'idle',
   url: null,
@@ -426,7 +424,6 @@ let urlImportStatus: {
   error: null,
   startedAt: null,
   finishedAt: null,
-  syncTriggered: false,
 }
 
 /**
@@ -451,9 +448,8 @@ async function runUrlImport(sqlite: SqliteHandle, tasks: TaskSource, url: string
   status.state = 'done'
   status.finishedAt = new Date().toISOString()
   // 新图需要向量 / 分数 / 自动标签（kemono 的帖子根本不带标签）—— 踢一脚既有的
-  // backfill 流程。⚠️ 必须在 state='done' **之后**，因为 done 是前端停止轮询的信号，
-  // 而 syncTriggered 是它要读的最后一个字段。
-  status.syncTriggered = startSync(sqlite)
+  // backfill 流程。已经有一轮在跑时 `startSync` 排一次补跑，新文件同样会被扫到。
+  startSync(sqlite)
 }
 
 /**
@@ -530,8 +526,7 @@ commandsRoutes.openapi(
       error: null,
       startedAt: new Date().toISOString(),
       finishedAt: null,
-      syncTriggered: false,
-    }
+        }
     void runUrlImport(c.var.db, c.var.tasks, url)
     return c.json({ msg: 'Import started' }, 201)
   },
