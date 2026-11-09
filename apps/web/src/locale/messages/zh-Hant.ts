@@ -203,6 +203,7 @@ const zhHant: MessageSchema = {
   },
   post: {
     notFound: '這張圖已經不在圖庫裡了。',
+    imageLoadFailed: '圖片載入失敗。',
     bottomInfo: '圖片 ID：{id}，檔案名：{name}',
     deleteDialogTitle: '刪除選中的圖片？',
     deleteDialogConfirm: '刪除 {n}',

@@ -203,6 +203,7 @@ const zhHans: MessageSchema = {
   },
   post: {
     notFound: '这张图已经不在图库里了。',
+    imageLoadFailed: '图片加载失败。',
     bottomInfo: '图片 ID：{id}，文件名：{name}',
     deleteDialogTitle: '删除选中的图片？',
     deleteDialogConfirm: '删除 {n}',

@@ -206,6 +206,7 @@ const en = {
   },
   post: {
     notFound: 'This image is no longer in the library.',
+    imageLoadFailed: 'Couldn’t load this image.',
     bottomInfo: 'Post ID: {id}, File Name: {name}',
     deleteDialogTitle: 'Delete selected posts?',
     deleteDialogConfirm: 'Delete {n}',

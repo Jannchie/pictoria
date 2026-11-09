@@ -7,6 +7,7 @@ import ConfirmActionDialog from '@/components/ConfirmActionDialog.vue'
 import PostDetail from '@/components/PostDetail.vue'
 import { useConfirmAction } from '@/composables/useConfirmAction'
 import { useEdgeProximity } from '@/composables/useEdgeProximity'
+import { useImageLoadPhase } from '@/composables/useImageLoadPhase'
 import { useKeyScope } from '@/composables/useKeyScope'
 import { usePostNavAnnounce, usePostNavigation } from '@/composables/usePostNavigation'
 import { useAdjacentPostPrefetch } from '@/composables/usePostPrefetch'
@@ -54,7 +55,10 @@ onUnmounted(() => {
   similarPostList.value = []
 })
 const imgRef = ref<HTMLImageElement>()
-const imageLoaded = ref(false)
+// Was a bare `imageLoaded` flag: a failed load kept the <img> at opacity 0 over
+// the placeholder for good, which reads as "still loading" forever.
+const image = useImageLoadPhase(postId)
+const { phase: imagePhase, attempt: imageAttempt, loaded: imageLoaded } = image
 // Fallback ratio measured from the decoded image, for posts whose stored
 // width/height are 0 (e.g. imported without dimensions). Without it the
 // container has no aspect-ratio and the 80vh cap below has nothing to bite on.
@@ -122,7 +126,7 @@ const imageSizeClass = computed(() =>
 )
 
 function onImageLoad() {
-  imageLoaded.value = true
+  image.onLoad()
   const img = imgRef.value
   if (img && img.naturalWidth && img.naturalHeight) {
     naturalRatio.value = img.naturalWidth / img.naturalHeight
@@ -130,7 +134,6 @@ function onImageLoad() {
 }
 
 watch(postId, (id) => {
-  imageLoaded.value = false
   naturalRatio.value = null
   if (Number.isFinite(id)) {
     // 清空选区而不是把主图塞进去：useFocusedPost 在选区为空时会回退到 URL 主图，
@@ -143,9 +146,7 @@ watch(postId, (id) => {
 }, { immediate: true })
 
 onMounted(() => {
-  if (imgRef.value?.complete) {
-    imageLoaded.value = true
-  }
+  image.settleFrom(imgRef.value)
 })
 
 watchEffect(() => {
@@ -391,7 +392,7 @@ async function confirmDelete() {
             @dblclick="openOverlay"
           >
             <img
-              :key="post.id"
+              :key="`${post.id}:${imageAttempt}`"
               ref="imgRef"
               :src="getPostImageURL(post)"
               alt=""
@@ -402,6 +403,7 @@ async function confirmDelete() {
               class="block transition-opacity duration-300 object-contain"
               :class="[imageSizeClass, { 'opacity-0': (!enableArthash || !post.arthash) && !imageLoaded }]"
               @load="onImageLoad"
+              @error="image.onError"
             >
             <ArthashPlaceholder
               v-if="enableArthash && post.arthash"
@@ -409,6 +411,18 @@ async function confirmDelete() {
               :revealed="imageLoaded"
               :fancy="enableFancyPlaceholder"
             />
+            <div
+              v-if="imagePhase === 'failed'"
+              role="alert"
+              class="text-sm text-fg-muted p-4 text-center bg-surface-1 flex flex-col gap-2 items-center justify-center"
+              :class="imageAspectRatio ? 'absolute inset-0' : 'min-h-48 min-w-64'"
+            >
+              <i class="i-tabler-photo-off text-fg-subtle h-6 w-6" aria-hidden="true" />
+              <span>{{ $t('post.imageLoadFailed') }}</span>
+              <PButton size="sm" @click.stop="image.retry" @dblclick.stop>
+                {{ $t('common.retry') }}
+              </PButton>
+            </div>
           </div>
           <p :id="hintId" class="sr-only">
             {{ $t('post.mainImageHint') }}
