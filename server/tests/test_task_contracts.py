@@ -243,6 +243,7 @@ def _siglip_stub(monkeypatch: pytest.MonkeyPatch) -> None:
         calculate_image_features_batch=features,
         calculate_text_features=lambda _prompt: _FakeTensor(np.zeros((1, 1152), dtype=np.float32)),
         get_logit_scale_bias=lambda: (117.3, -12.9),
+        warm=lambda: None,
     )
 
 

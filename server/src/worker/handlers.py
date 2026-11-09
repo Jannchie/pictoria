@@ -254,10 +254,17 @@ async def handle_waifu(payload: dict[str, Any]) -> dict[str, Any]:
 
     items, failures = _resolve_items(items_in)
 
-    # The loader itself touches disk and VRAM, so it goes off-loop too — see
-    # the note in handle_silva about the lease.
-    scorer = await asyncio.to_thread(get_waifu_scorer)
-    successes, ladder_failures = await run_with_fallback(scorer, items, label="waifu")
+    # get_waifu_scorer is cached: `prepare` loads it once, off-loop (see the note
+    # in handle_silva about the lease); the batch function only looks it up.
+    def _score(paths: list[Path]) -> Any:
+        return get_waifu_scorer()(paths)
+
+    successes, ladder_failures = await run_with_fallback(
+        _score,
+        items,
+        label="waifu",
+        prepare=get_waifu_scorer,
+    )
     return {
         "scores": [{"postId": pid, "score": float(score)} for pid, score in successes],
         "failures": failures + [{"postId": pid, "error": err} for pid, err in ladder_failures],
@@ -308,12 +315,11 @@ async def handle_tagger(payload: dict[str, Any]) -> dict[str, Any]:
 
     items, failures = _resolve_items(items_in)
 
-    # The loader touches disk and VRAM, so it goes off-loop — see handle_silva.
-    await asyncio.to_thread(warm)
     successes, ladder_failures = await run_with_fallback(
         tag_batch,
         items,
         label="tagger",
+        prepare=warm,
         reject_reason=_no_tags,
     )
     return {
@@ -336,7 +342,7 @@ async def handle_embedding(payload: dict[str, Any]) -> dict[str, Any]:
     if not items_in:
         return {"embeddings": [], "failures": []}
 
-    from ai.siglip_embed import calculate_image_features_batch  # noqa: PLC0415  # lazy: defer the ML stack
+    from ai.siglip_embed import calculate_image_features_batch, warm  # noqa: PLC0415  # lazy: defer the ML stack
 
     items, failures = _resolve_items(items_in)
 
@@ -344,7 +350,7 @@ async def handle_embedding(payload: dict[str, Any]) -> dict[str, Any]:
         features = calculate_image_features_batch(paths)
         return list(features.cpu().numpy().astype(np.float32))
 
-    successes, ladder_failures = await run_with_fallback(_encode, items, label="embedding")
+    successes, ladder_failures = await run_with_fallback(_encode, items, label="embedding", prepare=warm)
     return {
         "embeddings": [{"postId": pid, "embedding": encode_vector(emb)} for pid, emb in successes],
         "failures": failures + [{"postId": pid, "error": err} for pid, err in ladder_failures],

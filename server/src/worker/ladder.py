@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import sys
 from typing import TYPE_CHECKING, TypeVar
 
 from PIL import UnidentifiedImageError
@@ -61,6 +62,34 @@ def _classify(
     return succ, fail
 
 
+def _free_after_oom(exc: BaseException) -> bool:
+    """If ``exc`` is torch's CUDA OOM, hand cached blocks back and return True.
+
+    Freeing gives the next, smaller rung room to run. ``torch`` is looked up
+    through ``sys.modules`` so this module never imports it: if torch is not
+    loaded, nothing could have raised its OOM.
+    """
+    torch = sys.modules.get("torch")
+    if torch is None or not isinstance(exc, torch.cuda.OutOfMemoryError):
+        return False
+    torch.cuda.empty_cache()
+    return True
+
+
+class SystemicBatchError(RuntimeError):
+    """A failure that belongs to the process, not to any one image.
+
+    The ladder's rungs encode *how small a group must be to isolate the bad
+    image*. A CUDA OOM on a **single** fixed-size input (every model here
+    resizes or pads to a fixed resolution, so one image is never bigger than
+    another on the GPU) cannot be that image's fault — the card is full or the
+    context is poisoned. Returning it as a per-image failure would let TS
+    blacklist the post forever, and every post after it in the backlog, so it
+    is raised instead: the task fails, the backfill loop backs off and retries
+    the same posts later.
+    """
+
+
 async def _retry_per_image(
     batch_fn: Callable[[list[Path]], Sequence[R]],
     chunk: Sequence[tuple[int, Path]],
@@ -78,6 +107,9 @@ async def _retry_per_image(
             log.warning("[%s] unreadable %s (%s): %s", label, pid, path, exc)
             failures.append((pid, f"{type(exc).__name__}: {exc}"))
         except Exception as exc:
+            if _free_after_oom(exc):
+                msg = f"[{label}] CUDA out of memory on a single image (post {pid}); not this image's fault"
+                raise SystemicBatchError(msg) from exc
             log.exception("[%s] post %s (%s)", label, pid, path)
             failures.append((pid, f"{type(exc).__name__}: {exc}"))
         else:
@@ -94,9 +126,16 @@ async def run_with_fallback(
     items: Sequence[tuple[int, Path]],
     *,
     label: str,
+    prepare: Callable[[], object],
     reject_reason: Callable[[int, R], str | None] | None = None,
 ) -> Outcome:
     """Run ``batch_fn`` over ``items``, shrinking the batch on failure.
+
+    ``prepare`` loads whatever ``batch_fn`` needs (weights, processor) and runs
+    off-loop **before** the first rung, outside every ``except``. Required, not
+    optional: a load failing inside the ladder looks exactly like every image
+    in the batch being bad, and TS blacklists those for good. Raised here, it
+    fails the task instead, and the backfill loop retries it later.
 
     Full batch first; on exception, retry in groups of
     :data:`FALLBACK_MINI_BATCH_SIZE` so one corrupt image does not drop the rest
@@ -109,10 +148,12 @@ async def run_with_fallback(
     if not items:
         return [], []
 
+    await asyncio.to_thread(prepare)
     paths = [p for _, p in items]
     try:
         results = await asyncio.to_thread(batch_fn, paths)
     except Exception as exc:
+        _free_after_oom(exc)
         log.warning(
             "[%s] full batch failed (%s); retrying in mini-batches of %d",
             label, exc, FALLBACK_MINI_BATCH_SIZE,
@@ -126,7 +167,8 @@ async def run_with_fallback(
         chunk = items[start : start + FALLBACK_MINI_BATCH_SIZE]
         try:
             results = await asyncio.to_thread(batch_fn, [p for _, p in chunk])
-        except Exception:
+        except Exception as exc:
+            _free_after_oom(exc)
             succ, fail = await _retry_per_image(
                 batch_fn, chunk, label=label, reject_reason=reject_reason,
             )

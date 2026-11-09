@@ -11,6 +11,7 @@ aesthetic scorer, so the two load as independent models on the GPU.
 """
 
 import contextlib
+import threading
 from collections.abc import Iterable, Sequence
 from concurrent.futures import ThreadPoolExecutor
 from functools import cache
@@ -31,8 +32,15 @@ EMBED_DIM = 1152
 PREPROCESS_WORKERS = 8
 
 
+#: Serialises the first load. ``functools.cache`` does not: the ``embedding``
+#: (GPU) and ``text-embed`` (interactive) queues run in different threads, and on
+#: a cold start a backfill batch and a text search would both miss the cache and
+#: both put a ~2 GB so400m on a card that is already close to full.
+_load_lock = threading.Lock()
+
+
 @cache
-def get_model() -> AutoModel:
+def _load_model() -> AutoModel:
     model = load_local_first(AutoModel.from_pretrained, MODEL_ID, device_map=DEVICE)
     model = model.to(dtype=DTYPE)
     model.eval()
@@ -41,8 +49,29 @@ def get_model() -> AutoModel:
 
 
 @cache
-def get_processor() -> AutoProcessor:
+def _load_processor() -> AutoProcessor:
     return load_local_first(AutoProcessor.from_pretrained, MODEL_ID)
+
+
+def get_model() -> AutoModel:
+    with _load_lock:
+        return _load_model()
+
+
+def get_processor() -> AutoProcessor:
+    with _load_lock:
+        return _load_processor()
+
+
+def warm() -> None:
+    """Load the weights and the processor. Off-loop.
+
+    Called before the fallback ladder so a load failure (download, VRAM) fails
+    the task — which is retried — instead of failing every image one by one,
+    which TS would blacklist.
+    """
+    get_model()
+    get_processor()
 
 
 ImageInput = Image.Image | Path | str
