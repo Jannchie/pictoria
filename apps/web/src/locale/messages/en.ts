@@ -693,6 +693,8 @@ const en = {
     schedulerDownHint: 'Restart the API to resume background processing. Error: {error}',
     schedulerRetrying: 'Background scheduler can’t connect yet',
     schedulerRetryingHint: 'Retrying automatically — no restart needed. Error: {error}',
+    unreachable: 'Can’t reach the API',
+    unreachableHint: 'Background status is unknown until the API answers again. Retrying automatically.',
     schedulerDisabled: 'Background processing is off',
     schedulerDisabledHint: 'The API was started with PICTORIA_SCHEDULER=0, so no thumbnails, tags, scores or embeddings are computed.',
     counting: 'Counting…',
@@ -707,6 +709,7 @@ const en = {
       working: 'Background processing started',
       done: 'Background processing finished',
       down: 'Background scheduler is not running',
+      unreachable: 'Lost contact with the API',
       error: 'A background task failed',
     },
     loop: {

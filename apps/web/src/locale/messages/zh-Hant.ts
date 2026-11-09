@@ -690,6 +690,8 @@ const zhHant: MessageSchema = {
     schedulerDownHint: '重新啟動 API 後才會恢復背景處理。錯誤：{error}',
     schedulerRetrying: '背景排程暫時連不上',
     schedulerRetryingHint: '正在自動重試，無需重新啟動。錯誤：{error}',
+    unreachable: '連不上 API',
+    unreachableHint: '在 API 恢復回應之前，背景處理狀態未知。正在自動重試。',
     schedulerDisabled: '背景處理已關閉',
     schedulerDisabledHint: 'API 以 PICTORIA_SCHEDULER=0 啟動，不會產生縮圖、標籤、評分或向量。',
     counting: '正在統計…',
@@ -704,6 +706,7 @@ const zhHant: MessageSchema = {
       working: '背景處理已開始',
       done: '背景處理已完成',
       down: '背景排程未執行',
+      unreachable: '與 API 失去聯繫',
       error: '有背景工作失敗',
     },
     loop: {

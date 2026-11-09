@@ -690,6 +690,8 @@ const zhHans: MessageSchema = {
     schedulerDownHint: '重启 API 后才会恢复后台处理。错误：{error}',
     schedulerRetrying: '后台调度暂时连不上',
     schedulerRetryingHint: '正在自动重试，无需重启。错误：{error}',
+    unreachable: '连不上 API',
+    unreachableHint: '在 API 恢复响应之前，后台处理状态未知。正在自动重试。',
     schedulerDisabled: '后台处理已关闭',
     schedulerDisabledHint: 'API 以 PICTORIA_SCHEDULER=0 启动，不会生成缩略图、标签、评分或向量。',
     counting: '正在统计…',
@@ -704,6 +706,7 @@ const zhHans: MessageSchema = {
       working: '后台处理已开始',
       done: '后台处理已完成',
       down: '后台调度未运行',
+      unreachable: '与 API 失去联系',
       error: '有后台任务失败',
     },
     loop: {
