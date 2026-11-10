@@ -4,12 +4,12 @@ import { computed } from 'vue'
 import { useRoute } from 'vue-router'
 import { v2GetPostsStats } from '@/api'
 import { formatNumber } from '@/locale'
-import { bottomBarInfo, leftPaneCollapsed, postFilter, queryKeys, RATING_LEVEL_LABEL_KEYS, RATING_LEVEL_SHORT, rightPaneCollapsed, selectedCount, usePosts } from '@/shared'
+import { bottomBarInfo, currentPostList, leftPaneCollapsed, postFilter, queryKeys, RATING_LEVEL_LABEL_KEYS, RATING_LEVEL_SHORT, rightPaneCollapsed, selectedCount } from '@/shared'
+import { isLibraryView } from '@/shared/galleryView'
 
-const posts = usePosts()
 const route = useRoute()
 
-const inGalleryView = computed(() => route.name === 'all' || route.name === 'dir')
+const inLibraryView = computed(() => isLibraryView(route.meta.view))
 
 const statsQuery = useQuery({
   queryKey: computed(() => queryKeys.postsStats(postFilter.value)),
@@ -17,7 +17,7 @@ const statsQuery = useQuery({
     const resp = await v2GetPostsStats({ body: { ...postFilter.value } })
     return resp.data
   },
-  enabled: inGalleryView,
+  enabled: inLibraryView,
   staleTime: 1000 * 30,
   // 切筛选时底栏保持上一组数字，新聚合到了再换 —— 不闪空。
   placeholderData: keepPreviousData,
@@ -63,10 +63,11 @@ function fmtAvg(value: number | null | undefined, fractionDigits = 2): string {
         aria-hidden="true"
       />
     </button>
-    <template v-if="inGalleryView">
+    <template v-if="inLibraryView">
       <span class="flex gap-1 items-center">
         <i class="i-tabler-photo text-fg-subtle" aria-hidden="true" />
-        <span class="tabular-nums">{{ formatNumber(posts.length) }}</span>
+        <!-- The list MainSection publishes, so a text search counts its results. -->
+        <span class="tabular-nums">{{ formatNumber(currentPostList.length) }}</span>
         <span class="text-fg-subtle">{{ $t('bottomBar.displayed') }}</span>
       </span>
       <span

@@ -812,7 +812,7 @@ const submitKeyAria = isMac ? 'Meta+Enter' : 'Control+Enter'
   border-color: rgb(var(--p-primary-rgb) / 0.85);
 }
 .listwise-card--drag img {
-  filter: drop-shadow(0 8px 24px rgb(0 0 0 / 0.45));
+  filter: drop-shadow(0 8px 24px rgb(var(--p-scrim-rgb) / 0.45));
 }
 
 .listwise-card__rank {
@@ -846,7 +846,7 @@ const submitKeyAria = isMac ? 'Meta+Enter' : 'Control+Enter'
   display: flex;
   align-items: center;
   justify-content: center;
-  background: rgb(0 0 0 / 0.85);
+  background: rgb(var(--p-scrim-rgb) / 0.85);
 }
 .listwise-lightbox__img {
   max-width: 94vw;
@@ -864,12 +864,12 @@ const submitKeyAria = isMac ? 'Meta+Enter' : 'Control+Enter'
   padding: 6px 14px;
   font-size: var(--p-text-xs);
   border-radius: var(--p-radius-full);
-  background: rgb(0 0 0 / 0.55);
+  background: rgb(var(--p-scrim-rgb) / 0.55);
   color: white;
 }
 .listwise-lightbox__bar .text-fg,
 .listwise-lightbox__bar .text-fg-muted {
-  color: rgb(255 255 255 / 0.85);
+  color: rgb(var(--p-on-scrim-rgb) / 0.85);
 }
 .listwise-lightbox__btn {
   position: absolute;
@@ -881,13 +881,13 @@ const submitKeyAria = isMac ? 'Meta+Enter' : 'Control+Enter'
   font-size: 22px;
   border: none;
   border-radius: var(--p-radius-full);
-  background: rgb(0 0 0 / 0.45);
+  background: rgb(var(--p-scrim-rgb) / 0.45);
   color: white;
   cursor: pointer;
   transition: background-color var(--p-transition-fast);
 }
 .listwise-lightbox__btn:hover {
-  background: rgb(0 0 0 / 0.7);
+  background: rgb(var(--p-scrim-rgb) / 0.7);
 }
 .listwise-lightbox__btn[aria-disabled='true'] {
   opacity: 0.3;

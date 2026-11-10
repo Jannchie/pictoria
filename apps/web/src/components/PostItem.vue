@@ -6,10 +6,12 @@ import { useRoute } from 'vue-router'
 import ArthashPlaceholder from '@/components/ArthashPlaceholder.vue'
 import { galleryGridKey } from '@/composables/useGalleryGrid'
 import { useViewportHiRes } from '@/composables/useViewportHiRes'
-import { formatDate } from '@/locale'
-import { addToSelection, collapseSelectionTo, commitPendingSelection, enableArthash, enableFancyPlaceholder, gridCursorId, hideNSFW, isCommittedSelected, isSelected, postSort, RATING_LEVEL_COLORS, RATING_LEVEL_ICONS, RATING_LEVEL_LABEL_KEYS, RATING_UNRATED_LABEL_KEY, SCORE_LEVEL_COLORS, selectOnly, setGridCursor, toggle, togglePendingAt, waifuLevelRgb } from '@/shared'
+import { addToSelection, collapseSelectionTo, commitPendingSelection, enableArthash, enableFancyPlaceholder, gridCursorId, hideNSFW, isCommittedSelected, isSelected, postSort, RATING_LEVEL_LABEL_KEYS, RATING_UNRATED_LABEL_KEY, selectOnly, setGridCursor, toggle, togglePendingAt } from '@/shared'
+import { viewSortOverride } from '@/shared/galleryView'
 import { isImageExtension } from '@/utils'
 import { colorNumToHex, labToRgbaString } from '@/utils/color'
+import { fileIconClass } from '@/utils/fileIcon'
+import { formatSortValue } from '@/utils/sortBadge'
 
 // A thumbnail is an `option` of the gallery listbox (MainSection /
 // SimilarPosts). It is never focusable itself: DOM focus stays on the listbox
@@ -86,62 +88,6 @@ const aspectRatio = computed(() => {
   return 1
 })
 
-function getIconByExtension(extension: string) {
-  switch (extension) {
-    case 'mp3':
-    case 'flac':
-    case 'wav':
-    case 'ogg': {
-      return 'i-tabler-music'
-    }
-    case 'mp4':
-    case 'webm':
-    case 'mkv':
-    case 'avi':
-    case 'mov':
-    case 'wmv':
-    case 'flv': {
-      return 'i-tabler-video'
-    }
-    case 'zip':
-    case 'rar':
-    case '7z':
-    case 'tar':
-    case 'gz':
-    case 'bz2':
-    case 'xz': {
-      return 'i-tabler-archive'
-    }
-    case 'pdf': {
-      return 'i-tabler-file-type-pdf'
-    }
-    case 'doc':
-    case 'docx': {
-      return 'i-tabler-file-word'
-    }
-    case 'xls':
-    case 'xlsx': {
-      return 'i-tabler-file-excel'
-    }
-    case 'ppt':
-    case 'pptx': {
-      return 'i-tabler-file-type-ppt'
-    }
-    case 'txt': {
-      return 'i-tabler-file-text'
-    }
-    case 'html':
-    case 'htm': {
-      return 'i-tabler-file-code'
-    }
-    case 'json': {
-      return 'i-tabler-file-code'
-    }
-    default: {
-      return 'i-tabler-file'
-    }
-  }
-}
 const contentRef = ref<HTMLElement | null>(null)
 // Thumbnail by default; the original while this tile is on screen and drawn
 // wider than the thumbnail (few columns / high DPR).
@@ -193,62 +139,10 @@ function onContextmenu(e: MouseEvent) {
 // badge there — otherwise the `sortValue` that writeScore patches in when the
 // global sort is `score` would make a badge pop up on just-rated tiles.
 const route = useRoute()
-const effectiveSort = computed(() => {
-  if (route.path === '/recently') {
-    return 'last_accessed_at'
-  }
-  return route.path === '/unrated-artists' ? 'id' : postSort.value
-})
-interface SortBadge {
-  text?: string
-  icon?: string
-  color?: string
-}
-function formatSortValue(v: number | string): SortBadge | undefined {
-  switch (effectiveSort.value) {
-    case 'score': {
-      const n = Number(v)
-      return { text: String(v), color: SCORE_LEVEL_COLORS[n - 1] }
-    }
-    // Rating levels show as their sidebar-selector icon, in the same colour.
-    case 'rating': {
-      const n = Number(v)
-      return n >= 1 && n <= RATING_LEVEL_ICONS.length
-        ? { icon: RATING_LEVEL_ICONS[n - 1], color: RATING_LEVEL_COLORS[n - 1] }
-        : { text: '—' }
-    }
-    case 'waifu_score': {
-      const n = Number(v)
-      return { text: n.toFixed(2), color: `rgb(${waifuLevelRgb(n)})` }
-    }
-    // The SILVA heads store 0–1; surface them on the same 0–10 scale (and
-    // bucket colour ramp) as the detail panel's WaifuScoreLevel chip.
-    case 'silva_score':
-    case 'silva_luna_score': {
-      const n = Number(v) * 10
-      return { text: n.toFixed(2), color: `rgb(${waifuLevelRgb(n)})` }
-    }
-    // |silva − manual| on the 1-5 scale: bigger means model & human disagree
-    // more. Flagged amber/red so the worst offenders pop in the grid.
-    case 'discrepancy': {
-      return { text: Number(v).toFixed(2), color: 'rgb(248 113 113)' }
-    }
-    case 'created_at':
-    case 'published_at':
-    case 'updated_at':
-    case 'last_accessed_at': {
-      return { text: formatDate(v) }
-    }
-    // file_name is not worth a badge (the grid is pictures, not a listing);
-    // id is the "no particular sort" default — no badge for either.
-    default: {
-      return undefined
-    }
-  }
-}
+const effectiveSort = computed(() => viewSortOverride(route.meta.view) ?? postSort.value)
 const sortBadge = computed(() => {
   const v = post.value.sortValue
-  return v == null ? undefined : formatSortValue(v)
+  return v == null ? undefined : formatSortValue(effectiveSort.value, v)
 })
 // Tint the badge's dark backing with the level colour too (text colour alone
 // is easy to miss); colour-less badges (dates) keep the plain black chip.
@@ -259,7 +153,7 @@ const sortBadgeStyle = computed(() => {
   }
   return {
     color,
-    backgroundColor: `color-mix(in srgb, ${color} 30%, rgb(0 0 0 / 0.78))`,
+    backgroundColor: `color-mix(in srgb, ${color} 30%, rgb(var(--p-scrim-rgb) / 0.78))`,
   }
 })
 </script>
@@ -360,7 +254,7 @@ const sortBadgeStyle = computed(() => {
         <i
           aria-hidden="true"
           class="text-4xl"
-          :class="getIconByExtension(post.extension)"
+          :class="fileIconClass(post.extension)"
         />
         <div class="text-xs tracking-wider font-mono uppercase">
           {{ post.extension }}

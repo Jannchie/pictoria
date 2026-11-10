@@ -29,7 +29,7 @@ withDefaults(defineProps<{
       <div
         class="p-overlay"
         data-overlay
-        :style="{ background: `rgb(0 0 0 / ${opacity})` }"
+        :style="{ background: `rgb(var(--p-scrim-rgb) / ${opacity})` }"
         v-bind="$attrs"
       >
         <slot />

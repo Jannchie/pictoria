@@ -1,10 +1,11 @@
 <script setup lang="ts">
 import type { DirectorySummary } from '@/api'
 import { refDebounced } from '@vueuse/core'
-import { computed, nextTick, ref, shallowRef, useId, useTemplateRef, watch } from 'vue'
+import { computed, nextTick, ref, useId, useTemplateRef, watch } from 'vue'
 import { useRoute } from 'vue-router'
 import { formatNumber } from '@/locale'
 import { useCurrentFolder, useFoldersQuery } from '@/shared'
+import { isLibraryView } from '@/shared/galleryView'
 import { PInput } from '@/ui'
 import { childrenOf, filterSubfolders, previewSubfolders, SUBFOLDER_PREVIEW } from '@/utils/subfolders'
 
@@ -12,16 +13,14 @@ const route = useRoute()
 const currentFolder = useCurrentFolder()
 const foldersQuery = useFoldersQuery()
 
-// /random and /recently resolve to the root folder too, but they are views
-// over the whole library, not a place in the tree — no sub-folder shortcuts.
-const isFolderView = computed(() => route.path !== '/random' && route.path !== '/recently' && route.path !== '/unrated-artists')
+// Only a place in the tree gets sub-folder shortcuts (see isLibraryView).
+const isFolderView = computed(() => isLibraryView(route.meta.view))
 
-// shallowRef + explicit watch: the folder tree can hold tens of thousands of
-// nodes; deep reactivity over it is pure overhead for a read-only lookup.
-const children = shallowRef<DirectorySummary[]>([])
-watch([() => foldersQuery.data.value, currentFolder, isFolderView], ([root, folder, show]) => {
-  children.value = show ? childrenOf(root as DirectorySummary | undefined, folder) : []
-}, { immediate: true })
+// The folders query is shallow (raw objects, no per-node proxies), so a plain
+// computed over it is enough.
+const children = computed<DirectorySummary[]>(() =>
+  isFolderView.value ? childrenOf(foldersQuery.data.value, currentFolder.value) : [],
+)
 
 /**
  * A folder can have ~25k direct children (one per artist). Rendering them all

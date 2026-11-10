@@ -27,7 +27,8 @@ export function useWatchRoute() {
         break
       }
       default: {
-        if (route.path === '/' || route.path === '/random' || route.path === '/recently' || route.path === '/unrated-artists') {
+        // The other gallery views (`/`, /random, /recently, /unrated-artists) span the whole library.
+        if (route.meta.gallery) {
           postFilter.value.folder = undefined
         }
       }

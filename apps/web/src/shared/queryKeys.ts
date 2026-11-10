@@ -116,9 +116,14 @@ export const queryKeys = {
   tagsRoot: ['tags'] as const,
   /**
    * 语义分类树（danbooru-tags-tree）。分类名是服务端按 lang 解析的，所以和
-   * `tags` 一样把 locale 折进 key；`tagsRoot` 前缀失效同样命中。
+   * `tags` 一样把 locale 折进 key。
+   *
+   * **刻意不在 `tagsRoot` 前缀下**：树是 API 进程首次使用时从
+   * `server/data/tag-tree.json` 读一次的静态表（`apps/api/src/tag-tree.ts`），没有
+   * 任何写端点会改变它。放在 `['tags', …]` 下时，每次给图加/删 tag（writeTag 失效
+   * `tagsRoot`）都会白白重取整棵树。没有写操作需要失效它。
    */
-  tagTree: () => ['tags', 'tree', resolvedLocale] as const,
+  tagTree: () => ['tagTree', resolvedLocale] as const,
   // 无参：`v2ListTagGroup` 返回的是全局分组表，与 post 无关。带上 postId 的话
   // 同一份数据会按 post 各缓存一份、各请求一次。
   tagGroups: () => ['tagGroups'] as const,

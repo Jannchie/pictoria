@@ -14,11 +14,13 @@
 // The title is announced on every path change except post → post (the post
 // page announces "n / total — file" itself) and the initial load.
 
+import type { GalleryView } from '@/shared/galleryView'
+
 export interface RouteLike {
   path: string
   name?: string | symbol | null
   params?: Record<string, string | string[] | undefined>
-  meta?: { gallery?: boolean }
+  meta?: { gallery?: boolean, view?: GalleryView }
 }
 
 export interface RouteTitle {
@@ -33,43 +35,50 @@ function param(route: RouteLike, name: string): string {
   return Array.isArray(v) ? v.join('/') : (v ?? '')
 }
 
+/**
+ * Title key per gallery view. `all` is the home page (`/`); `/all` shows the
+ * same view but is titled `route.all` on purpose — see [[routeTitle]]. A folder
+ * (`dir`) is named after its folder; this is its fallback for the root.
+ */
+const VIEW_TITLE_KEYS = {
+  all: 'route.home',
+  dir: 'route.home',
+  random: 'route.random',
+  recently: 'route.recently',
+  unratedArtists: 'route.unratedArtists',
+} as const satisfies Record<GalleryView, string>
+
+/** Title key per non-gallery route name (`post` is handled separately). */
+const PAGE_TITLE_KEYS: Partial<Record<string, string>> = {
+  tags: 'route.tags',
+  test: 'route.test',
+  annotate: 'route.annotate',
+  settings: 'route.settings',
+  notFound: 'route.notFound',
+}
+
 /** What the page is called: a `route.*` key, or a folder name. */
 export function routeTitle(route: RouteLike, postName?: string | null): RouteTitle {
-  switch (route.name) {
-    case 'all': { return { key: 'route.all' }
-    }
-    case 'dir': {
-      const folder = param(route, 'folder')
-      const name = folder.split('/').findLast(Boolean)
-      return name ? { key: null, text: name } : { key: 'route.home' }
-    }
-    case 'recently': { return { key: 'route.recently' }
-    }
-    case 'unratedArtists': { return { key: 'route.unratedArtists' }
-    }
-    case 'tags': { return { key: 'route.tags' }
-    }
-    case 'test': { return { key: 'route.test' }
-    }
-    case 'annotate': { return { key: 'route.annotate' }
-    }
-    case 'settings': { return { key: 'route.settings' }
-    }
-    case 'notFound': { return { key: 'route.notFound' }
-    }
-    case 'post': {
-      return postName
-        ? { key: null, text: postName }
-        : { key: 'route.post', params: { id: param(route, 'postId') } }
-    }
-    default: {
-      break
+  const view = route.meta?.view
+  if (view === 'dir') {
+    const name = param(route, 'folder').split('/').findLast(Boolean)
+    if (name) {
+      return { key: null, text: name }
     }
   }
-  if (route.path === '/random') {
-    return { key: 'route.random' }
+  if (view === 'all' && route.name === 'all') {
+    return { key: 'route.all' }
   }
-  return { key: 'route.home' }
+  if (view) {
+    return { key: VIEW_TITLE_KEYS[view] }
+  }
+  if (route.name === 'post') {
+    return postName
+      ? { key: null, text: postName }
+      : { key: 'route.post', params: { id: param(route, 'postId') } }
+  }
+  const key = typeof route.name === 'string' ? PAGE_TITLE_KEYS[route.name] : undefined
+  return { key: key ?? 'route.home' }
 }
 
 const isPost = (r: RouteLike) => r.name === 'post'

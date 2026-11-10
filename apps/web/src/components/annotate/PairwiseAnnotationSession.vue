@@ -382,7 +382,7 @@ const hints = computed(() => [
   padding: 5px 12px;
   font-size: var(--p-text-xs);
   border-radius: var(--p-radius-full);
-  background: rgb(0 0 0 / 0.55);
+  background: rgb(var(--p-scrim-rgb) / 0.55);
   color: white;
   opacity: 0;
   pointer-events: none;

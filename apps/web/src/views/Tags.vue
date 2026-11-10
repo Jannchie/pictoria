@@ -3,7 +3,7 @@ import type { TagWithCountPublic } from '@/api'
 import type { TagTreeNode } from '@/composables/useTagTree'
 import { useQuery } from '@tanstack/vue-query'
 import { useDebounce, useElementSize } from '@vueuse/core'
-import { computed, ref, toRaw } from 'vue'
+import { computed, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { v2ListTags } from '@/api'
 import {
@@ -50,18 +50,17 @@ const tagQuery = useQuery({
   // 五万多行的结构化共享（逐字段深比较后复用旧引用）比响应本身的解析还贵，
   // 而这里每次拿到的都是全新数组，比较不出任何可复用的东西。
   structuralSharing: false,
+  // 五万多行只读数据：浅响应，避免 vue-query 默认把每个元素包成 reactive 代理
+  // （否则下面每一趟遍历的每次属性读取都是一次 WeakMap 查找）。
+  shallow: true,
 })
 const treeQuery = useTagTreeQuery()
 
 const isLoading = computed(() => tagQuery.isLoading.value || treeQuery.isLoading.value)
 const loadError = computed(() => tagQuery.error.value ?? treeQuery.error.value)
 
-/**
- * `toRaw` 是要点：vue-query 会把结果深层 `reactive()` 一遍，而下面每一趟都要走
- * 五万个元素，带着代理走每次属性读取都是一次 WeakMap 查找。这里只读不写。
- */
-const tagData = computed(() => toRaw(tagQuery.data.value) ?? [])
-const categories = computed(() => toRaw(treeQuery.data.value) ?? [])
+const tagData = computed(() => tagQuery.data.value ?? [])
+const categories = computed(() => treeQuery.data.value ?? [])
 
 const tree = computed(() => buildTagTree(
   categories.value,

@@ -2,7 +2,7 @@ import type { QueryClient } from '@tanstack/vue-query'
 import type { Ref } from 'vue'
 import type { PostSimplePublic } from '@/api'
 import { useQueryClient } from '@tanstack/vue-query'
-import { toRaw, watch } from 'vue'
+import { watch } from 'vue'
 import { currentPostList } from '@/shared'
 import { postAnnotationsQueryOptions, postGroupEvidenceQueryOptions, postGroupQueryOptions, postQueryOptions, similarPostsQueryOptions } from '@/shared/postQueries'
 import { getPostImageURL, getPostThumbnailURL } from '@/utils'
@@ -99,7 +99,7 @@ export function useAdjacentPostPrefetch(index: Readonly<Ref<number>>) {
     const direction = lastIndex !== -1 && idx < lastIndex ? -1 : 1
     lastIndex = idx
 
-    const list = toRaw(currentPostList.value)
+    const list = currentPostList.value
     const neighbors = [list[idx + direction], list[idx - direction]]
       .filter((p): p is PostSimplePublic => p !== undefined)
     for (const [i, p] of neighbors.entries()) preloadImage(getPostImageURL(p), i === 0 ? 'auto' : 'low')

@@ -1,4 +1,6 @@
+import { QueryClient } from '@tanstack/vue-query'
 import { describe, expect, it } from 'vitest'
+import { queryKeys } from '@/shared/queryKeys'
 
 // Convention guard rails for TanStack Query usage and error handling.
 // Mirrors the static-scan approach of design.test.ts / locale.test.ts: sweep
@@ -177,5 +179,20 @@ describe('write endpoints are called only from shared/mutations.ts', () => {
       }
     }
     expect(violations.sort(), 'write endpoint imported outside shared/mutations.ts (add a function there that also invalidates)').toEqual([])
+  })
+})
+
+// 5. The tag taxonomy is a static table (apps/api/src/tag-tree.ts reads
+//    server/data/tag-tree.json once per process). Its key must stay outside the
+//    `tags` catalogue prefix, or every tag add/remove (writeTag invalidates
+//    tagsRoot) refetches the whole tree for nothing.
+describe('tag tree key is not under the tags prefix', () => {
+  it('invalidating tagsroot leaves the tag tree fresh', async () => {
+    const qc = new QueryClient()
+    qc.setQueryData(queryKeys.tagTree(), [])
+    qc.setQueryData(queryKeys.tags(), [])
+    await qc.invalidateQueries({ queryKey: queryKeys.tagsRoot })
+    expect(qc.getQueryState(queryKeys.tagTree())?.isInvalidated).toBe(false)
+    expect(qc.getQueryState(queryKeys.tags())?.isInvalidated).toBe(true)
   })
 })

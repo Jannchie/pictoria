@@ -1,6 +1,6 @@
 import type { MaybeRefOrGetter } from 'vue'
 import { useDebounceFn } from '@vueuse/core'
-import { computed, toRaw, toValue } from 'vue'
+import { computed, toValue } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { currentPostList } from '@/shared'
 import { announce } from '@/shared/announce'
@@ -13,8 +13,8 @@ import { announce } from '@/shared/announce'
  * [[useAdjacentPostPrefetch]] 里的第四份。判定散在四处的直接后果是它们会各自
  * 漂移：按钮的可用性和真正能不能翻，靠的是两段独立写出来的边界条件。
  *
- * 列表最多有二十多万条，`currentPostList` 又是深层 `ref`，所以扫描走 `toRaw`
- * 避开逐元素的响应式包装，并且一次扫描的结果同时喂给 `canPrev` / `canNext` /
+ * 列表最多有二十多万条（`currentPostList` 是 `shallowRef`，元素是原始对象，
+ * 扫描不经过响应式代理），一次扫描的结果同时喂给 `canPrev` / `canNext` /
  * `neighbor`。
  */
 export function usePostNavigation(postId: MaybeRefOrGetter<number | undefined>) {
@@ -24,7 +24,7 @@ export function usePostNavigation(postId: MaybeRefOrGetter<number | undefined>) 
     if (id === undefined) {
       return -1
     }
-    return toRaw(currentPostList.value).findIndex(p => p.id === id)
+    return currentPostList.value.findIndex(p => p.id === id)
   })
 
   /** 列表长度，用于「n / total」式的播报。 */

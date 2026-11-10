@@ -1,7 +1,7 @@
 import type { PostFilterState, PostSortColumn, PostSortOrder } from './postFilter'
 import type { PostSimplePublic } from '@/api'
 import { useActiveElement, useLocalStorage, useStorage } from '@vueuse/core'
-import { computed, ref, watch } from 'vue'
+import { computed, ref, shallowRef, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { emptyFacets, filterFromQuery, filterQuerySignature, filterToQuery } from './postFilter'
 
@@ -147,13 +147,13 @@ export const focusedTreeFolder = computed(() =>
 
 // Ordered list of posts currently visible/in-context. Producers (MainSection,
 // Post page) write to this so keyboard navigation can move prev/next.
-export const currentPostList = ref<PostSimplePublic[]>([])
+export const currentPostList = shallowRef<PostSimplePublic[]>([])
 
 // Similar-posts grid shown on the post detail page (/post/:id). Post.vue
 // publishes it so the multi-select sidebar panel can resolve thumbnails/stats
 // for selected similar posts — currentPostList stays the gallery list, which
 // the detail page's prev/next arrow navigation still walks. Cleared on leave.
-export const similarPostList = ref<PostSimplePublic[]>([])
+export const similarPostList = shallowRef<PostSimplePublic[]>([])
 
 // Per-route scrollTop cache for the gallery's MainSection. Survives Home.vue
 // unmount when navigating to /post/:id so Esc/back restores the same position.

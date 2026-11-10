@@ -152,3 +152,43 @@ describe('no phantom --p-border-default token', () => {
     expect(violations, 'var(--p-border-default) is not a token (use var(--p-border))').toEqual([])
   })
 })
+
+// 6. No literal colour functions — `rgb(248 113 113)` is a hard-coded colour
+//    just like `#f87171`. Colours go through tokens: `var(--p-*)`, or
+//    `rgb(var(--p-*-rgb) / α)` for an alpha step. Only a numeric first
+//    argument counts as a literal, so `rgb(var(…))` and runtime-built
+//    `rgb(${…})` strings pass. Swept wider than the .vue-only rules above —
+//    .ts and .css can carry style strings too — with the token definition
+//    file itself (styles/tokens.css) as the one place literals belong.
+describe('no literal rgb()/hsl() colours', () => {
+  const COLOR_FN = /\b(?:rgba?|hsla?)\(\s*[\d.]/gi
+
+  const styleSources = import.meta.glob([
+    '../**/*.vue',
+    '../**/*.ts',
+    '../**/*.css',
+    '!../**/*.d.ts',
+    '!../test/**',
+    '!../api/**',
+    '!../styles/tokens.css',
+  ], { query: '?raw', import: 'default', eager: true }) as Record<string, string>
+
+  it('scans .vue, .ts and .css', () => {
+    const files = Object.keys(styleSources)
+    expect(files.some(f => f.endsWith('.ts'))).toBe(true)
+    expect(files.some(f => f.endsWith('.css'))).toBe(true)
+  })
+
+  it('every colour function takes a token', () => {
+    const violations: string[] = []
+    for (const [file, text] of Object.entries(styleSources)) {
+      for (const m of text.matchAll(COLOR_FN)) {
+        const lineStart = text.lastIndexOf('\n', m.index ?? 0) + 1
+        const lineEndRaw = text.indexOf('\n', m.index ?? 0)
+        const line = text.slice(lineStart, lineEndRaw === -1 ? text.length : lineEndRaw).trim()
+        violations.push(`${shortName(file)} — ${line}`)
+      }
+    }
+    expect(violations.sort(), 'literal rgb()/hsl() colours (use var(--p-*) or rgb(var(--p-*-rgb) / α))').toEqual([])
+  })
+})

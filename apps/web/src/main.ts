@@ -3,7 +3,7 @@ import { VueQueryPlugin } from '@tanstack/vue-query'
 import { createApp } from 'vue'
 import { createRouter, createWebHistory } from 'vue-router'
 import App from '@/App.vue'
-import { i18n } from '@/locale'
+import { i18n, localeReady } from '@/locale'
 import { baseURL } from '@/shared'
 import { highlightDirective } from '@/utils'
 import { prewarmArthash } from '@/utils/arthash'
@@ -74,18 +74,26 @@ declare module 'vue-router' {
      * lights that entry up.
      */
     navParent?: string
+    /**
+     * Which gallery list a `gallery` route shows. The one place a page asks
+     * "am I /random?" — instead of matching `route.path` / `route.name` at every
+     * call site (`/` has no name, so those checks kept disagreeing about it).
+     * `/` is the same view as `/all`.
+     */
+    view?: 'all' | 'dir' | 'random' | 'recently' | 'unratedArtists'
   }
 }
 
 const routes: RouteRecordRaw[] = [
-  { path: '/', component: () => import('./views/Home.vue'), meta: { gallery: true } },
-  { path: '/all', component: () => import('./views/Home.vue'), name: 'all', meta: { gallery: true } },
-  { path: '/dir/:folder*', component: () => import('./views/Home.vue'), name: 'dir', meta: { gallery: true } },
-  { path: '/random', component: () => import('./views/Home.vue'), meta: { gallery: true } },
-  { path: '/recently', component: () => import('./views/Home.vue'), name: 'recently', meta: { gallery: true } },
-  { path: '/unrated-artists', component: () => import('./views/Home.vue'), name: 'unratedArtists', meta: { gallery: true, navParent: '/annotate' } },
+  { path: '/', component: () => import('./views/Home.vue'), meta: { gallery: true, view: 'all' } },
+  { path: '/all', component: () => import('./views/Home.vue'), name: 'all', meta: { gallery: true, view: 'all' } },
+  { path: '/dir/:folder*', component: () => import('./views/Home.vue'), name: 'dir', meta: { gallery: true, view: 'dir' } },
+  { path: '/random', component: () => import('./views/Home.vue'), meta: { gallery: true, view: 'random' } },
+  { path: '/recently', component: () => import('./views/Home.vue'), name: 'recently', meta: { gallery: true, view: 'recently' } },
+  { path: '/unrated-artists', component: () => import('./views/Home.vue'), name: 'unratedArtists', meta: { gallery: true, view: 'unratedArtists', navParent: '/annotate' } },
   { path: '/tags', component: () => import('./views/Tags.vue'), name: 'tags' },
-  { path: '/test', component: () => import('./views/Test.vue'), name: 'test' },
+  // Component playground: dev server only, so the view never ships.
+  ...(import.meta.env.DEV ? [{ path: '/test', component: () => import('./views/Test.vue'), name: 'test' }] : []),
   { path: '/post/:postId', component: () => import('./views/Post.vue'), name: 'post' },
   { path: '/annotate', component: () => import('./views/Annotate.vue'), name: 'annotate' },
   { path: '/settings', component: () => import('./views/Settings.vue'), name: 'settings' },
@@ -102,4 +110,5 @@ app.use(i18n)
 app.use(VueQueryPlugin)
 // app.use(VueQueryPlugin, { queryClientConfig: { defaultOptions: { queries: { staleTime: 1000 * 60 * 5 } } } })
 app.use(router)
-app.mount('#app')
+// After the initial locale's catalogue: non-English messages are a lazy chunk.
+void localeReady.then(() => app.mount('#app'))

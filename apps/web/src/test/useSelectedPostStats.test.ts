@@ -1,6 +1,6 @@
 import type { PostSimplePublic } from '@/api'
 import { describe, expect, it } from 'vitest'
-import { ref } from 'vue'
+import { ref, shallowRef } from 'vue'
 import { useSelectedPostStats } from '@/composables/useSelectedPostStats'
 
 function post(p: Partial<PostSimplePublic>): PostSimplePublic {
@@ -21,6 +21,16 @@ function post(p: Partial<PostSimplePublic>): PostSimplePublic {
 }
 
 describe('useselectedpoststats', () => {
+  it('ranges survive a selection past the spread-argument limit', () => {
+    // Math.min(...arr) throws a RangeError somewhere above ~100k arguments.
+    const n = 300_000
+    const selected = shallowRef(Array.from({ length: n }, (_, i) => post({ id: i, width: i + 1, height: n - i, filePath: 'x/y' })))
+    const s = useSelectedPostStats(selected)
+    expect(s.widthRange.value).toEqual({ min: 1, max: n })
+    expect(s.heightRange.value).toEqual({ min: 1, max: n })
+    expect(s.commonFolder.value).toBe('x/y')
+  })
+
   it('aggregates distributions, ranges and common fields', () => {
     const selected = ref([
       post({ id: 1, rating: 2, score: 3, extension: 'jpg', size: 100, width: 10, height: 20, filePath: 'a/b' }),

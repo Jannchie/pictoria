@@ -3,6 +3,7 @@ import { useRouter } from 'vue-router'
 import { Waterfall } from 'vue-wf'
 import { useGalleryGrid } from '@/composables/useGalleryGrid'
 import { useKeyScope } from '@/composables/useKeyScope'
+import { provideGalleryTiles } from '@/composables/useViewportHiRes'
 import { clear as clearSelection } from '@/shared'
 
 const props = defineProps<{
@@ -23,6 +24,9 @@ const cols = computed(() => Math.floor(width.value / 300))
 // mirroring how MainSection owns its own Waterfall ref.
 const waterfallRef = ref<InstanceType<typeof Waterfall> | null>(null)
 defineExpose({ waterfall: waterfallRef })
+// One tile width for every PostItem (vue-wf's columns are all equal; read it
+// off the first layout rect rather than measuring each tile).
+provideGalleryTiles(() => waterfallRef.value?.layoutData?.[0]?.width ?? 0)
 
 // Click on empty waterfall background clears the selection — identical to the
 // list waterfall's emptyPointerDown. PostItem stops propagation on pointerdown,

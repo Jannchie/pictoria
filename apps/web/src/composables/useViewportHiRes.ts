@@ -1,8 +1,8 @@
 import type { MaybeComputedElementRef } from '@vueuse/core'
-import type { MaybeRefOrGetter } from 'vue'
+import type { InjectionKey, MaybeRefOrGetter, Ref } from 'vue'
 import type { PostImageRef } from '@/utils'
-import { useDevicePixelRatio, useElementSize, useIntersectionObserver } from '@vueuse/core'
-import { computed, onScopeDispose, ref, toValue, watch } from 'vue'
+import { unrefElement, useDevicePixelRatio } from '@vueuse/core'
+import { computed, inject, onScopeDispose, provide, ref, toValue, watch } from 'vue'
 import { getPostImageURL, getPostThumbnailURL } from '@/utils'
 
 /** Thumbnail width cap — must match `create_thumbnail`'s `max_width` in server/src/utils.py. */
@@ -28,24 +28,91 @@ export function needsHiRes(post: HiResPost, tileWidth: number, pixelRatio: numbe
 }
 
 /**
+ * What every tile of one grid shares. A grid used to cost three observers per
+ * tile (a ResizeObserver for its width, a DPR media query, an
+ * IntersectionObserver) — hundreds of each on a full screen, all reporting the
+ * same column width and the same DPR. The grid owner now provides them once.
+ */
+interface GalleryTilesContext {
+  /** CSS width of one tile (every column of a waterfall is the same width). */
+  tileWidth: Readonly<Ref<number>>
+  pixelRatio: Readonly<Ref<number>>
+  /** Report `el`'s viewport visibility through one shared IntersectionObserver; returns the unobserve. */
+  observe: (el: Element, onChange: (visible: boolean) => void) => () => void
+}
+
+const galleryTilesKey: InjectionKey<GalleryTilesContext> = Symbol('galleryTiles')
+
+/**
+ * Provide the shared tile context for a grid's `PostItem`s. Call it in the
+ * component that owns the Waterfall.
+ *
+ * The IntersectionObserver stays (shared) even though vue-wf only mounts tiles
+ * near the viewport: "near" includes the `rangeExpand` margin, and a tile in
+ * that margin should get its thumbnail early but not its original.
+ */
+export function provideGalleryTiles(tileWidth: MaybeRefOrGetter<number>): void {
+  const { pixelRatio } = useDevicePixelRatio()
+  const listeners = new Map<Element, (visible: boolean) => void>()
+  let io: IntersectionObserver | undefined
+  function observer() {
+    if (!io && typeof IntersectionObserver !== 'undefined') {
+      io = new IntersectionObserver((entries) => {
+        for (const entry of entries) {
+          listeners.get(entry.target)?.(entry.isIntersecting)
+        }
+      })
+    }
+    return io
+  }
+  const context: GalleryTilesContext = {
+    tileWidth: computed(() => toValue(tileWidth)),
+    pixelRatio,
+    observe(el, onChange) {
+      listeners.set(el, onChange)
+      observer()?.observe(el)
+      return () => {
+        listeners.delete(el)
+        io?.unobserve(el)
+      }
+    },
+  }
+  provide(galleryTilesKey, context)
+  onScopeDispose(() => {
+    io?.disconnect()
+    io = undefined
+    listeners.clear()
+  })
+}
+
+/**
  * The `src` for a gallery tile: the thumbnail, swapped for the original only
  * while the tile is in the viewport *and* drawn wider (in device pixels) than
  * the thumbnail. The original is fetched and decoded off-DOM first, so the swap
  * never flashes; leaving the viewport drops back to the thumbnail (the original
  * stays in the HTTP cache — image responses are `immutable`).
+ *
+ * Width, DPR and visibility come from the grid's [[provideGalleryTiles]]; a
+ * tile outside such a grid just shows its thumbnail.
  */
 export function useViewportHiRes(target: MaybeComputedElementRef, post: MaybeRefOrGetter<HiResPost>) {
-  const { width } = useElementSize(target)
-  const { pixelRatio } = useDevicePixelRatio()
+  const tiles = inject(galleryTilesKey, null)
   const visible = ref(false)
-  useIntersectionObserver(target, ([entry]) => {
-    visible.value = entry?.isIntersecting ?? false
-  })
+  if (tiles) {
+    watch(() => unrefElement(target), (el, _, onCleanup) => {
+      visible.value = false
+      if (el) {
+        onCleanup(tiles.observe(el, (v) => {
+          visible.value = v
+        }))
+      }
+    }, { immediate: true })
+  }
 
   const thumbnailURL = computed(() => getPostThumbnailURL(toValue(post)))
   const wantedURL = computed(() => {
     const p = toValue(post)
-    return visible.value && needsHiRes(p, width.value, pixelRatio.value) ? getPostImageURL(p) : undefined
+    return tiles && visible.value && needsHiRes(p, tiles.tileWidth.value, tiles.pixelRatio.value) ? getPostImageURL(p) : undefined
   })
   const hiResURL = ref<string>()
 

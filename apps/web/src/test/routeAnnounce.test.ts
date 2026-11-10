@@ -2,8 +2,8 @@ import type { RouteLike } from '@/utils/routeAnnounce'
 import { describe, expect, it } from 'vitest'
 import { routeTitle, shouldAnnounceRoute, shouldFocusMain } from '@/utils/routeAnnounce'
 
-const home: RouteLike = { path: '/', meta: { gallery: true } }
-const dir = (folder: string): RouteLike => ({ path: `/dir/${folder}`, name: 'dir', params: { folder: folder.split('/') }, meta: { gallery: true } })
+const home: RouteLike = { path: '/', meta: { gallery: true, view: 'all' } }
+const dir = (folder: string): RouteLike => ({ path: `/dir/${folder}`, name: 'dir', params: { folder: folder.split('/') }, meta: { gallery: true, view: 'dir' } })
 const post = (id: number): RouteLike => ({ path: `/post/${id}`, name: 'post', params: { postId: String(id) } })
 const tags: RouteLike = { path: '/tags', name: 'tags' }
 
@@ -11,13 +11,16 @@ describe('routetitle', () => {
   it('uses route keys for fixed pages', () => {
     expect(routeTitle(home)).toEqual({ key: 'route.home' })
     expect(routeTitle(tags)).toEqual({ key: 'route.tags' })
-    expect(routeTitle({ path: '/random', meta: { gallery: true } })).toEqual({ key: 'route.random' })
-    expect(routeTitle({ path: '/unrated-artists', name: 'unratedArtists', meta: { gallery: true } })).toEqual({ key: 'route.unratedArtists' })
+    expect(routeTitle({ path: '/all', name: 'all', meta: { gallery: true, view: 'all' } })).toEqual({ key: 'route.all' })
+    expect(routeTitle({ path: '/random', meta: { gallery: true, view: 'random' } })).toEqual({ key: 'route.random' })
+    expect(routeTitle({ path: '/recently', name: 'recently', meta: { gallery: true, view: 'recently' } })).toEqual({ key: 'route.recently' })
+    expect(routeTitle({ path: '/nowhere', name: 'notFound' })).toEqual({ key: 'route.notFound' })
+    expect(routeTitle({ path: '/unrated-artists', name: 'unratedArtists', meta: { gallery: true, view: 'unratedArtists' } })).toEqual({ key: 'route.unratedArtists' })
   })
 
   it('names a folder by its last segment', () => {
     expect(routeTitle(dir('art/2024/summer'))).toEqual({ key: null, text: 'summer' })
-    expect(routeTitle({ path: '/dir', name: 'dir', params: { folder: [] } })).toEqual({ key: 'route.home' })
+    expect(routeTitle({ path: '/dir', name: 'dir', params: { folder: [] }, meta: { gallery: true, view: 'dir' } })).toEqual({ key: 'route.home' })
   })
 
   it('names a post by file name when known, else by id', () => {

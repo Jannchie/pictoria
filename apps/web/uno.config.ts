@@ -14,6 +14,8 @@ export default defineConfig({
         /\.(vue|svelte|[jt]sx|mdx?|astro|elm|php|phtml|html)($|\?)/,
         // Carries the shared per-rating-level icon class names.
         'src/shared/ratings.ts',
+        // File-type icon class names for non-image gallery tiles.
+        'src/utils/fileIcon.ts',
       ],
     },
   },

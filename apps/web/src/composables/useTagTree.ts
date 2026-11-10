@@ -1,6 +1,6 @@
 import type { TagCategoryPublic, TagWithCountPublic } from '@/api'
 import { useQuery } from '@tanstack/vue-query'
-import { computed, toRaw } from 'vue'
+import { computed } from 'vue'
 import { v2ListTagTree } from '@/api'
 import { resolvedLocale } from '@/locale'
 import { queryKeys } from '@/shared/queryKeys'
@@ -68,6 +68,8 @@ export function useTagTreeQuery() {
     // 分类树是离线生成的静态表，一次会话内不会变。
     staleTime: Number.POSITIVE_INFINITY,
     structuralSharing: false,
+    // 只读的一大张表：不要 vue-query 默认那层深 reactive（Tags 页每一趟都要走全表）。
+    shallow: true,
   })
 }
 
@@ -213,7 +215,7 @@ export function useTopCategoryGrouper() {
   const treeQuery = useTagTreeQuery()
 
   const lookup = computed(() => {
-    const categories = toRaw(treeQuery.data.value) ?? []
+    const categories = treeQuery.data.value ?? []
     /** 顶层 path -> 本地化名，插入序即上游的顶层顺序。 */
     const names = new Map<string, string>()
     /** tag 名 -> 它所属的顶层 path。 */

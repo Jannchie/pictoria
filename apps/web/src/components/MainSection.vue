@@ -12,7 +12,9 @@ import { useConfirmAction } from '@/composables/useConfirmAction'
 import { GRID_OUTSIDE_SHORTCUTS, useGalleryGrid } from '@/composables/useGalleryGrid'
 import { useKeyScope, useScoreHotkeys } from '@/composables/useKeyScope'
 import { prefetchPost } from '@/composables/usePostPrefetch'
+import { provideGalleryTiles } from '@/composables/useViewportHiRes'
 import { announce, clear as clearSelection, commitRotate, commitScore, currentPostList, deletePosts, galleryScrollPositions, gridCursorId, lastViewedPostId, postFilter, queryKeys, selectedCount, selectedIdList, selectOnly, setGridCursor, soleSelectedId, textSearchQuery, useInfinityPostsQuery, waterfallRowCount } from '@/shared'
+import { galleryViewNameKey } from '@/shared/galleryView'
 import { GRID_GAP, GRID_PAD } from '@/shared/gridLayout'
 import { useToast } from '@/shared/toast'
 import { useHotkey } from '@/ui/useHotkey'
@@ -46,6 +48,7 @@ const textSearchQueryResult = useQuery({
   },
   enabled: computed(() => isTextSearchActive.value),
   staleTime: 1000 * 30,
+  shallow: true,
 })
 const textSearchResults = computed<Array<PostSimplePublic>>(() => textSearchQueryResult.data.value ?? [])
 const folderPosts = computed<Array<PostSimplePublic>>(() => {
@@ -91,14 +94,19 @@ watchEffect(() => {
 
 const waterfallRef = ref<InstanceType<typeof Waterfall> | null>(null)
 const waterfallWrapperDom = computed(() => waterfallRef.value?.wrapper)
-const waterfallWrapperBounds = useElementBounding(waterfallWrapperDom)
+// Only the width is read: a ResizeObserver, not useElementBounding's extra
+// scroll / resize listeners and per-frame getBoundingClientRect.
+const { width: waterfallWrapperWidth } = useElementSize(waterfallWrapperDom, undefined, { box: 'border-box' })
 // Column width from the wrapper: N columns share the width minus the outer
 // padding and the N-1 gaps. `cols` re-derives the count from that width so the
 // skeleton and the Waterfall agree even while the wrapper is still 0 wide.
 const waterfallItemWidth = computed(() => {
-  return Math.floor((waterfallWrapperBounds.width.value - GRID_PAD * 2 - GRID_GAP * (waterfallRowCount.value - 1)) / waterfallRowCount.value)
+  return Math.floor((waterfallWrapperWidth.value - GRID_PAD * 2 - GRID_GAP * (waterfallRowCount.value - 1)) / waterfallRowCount.value)
 })
-const cols = computed(() => Math.floor((waterfallWrapperBounds.width.value - GRID_PAD * 2 + GRID_GAP) / (waterfallItemWidth.value + GRID_GAP)))
+const cols = computed(() => Math.floor((waterfallWrapperWidth.value - GRID_PAD * 2 + GRID_GAP) / (waterfallItemWidth.value + GRID_GAP)))
+// Every tile is one column wide: hand that width (and the DPR, and one shared
+// IntersectionObserver) to all PostItems at once instead of three observers each.
+provideGalleryTiles(waterfallItemWidth)
 const layoutData = computed(() => {
   return waterfallRef.value?.layoutData
 })
@@ -126,6 +134,11 @@ const mainSectionRef = ref<HTMLElement>()
 // PScrollArea exposes its inner scroller as `$el`; both the scroll-position
 // cache below and the infinite-scroll observer need it as their root.
 const galleryScrollEl = computed<HTMLElement | undefined>(() => (mainSectionRef.value as unknown as { $el?: HTMLElement } | undefined)?.$el)
+// vue-wf mounts the tiles within this many px above / below the viewport, so
+// thumbnails half a screen ahead are already loading when they scroll in.
+// (Originals still wait for real visibility — see provideGalleryTiles.)
+const { height: galleryScrollHeight } = useElementSize(galleryScrollEl)
+const waterfallRangeExpand = computed(() => Math.round(galleryScrollHeight.value / 2))
 
 // Grid hotkeys stand down while a confirm dialog is open (Enter would
 // otherwise open the post detail instead of confirming the delete), while a
@@ -181,7 +194,8 @@ useHotkey('Escape', () => clearSelection(), {
 })
 
 const gridName = computed(() => {
-  if (route.name === 'dir') {
+  const view = route.meta.view
+  if (view === 'dir') {
     const folder = route.params.folder
     const parts = Array.isArray(folder) ? folder : [folder]
     const last = parts.findLast(Boolean)
@@ -189,13 +203,7 @@ const gridName = computed(() => {
       return last
     }
   }
-  if (route.name === 'recently') {
-    return t('nav.recently')
-  }
-  if (route.name === 'unratedArtists') {
-    return t('nav.unratedArtists')
-  }
-  return route.path === '/random' ? t('nav.random') : t('nav.all')
+  return t(galleryViewNameKey(view))
 })
 const gridLabel = computed(() => isTextSearchActive.value
   ? t('gallery.gridLabelSearch', { query: textSearchPrompt.value })
@@ -216,7 +224,7 @@ const { pushToast } = useToast()
 // 1.5–3 秒）。它已经挪到 API 的读线程上、不再卡住打分请求，但仍然占着一条读线程
 // —— 连点几张就会把真正打开那张的 similar 排到后面。打开详情时 useQuery 自己会拉。
 watchDebounced(soleSelectedId, (id) => {
-  const post = id === undefined ? undefined : toRaw(posts.value).find(p => p.id === id)
+  const post = id === undefined ? undefined : posts.value.find(p => p.id === id)
   if (post) {
     prefetchPost(queryClient, post, { similar: false })
   }
@@ -233,6 +241,15 @@ async function applyScoreToSelection(score: number) {
 useScoreHotkeys('grid', applyScoreToSelection)
 
 const shouldScroll = ref(true)
+function isInScroller(el: Element): boolean {
+  const scroller = galleryScrollEl.value
+  if (!scroller) {
+    return false
+  }
+  const r = el.getBoundingClientRect()
+  const v = scroller.getBoundingClientRect()
+  return r.bottom > v.top && r.top < v.bottom
+}
 watchEffect(async () => {
   if (route.query.post_id) {
     // 如果有 post_id 参数，则选中这个 post，并且滚动到这个 post
@@ -251,8 +268,9 @@ watchEffect(async () => {
     if (postId) {
       const postLayout = waterfallRef.value?.layoutData?.[postIndex]
       if (postLayout) {
+        // Mounted is not on screen: vue-wf also mounts the rangeExpand margin.
         const res = document.querySelector(`#post-item-${postId}`)
-        if (!res && shouldScroll.value) {
+        if (!(res && isInScroller(res)) && shouldScroll.value) {
           waterfallWrapperDom.value?.scrollTo({
             top: postLayout.y,
             behavior: 'smooth',
@@ -587,6 +605,7 @@ onMounted(() => {
         :gap="GRID_GAP"
         :padding-x="GRID_PAD"
         :padding-y="GRID_PAD"
+        :range-expand="waterfallRangeExpand"
         @pointerdown="emptyPointerDown"
       >
         <PostItem

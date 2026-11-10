@@ -3,6 +3,20 @@ import type { PostSimplePublic } from '@/api'
 import { computed } from 'vue'
 import { MAX_POST_RATING, MAX_POST_SCORE } from '@/shared/ratings'
 
+/** Min / max of the positive values `read` yields, or null when there are none. */
+function positiveRange<T>(items: readonly T[], read: (item: T) => number): { min: number, max: number } | null {
+  let min = Infinity
+  let max = -Infinity
+  for (const item of items) {
+    const v = read(item)
+    if (v > 0) {
+      min = Math.min(min, v)
+      max = Math.max(max, v)
+    }
+  }
+  return min === Infinity ? null : { min, max }
+}
+
 /**
  * Aggregations the multi-select panel shows for the current selection
  * (rating/score/extension distributions, size + dimension ranges, the common
@@ -39,20 +53,10 @@ export function useSelectedPostStats(selectedPosts: Ref<PostSimplePublic[]>) {
     return [...map.entries()].sort((a, b) => b[1] - a[1])
   })
 
-  const widthRange = computed(() => {
-    const values = selectedPosts.value.map(p => p.width).filter(v => v > 0)
-    if (values.length === 0) {
-      return null
-    }
-    return { min: Math.min(...values), max: Math.max(...values) }
-  })
-  const heightRange = computed(() => {
-    const values = selectedPosts.value.map(p => p.height).filter(v => v > 0)
-    if (values.length === 0) {
-      return null
-    }
-    return { min: Math.min(...values), max: Math.max(...values) }
-  })
+  // Plain loops, not Math.min(...arr): a Ctrl+A selection can be tens of
+  // thousands of posts, past the engine's argument-count limit (RangeError).
+  const widthRange = computed(() => positiveRange(selectedPosts.value, p => p.width))
+  const heightRange = computed(() => positiveRange(selectedPosts.value, p => p.height))
 
   // Longest common path prefix (segment-wise) across all selected posts.
   const commonFolder = computed(() => {
@@ -63,7 +67,10 @@ export function useSelectedPostStats(selectedPosts: Ref<PostSimplePublic[]>) {
     if (paths.length === 1) {
       return paths[0].join('/')
     }
-    const minLen = Math.min(...paths.map(p => p.length))
+    let minLen = Infinity
+    for (const p of paths) {
+      minLen = Math.min(minLen, p.length)
+    }
     const out: string[] = []
     for (let i = 0; i < minLen; i++) {
       const seg = paths[0][i]

@@ -1,11 +1,12 @@
 import type { QueryClient } from '@tanstack/vue-query'
+import type { GalleryListMode } from './postFilter'
 import type { PostSimplePublic } from '@/api'
 import { keepPreviousData, useInfiniteQuery, useQuery, useQueryClient } from '@tanstack/vue-query'
 import { useDebounce } from '@vueuse/core'
-import { converter, parse } from 'culori'
 import { computed } from 'vue'
 import { useRoute } from 'vue-router'
 import { v2GetFolders, v2SearchPosts, v2UnratedArtistPicks } from '@/api'
+import { converter, parse } from '@/utils/culori'
 import { searchPostsBody } from './postFilter'
 import { queryKeys } from './queryKeys'
 import { postFilter, postSort, postSortColor, postSortOrder, randomSeed } from './state'
@@ -44,11 +45,11 @@ export function useInfinityPostsQuery() {
   const limit = PAGE_SIZE
   const route = useRoute()
 
-  const isRandomPage = computed(() => route.path === '/random')
-  const isRecentlyPage = computed(() => route.path === '/recently')
+  const view = computed(() => route.meta.view)
+  const mode = computed<GalleryListMode>(() => view.value === 'random' || view.value === 'recently' ? view.value : 'default')
   // 「未评分画师」：服务端算好的固定清单（每位未评分画师一张代表图），与画廊的
   // postFilter / 排序无关，所以不带 requestBody —— 筛选条件在这个视图上不生效。
-  const isUnratedArtistsPage = computed(() => route.path === '/unrated-artists')
+  const isUnratedArtistsPage = computed(() => view.value === 'unratedArtists')
 
   // Isolated computed so the lab conversion only runs when the picked
   // color actually changes — without this, every filter change re-runs the
@@ -73,7 +74,7 @@ export function useInfinityPostsQuery() {
   // 排序语义（/random、/recently 的特例）与筛选字段的映射都在 `./postFilter`。
   const requestBody = computed(() => searchPostsBody({
     filter: postFilter.value,
-    mode: isRandomPage.value ? 'random' : isRecentlyPage.value ? 'recently' : 'default',
+    mode: mode.value,
     sort: postSort.value,
     sortOrder: postSortOrder.value,
     seed: randomSeed.value,
@@ -97,14 +98,8 @@ export function useInfinityPostsQuery() {
       })
       return resp.data
     },
-    enabled: computed(() =>
-      route.name === 'all'
-      || route.name === 'dir'
-      || route.path === '/'
-      || route.path === '/random'
-      || route.path === '/recently'
-      || route.path === '/unrated-artists',
-    ),
+    // Every gallery route (main.ts `meta.gallery`), `/` included.
+    enabled: computed(() => route.meta.gallery === true),
     initialPageParam: 0,
     staleTime: 1000 * 60 * 60,
     // 换到一个**新**筛选组合时保留上一组的页面，等新的第一页到了再整体换掉：
@@ -112,6 +107,9 @@ export function useInfinityPostsQuery() {
     // MainSection 的骨架条件本来就是 isLoading && posts.length === 0，天然兼容。
     // 切回用过的组合仍走上面 1 小时的 staleTime 缓存，连请求都不发。
     placeholderData: keepPreviousData,
+    // 只读的大数组（几万条 post）：不要默认的深 reactive。缓存写入一律整体替换
+    // 引用（patchPostsInListCache / removePostsFromCacheEntry），不依赖深层追踪。
+    shallow: true,
     getNextPageParam: (lastPage, allPages) => {
       if (!lastPage || lastPage.length < limit) {
         return
@@ -120,13 +118,6 @@ export function useInfinityPostsQuery() {
       // array of every loaded post reference per fetch just to read a count.
       return allPages.reduce((n, page) => n + (page?.length ?? 0), 0)
     },
-  })
-}
-
-export function usePosts() {
-  const postsQuery = useInfinityPostsQuery()
-  return computed<Array<PostSimplePublic>>(() => {
-    return postsQuery.data.value?.pages.flat().filter(post => post !== undefined) ?? []
   })
 }
 
@@ -226,5 +217,7 @@ export function useFoldersQuery() {
       return resp.data
     },
     staleTime: 1000 * 60 * 60,
+    // 约 5 MB、数万节点的只读树：浅响应，消费方只读不写。
+    shallow: true,
   })
 }

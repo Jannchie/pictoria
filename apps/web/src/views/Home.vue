@@ -3,6 +3,7 @@ import { computed } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useRoute } from 'vue-router'
 import { showPostDetail, waterfallRowCount } from '@/shared'
+import { galleryViewNameKey } from '@/shared/galleryView'
 import PostDetail from '../components/PostDetail.vue'
 import 'splitpanes/dist/splitpanes.css'
 
@@ -10,7 +11,9 @@ const { t } = useI18n()
 const route = useRoute()
 
 // Ctrl+wheel zooms the grid; the matching slider lives in FilterRow's right
-// cluster so the gallery header is a single row.
+// cluster so the gallery header is a single row. It stays a window listener on
+// purpose: trackpad pinch arrives as a ctrlKey wheel with no key held, so gating
+// it on a real Ctrl press would hand pinch over to browser page zoom.
 useEventListener('wheel', (event) => {
   if (event.ctrlKey) {
     event.preventDefault()
@@ -21,23 +24,15 @@ useEventListener('wheel', (event) => {
 // 画廊页的一级标题（视觉隐藏，给读屏的标题导航用）：目录路由显示目录路径，
 // 其余画廊路由用侧栏里同名入口的文案。
 const heading = computed(() => {
-  if (route.name === 'dir') {
+  const view = route.meta.view
+  if (view === 'dir') {
     const raw = route.params.folder
     const folder = Array.isArray(raw) ? raw.join('/') : (raw ?? '')
     if (folder) {
       return folder
     }
   }
-  if (route.name === 'recently') {
-    return t('nav.recently')
-  }
-  if (route.name === 'unratedArtists') {
-    return t('nav.unratedArtists')
-  }
-  if (route.path === '/random') {
-    return t('nav.random')
-  }
-  return t('nav.all')
+  return t(galleryViewNameKey(view))
 })
 </script>
 

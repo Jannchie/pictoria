@@ -25,6 +25,12 @@ html.is-theme-switching *::after {
   --p-brand-800-rgb:  82  53 113;
   --p-brand-900-rgb:  56  36  78;
 
+  /* Scrim — chrome laid over images / video (lightbox backdrop, thumbnail
+     badges, overlay scrim). Deliberately the same in both schemes: what sits
+     under it is a picture, not the page surface. `on-scrim` is its text. */
+  --p-scrim-rgb:    0 0 0;
+  --p-on-scrim-rgb: 255 255 255;
+
   /* Radius */
   --p-radius-xs: 3px;
   --p-radius-sm: 4px;

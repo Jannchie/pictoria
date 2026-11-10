@@ -83,6 +83,8 @@ declare global {
   const isTypeaheadKey: typeof import('./composables/useTypeahead').isTypeaheadKey
   const keyToChoice: typeof import('./composables/useAnnotationKeymap').keyToChoice
   const lastRovingIndex: typeof import('./composables/useRovingIndex').lastRovingIndex
+  const loadLocaleMessages: typeof import('./locale/index').loadLocaleMessages
+  const localeReady: typeof import('./locale/index').localeReady
   const localeSetting: typeof import('./locale/index').localeSetting
   const makeDestructurable: typeof import('@vueuse/core').makeDestructurable
   const markRaw: typeof import('vue').markRaw
@@ -119,6 +121,7 @@ declare global {
   const preloadImage: typeof import('./composables/usePostPrefetch').preloadImage
   const provide: typeof import('vue').provide
   const provideFolderTree: typeof import('./composables/useFolderTree').provideFolderTree
+  const provideGalleryTiles: typeof import('./composables/useViewportHiRes').provideGalleryTiles
   const provideLocal: typeof import('@vueuse/core').provideLocal
   const reactify: typeof import('@vueuse/core').reactify
   const reactifyObject: typeof import('@vueuse/core').reactifyObject

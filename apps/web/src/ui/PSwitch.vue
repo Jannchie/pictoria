@@ -82,7 +82,7 @@ function toggle() {
   color: var(--p-on-primary);
   border-radius: var(--p-radius-full);
   font-size: 0.75em;
-  box-shadow: 0 1px 2px rgb(0 0 0 / 0.18);
+  box-shadow: 0 1px 2px rgb(var(--p-scrim-rgb) / 0.18);
   transform: translateX(0);
   transition: transform var(--p-duration-base) var(--p-ease);
 }
