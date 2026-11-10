@@ -6,7 +6,8 @@
  * 没有人接住它 —— 于是浏览一张中文命名的图就让整个进程退出一次。实测代价：一次
  * 跑到 59% 的全库差分仲裁被连带杀掉。
  */
-import { describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it } from 'vitest'
+import { createTestApp, fakeTasks, type TestApp } from '../testing/app.js'
 import { contentDisposition } from './images.js'
 
 describe('contentDisposition', () => {
@@ -33,5 +34,62 @@ describe('contentDisposition', () => {
 
     expect(value).toContain('filename="a_b_c.png"')
     expect(() => new Headers({ 'content-disposition': value })).not.toThrow()
+  })
+})
+
+describe('按路径读图：拒绝 `.pictoria/`', () => {
+  let t: TestApp | undefined
+
+  afterEach(() => {
+    t?.close()
+    t = undefined
+  })
+
+  function setup() {
+    t = createTestApp()
+    t.writeFile('.pictoria/pictoria.sqlite', 'SQLite format 3')
+    t.writeFile('.pictoria/gallery-dl.conf', '{}')
+    t.writeFile('.pictoria/thumbnails/art/a.png', 'thumb')
+    t.writeFile('art/a.png', 'png')
+    return t
+  }
+
+  it('库内普通图片 → 200', async () => {
+    const res = await setup().app.request('/v2/images/original/art/a.png')
+    expect(res.status).toBe(200)
+    expect(await res.text()).toBe('png')
+  })
+
+  it.each([
+    '.pictoria/pictoria.sqlite',
+    '.pictoria/gallery-dl.conf',
+    '.pictoria/thumbnails/art/a.png',
+    '.PICTORIA/pictoria.sqlite',
+    '.pictoria./pictoria.sqlite',
+    '%2Epictoria/pictoria.sqlite',
+    '.pictoria%2Fpictoria.sqlite',
+    '.pictoria%5Cpictoria.sqlite',
+    'art/..%2F.pictoria/pictoria.sqlite',
+    '.pictoria::$INDEX_ALLOCATION/pictoria.sqlite',
+    'art/a.png:stream',
+  ])('original/%s → 404', async (p) => {
+    const res = await setup().app.request(`/v2/images/original/${p}`)
+    expect(res.status).toBe(404)
+    expect(await res.json()).toMatchObject({ error: 'NotFound' })
+  })
+
+  it('thumbnails/.pictoria/... → 404，不提交缩略图任务', async () => {
+    const tasks = fakeTasks(() => ({ ok: true }))
+    t = createTestApp({ tasks })
+    t.writeFile('.pictoria/pictoria.sqlite', 'x')
+    const res = await t.app.request('/v2/images/thumbnails/.pictoria/pictoria.sqlite')
+    expect(res.status).toBe(404)
+    expect(tasks.calls).toEqual([])
+  })
+
+  it('按 id：行指进 `.pictoria/` → 404', async () => {
+    const t = setup()
+    const id = t.insertPost('.pictoria', 'pictoria', 'sqlite')
+    expect((await t.app.request(`/v2/images/original/id/${id}`)).status).toBe(404)
   })
 })

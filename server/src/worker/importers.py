@@ -280,7 +280,12 @@ async def handle_danbooru_download(payload: dict[str, Any]) -> dict[str, Any]:
 
 
 def _gallery_dl_conf(root: Path) -> str | None:
-    """Optional gallery-dl.conf (kemono cookies / UA) at ``<root>/.pictoria/``."""
+    """Optional gallery-dl.conf (kemono cookies / UA) at ``<root>/.pictoria/``.
+
+    gallery-dl config can run commands (``exec`` postprocessors), so this file
+    must stay out of reach of HTTP writes: the API's upload refuses any target
+    under ``.pictoria/`` (``resolveLibraryPath`` in ``apps/api/src/paths.ts``).
+    """
     conf = pictoria_dir(root) / "gallery-dl.conf"
     return str(conf) if conf.is_file() else None
 

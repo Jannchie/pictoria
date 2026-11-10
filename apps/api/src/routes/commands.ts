@@ -26,8 +26,6 @@ import {
   updateField,
   vectorExists,
 } from '@pictoria/db'
-import fs from 'node:fs'
-import os from 'node:os'
 import path from 'node:path'
 import { DEDUP_THRESHOLD, isRebuilding, rebuildGroups } from '../dedup.js'
 import { type AppEnv, newRoutes, type TaskSource } from '../env.js'
@@ -37,8 +35,6 @@ import { PostDetailPublic, Result } from '../schemas.js'
 import { postAbsPath, targetDir } from '../paths.js'
 import { startSync } from '../sync.js'
 import { embeddingSpec, runOneShot, silvaSpecs, taggerSpec, waifuSpec } from '../workers.js'
-
-const SnapshotResult = z.object({ path: z.string(), dir: z.string() }).openapi('SnapshotResult')
 
 export const commandsRoutes = newRoutes()
 
@@ -324,33 +320,6 @@ commandsRoutes.openapi(
 )
 
 /**
- * 把在线库快照到一个临时文件，好让外部工具打开它。
- *
- * SQLite 的 `VACUUM INTO` 会产出一份自包含、一致的副本，写者活跃时也能做
- * （它内部走一个读事务）。调用方自己打开、查询、然后删掉那个目录。
- */
-commandsRoutes.openapi(
-  createRoute({
-    method: 'post',
-    path: '/v2/cmd/db/snapshot',
-    operationId: 'v2DbSnapshot',
-    summary: 'DbSnapshot',
-    description: 'Create a point-in-time SQLite snapshot for offline tooling',
-    responses: {
-      201: { description: CREATED, content: { 'application/json': { schema: SnapshotResult } } },
-    },
-  }),
-  (c) => {
-    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'pictoria-snapshot-'))
-    const snapPath = path.join(tmpDir, 'snapshot.sqlite')
-    // 路径由服务端生成（mkdtemp），不含单引号，所以直接内插是安全的。
-    c.var.db.exec(`VACUUM INTO '${snapPath.split(path.sep).join('/')}'`)
-    console.warn(`[pictoria-api] 已生成快照 ${snapPath}`)
-    return c.json({ path: snapPath, dir: tmpDir }, 201)
-  },
-)
-
-/**
  * 重扫 target_dir 并把每个 backfill worker 都推一把。
  *
  * fire-and-forget：立刻返回，不让 HTTP 客户端干等一次几分钟的扫描。忙检查让
@@ -551,7 +520,10 @@ commandsRoutes.openapi(
     description: 'Fetch a creator/tag URL via gallery-dl in the background and persist new images',
     request: {
       query: z.object({
-        url: z.string().openapi({ param: { name: 'url', in: 'query', required: true } }),
+        // 只收 http(s)：这个值原样交给 gallery-dl，`file:` / `-` 开头的值会被它当成本地路径
+        // 或命令行选项（Python 侧另在 url 前加了 `--`，两道各管一层）。
+        url: z.string().regex(/^https?:\/\//i, 'url must start with http:// or https://')
+          .openapi({ param: { name: 'url', in: 'query', required: true } }),
       }),
     },
     responses: {

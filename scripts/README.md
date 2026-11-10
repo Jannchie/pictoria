@@ -124,3 +124,54 @@ kubectl exec -it pod-name -- python /tmp/scripts/download_from_s3.py /app/web
 # 每日同步（删除本地多余文件）
 0 2 * * * cd /path/to/project && python scripts/download_from_s3.py ./web sync
 ```
+
+## 图库同步不含 `.pictoria/`
+
+`rclone_sync.ps1` / `rclone_sync.sh` / `sync_with_awscli.sh` 一律排除图库里的 `.pictoria/` 目录
+（rclone 用 `--exclude ".pictoria/**"`，aws 用 `--exclude ".pictoria/*" --exclude "*/.pictoria/*"`，
+传图库根 `images/` 或它的上一级 `server/illustration` 都生效）。那里面是：
+
+- `pictoria.sqlite`（+ `-wal` / `-shm`）—— API 一直开着它，逐字节拷贝得到的是不一致的文件；
+  下载方向还会拿远端的旧库盖掉本地的活库；
+- `tasks.sqlite`（cairnq 队列，临时状态）、`thumbnails/`（可重建）、`gallery-dl.conf`（含 cookies）。
+
+旧版脚本只排除了 `.*` —— 在 rclone 里它只匹配**文件名**以点开头的文件，`.pictoria/` 下的内容其实
+一直在被上传。远端若已有 `collections/images/.pictoria/`，新脚本不会删除它（被排除的路径 sync 不碰），
+确认不需要后可手动清掉：`rclone purge b2:pictoria/collections/images/.pictoria`。
+
+## 数据库备份与恢复
+
+数据库单独用 `server/scripts/backup_db.py` 备份：SQLite `VACUUM INTO` 在一个读事务里写出一份
+自包含、已压实的副本，API 运行中也能做，不写源库；写完先 `PRAGMA quick_check` 再改名为正式文件。
+
+```bash
+cd server
+# 快照到库外的目录（不能放在 .pictoria/ 里 —— 那里不进同步）
+uv run python scripts/backup_db.py D:/pictoria-backups
+
+# 快照后上传到 rclone 远端，并只保留本地最新 7 份
+uv run python scripts/backup_db.py D:/pictoria-backups --upload b2:pictoria/db-backups --keep 7
+
+# 指定源库（默认是 DB_PATH 或 <图库>/.pictoria/pictoria.sqlite）
+uv run python scripts/backup_db.py D:/pictoria-backups --db E:/some/other/pictoria.sqlite
+```
+
+快照名形如 `pictoria-20261110T120000Z.sqlite`（UTC）。`tasks.sqlite` 不备份：它是队列的临时状态，
+启动时会自动新建。
+
+### 恢复
+
+1. 停掉 API 和 worker（`pnpm dev` 里 Ctrl+C；确认没有残留的 `node ... src/index.ts` 进程）。
+2. 把现有的库挪开（三个文件一起，`-wal` 里可能有尚未合并的写入，单独留下会和新库错配）：
+   ```bash
+   cd <图库>/.pictoria
+   mkdir -p ../../pictoria-db-old
+   mv pictoria.sqlite pictoria.sqlite-wal pictoria.sqlite-shm ../../pictoria-db-old/ 2>/dev/null
+   ```
+3. 放入快照（远端的先 `rclone copyto b2:pictoria/db-backups/<名字> ./pictoria.sqlite`）：
+   ```bash
+   cp D:/pictoria-backups/pictoria-<时间>.sqlite <图库>/.pictoria/pictoria.sqlite
+   ```
+4. 启动 API。启动时会自动补跑快照之后新增的迁移；随后的 sync 会把快照之后才加进磁盘的图片
+   重新导入，backfill 会给它们补算向量 / 标签 / 分数。快照之后才做的手工编辑（评分、标签确认等）
+   无法恢复。

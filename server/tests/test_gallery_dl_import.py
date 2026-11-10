@@ -180,3 +180,27 @@ def test_download_items_excludes_failures(tmp_path, monkeypatch) -> None:
     ok = gdl.download_items(
         [_item(download_url="https://f/1.jpg", file_name="1", extension="jpg")], tmp_path)
     assert ok == []
+
+
+def test_run_gallery_dl_json_ends_options_before_url(monkeypatch) -> None:
+    # ``--`` must sit right before the url so gallery-dl never parses it as a flag.
+    seen: list[list[str]] = []
+
+    def fake_run(cmd, *a, **k):
+        seen.append(cmd)
+        return subprocess.CompletedProcess(cmd, 0, stdout="[]", stderr="")
+
+    monkeypatch.setattr(subprocess, "run", fake_run)
+    gdl.run_gallery_dl_json("https://kemono.cr/fanbox/user/1", config_path="/lib/.pictoria/gallery-dl.conf")
+    cmd = seen[0]
+    assert cmd[-2:] == ["--", "https://kemono.cr/fanbox/user/1"]
+    assert cmd[cmd.index("--config") + 1] == "/lib/.pictoria/gallery-dl.conf"
+    assert cmd.index("--config") < cmd.index("--")
+
+
+def test_run_gallery_dl_json_refuses_non_http_urls(monkeypatch) -> None:
+    calls: list[object] = []
+    monkeypatch.setattr(subprocess, "run", lambda *a, **k: calls.append(a))
+    for bad in ["--exec=calc", "-o extractor.x=1", "file:///etc/passwd", "ftp://x/y", "javascript:alert(1)"]:
+        assert gdl.run_gallery_dl_json(bad) == []
+    assert calls == []

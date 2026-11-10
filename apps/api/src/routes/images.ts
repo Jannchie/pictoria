@@ -7,7 +7,8 @@
  *    **后面**，否则 `id/5` 会被当成一个叫 "id/5" 的文件路径 —— Hono 按注册顺序匹配。
  * 2. **路径是输入**。`{post_path}` 来自客户端且可能含 `..`（ASGI/Node 都在客户端
  *    归一化之后才百分号解码），直接 join 就能读到库外任意文件。一律 resolve 后
- *    要求仍在根之内，否则 404。
+ *    要求仍在根之内、且不在 `.pictoria/`（两个 sqlite、gallery-dl 配置都在那儿）之内，
+ *    否则 404。判定统一走 `paths.ts` 的 `resolveLibraryPath`，上传共用同一个。
  * 3. **缩略图现生成走 worker**。库里现存的 22 万张缩略图是 PIL 出的，在 TS 侧换
  *    sharp 意味着新旧两批字节不同；交给 worker 的 io 队列既守住 §D1，也让
  *    basics worker 之后能复用同一段。
@@ -22,7 +23,7 @@ import { newRoutes, openapiCatchAll, type TaskSource } from '../env.js'
 import { postIdParam } from './post-shared.js'
 import { errors, fail } from '../openapi.js'
 import { presignGetObject } from '../s3.js'
-import { postAbsPath, resolveInside, targetDir, thumbnailPathFor, thumbnailsDir } from '../paths.js'
+import { isPublicLibraryPath, postAbsPath, resolveLibraryPath, targetDir, thumbnailPathFor } from '../paths.js'
 
 export const imagesRoutes = newRoutes()
 
@@ -170,6 +171,8 @@ imagesRoutes.openapi(
       return notFound(`Post with id ${postId} not found`)
 
     const absPath = postAbsPath(post.fullPath)
+    if (!isPublicLibraryPath(absPath))
+      return notFound(`Original image for post ${postId} not found`)
     if (fs.existsSync(absPath))
       return fileResponse(absPath)
 
@@ -209,7 +212,7 @@ imagesRoutes.openapi(
       return notFound(`Post with id ${postId} not found`)
 
     const originalPath = postAbsPath(post.fullPath)
-    if (!fs.existsSync(originalPath))
+    if (!isPublicLibraryPath(originalPath) || !fs.existsSync(originalPath))
       return notFound(`Original image for post ${postId} not found`)
 
     const thumbPath = thumbnailPathFor(post.fullPath)
@@ -248,8 +251,8 @@ const originalByPathRoute = pathRoute('original', {
 })
 
 openapiCatchAll(imagesRoutes, originalByPathRoute, (c) => {
-  const absPath = resolveInside(targetDir(), c.req.valid('param').post_path)
-  // 逃逸和"文件不在"是两句不同的话：逃逸只说 "Image not found"，不透露库外有什么。
+  const absPath = resolveLibraryPath(c.req.valid('param').post_path)
+  // 逃逸 / 进程私有目录和"文件不在"是两句不同的话：前者只说 "Image not found"，不透露那里有什么。
   if (!absPath)
     return notFound('Image not found')
   if (!fs.existsSync(absPath))
@@ -264,11 +267,11 @@ const thumbnailByPathRoute = pathRoute('thumbnails', {
 })
 
 openapiCatchAll(imagesRoutes, thumbnailByPathRoute, async (c) => {
-  const rawPath = c.req.valid('param').post_path
-  const thumbPath = resolveInside(thumbnailsDir(), rawPath)
-  const originalPath = resolveInside(targetDir(), rawPath)
-  if (!thumbPath || !originalPath)
+  const originalPath = resolveLibraryPath(c.req.valid('param').post_path)
+  if (!originalPath)
     return notFound('Image not found')
+  // 缩略图路径从**已通过判定**的原图路径派生，而不是把原始输入再接到缩略图根上一遍。
+  const thumbPath = thumbnailPathFor(path.relative(targetDir(), originalPath))
   if (!fs.existsSync(originalPath))
     return notFound('Original image not found')
 

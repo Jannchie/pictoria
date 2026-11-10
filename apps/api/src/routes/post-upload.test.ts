@@ -83,3 +83,53 @@ describe('POST /v2/posts/upload（url）', () => {
     expect(rows()).toBe(1)
   })
 })
+
+describe('POST /v2/posts/upload（文件）：目标与文件名', () => {
+  function uploadFile(name: string, extra: Record<string, string> = {}) {
+    const body = new FormData()
+    body.append('file', new File([new Uint8Array([7])], name, { type: 'image/png' }))
+    for (const [k, v] of Object.entries(extra)) body.append(k, v)
+    return t.app.request('/v2/posts/upload', { method: 'POST', body })
+  }
+
+  it.each([
+    ['.pictoria', 'gallery-dl.conf'],
+    ['.pictoria', 'x.png'],
+    ['.PICTORIA', 'x.png'],
+    ['.pictoria.', 'x.png'],
+    ['.pictoria/thumbnails', 'x.png'],
+    ['art/../.pictoria', 'x.png'],
+    ['..', 'x.png'],
+    ['C:/Windows', 'x.png'],
+  ])('path=%s file=%s → 400，不落文件不建行', async (dir, name) => {
+    const res = await uploadFile(name, { path: dir })
+    expect(res.status).toBe(400)
+    expect(rows()).toBe(0)
+    expect(fs.existsSync(path.join(t.root, '.pictoria', name))).toBe(false)
+  })
+
+  it.each(['a.txt', 'gallery-dl.conf', 'evil.svg', 'noext', 'a.png.exe'])('非图片扩展名 %s → 400', async (name) => {
+    const res = await uploadFile(name)
+    expect(res.status).toBe(400)
+    expect(rows()).toBe(0)
+  })
+
+  it('文件名里的目录段被剥掉：只能经 path 字段指定目录', async () => {
+    const res = await uploadFile('../../.pictoria/x.png', { path: 'up' })
+    expect(res.status).toBe(201)
+    expect(fs.existsSync(path.join(t.root, 'up', 'x.png'))).toBe(true)
+  })
+
+  it('文件名里的 ADS 冒号和保留字符被替换，末尾点号被剥掉', async () => {
+    const res = await uploadFile('a:b<c>.png..')
+    expect(res.status).toBe(201)
+    expect(fs.existsSync(path.join(t.root, 'a_b_c_.png'))).toBe(true)
+  })
+
+  it('url 上传的文件名取 URL 路径最后一段，不带 query', async () => {
+    mockFetch(async () => new Response(new Uint8Array([1]), { headers: { 'content-type': 'image/png' } }))
+    const res = await upload({ url: 'https://example.com/dir/b.png?sig=../../x' })
+    expect(res.status).toBe(201)
+    expect(fs.existsSync(path.join(t.root, 'b.png'))).toBe(true)
+  })
+})

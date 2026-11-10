@@ -19,6 +19,16 @@ import { getTasks, peekTasks } from './tasks.js'
 
 const PORT = Number(process.env.PICTORIA_API_PORT ?? 4777)
 
+/**
+ * 默认只绑 IPv4 回环。不写 hostname 时 Node 绑的是 `::`（所有网卡），局域网里谁都能
+ * 读写整个图库。`PICTORIA_API_HOST` 显式改（如 `0.0.0.0`）—— 那时记得把前端的源加进
+ * `PICTORIA_ALLOWED_ORIGINS`，否则 Host / Origin 闸门（`security.ts`）会拒掉它。
+ *
+ * 前端直连 `http://localhost:4777`：浏览器解析 localhost 时 `::1` 连不上会回落到
+ * 127.0.0.1，所以不需要同时绑 `::1`。
+ */
+const HOST = process.env.PICTORIA_API_HOST || '127.0.0.1'
+
 // schema 先于流量：迁移失败就不该开始服务，否则第一批请求会打在半旧的 schema 上。
 migrate()
 
@@ -46,8 +56,9 @@ const reads = readThreads > 0
 
 const app = createApp({ db: getDb().sqlite, tasks: { get: getTasks, peek: peekTasks }, reads })
 
-serve({ fetch: app.fetch, port: PORT }, (info) => {
-  console.warn(`[pictoria-api] listening on http://127.0.0.1:${info.port}`)
+serve({ fetch: app.fetch, port: PORT, hostname: HOST }, (info) => {
+  const shown = info.family === 'IPv6' ? `[${info.address}]` : info.address
+  console.warn(`[pictoria-api] listening on http://${shown}:${info.port}`)
 })
 
 // ---- backfill 调度（§D2：挑活在 TS，干活在 Python worker） ----

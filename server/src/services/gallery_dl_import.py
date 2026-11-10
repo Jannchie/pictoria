@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import concurrent.futures
 import json
+import re
 import subprocess
 import sys
 from dataclasses import dataclass, field
@@ -33,6 +34,9 @@ if TYPE_CHECKING:
 _MSG_URL = 3
 
 
+_HTTP_URL = re.compile(r"^https?://", re.IGNORECASE)
+
+
 def run_gallery_dl_json(url: str, *, config_path: str | None = None) -> list[tuple[str, dict[str, Any]]]:
     """Run `gallery-dl -j <url>` and return [(download_url, metadata), ...].
 
@@ -41,10 +45,17 @@ def run_gallery_dl_json(url: str, *, config_path: str | None = None) -> list[tup
     creator. Invoked as ``python -m gallery_dl`` (current interpreter) so it
     doesn't depend on a console-script being on PATH.
     """
+    # The URL comes from an HTTP query string. Only http(s) reaches gallery-dl
+    # (the TS route checks too; this is the worker's own line), and ``--`` ends
+    # option parsing so a value like ``--exec=...`` / ``-o key=value`` can never be
+    # read as a flag.
+    if not _HTTP_URL.match(url):
+        logger.warning(f"gallery-dl: refusing non-http(s) url {url!r}")
+        return []
     cmd = [sys.executable, "-m", "gallery_dl", "-j"]
     if config_path:
         cmd += ["--config", config_path]
-    cmd.append(url)
+    cmd += ["--", url]
     try:
         proc = subprocess.run(cmd, capture_output=True, text=True, check=False)  # noqa: S603
     except FileNotFoundError:
@@ -193,5 +204,3 @@ def download_items(
             except Exception as exc:
                 logger.warning(f"gallery-dl download failed: {exc}")
     return ok
-
-

@@ -21,10 +21,11 @@ export const ErrorBody = z
   })
   .openapi('ErrorBody')
 
-export type ErrorStatus = 400 | 404 | 409 | 422 | 500
+export type ErrorStatus = 400 | 403 | 404 | 409 | 422 | 500
 
 const ERROR_DESCRIPTIONS: Record<ErrorStatus, string> = {
   400: 'Bad Request',
+  403: 'Forbidden',
   404: 'Not Found',
   409: 'Conflict',
   422: 'Unprocessable Content',

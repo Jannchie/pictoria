@@ -13,6 +13,12 @@ param(
 $REMOTE = "b2:pictoria/collections"
 $DEFAULT_LOCAL = ".\server\illustration"
 
+# 进程私有目录（pictoria.sqlite / tasks.sqlite 及其 -wal、缩略图、gallery-dl.conf）不进同步：
+# 正在写的 SQLite 直接拷贝得到的是不一致的文件，下载方向还会拿旧库盖掉活库。
+# 不带前导 / 的模式匹配任意深度，所以传图库根或它的上一级都对。数据库请用
+# server/scripts/backup_db.py 做一致快照（见 scripts/README.md）。
+$PICTORIA_EXCLUDE = @("--exclude", ".pictoria/**")
+
 # 颜色输出函数
 function Write-Info($message) {
     Write-Host "[INFO] $message" -ForegroundColor Green
@@ -33,7 +39,7 @@ function Test-RcloneInstalled {
         return $true
     }
     catch {
-        Write-Error "rclone is not installed. Please install it first."
+        Write-Error "rclone is not installed. Please install it first." 
         Write-Host "Visit: https://rclone.org/downloads/"
         exit 1
     }
@@ -65,7 +71,7 @@ function Invoke-Upload {
     
     # 显示将要同步的文件
     Write-Host "Files to be synced:" -ForegroundColor Blue
-    rclone sync $LocalDir $REMOTE --dry-run --stats-one-line -v
+    rclone sync $LocalDir $REMOTE --dry-run --stats-one-line -v @PICTORIA_EXCLUDE
     
     $confirm = Read-Host "`nContinue with sync? (y/N)"
     
@@ -73,6 +79,7 @@ function Invoke-Upload {
         rclone sync $LocalDir $REMOTE `
             --progress `
             --stats 5s `
+            @PICTORIA_EXCLUDE `
             --exclude ".*" `
             --exclude "*.tmp" `
             --exclude "Thumbs.db" `
@@ -102,14 +109,15 @@ function Invoke-Download {
     
     # 显示将要同步的文件
     Write-Host "Files to be synced:" -ForegroundColor Blue
-    rclone sync $REMOTE $LocalDir --dry-run --stats-one-line -v
+    rclone sync $REMOTE $LocalDir --dry-run --stats-one-line -v @PICTORIA_EXCLUDE
     
     $confirm = Read-Host "`nContinue with sync? (y/N)"
     
     if ($confirm -match "^[Yy]$") {
         rclone sync $REMOTE $LocalDir `
             --progress `
-            --stats 5s
+            --stats 5s `
+            @PICTORIA_EXCLUDE
         
         if ($LASTEXITCODE -eq 0) {
             Write-Info "Download completed successfully!"
@@ -138,11 +146,12 @@ function Invoke-Bisync {
     # 检查是否第一次运行 bisync
     if (-not (Test-Path ".rclone-bisync-state")) {
         Write-Warn "First time bisync setup. This will create initial state."
-        rclone bisync $LocalDir $REMOTE --resync --create-empty-src-dirs
+        rclone bisync $LocalDir $REMOTE --resync --create-empty-src-dirs @PICTORIA_EXCLUDE
     } else {
         rclone bisync $LocalDir $REMOTE `
             --progress `
             --stats 5s `
+            @PICTORIA_EXCLUDE `
             --exclude ".*" `
             --exclude "*.tmp"
     }
@@ -174,7 +183,7 @@ function Invoke-Diff {
     }
     
     Write-Info "Checking differences between $LocalDir and $REMOTE"
-    rclone check $LocalDir $REMOTE --one-way
+    rclone check $LocalDir $REMOTE --one-way @PICTORIA_EXCLUDE
 }
 
 # 显示帮助

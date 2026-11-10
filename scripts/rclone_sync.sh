@@ -5,6 +5,12 @@
 REMOTE="b2:pictoria/collections"
 DEFAULT_LOCAL="./server/illustration"
 
+# 进程私有目录（pictoria.sqlite / tasks.sqlite 及其 -wal、缩略图、gallery-dl.conf）不进同步：
+# 正在写的 SQLite 直接拷贝得到的是不一致的文件，下载方向还会拿旧库盖掉活库。
+# 不带前导 / 的模式匹配任意深度，所以传图库根或它的上一级都对。数据库请用
+# server/scripts/backup_db.py 做一致快照（见 scripts/README.md）。
+PICTORIA_EXCLUDE=(--exclude ".pictoria/**")
+
 # 颜色输出
 RED='\033[0;31m'
 GREEN='\033[0;32m'
@@ -56,7 +62,7 @@ upload() {
     
     # 显示将要同步的文件
     echo -e "${BLUE}Files to be synced:${NC}"
-    rclone sync "$LOCAL_DIR" "$REMOTE" --dry-run --stats-one-line -v
+    rclone sync "$LOCAL_DIR" "$REMOTE" --dry-run --stats-one-line -v "${PICTORIA_EXCLUDE[@]}"
     
     echo ""
     read -p "Continue with sync? (y/N): " -n 1 -r
@@ -66,6 +72,7 @@ upload() {
         rclone sync "$LOCAL_DIR" "$REMOTE" \
             --progress \
             --stats 5s \
+            "${PICTORIA_EXCLUDE[@]}" \
             --exclude ".*" \
             --exclude "*.tmp" \
             --exclude "Thumbs.db" \
@@ -93,7 +100,7 @@ download() {
     
     # 显示将要同步的文件
     echo -e "${BLUE}Files to be synced:${NC}"
-    rclone sync "$REMOTE" "$LOCAL_DIR" --dry-run --stats-one-line -v
+    rclone sync "$REMOTE" "$LOCAL_DIR" --dry-run --stats-one-line -v "${PICTORIA_EXCLUDE[@]}"
     
     echo ""
     read -p "Continue with sync? (y/N): " -n 1 -r
@@ -102,7 +109,8 @@ download() {
     if [[ $REPLY =~ ^[Yy]$ ]]; then
         rclone sync "$REMOTE" "$LOCAL_DIR" \
             --progress \
-            --stats 5s
+            --stats 5s \
+            "${PICTORIA_EXCLUDE[@]}"
         
         if [ $? -eq 0 ]; then
             log "Download completed successfully!"
@@ -129,11 +137,12 @@ bisync() {
     # 检查是否第一次运行 bisync
     if [ ! -f ".rclone-bisync-state" ]; then
         warn "First time bisync setup. This will create initial state."
-        rclone bisync "$LOCAL_DIR" "$REMOTE" --resync --create-empty-src-dirs
+        rclone bisync "$LOCAL_DIR" "$REMOTE" --resync --create-empty-src-dirs "${PICTORIA_EXCLUDE[@]}"
     else
         rclone bisync "$LOCAL_DIR" "$REMOTE" \
             --progress \
             --stats 5s \
+            "${PICTORIA_EXCLUDE[@]}" \
             --exclude ".*" \
             --exclude "*.tmp"
     fi
@@ -163,7 +172,7 @@ diff() {
     fi
     
     log "Checking differences between $LOCAL_DIR and $REMOTE"
-    rclone check "$LOCAL_DIR" "$REMOTE" --one-way
+    rclone check "$LOCAL_DIR" "$REMOTE" --one-way "${PICTORIA_EXCLUDE[@]}"
 }
 
 # 显示帮助

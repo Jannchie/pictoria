@@ -190,3 +190,87 @@ export function resolveInside(base: string, rel: string): string | null {
   const candidate = path.resolve(root, rel.replace(/^[/\\]+/, ''))
   return isInside(candidate, root) ? candidate : null
 }
+
+/**
+ * 像 `realPathOrResolved`，但目标不存在时解析**最深的已存在祖先**再接回剩下的段。
+ *
+ * 上传的目标文件本来就不存在：只对它本身取真实路径会退回字符串层面的 `path.resolve`，
+ * 于是一个指向 `.pictoria/` 的 junction（或 `.pictoria.` 这种 Windows 会吃掉末尾点号的
+ * 别名）作为父目录时就漏过去了。
+ */
+function realPathDeep(p: string): string {
+  const rest: string[] = []
+  let cur = path.resolve(p)
+  for (;;) {
+    try {
+      return path.join(fs.realpathSync.native(cur), ...rest.reverse())
+    }
+    catch {
+      const parent = path.dirname(cur)
+      if (parent === cur)
+        return path.resolve(p)
+      rest.push(path.basename(cur))
+      cur = parent
+    }
+  }
+}
+
+/** Windows 会剥掉路径段末尾的点号和空格：`.pictoria.` / `.pictoria ` 打开的都是 `.pictoria`。 */
+function normalizeSegment(seg: string): string {
+  return seg.replace(/[. ]+$/, '').toLowerCase()
+}
+
+/**
+ * 把客户端给的库内相对路径解析成**可以公开读写**的绝对路径；不行就返回 `null`。
+ *
+ * "可公开"= 在 `root` 之内、且不在 `pictoria`（进程私有目录：两个 sqlite、gallery-dl
+ * 配置、缩略图、临时矩阵）之内。图片端点（读）和上传（写）共用这一个判定 —— 两边各写
+ * 一份的话，下一次补漏只会补到一边。
+ *
+ * 挡的东西，每一条都是一个真实的绕过方式：
+ * - `..` 逃逸、绝对路径（`resolveInside` 已有的那一层）；
+ * - 任何 `:` —— Windows 的盘符（`C:/...`）和 ADS（`a.png:x`、`.pictoria::$INDEX_ALLOCATION`），
+ *   合法的库内路径里不会出现；NUL 字节同理；
+ * - 大小写（`.PICTORIA`）、末尾点号 / 空格（`.pictoria.`）—— 字符串层面先判一次；
+ * - 文件系统别名（8.3 短名、junction / symlink）—— 再按真实路径判一次。
+ *
+ * 参数化的 `root` / `pictoria` 是给 `paths.test.ts` 用的；路由走下面的 `resolveLibraryPath`。
+ */
+export function resolvePublicInside(root: string, pictoria: string, rel: string): string | null {
+  if (rel.includes(':') || rel.includes('\0'))
+    return null
+  const candidate = resolveInside(root, rel)
+  if (!candidate)
+    return null
+  const absRoot = path.resolve(root)
+  const absPictoria = path.resolve(pictoria)
+  if (isInside(candidate, absPictoria))
+    return null
+  // 末尾点号 / 空格的别名：逐段规范化后再和 `.pictoria` 的相对位置比一次。
+  const pictoriaRel = path.relative(absRoot, absPictoria).split(path.sep).map(normalizeSegment)
+  const segs = path.relative(absRoot, candidate).split(path.sep).map(normalizeSegment)
+  if (pictoriaRel.every((s, i) => segs[i] === s))
+    return null
+  // 文件系统别名：两边都取真实路径再判一次。
+  const real = realPathDeep(candidate)
+  const realRoot = realPathOrResolved(absRoot)
+  if (!isInside(real, realRoot) || isInside(real, realPathOrResolved(absPictoria)))
+    return null
+  return candidate
+}
+
+/** `resolvePublicInside` 绑定到本进程的图库根和 `.pictoria/`。 */
+export function resolveLibraryPath(rel: string): string | null {
+  return resolvePublicInside(targetDir(), pictoriaDir(), rel)
+}
+
+/**
+ * 一个已知的绝对路径（库里的行拼出来的）是否可公开读。按 id 的图片端点用它兜底：
+ * 行本身不该指进 `.pictoria/`，但这是读路径上最便宜的一道保险。
+ */
+export function isPublicLibraryPath(absPath: string): boolean {
+  const root = targetDir()
+  if (!isInside(path.resolve(absPath), path.resolve(root)))
+    return false
+  return resolveLibraryPath(path.relative(root, absPath)) !== null
+}

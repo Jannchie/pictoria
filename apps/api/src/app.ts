@@ -16,6 +16,7 @@ import { cors } from 'hono/cors'
 import { DanbooruImports } from './danbooru-imports.js'
 import { fail } from './openapi.js'
 import { inProcessReads, type Reads } from './read-pool.js'
+import { originGuard, originPolicyFromEnv } from './security.js'
 import { annotationQueuesRoutes } from './routes/annotation-queues.js'
 import { annotationsRoutes } from './routes/annotations.js'
 import { commandsRoutes } from './routes/commands.js'
@@ -52,14 +53,17 @@ export function createApp({ db, tasks, danbooruImports = new DanbooruImports(db,
   const app = new OpenAPIHono<AppEnv>()
 
   /**
-   * CORS —— 前端在 4778，API 在 4777，每一个请求都是跨源的。
+   * 浏览器来源的闸门（`security.ts`）：先 Host / Origin，再 CORS。
    *
-   * ⚠️ 没有自动守卫：测试和 genapi 都不带 `Origin` 头，改这一段要在浏览器里手测一次
-   * 预检。`allowHeaders` 显式列出而不是留空让 Hono 回显请求头 —— 浏览器看来等价，
-   * 但显式的那份在响应里是稳定的。
+   * CORS —— 前端在 4778，API 在 4777，每一个请求都是跨源的；origin 只认白名单
+   * （默认 `http://localhost:4778` / `http://127.0.0.1:4778`，`PICTORIA_ALLOWED_ORIGINS` 追加）。
+   * `allowHeaders` 显式列出而不是留空让 Hono 回显请求头 —— 浏览器看来等价，
+   * 但显式的那份在响应里是稳定的。守卫在 `security.test.ts`。
    */
+  const policy = originPolicyFromEnv()
+  app.use('*', originGuard(policy))
   app.use('*', cors({
-    origin: '*',
+    origin: policy.origins,
     allowMethods: ['DELETE', 'GET', 'HEAD', 'OPTIONS', 'PATCH', 'POST', 'PUT'],
     allowHeaders: ['Accept', 'Accept-Language', 'Content-Language', 'Content-Type'],
     maxAge: 600,

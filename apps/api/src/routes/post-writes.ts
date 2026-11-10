@@ -7,12 +7,12 @@ import fs from 'node:fs'
 import path from 'node:path'
 import { IO_QUEUE, rotateTask } from '@pictoria/contracts'
 import { Buffer } from 'node:buffer'
-import { bulkUpdateField, clearCanonical, createPost, getPostPath, groupHeadOf, groupTogether, makeCanonical, markDifferent, postExists, touchAccessed, updateField, updateForRotate } from '@pictoria/db'
+import { bulkUpdateField, clearCanonical, createPost, getPostPath, groupHeadOf, groupTogether, isImagePath, makeCanonical, markDifferent, postExists, touchAccessed, updateField, updateForRotate } from '@pictoria/db'
 import { type AppEnv, newRoutes } from '../env.js'
 import type { Context } from 'hono'
 import { boolQuery, CREATED, OK, errors, fail, postNotFound, validationError } from '../openapi.js'
 import { PostDetailPublic } from '../schemas.js'
-import { isInside, postAbsPath, targetDir, thumbnailPathFor } from '../paths.js'
+import { postAbsPath, resolveLibraryPath, targetDir, thumbnailPathFor } from '../paths.js'
 import { deletePostFiles } from '../post-files.js'
 import { postDetailResponse, postIdParam } from './post-shared.js'
 
@@ -401,6 +401,46 @@ async function fetchRemoteImage(url: string): Promise<{ ok: true, bytes: Buffer 
 }
 
 /**
+ * 上传接受的扩展名：`isImagePath` 那一份，去掉 svg。
+ *
+ * svg 是能带脚本的文档：图片端点以 `image/svg+xml` 原样回它，直接打开就是 API 源上的
+ * 一段任意脚本。sync 从磁盘导入的 svg 不受影响 —— 这里只管经 HTTP 写进来的。
+ */
+function isUploadableImage(filePath: string): boolean {
+  return isImagePath(filePath) && !filePath.toLowerCase().endsWith('.svg')
+}
+
+/**
+ * 客户端给的文件名 → 一个安全的单段文件名；清洗后什么都不剩就返回 `''`。
+ *
+ * 只保留最后一段（`a/b\c.png` → `c.png`：目录只能经 `path` 字段给，那条走包含判定）；
+ * 去掉控制字符和 Windows 不许出现在文件名里的字符（`:` 是 ADS，`<>"|?*`）；剥掉首尾
+ * 空白和末尾点号（Windows 会静默吃掉它们，`a.png.` 落盘成 `a.png`，与库里的行对不上）。
+ */
+export function sanitizeFileName(name: string): string {
+  const last = name.split(/[/\\]/).pop() ?? ''
+  // eslint-disable-next-line no-control-regex
+  const cleaned = last.replace(/[\x00-\x1F\x7F<>:"|?*]/g, '_').trim().replace(/[. ]+$/, '')
+  return cleaned === '.' || cleaned === '..' ? '' : cleaned
+}
+
+/** URL 的最后一段路径作文件名：不带 query / fragment，百分号解码后再清洗。 */
+function urlFileName(url: string): string {
+  let last: string
+  try {
+    last = new URL(url).pathname.split('/').pop() ?? ''
+  }
+  catch {
+    return ''
+  }
+  try {
+    last = decodeURIComponent(last)
+  }
+  catch {}
+  return sanitizeFileName(last)
+}
+
+/**
  * 把上传（multipart 文件**或**一个远程 URL）变成一个 post。
  *
  * 落库 + 落盘就结束 —— 剩下的（basics / 向量 / 标签 / 各种分）由 backfill 调度器
@@ -438,20 +478,24 @@ postWritesRoutes.openapi(
     if (!hasFile && !url)
       return fail(400, 'InvalidUploadError', 'Either file or url must be provided.')
 
-    const fileName = hasFile ? (file as File).name : ''
+    const fileName = hasFile ? sanitizeFileName((file as File).name) : ''
+    if (hasFile && !fileName)
+      return validationError(`invalid file name: ${JSON.stringify((file as File).name)}`)
     let rel: string
     if (!rawPath && fileName)
       rel = fileName
     else if (rawPath && fileName)
       rel = `${rawPath}/${fileName}`
-    else rel = rawPath || (url ? url.split('/').pop()! : '')
+    else rel = rawPath || (url ? urlFileName(url) : '')
 
     const base = targetDir()
-    const absPath = path.resolve(base, rel)
-    // 逃出库目录就是**校验失败**，不是"文件已存在"。原来这里复用了下一条的文案，
-    // 于是探测目录穿越的人收到的是一句关于文件存在性的谎话。
-    if (!isInside(absPath, base))
-      return validationError(`path escapes the library: ${JSON.stringify(rel)}`)
+    // 逃出库目录、或落进 `.pictoria/`（两个 sqlite、gallery-dl.conf —— 后者会被 URL 导入当
+    // `--config` 读）就是**校验失败**，不是"文件已存在"。判定与图片端点共用 `resolveLibraryPath`。
+    const absPath = resolveLibraryPath(rel)
+    if (!absPath)
+      return validationError(`path is not a writable library path: ${JSON.stringify(rel)}`)
+    if (!isUploadableImage(absPath))
+      return validationError(`not an accepted image file: ${JSON.stringify(rel)}`)
     if (fs.existsSync(absPath))
       return fail(409, 'FileAlreadyExistsError', 'File already exists.')
 

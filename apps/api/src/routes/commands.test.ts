@@ -5,7 +5,6 @@
  * 守住的是 TS 这一侧的职责 —— 守卫顺序、命中缓存不提交、结果落库、错误的措辞 ——
  * 而不碰 GPU。
  */
-import fs from 'node:fs'
 import path from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
 import { syncSettled } from '../sync.js'
@@ -83,22 +82,6 @@ describe('PUT /v2/cmd/auto-caption/{post_id}', () => {
     expect(status).toBe(200)
     expect(body).toMatchObject({ id, caption: 'a cat' })
     expect(tasks.calls[0]!.payload.imagePath).toBe(path.join(t.root, 'a.png'))
-  })
-})
-
-describe('POST /v2/cmd/db/snapshot', () => {
-  it('201，回一份可打开的快照路径', async () => {
-    const { t } = setup()
-    t.insertPost('.', 'a', 'png')
-    const { status, body } = await requestJson<{ path: string, dir: string }>(t.app, '/v2/cmd/db/snapshot', { method: 'POST' })
-    try {
-      expect(status).toBe(201)
-      expect(fs.existsSync(body.path)).toBe(true)
-      expect(fs.statSync(body.path).size).toBeGreaterThan(0)
-    }
-    finally {
-      fs.rmSync(body.dir, { recursive: true, force: true })
-    }
   })
 })
 
@@ -183,5 +166,19 @@ describe('GET /v2/queues/status', () => {
     expect(status).toBe(200)
     expect(body.queues).toEqual([])
     expect(Array.isArray(body.loops)).toBe(true)
+  })
+})
+
+describe('POST /v2/cmd/import-from-url：只收 http(s)', () => {
+  it.each(['file:///etc/passwd', '--exec=calc', '-o extractor.x=1', 'ftp://example.com/a', 'javascript:alert(1)', 'example.com/a'])('%s → 400，不提交任务', async (url) => {
+    const { t, tasks } = setup()
+    const { status, body } = await requestJson(t.app, `/v2/cmd/import-from-url?url=${encodeURIComponent(url)}`, { method: 'POST' })
+    expect(status).toBe(400)
+    expect(body.error).toBeDefined()
+    expect(tasks.calls).toEqual([])
+    // 状态是模块级的（前面的用例可能留下 done）：只断言没有因为这次请求开跑。
+    const s = await requestJson(t.app, '/v2/cmd/import-from-url/status')
+    expect(s.body.state).not.toBe('running')
+    expect(s.body.url).not.toBe(url)
   })
 })

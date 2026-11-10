@@ -575,14 +575,6 @@ export type GenerateListwiseIn = {
 };
 
 /**
- * SnapshotResult
- */
-export type SnapshotResult = {
-    path: string;
-    dir: string;
-};
-
-/**
  * UrlImportStatus
  */
 export type UrlImportStatus = {
@@ -2310,22 +2302,6 @@ export type V2AutoCaptionResponses = {
 };
 
 export type V2AutoCaptionResponse = V2AutoCaptionResponses[keyof V2AutoCaptionResponses];
-
-export type V2DbSnapshotData = {
-    body?: never;
-    path?: never;
-    query?: never;
-    url: '/v2/cmd/db/snapshot';
-};
-
-export type V2DbSnapshotResponses = {
-    /**
-     * Created
-     */
-    201: SnapshotResult;
-};
-
-export type V2DbSnapshotResponse = V2DbSnapshotResponses[keyof V2DbSnapshotResponses];
 
 export type V2SyncMetadataEndpointData = {
     body?: never;

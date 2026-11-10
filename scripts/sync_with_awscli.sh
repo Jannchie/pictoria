@@ -2,12 +2,17 @@
 # AWS CLI 同步脚本
 
 # B2 配置
-export AWS_ACCESS_KEY_ID="005872bacee5ccb0000000007"
-export AWS_SECRET_ACCESS_KEY="K005wIU3DtFaIrvcjQoqybpntnbawsc"
+# 凭据从环境读，不写进脚本（曾经硬编码在这里 —— 那把 key 已在 git 历史里，需要轮换）。
+: "${AWS_ACCESS_KEY_ID:?set AWS_ACCESS_KEY_ID (B2 application key id)}"
+: "${AWS_SECRET_ACCESS_KEY:?set AWS_SECRET_ACCESS_KEY (B2 application key)}"
 export AWS_DEFAULT_REGION="us-east-1"
 ENDPOINT="https://s3.us-east-005.backblazeb2.com"
 BUCKET="pictoria"
 BASE_DIR="collections"
+
+# 进程私有目录（两个 sqlite、缩略图、gallery-dl.conf）不进同步，见 scripts/README.md。
+# aws 的 * 跨 / 匹配；两条分别覆盖"传的就是图库根"和"传的是它的上级"。
+PICTORIA_EXCLUDE=(--exclude ".pictoria/*" --exclude "*/.pictoria/*")
 
 # 上传同步
 upload() {
@@ -16,6 +21,7 @@ upload() {
     aws s3 sync "$LOCAL_DIR" "s3://$BUCKET/$BASE_DIR/" \
         --endpoint-url "$ENDPOINT" \
         --delete \
+        "${PICTORIA_EXCLUDE[@]}" \
         --exclude ".*" \
         --exclude "*.tmp"
 }
@@ -26,7 +32,8 @@ download() {
     echo "🔄 Syncing s3://$BUCKET/$BASE_DIR/ to $LOCAL_DIR"
     aws s3 sync "s3://$BUCKET/$BASE_DIR/" "$LOCAL_DIR" \
         --endpoint-url "$ENDPOINT" \
-        --delete
+        --delete \
+        "${PICTORIA_EXCLUDE[@]}"
 }
 
 # 列出文件
