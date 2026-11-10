@@ -4,6 +4,7 @@ import { controlledComputed, useDebounce } from '@vueuse/core'
 import { computed, inject, nextTick, ref, useId, useTemplateRef, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { v2ListTagGroup } from '@/api'
+import { useAPIError } from '@/composables/useAPIError'
 import { useTagCatalogueQuery } from '@/composables/useTagCatalogueQuery'
 import { useTagSearchIndex } from '@/composables/useTagSearchIndex'
 import { announce, commitTag, tagSelectorFocusTag } from '@/shared'
@@ -144,13 +145,20 @@ function isSearchMatch(tag: { name: string, translatedName?: string | null }) {
 }
 
 const queryClient = useQueryClient()
+const { handle: handleAPIError } = useAPIError()
 async function toggleTag(tagName: string) {
   if (!postId.value) {
     return
   }
   const isOn = currentTagNames.value.has(tagName)
   // 已在 post 上 → 移除（add=false）；否则 → 添加（add=true）
-  await commitTag(queryClient, postId.value, tagName, !isOn)
+  try {
+    await commitTag(queryClient, postId.value, tagName, !isOn)
+  }
+  catch (error) {
+    handleAPIError(error, t(isOn ? 'error.tagRemoveFailed' : 'error.tagAddFailed'))
+    return
+  }
   announce(t(isOn ? 'tagSelector.tagRemoved' : 'tagSelector.tagAdded', { name: naturalizeTagName(tagName) }))
 }
 const pinned = inject('pinned', ref(false))
@@ -159,7 +167,13 @@ async function addTag(tagName: string) {
   if (!postId.value) {
     return
   }
-  await commitTag(queryClient, postId.value, tagName, true)
+  try {
+    await commitTag(queryClient, postId.value, tagName, true)
+  }
+  catch (error) {
+    handleAPIError(error, t('error.tagAddFailed'))
+    return
+  }
   announce(t('tagSelector.tagAdded', { name: naturalizeTagName(tagName) }))
 }
 

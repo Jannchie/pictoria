@@ -17,6 +17,7 @@ defineProps<{ hints: { keys: string[], label: string }[] }>()
 .annotate-key-hints {
   display: inline-flex;
   flex-wrap: wrap;
+  justify-content: flex-end;
   gap: 2px 8px;
 }
 .annotate-key-hints kbd {

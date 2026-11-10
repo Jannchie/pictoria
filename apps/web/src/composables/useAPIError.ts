@@ -34,6 +34,23 @@ export function describeAPIError(err: unknown): string {
   if (typeof err === 'string') {
     return err
   }
+  // axios errors: the server's `ErrorBody` rides on `response.data`; no
+  // `response` at all means the request never got an answer (API down,
+  // restarting, CORS, offline) — axios' own "Network Error" is English-only.
+  if (typeof err === 'object' && 'isAxiosError' in err) {
+    const { response, code } = err as { response?: { data?: unknown }, code?: string }
+    if (response) {
+      if (isAPIErrorBody(response.data)) {
+        return response.data.detail ?? response.data.error ?? t('error.requestFailed')
+      }
+    }
+    else if (code === 'ECONNABORTED' || code === 'ETIMEDOUT') {
+      return t('error.timeout')
+    }
+    else if (code !== 'ERR_CANCELED') {
+      return t('error.network')
+    }
+  }
   if (err instanceof Error) {
     return err.message || err.name
   }

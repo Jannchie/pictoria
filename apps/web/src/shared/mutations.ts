@@ -22,6 +22,7 @@ import {
   v2BulkUpdatePostScore,
   v2DeleteFolder,
   v2DeletePosts,
+  v2DeleteQueue,
   v2EditAnnotation,
   v2GenerateAbsolute,
   v2GenerateListwise,
@@ -818,5 +819,11 @@ export async function generateListwiseQueue(qc: QueryClient, body: V2GenerateLis
 /** Create a fixed pairwise queue; resolves once the queue list has refetched. */
 export async function generatePairwiseQueue(qc: QueryClient, body: V2GeneratePairwiseData['body']): Promise<void> {
   await v2GeneratePairwise({ body })
+  await qc.invalidateQueries({ queryKey: queryKeys.annotationQueues })
+}
+
+/** Delete a fixed queue (its submitted judgements stay); resolves once the queue list has refetched. */
+export async function deleteAnnotationQueue(qc: QueryClient, id: number): Promise<void> {
+  await v2DeleteQueue({ path: { queue_id: id } })
   await qc.invalidateQueries({ queryKey: queryKeys.annotationQueues })
 }

@@ -1,11 +1,12 @@
 import type { QueryClient } from '@tanstack/vue-query'
 import type { ComputedRef, MaybeRefOrGetter, Ref } from 'vue'
 import type { QueueSummaryPublic } from '@/api'
+import type { UndoableCommand } from '@/shared/history'
 import { computed, onMounted, ref, toValue, watch } from 'vue'
 import { formatNumber, i18n } from '@/locale'
 import { removeEntries } from '@/shared/annotationTimeline'
 import { announce } from '@/shared/announce'
-import { pushCommand } from '@/shared/history'
+import { dropCommand, pushCommand } from '@/shared/history'
 import { undoAnnotations } from '@/shared/mutations'
 import { useHotkey } from '@/ui/useHotkey'
 import { focusElement } from '@/utils/focus'
@@ -70,8 +71,12 @@ export interface AnnotationStreamOptions<T extends StreamItem> {
 
 export interface UndoableJudgement<T> {
   item: T
-  /** Event ids the judgement wrote (empty is fine: a queue skip writes none). */
-  ids: number[]
+  /**
+   * Event ids the judgement wrote (empty is fine: a queue skip writes none). A
+   * promise when the write is still in flight (`judgeAhead`); it resolves to
+   * null if the write failed — the item is already back on screen then.
+   */
+  ids: number[] | Promise<number[] | null>
   label: string
   /** Redo: write the judgement again and resolve to the NEW event ids. */
   redo: () => Promise<number[]>
@@ -82,6 +87,25 @@ export interface UndoableJudgement<T> {
   stillHere?: () => boolean
   /** Session-specific restoration once the item is back at the head of the buffer. */
   onRevert?: () => void
+}
+
+/** One optimistic verdict (see `judgeAhead`). Everything it needs is captured up front. */
+export interface AheadJudgement<T> {
+  /** Write the verdict for `item`; resolves to the event ids. */
+  send: (item: T) => Promise<number[]>
+  /** The session's advance (resets its per-item state, then `stream.advance()`). */
+  advance: () => void
+  /** Once the write landed (history list, counters…). */
+  onSent?: (item: T, ids: number[]) => void
+  /**
+   * The write failed and the item is back at the head of the buffer: restore what
+   * the session showed for it (e.g. the ranking) and undo any optimistic counters.
+   * Not called when the session was reset in the meantime.
+   */
+  onFailed?: (item: T) => void
+  onError: (error: unknown) => void
+  /** The undo-stack entry for `item`; `item` / `ids` are filled in. */
+  undo: (item: T) => Omit<UndoableJudgement<T>, 'item' | 'ids'>
 }
 
 export interface AnnotationStream<T extends StreamItem> {
@@ -121,6 +145,18 @@ export interface AnnotationStream<T extends StreamItem> {
    */
   submitCurrent: (work: (item: T) => Promise<void>, onError: (error: unknown) => void) => Promise<void>
   /**
+   * Optimistic verdict on the current item: it leaves the screen at once (so a
+   * fast run of keys is never swallowed by a request in flight) and the write
+   * runs in the background. Writes go out one at a time in key order, so the
+   * server and the undo stack see the same order the keys were pressed in. The
+   * undo entry is pushed immediately — Ctrl+Z on a verdict still in flight waits
+   * for its ids. On failure the item comes back to the head of the buffer, the
+   * undo entry is dropped, and `onError` reports it.
+   */
+  judgeAhead: (judgement: AheadJudgement<T>) => void
+  /** Writes from `judgeAhead` not yet landed. */
+  pendingCount: Readonly<Ref<number>>
+  /**
    * Push a submitted judgement onto the global undo stack. Undo really deletes
    * the event rows (a slip would otherwise land in the training export, and the
    * sampler would consider the pair asked), drops them from the history list and
@@ -129,7 +165,7 @@ export interface AnnotationStream<T extends StreamItem> {
    * pushCommand, not mutations.ts's record(): record() pops the snackbar every
    * time, and here a judgement lands every second or so. Undo pops it itself.
    */
-  pushUndoable: (judgement: UndoableJudgement<T>) => void
+  pushUndoable: (judgement: UndoableJudgement<T>) => UndoableCommand
 }
 
 export function useAnnotationStream<T extends StreamItem>(options: AnnotationStreamOptions<T>): AnnotationStream<T> {
@@ -157,6 +193,12 @@ export function useAnnotationStream<T extends StreamItem>(options: AnnotationStr
   const announceProgress = useProgressAnnouncer(() => progressText('annotate.progress.queueAnnounce', options.streamProgress.announceKey))
 
   const seenKeys = new Set<string>()
+  // Queue mode: positions judged this session. The buffer is the only other
+  // de-dup source there, and an optimistic verdict leaves it before its write
+  // lands — a refill answered in between would hand the same position back.
+  const judgedKeys = new Set<string>()
+  const pendingCount = ref(0)
+  let sendTail: Promise<unknown> = Promise.resolve()
   let shownAt = performance.now()
   // Bumped by reset(): a refill started before it belongs to the old queue /
   // config, so its batch is dropped and it leaves loadState to the new refill.
@@ -179,7 +221,7 @@ export function useAnnotationStream<T extends StreamItem>(options: AnnotationStr
   function dedupe(batch: T[]): T[] {
     if (queue()) {
       const known = new Set(buffer.value.map(keyOf))
-      return batch.filter(item => !known.has(keyOf(item)))
+      return batch.filter(item => !known.has(keyOf(item)) && !judgedKeys.has(keyOf(item)))
     }
     return batch.filter((item) => {
       const key = keyOf(item)
@@ -232,6 +274,7 @@ export function useAnnotationStream<T extends StreamItem>(options: AnnotationStr
   }
 
   function putBack(item: T) {
+    judgedKeys.delete(keyOf(item))
     buffer.value.unshift(item)
     if (loadState.value === 'exhausted') {
       loadState.value = 'ready' // judging the last item set it; there is one again
@@ -254,6 +297,7 @@ export function useAnnotationStream<T extends StreamItem>(options: AnnotationStr
     generation += 1
     buffer.value = []
     seenKeys.clear()
+    judgedKeys.clear()
     loadState.value = 'ready'
     doneCount.value = queue()?.done ?? 0
     markShown()
@@ -277,12 +321,47 @@ export function useAnnotationStream<T extends StreamItem>(options: AnnotationStr
     }
   }
 
-  function pushUndoable(judgement: UndoableJudgement<T>) {
+  function judgeAhead(judgement: AheadJudgement<T>) {
+    const item = current.value
+    if (!item || submitting.value) {
+      return
+    }
+    const gen = generation
+    if (queue()) {
+      judgedKeys.add(keyOf(item))
+    }
+    judgement.advance()
+    pendingCount.value += 1
+    const write = sendTail.then(() => judgement.send(item))
+    sendTail = write.catch(() => {})
+    const command = pushUndoable({
+      ...judgement.undo(item),
+      item,
+      ids: write.then(ids => ids, () => null),
+    })
+    write.then(
+      ids => judgement.onSent?.(item, ids),
+      (error) => {
+        dropCommand(command)
+        if (gen === generation) {
+          putBack(item)
+          doneCount.value = Math.max(0, doneCount.value - 1)
+          judgement.onFailed?.(item)
+          markShown()
+        }
+        judgement.onError(error)
+      },
+    ).finally(() => {
+      pendingCount.value -= 1
+    })
+  }
+
+  function pushUndoable(judgement: UndoableJudgement<T>): UndoableCommand {
     const { item, label, redo, stillHere, onRevert } = judgement
     // Redo is a fresh INSERT: keep its ids, or the next undo would delete rows
     // that no longer exist and leave the redone one in the database.
-    let eventIds = judgement.ids
-    pushCommand({
+    let eventIds: number[] | Promise<number[] | null> = judgement.ids
+    const command: UndoableCommand = {
       label,
       // Empty = leave the gallery selection alone: the item itself comes back on
       // screen, and changing a selection behind a full-screen session is invisible.
@@ -291,14 +370,19 @@ export function useAnnotationStream<T extends StreamItem>(options: AnnotationStr
         eventIds = await redo()
       },
       revert: async () => {
+        const ids = await eventIds
+        if (ids == null) {
+          return // the write failed: nothing to delete, the item is already back
+        }
+        eventIds = ids
         await undoAnnotations(queryClient, {
           kind,
-          ids: eventIds,
+          ids,
           sessionId,
           queueId: queue()?.id ?? null,
           queuePosition: item.position ?? null,
         }, postIdsOf(item))
-        removeEntries(queryClient, kind, eventIds) // the events are gone; so is their history row
+        removeEntries(queryClient, kind, ids) // the events are gone; so is their history row
         if (stillHere && !stillHere()) {
           return
         }
@@ -307,7 +391,9 @@ export function useAnnotationStream<T extends StreamItem>(options: AnnotationStr
         onRevert?.()
         markShown()
       },
-    })
+    }
+    pushCommand(command)
+    return command
   }
 
   return {
@@ -328,6 +414,8 @@ export function useAnnotationStream<T extends StreamItem>(options: AnnotationStr
     putBack,
     reset,
     submitCurrent,
+    judgeAhead,
+    pendingCount,
     pushUndoable,
   }
 }

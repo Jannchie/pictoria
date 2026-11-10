@@ -4,6 +4,7 @@ import { useInfiniteQuery } from '@tanstack/vue-query'
 import { useIntersectionObserver, useIntervalFn } from '@vueuse/core'
 import { computed, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
+import { useRoute } from 'vue-router'
 import { v2AnnotationTimeline } from '@/api'
 import { formatDateTime, formatRelativeTime } from '@/locale'
 import { canReview, flagGlyph, reviewing, startReview, winnerLabel } from '@/shared'
@@ -13,6 +14,10 @@ import { PScrollArea } from '@/ui'
 import { getPostThumbnailURL } from '@/utils'
 
 const { t } = useI18n()
+const route = useRoute()
+// Outside a session every row is disabled; say why up front instead of leaving it
+// to the title of a disabled button (no hover, no focus → never read).
+const inSession = computed(() => !!route.query.mode || !!route.query.queue)
 
 // A page is bigger than a screenful so the first scroll never stalls, and small
 // enough that the posts join behind it stays a handful of rows.
@@ -133,6 +138,10 @@ useIntersectionObserver(
       </button>
     </div>
 
+    <p v-if="!inSession && entries.length > 0" class="text-fg-muted px-3 py-2 p-divider flex shrink-0 gap-1.5 items-start">
+      <i class="i-tabler-info-circle mt-0.5 shrink-0" aria-hidden="true" />
+      <span>{{ $t('annotate.history.outsideSession') }}</span>
+    </p>
     <PScrollArea ref="scrollArea" class="flex-1 min-h-0">
       <div v-if="entries.length === 0 && !query.isLoading.value" class="text-fg-muted px-3 py-6 text-center">
         {{ $t('annotate.history.empty') }}

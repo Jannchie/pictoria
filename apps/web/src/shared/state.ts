@@ -156,6 +156,14 @@ export const currentPostList = shallowRef<PostSimplePublic[]>([])
 // the detail page's prev/next arrow navigation still walks. Cleared on leave.
 export const similarPostList = shallowRef<PostSimplePublic[]>([])
 
+/**
+ * Where ←→ on the post page walks when the post is not in the gallery list:
+ * the similar-posts grid it was opened from (that grid's origin post first, so
+ * ← leads back to it). Set by Post.vue when a similar post is opened, kept while
+ * the walk stays inside the list, cleared when the page is left.
+ */
+export const postNavContext = shallowRef<{ kind: 'similar', list: PostSimplePublic[] } | null>(null)
+
 // Per-route scrollTop cache for the gallery's MainSection. Survives Home.vue
 // unmount when navigating to /post/:id so Esc/back restores the same position.
 // Keyed by route.fullPath so different folders/filters keep separate state.

@@ -144,6 +144,7 @@ reference in `PSelectArea`.
 | ------------------ | ------------------------------------ | ------------------------------------------------------------ |
 | `PButton`          | Button                               | `variant` (primary/secondary/ghost/subtle/danger/success/warning/info), `size` (xs/sm/md/lg), `rounded`, `icon`, `block`, `loading`, `active` (visual only), `pressed` (toggle button → `aria-pressed`; leave undefined for a plain button) |
 | `PInput`           | Text input                           | `size` (sm/md/lg), `variant` (default/plain), `type`, `inputmode`, `ariaLabel` / `ariaLabelledby` / `ariaDescribedby`, `invalid` (→ `aria-invalid` + danger border), `block` |
+| `PTextarea`        | Multi-line text field that grows with its content (then scrolls); same frame / focus border as `PInput`. Commit is the caller's (blur, Mod+Enter) | `size` (sm/md), `minRows`, `maxRows`, `invalid`, `ariaLabel` / `ariaLabelledby` / `ariaDescribedby` |
 | `PCheckbox`        | Checkbox                             | bound value, `label`, `indeterminate` (dash glyph, `aria-checked="mixed"`; caller-owned), `presentational` (visual only inside a row that is itself the checkbox/option), `ariaLabel` / `ariaLabelledby` |
 | `PSwitch`          | Toggle                               | `size` (sm/md/lg)                                            |
 | `PSlider`          | Range slider (`role=slider`, arrows / Home / End / PageUp / PageDown) | `size` (sm/md/lg), `color` (primary/secondary/tertiary/error), `ariaLabel` / `ariaLabelledby`, `ariaValuetext`, `disabled` |
@@ -163,7 +164,7 @@ reference in `PSelectArea`.
 | `PSurface`         | Surface container                    | `level` (base/1/2/3), `bordered`, `rounded`, `padded`, `shadow` (none/sm/md/lg) |
 | `PAspectRatio`     | Aspect-ratio box                     | ratio props                                                 |
 | `PScrollArea`      | Custom scroll container              | scroll props, `focusable` + `ariaLabel` (a Tab stop for text regions with nothing focusable inside, so the keyboard can scroll them) |
-| `PVirtualScroll`   | Virtualized list                     | `items`, `is`                                               |
+| `PVirtualScroll`   | Virtualized list; exposes `scrollY` and `scrollToOffset(px)` (pinned headers, jump to a row) | `items`, `is`, `itemHeight`                                 |
 | `PSelectArea`      | Drag-select box (exports `Area`)     | `target`                                                    |
 | `PTreeList`        | Virtualized tree (sidebar folders)   | typed `TreeListItemData`, `rounded`                         |
 | `PToast`           | Notification card (toast + snackbar) — the card is its own live region | `message`, `icon`, `iconColor`, `closeable`, `fluid` (hug content instead of the fixed 384px), `tone` (info/success/warning/error; `error` → `role=alert`, else `role=status`), `#action` slot. A caller that announces through `announce()` instead passes `role="none"` (UndoSnackbar) so each message is read once |

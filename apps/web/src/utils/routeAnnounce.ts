@@ -20,6 +20,7 @@ export interface RouteLike {
   path: string
   name?: string | symbol | null
   params?: Record<string, string | string[] | undefined>
+  query?: Record<string, unknown>
   meta?: { gallery?: boolean, view?: GalleryView }
 }
 
@@ -57,6 +58,12 @@ const PAGE_TITLE_KEYS: Partial<Record<string, string>> = {
   notFound: 'route.notFound',
 }
 
+const ANNOTATE_MODE_TITLE_KEYS = {
+  absolute: 'route.annotateAbsolute',
+  pairwise: 'route.annotatePairwise',
+  listwise: 'route.annotateListwise',
+} as const
+
 /** What the page is called: a `route.*` key, or a folder name. */
 export function routeTitle(route: RouteLike, postName?: string | null): RouteTitle {
   const view = route.meta?.view
@@ -76,6 +83,17 @@ export function routeTitle(route: RouteLike, postName?: string | null): RouteTit
     return postName
       ? { key: null, text: postName }
       : { key: 'route.post', params: { id: param(route, 'postId') } }
+  }
+  if (route.name === 'annotate') {
+    // A running session lives in the query (see views/Annotate.vue): name the tab after it.
+    const queue = route.query?.queue
+    if (typeof queue === 'string' && queue) {
+      return { key: 'route.annotateQueue', params: { id: queue } }
+    }
+    const mode = route.query?.mode
+    if (mode === 'absolute' || mode === 'pairwise' || mode === 'listwise') {
+      return { key: ANNOTATE_MODE_TITLE_KEYS[mode] }
+    }
   }
   const key = typeof route.name === 'string' ? PAGE_TITLE_KEYS[route.name] : undefined
   return { key: key ?? 'route.home' }

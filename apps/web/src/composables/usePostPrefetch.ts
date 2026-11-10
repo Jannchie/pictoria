@@ -88,7 +88,11 @@ export function prefetchPost(queryClient: QueryClient, post: PostSimplePublic, o
  * `index` 直接用调用方 [[usePostNavigation]] 算好的那个 —— 列表可能有二十多万
  * 条，再扫一遍是白花的。
  */
-export function useAdjacentPostPrefetch(index: Readonly<Ref<number>>) {
+export function useAdjacentPostPrefetch(
+  index: Readonly<Ref<number>>,
+  /** The list `index` points into (default: the gallery list). */
+  postList: () => readonly PostSimplePublic[] = () => currentPostList.value,
+) {
   const queryClient = useQueryClient()
   let lastIndex = -1
 
@@ -99,7 +103,7 @@ export function useAdjacentPostPrefetch(index: Readonly<Ref<number>>) {
     const direction = lastIndex !== -1 && idx < lastIndex ? -1 : 1
     lastIndex = idx
 
-    const list = currentPostList.value
+    const list = postList()
     const neighbors = [list[idx + direction], list[idx - direction]]
       .filter((p): p is PostSimplePublic => p !== undefined)
     for (const [i, p] of neighbors.entries()) preloadImage(getPostImageURL(p), i === 0 ? 'auto' : 'low')

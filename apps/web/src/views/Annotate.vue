@@ -1,18 +1,22 @@
 <script setup lang="ts">
+import type { LocationQueryRaw } from 'vue-router'
 import type { QueueSummaryPublic } from '@/api'
 import type { StreamConfig } from '@/components/annotate/AbsoluteAnnotationSession.vue'
 import type { AbsoluteStrategy, AnnotationDimension, AnnotationScale, PairwiseStrategy, QueueKind } from '@/shared/annotationTypes'
 import { useQuery, useQueryClient } from '@tanstack/vue-query'
-import { computed, nextTick, ref, useId, useTemplateRef } from 'vue'
+import { computed, nextTick, ref, useId, useTemplateRef, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
+import { useRoute, useRouter } from 'vue-router'
 import { v2ListQueues } from '@/api'
 import AbsoluteAnnotationSession from '@/components/annotate/AbsoluteAnnotationSession.vue'
 import ListwiseAnnotationSession from '@/components/annotate/ListwiseAnnotationSession.vue'
 import PairwiseAnnotationSession from '@/components/annotate/PairwiseAnnotationSession.vue'
+import ConfirmActionDialog from '@/components/ConfirmActionDialog.vue'
 import { useAPIError } from '@/composables/useAPIError'
+import { useConfirmAction } from '@/composables/useConfirmAction'
 import { formatNumber } from '@/locale'
-import { DIMENSION_META, dimensionMeta } from '@/shared/annotationTypes'
-import { generateAbsoluteQueue, generateListwiseQueue, generatePairwiseQueue } from '@/shared/mutations'
+import { DIMENSION_META, dimensionMeta, PAIRWISE_STRATEGIES } from '@/shared/annotationTypes'
+import { deleteAnnotationQueue, generateAbsoluteQueue, generateListwiseQueue, generatePairwiseQueue } from '@/shared/mutations'
 import { queryKeys } from '@/shared/queryKeys'
 import { PSwitch } from '@/ui'
 import { useRovingFocus } from '@/ui/useRovingFocus'
@@ -28,7 +32,8 @@ type Session
     | { mode: 'stream-pairwise', dimension: AnnotationDimension, strategy: PairwiseStrategy }
     | { mode: 'stream-listwise', dimension: AnnotationDimension, size: number, repeat?: number }
 
-const session = ref<Session | null>(null)
+const route = useRoute()
+const router = useRouter()
 
 const { data: queues, refetch } = useQuery({
   queryKey: queryKeys.annotationQueues,
@@ -40,11 +45,6 @@ const { data: queues, refetch } = useQuery({
 
 // Leaving a session unmounts it; put focus back on the launcher rather than <body>.
 const startButton = useTemplateRef<{ $el?: HTMLElement }>('startButton')
-function exitSession() {
-  session.value = null
-  refetch()
-  void nextTick(() => focusElement(startButton.value?.$el, { preventScroll: true }))
-}
 
 // ── 标注配置（流式为默认路径，队列仅用于固定批次实验）────────────
 //
@@ -96,11 +96,6 @@ const STRATEGIES = [
   { value: 'stratified' as const, labelKey: 'annotate.sampling.stratified', hintKey: 'annotate.sampling.stratifiedHint' },
   { value: 'random' as const, labelKey: 'annotate.sampling.random', hintKey: 'annotate.sampling.randomHint' },
 ]
-const PAIRWISE_STRATEGIES = [
-  { value: 'close' as const, labelKey: 'annotate.pairing.close', hintKey: 'annotate.pairing.closeHint' },
-  { value: 'similar' as const, labelKey: 'annotate.pairing.similar', hintKey: 'annotate.pairing.similarHint' },
-  { value: 'random' as const, labelKey: 'annotate.pairing.random', hintKey: 'annotate.pairing.randomHint' },
-]
 const MODES: { value: QueueKind, labelKey: string, hintKey: string, icon: string }[] = [
   { value: 'absolute', labelKey: 'annotate.mode.absolute', hintKey: 'annotate.mode.absoluteHint', icon: 'i-tabler-photo' },
   { value: 'pairwise', labelKey: 'annotate.mode.pairwise', hintKey: 'annotate.mode.pairwiseHint', icon: 'i-tabler-layout-columns' },
@@ -128,27 +123,167 @@ for (const container of [modeGroup, pairingGroup, sizeGroup, scaleGroup, samplin
   useRovingFocus({ container, itemSelector: '[role=radio]', orientation: 'horizontal', onMove: el => el.click() })
 }
 
-function startStream() {
-  if (!canStart.value) {
-    return
+// ── 会话进 URL ───────────────────────────────────────────────────
+// 会话是 query 的投影：开始 = push 一条历史，Esc / 返回 = 后退，刷新回到同一种会话。
+//   ?mode=listwise&size=4[&retest=1]
+//   ?mode=pairwise&strategy=close
+//   ?mode=absolute&dims=overall,color&scale=2&strategy=stratified
+//   ?queue=12
+// 不合法的值落回默认，而不是报错 —— URL 是给人复制粘贴的。
+function one(v: unknown): string | undefined {
+  const x = Array.isArray(v) ? v[0] : v
+  return typeof x === 'string' ? x : undefined
+}
+function pick<T>(v: string | undefined, allowed: readonly T[], fallback: T): T {
+  return allowed.find(a => String(a) === v) ?? fallback
+}
+const DIMENSION_KEYS = DIMENSIONS.map(d => d.key)
+
+/** Canonical session key from the query: a stable string, so the session object only changes with it. */
+const sessionKey = computed(() => {
+  const q = route.query
+  const queueId = Number(one(q.queue))
+  if (Number.isInteger(queueId) && queueId > 0) {
+    return `queue:${queueId}`
   }
-  session.value = form.value.kind === 'absolute'
-    ? {
+  const mode = one(q.mode)
+  if (mode === 'pairwise') {
+    return `pairwise:${pick(one(q.strategy), PAIRWISE_STRATEGIES.map(s => s.value), 'close')}`
+  }
+  if (mode === 'listwise') {
+    return `listwise:${pick(one(q.size), LISTWISE_SIZES.map(s => s.value), 4)}:${one(q.retest) === '1' ? 1 : 0}`
+  }
+  if (mode === 'absolute') {
+    const asked = new Set((one(q.dims) ?? '').split(','))
+    const dims = DIMENSION_KEYS.filter(k => asked.has(k))
+    const scale = pick(one(q.scale), SCALES.map(s => s.value), 2)
+    const strategy = pick(one(q.strategy), STRATEGIES.map(s => s.value), 'stratified')
+    return `absolute:${(dims.length > 0 ? dims : ['overall']).join(',')}:${scale}:${strategy}`
+  }
+  return null
+})
+
+const session = computed<Session | null>(() => {
+  const key = sessionKey.value
+  if (!key) {
+    return null
+  }
+  const [mode, a = '', b = '', c = ''] = key.split(':')
+  switch (mode) {
+    case 'queue': {
+      const queue = queues.value?.find(q => q.id === Number(a))
+      return queue ? { mode: 'queue', queue } : null
+    }
+    case 'pairwise': {
+      return { mode: 'stream-pairwise', dimension: PAIRWISE_DIMENSION, strategy: a as PairwiseStrategy }
+    }
+    case 'listwise': {
+      return { mode: 'stream-listwise', dimension: PAIRWISE_DIMENSION, size: Number(a), repeat: b === '1' ? 1 : undefined }
+    }
+    default: {
+      return {
         mode: 'stream-absolute',
-        config: {
-          dimensions: DIMENSIONS.map(d => d.key).filter(k => form.value.dimensions.includes(k)),
-          scale: form.value.scale,
-          strategy: form.value.strategy,
-        },
+        config: { dimensions: a.split(',') as AnnotationDimension[], scale: Number(b) as AnnotationScale, strategy: c as AbsoluteStrategy },
       }
-    : form.value.kind === 'listwise'
-      ? {
-          mode: 'stream-listwise',
-          dimension: PAIRWISE_DIMENSION,
-          size: form.value.listwiseSize,
-          repeat: form.value.listwiseRetest ? 1 : undefined,
-        }
-      : { mode: 'stream-pairwise', dimension: PAIRWISE_DIMENSION, strategy: form.value.pairwiseStrategy }
+    }
+  }
+})
+
+// A queue link whose queue is gone (deleted, another library): back to the launcher.
+watch([sessionKey, queues], ([key, list]) => {
+  if (key?.startsWith('queue:') && list && !session.value) {
+    void router.replace({ path: '/annotate' })
+  }
+})
+
+// A session restored from the URL (refresh, link) shows its settings on the launcher
+// too, so Esc lands on the form that would start it again.
+watch(sessionKey, (key) => {
+  const [mode, a = '', b = '', c = ''] = key?.split(':') ?? []
+  switch (mode) {
+    case 'pairwise': {
+      form.value.kind = 'pairwise'
+      form.value.pairwiseStrategy = a as PairwiseStrategy
+
+      break
+    }
+    case 'listwise': {
+      form.value.kind = 'listwise'
+      form.value.listwiseSize = Number(a)
+      form.value.listwiseRetest = b === '1'
+
+      break
+    }
+    case 'absolute': {
+      form.value.kind = 'absolute'
+      form.value.dimensions = a.split(',') as AnnotationDimension[]
+      form.value.scale = Number(b) as AnnotationScale
+      form.value.strategy = c as AbsoluteStrategy
+
+      break
+    }
+  // No default
+  }
+}, { immediate: true })
+
+function sessionQuery(): LocationQueryRaw {
+  const f = form.value
+  if (f.kind === 'absolute') {
+    return {
+      mode: 'absolute',
+      dims: DIMENSION_KEYS.filter(k => f.dimensions.includes(k)).join(','),
+      scale: String(f.scale),
+      strategy: f.strategy,
+    }
+  }
+  if (f.kind === 'listwise') {
+    return { mode: 'listwise', size: String(f.listwiseSize), ...(f.listwiseRetest ? { retest: '1' } : {}) }
+  }
+  return { mode: 'pairwise', strategy: f.pairwiseStrategy }
+}
+
+function startStream() {
+  if (canStart.value) {
+    void router.push({ path: '/annotate', query: sessionQuery() })
+  }
+}
+
+function startQueue(q: QueueSummaryPublic) {
+  void router.push({ path: '/annotate', query: { queue: String(q.id) } })
+}
+
+/** The pairwise session ran dry: retry it with another pairing, in place. */
+function switchPairing(strategy: PairwiseStrategy) {
+  form.value.pairwiseStrategy = strategy
+  void router.replace({ path: '/annotate', query: { mode: 'pairwise', strategy } })
+}
+
+// Esc / the back arrow: one step back in history when that step is the launcher
+// (the usual way in), otherwise — a refreshed or pasted session URL — replace it.
+function exitSession() {
+  const back = (globalThis.history.state as { back?: unknown } | null)?.back
+  if (back === '/annotate') {
+    router.back()
+  }
+  else {
+    void router.replace({ path: '/annotate' })
+  }
+}
+
+watch(session, (now, before) => {
+  if (!now && before) {
+    void refetch()
+    void nextTick(() => focusElement(startButton.value?.$el, { preventScroll: true }))
+  }
+})
+
+// ── 删除队列 ──────────────────────────────────────────────────────
+const deleteQueue = useConfirmAction<QueueSummaryPublic>()
+function confirmDeleteQueue() {
+  void deleteQueue.confirm({
+    run: q => deleteAnnotationQueue(queryClient, q.id),
+    onError: error => handleAPIError(error, t('annotate.queue.deleteFailed')),
+  })
 }
 
 // ── 队列（固定批次：形态对比实验 / intra-rater 复测用）──────────
@@ -187,32 +322,39 @@ async function generateQueue() {
   <div class="text-fg bg-bg h-full overflow-y-auto">
     <AbsoluteAnnotationSession
       v-if="session?.mode === 'queue' && session.queue.kind === 'absolute'"
+      :key="sessionKey!"
       :queue="session.queue"
       @exit="exitSession"
     />
     <PairwiseAnnotationSession
       v-else-if="session?.mode === 'queue' && session.queue.kind === 'pairwise'"
+      :key="sessionKey!"
       :queue="session.queue"
       @exit="exitSession"
     />
     <ListwiseAnnotationSession
       v-else-if="session?.mode === 'queue' && session.queue.kind === 'listwise'"
+      :key="sessionKey!"
       :queue="session.queue"
       @exit="exitSession"
     />
     <AbsoluteAnnotationSession
       v-else-if="session?.mode === 'stream-absolute'"
+      :key="sessionKey!"
       :config="session.config"
       @exit="exitSession"
     />
     <PairwiseAnnotationSession
       v-else-if="session?.mode === 'stream-pairwise'"
+      :key="sessionKey!"
       :dimension="session.dimension"
       :strategy="session.strategy"
       @exit="exitSession"
+      @switch-strategy="switchPairing"
     />
     <ListwiseAnnotationSession
       v-else-if="session?.mode === 'stream-listwise'"
+      :key="sessionKey!"
       :dimension="session.dimension"
       :size="session.size"
       :repeat="session.repeat"
@@ -445,16 +587,22 @@ async function generateQueue() {
         </button>
 
         <div v-if="showQueues" :id="`${ids}-queues`" class="mt-3 flex flex-col gap-3">
-          <div class="text-xs flex gap-2.5 items-center">
-            <input
-              v-model.number="queueCount"
-              type="number"
-              min="1"
-              max="5000"
-              class="annotate-input w-24"
-              :aria-label="$t('annotate.queue.count')"
-              :title="$t('annotate.queue.count')"
-            >
+          <div class="text-xs flex flex-wrap gap-2.5 items-end">
+            <div class="flex flex-col gap-1">
+              <label :for="`${ids}-queue-count`" class="text-fg-muted">{{ $t('annotate.queue.count') }}</label>
+              <PInput
+                :id="`${ids}-queue-count`"
+                :model-value="queueCount"
+                type="number"
+                inputmode="numeric"
+                min="1"
+                max="5000"
+                size="sm"
+                class="tabular-nums"
+                style="width: 6rem"
+                @update:model-value="(v) => queueCount = Math.min(5000, Math.max(1, Math.round(Number(v) || 1)))"
+              />
+            </div>
             <PButton size="sm" variant="subtle" :loading="generating" :disabled="!canStart" @click="generateQueue">
               {{ $t('annotate.queue.generate') }}
             </PButton>
@@ -463,33 +611,56 @@ async function generateQueue() {
           <div v-if="!queues?.length" class="text-xs text-fg-subtle">
             {{ $t('annotate.queue.empty') }}
           </div>
-          <button
+          <div
             v-for="q in queues"
             :key="q.id"
-            type="button"
-            class="annotate-queue-row"
-            @click="session = { mode: 'queue', queue: q }"
+            class="flex gap-1.5 items-center"
           >
-            <div class="flex-1 min-w-0">
-              <div class="text-sm font-medium truncate">
-                {{ q.name }}
+            <button
+              type="button"
+              class="annotate-queue-row flex-1 min-w-0"
+              @click="startQueue(q)"
+            >
+              <div class="flex-1 min-w-0">
+                <div class="text-sm font-medium truncate">
+                  {{ q.name }}
+                </div>
+                <div class="text-xs text-fg-muted mt-0.5">
+                  {{ $t(KIND_LABEL_KEYS[q.kind]) }} · {{ q.dimensions.map(dimensionLabel).join(' / ') }}<template v-if="q.scale">
+                    · {{ $t('annotate.scale.levels', { n: q.scale }) }}
+                  </template>
+                </div>
+                <div class="annotate-progress mt-2" aria-hidden="true">
+                  <div class="annotate-progress__bar" :style="{ width: `${q.total ? (q.done / q.total) * 100 : 0}%` }" />
+                </div>
               </div>
-              <div class="text-xs text-fg-muted mt-0.5">
-                {{ $t(KIND_LABEL_KEYS[q.kind]) }} · {{ q.dimensions.map(dimensionLabel).join(' / ') }}<template v-if="q.scale">
-                  · {{ $t('annotate.scale.levels', { n: q.scale }) }}
-                </template>
+              <div class="text-xs text-fg-muted shrink-0 tabular-nums">
+                {{ formatNumber(q.done) }} / {{ formatNumber(q.total) }}
               </div>
-              <div class="annotate-progress mt-2" aria-hidden="true">
-                <div class="annotate-progress__bar" :style="{ width: `${q.total ? (q.done / q.total) * 100 : 0}%` }" />
-              </div>
-            </div>
-            <div class="text-xs text-fg-muted shrink-0 tabular-nums">
-              {{ formatNumber(q.done) }} / {{ formatNumber(q.total) }}
-            </div>
-          </button>
+            </button>
+            <PButton
+              icon
+              size="sm"
+              :aria-label="$t('annotate.queue.delete', { name: q.name })"
+              :title="$t('annotate.queue.delete', { name: q.name })"
+              @click="deleteQueue.request(q)"
+            >
+              <i class="i-tabler-trash" aria-hidden="true" />
+            </PButton>
+          </div>
         </div>
       </section>
     </div>
+
+    <ConfirmActionDialog
+      v-slot="{ target }"
+      :action="deleteQueue"
+      :title="$t('annotate.queue.deleteTitle')"
+      :confirm-label="$t('annotate.queue.deleteConfirm')"
+      @confirm="confirmDeleteQueue"
+    >
+      <p>{{ $t('annotate.queue.deleteBody', { name: target.name, done: formatNumber(target.done), total: formatNumber(target.total) }) }}</p>
+    </ConfirmActionDialog>
   </div>
 </template>
 
@@ -614,18 +785,6 @@ async function generateQueue() {
   border-bottom-width: 2px;
   border-radius: var(--p-radius-xs);
   color: var(--p-fg-muted);
-}
-.annotate-input {
-  padding: 6px 10px;
-  font-size: var(--p-text-sm);
-  color: var(--p-fg);
-  background: transparent;
-  border: 1px solid var(--p-border);
-  border-radius: var(--p-radius-sm);
-  transition: border-color var(--p-transition-fast);
-}
-.annotate-input:focus {
-  border-color: rgb(var(--p-primary-rgb) / 0.7);
 }
 .annotate-queue-row {
   display: flex;

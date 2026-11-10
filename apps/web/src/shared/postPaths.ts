@@ -50,7 +50,12 @@ export function postFolder(p: Pick<PostPathParts, 'filePath'>): string {
  * (MainSection's post_id watcher). The folder is shown unfiltered — the active
  * filters could hide the post there — and a fullscreen viewer is closed.
  */
-export function revealPost(post: { id: number } & Pick<PostPathParts, 'filePath'>, folder: string = postFolder(post)) {
+export function revealPost(
+  post: { id: number } & Pick<PostPathParts, 'filePath'>,
+  folder: string = postFolder(post),
+  options: { replace?: boolean } = {},
+) {
   showPostDetail.value = null
-  return router.push({ path: `/dir/${folder}`, query: { post_id: String(post.id) } })
+  const to = { path: `/dir/${folder}`, query: { post_id: String(post.id) } }
+  return options.replace ? router.replace(to) : router.push(to)
 }

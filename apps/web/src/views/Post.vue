@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import type { PostSimplePublic } from '@/api'
 import { useQueryClient } from '@tanstack/vue-query'
 import { useI18n } from 'vue-i18n'
 import { onBeforeRouteLeave, useRoute, useRouter } from 'vue-router'
@@ -11,7 +12,9 @@ import { useImageLoadPhase } from '@/composables/useImageLoadPhase'
 import { useKeyScope } from '@/composables/useKeyScope'
 import { usePostNavAnnounce, usePostNavigation } from '@/composables/usePostNavigation'
 import { useAdjacentPostPrefetch } from '@/composables/usePostPrefetch'
-import { announce, bottomBarInfo, clear as clearSelection, deletePosts, enableArthash, enableFancyPlaceholder, isCommittedSelected, lastViewedPostId, selectedIdList, selectOnly, showPostDetail, similarPostList, touchPost } from '@/shared'
+import { formatNumber } from '@/locale'
+import { announce, bottomBarInfo, clear as clearSelection, currentPostList, deletePosts, enableArthash, enableFancyPlaceholder, isCommittedSelected, lastViewedPostId, postNavContext, selectedIdList, selectOnly, showPostDetail, similarPostList, touchPost } from '@/shared'
+import { postFolder, revealPost } from '@/shared/postPaths'
 import { shortcuts } from '@/shared/shortcuts'
 import { useToast } from '@/shared/toast'
 import { useHotkey } from '@/ui/useHotkey'
@@ -53,7 +56,35 @@ watchEffect(() => {
 })
 onUnmounted(() => {
   similarPostList.value = []
+  postNavContext.value = null
 })
+
+// 翻页上下文：从相似图点进来的那张不在画廊列表里，←→ 原本就此失灵。记住「上一张图
+// 的相似图列表」，新图若是从里面点出来的，就把这张列表（来源图打头）当作翻页列表。
+// 必须同步读：等相似图查询换成新图的结果，旧列表就没了。
+let lastSimilar: { forId: number, list: PostSimplePublic[] } | null = null
+watch(similarPosts, (list) => {
+  if (list.length > 0 && Number.isFinite(postId.value)) {
+    lastSimilar = { forId: postId.value, list }
+  }
+}, { immediate: true })
+watch(postId, (id, oldId) => {
+  if (currentPostList.value.some(p => p.id === id)) {
+    postNavContext.value = null
+    return
+  }
+  if (postNavContext.value?.list.some(p => p.id === id)) {
+    return // 仍在相似图列表里翻
+  }
+  const from = lastSimilar && lastSimilar.forId === oldId ? lastSimilar : null
+  const current = post.value
+  const origin: PostSimplePublic | undefined = from && current?.id === oldId
+    ? { ...current, width: current.width ?? 0, height: current.height ?? 0 }
+    : undefined
+  postNavContext.value = from?.list.some(p => p.id === id)
+    ? { kind: 'similar', list: origin ? [origin, ...from.list.filter(p => p.id !== origin.id)] : from.list }
+    : null
+}, { flush: 'sync' })
 
 // The gallery's context menu ("Find similar") lands here with #similar: bring
 // the similar grid to the top of the scroller — once while it is still loading
@@ -202,10 +233,31 @@ function openOverlay() {
 const imageStageRef = ref<HTMLElement | null>(null)
 const nearEdge = useEdgeProximity(imageStageRef)
 
-const { index, total, canPrev, canNext, neighbor } = usePostNavigation(postId)
+const { index, total, list: navList, source: navSource, canPrev, canNext, neighbor } = usePostNavigation(postId)
 // Prefetch the neighbours' originals and detail requests (post, group, similar,
 // history) so ←→ navigation (page and fullscreen overlay) renders from cache.
-useAdjacentPostPrefetch(index)
+useAdjacentPostPrefetch(index, () => navList.value)
+
+/**
+ * 返回：有应用内历史就后退；直链 / 刷新进来的（`history.state.back` 为空）后退会
+ * 离开应用，改为替换到这张图所在的目录（删掉了这张时不带选中），都不行就回首页。
+ */
+function goBack(deleted = false) {
+  if ((globalThis.history.state as { back?: unknown } | null)?.back != null) {
+    router.back()
+    return
+  }
+  const p = post.value
+  if (!p) {
+    void router.replace('/')
+  }
+  else if (deleted) {
+    void router.replace(`/dir/${postFolder(p)}`)
+  }
+  else {
+    void revealPost(p, postFolder(p), { replace: true })
+  }
+}
 const announceNav = usePostNavAnnounce()
 
 function navigatePost(delta: -1 | 1) {
@@ -242,7 +294,7 @@ const viewKeyOptions = {
 }
 
 useHotkey(shortcuts.postPage.back.keys, () => {
-  router.back()
+  goBack()
 }, viewKeyOptions)
 
 useHotkey(shortcuts.postPage.prevNext.keys, (e) => {
@@ -304,7 +356,7 @@ async function confirmDelete() {
       clearSelection()
       announce(t('post.deleted', { n: ids.length }, ids.length))
       if (removingCurrent) {
-        router.back()
+        goBack(true)
       }
     },
     onError: () => {
@@ -349,7 +401,7 @@ async function confirmDelete() {
           size="sm"
           variant="ghost"
           :aria-label="$t('common.back')"
-          @click="$router.back()"
+          @click="goBack()"
         >
           <i class="i-tabler-arrow-left" aria-hidden="true" />
         </PButton>
@@ -357,7 +409,19 @@ async function confirmDelete() {
       <h1 class="text-sm text-fg font-medium min-w-0 truncate">
         {{ post.fileName }}
       </h1>
-      <span class="flex-1 basis-0" />
+      <!-- 在翻哪张列表、翻到第几张：←→ 的作用范围要看得见。 -->
+      <div class="text-xs text-fg-muted flex flex-1 basis-0 justify-end">
+        <span
+          v-if="index !== -1"
+          class="whitespace-nowrap tabular-nums"
+          :title="navSource === 'similar' ? $t('post.navSimilarTitle') : $t('post.navGalleryTitle')"
+        >
+          <template v-if="navSource === 'similar'">{{ $t('post.navSimilar') }} · </template>{{ formatNumber(index + 1) }} / {{ formatNumber(total) }}
+        </span>
+        <span v-else class="text-fg-subtle whitespace-nowrap" :title="$t('post.navNotInListTitle')">
+          {{ $t('post.navNotInList') }}
+        </span>
+      </div>
     </div>
     <PScrollArea
       ref="scrollAreaRef"

@@ -414,7 +414,7 @@ declare global {
   export type { KeyChoice, ChoiceBinding, ListwiseGate, SortableIntent } from './composables/useAnnotationKeymap'
   import('./composables/useAnnotationKeymap')
   // @ts-ignore
-  export type { StreamItem, AnnotationKind, StreamLoadState, AnnotationStreamOptions, UndoableJudgement, AnnotationStream } from './composables/useAnnotationStream'
+  export type { StreamItem, AnnotationKind, StreamLoadState, AnnotationStreamOptions, UndoableJudgement, AheadJudgement, AnnotationStream } from './composables/useAnnotationStream'
   import('./composables/useAnnotationStream')
   // @ts-ignore
   export type { ConfirmPhase, ConfirmRunOptions, ConfirmAction } from './composables/useConfirmAction'

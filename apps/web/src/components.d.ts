@@ -14,6 +14,7 @@ declare module 'vue' {
   export interface GlobalComponents {
     AbsoluteAnnotationSession: typeof import('./components/annotate/AbsoluteAnnotationSession.vue')['default']
     AnnotationChoiceGroup: typeof import('./components/annotate/AnnotationChoiceGroup.vue')['default']
+    AnnotationFinished: typeof import('./components/annotate/AnnotationFinished.vue')['default']
     AnnotationHistory: typeof import('./components/AnnotationHistory.vue')['default']
     AnnotationKeyHints: typeof import('./components/annotate/AnnotationKeyHints.vue')['default']
     AnnotationLoadError: typeof import('./components/annotate/AnnotationLoadError.vue')['default']
@@ -69,6 +70,7 @@ declare module 'vue' {
     PSurface: typeof import('./ui/PSurface.vue')['default']
     PSwitch: typeof import('./ui/PSwitch.vue')['default']
     PTag: typeof import('./ui/PTag.vue')['default']
+    PTextarea: typeof import('./ui/PTextarea.vue')['default']
     PToast: typeof import('./ui/PToast.vue')['default']
     PToastContainer: typeof import('./ui/PToastContainer.vue')['default']
     PTooltip: typeof import('./ui/PTooltip.vue')['default']
@@ -98,6 +100,7 @@ declare module 'vue' {
 declare global {
   const AbsoluteAnnotationSession: typeof import('./components/annotate/AbsoluteAnnotationSession.vue')['default']
   const AnnotationChoiceGroup: typeof import('./components/annotate/AnnotationChoiceGroup.vue')['default']
+  const AnnotationFinished: typeof import('./components/annotate/AnnotationFinished.vue')['default']
   const AnnotationHistory: typeof import('./components/AnnotationHistory.vue')['default']
   const AnnotationKeyHints: typeof import('./components/annotate/AnnotationKeyHints.vue')['default']
   const AnnotationLoadError: typeof import('./components/annotate/AnnotationLoadError.vue')['default']
@@ -153,6 +156,7 @@ declare global {
   const PSurface: typeof import('./ui/PSurface.vue')['default']
   const PSwitch: typeof import('./ui/PSwitch.vue')['default']
   const PTag: typeof import('./ui/PTag.vue')['default']
+  const PTextarea: typeof import('./ui/PTextarea.vue')['default']
   const PToast: typeof import('./ui/PToast.vue')['default']
   const PToastContainer: typeof import('./ui/PToastContainer.vue')['default']
   const PTooltip: typeof import('./ui/PTooltip.vue')['default']

@@ -32,7 +32,31 @@ const ratingValueLabel = computed(() => ratingName(props.post.rating, t))
 const queryClient = useQueryClient()
 const { handle: handleAPIError } = useAPIError()
 async function onSelectScore(post_id: number, score: number = 0) {
-  await commitScore(queryClient, [props.post], [post_id], score)
+  try {
+    await commitScore(queryClient, [props.post], [post_id], score)
+  }
+  catch (error) {
+    handleAPIError(error, t('error.scoreFailed'))
+  }
+}
+async function onSelectRating(rating: number) {
+  try {
+    await commitRating(queryClient, [props.post], [props.post.id], rating)
+  }
+  catch (error) {
+    handleAPIError(error, t('error.ratingFailed'))
+  }
+}
+/** Grouping edits: one toast prefix, so a failed click never goes silent. */
+async function guardGroup(run: () => Promise<void>) {
+  try {
+    await run()
+  }
+  catch (error) {
+    handleAPIError(error, t('error.groupFailed'))
+    return false
+  }
+  return true
 }
 const post = computed(() => props.post)
 const router = useRouter()
@@ -43,13 +67,14 @@ const groupQuery = usePostGroupQuery(computed(() => props.post.id))
 const groupMembers = computed(() => groupQuery.data.value ?? [])
 
 async function onMakeCanonical(memberId: number) {
-  await makePostCanonical(queryClient, memberId)
-  // The promoted member is now canonical; follow it so the panel stays on the
-  // visible representative instead of a now-hidden post.
-  router.push(`/post/${memberId}`)
+  if (await guardGroup(() => makePostCanonical(queryClient, memberId))) {
+    // The promoted member is now canonical; follow it so the panel stays on the
+    // visible representative instead of a now-hidden post.
+    router.push(`/post/${memberId}`)
+  }
 }
 async function onUngroupMember(memberId: number) {
-  await ungroupPost(queryClient, memberId)
+  await guardGroup(() => ungroupPost(queryClient, memberId))
 }
 // Members whose relation to this post was decided by hand — a rebuild honours
 // those verdicts, so the panel marks them apart from the automatic grouping.
@@ -58,10 +83,10 @@ const decidedMembers = computed(
   () => new Set((evidenceQuery.data.value ?? []).filter(e => e.userVerdict !== null).map(e => e.memberId)),
 )
 async function onMarkDifferent(memberId: number) {
-  await markPostsDifferent(queryClient, post.value.id, memberId)
+  await guardGroup(() => markPostsDifferent(queryClient, post.value.id, memberId))
 }
 async function onUngroupSelf() {
-  await ungroupPost(queryClient, post.value.id)
+  await guardGroup(() => ungroupPost(queryClient, post.value.id))
 }
 // Number-key scoring is owned by MainSection on gallery routes (the gallery and
 // this side panel are mounted together when a single post is selected, so
@@ -89,13 +114,80 @@ function buildFolders(filePath: string) {
 }
 const folders = computed(() => buildFolders(post.value.filePath))
 
-const updateCaption = useDebounceFn(async (caption: string | number | null | undefined) => {
-  await commitCaption(queryClient, post.value.id, post.value.caption ?? '', String(caption ?? ''))
-}, 500)
-
-const updateSource = useDebounceFn(async (source: string | number | null | undefined) => {
-  await commitSource(queryClient, post.value.id, post.value.source ?? '', String(source ?? ''))
-}, 500)
+// 描述 / 来源：本地草稿，失焦或 Mod+Enter（来源是单行，Enter）才提交——一次编辑
+// 一条撤销记录，而不是每停顿 500 ms 记一条。失败：回滚到服务端的值并标红。
+function useTextField(
+  read: () => string,
+  commit: (id: number, oldValue: string, newValue: string) => Promise<void>,
+  failedKey: string,
+) {
+  const draft = ref<string>(read())
+  const invalid = ref(false)
+  let editing = false
+  // 服务端值变化（换图 / 撤销 / 别处改了）且没在编辑时，草稿跟上。
+  watch([() => post.value.id, read], () => {
+    if (!editing) {
+      draft.value = read()
+    }
+  })
+  watch(() => post.value.id, () => {
+    invalid.value = false
+  })
+  async function save() {
+    editing = false
+    const id = post.value.id
+    const oldValue = read()
+    const newValue = draft.value ?? ''
+    if (newValue === oldValue) {
+      return
+    }
+    try {
+      await commit(id, oldValue, newValue)
+      invalid.value = false
+    }
+    catch (error) {
+      handleAPIError(error, t(failedKey))
+      if (post.value.id === id) {
+        draft.value = oldValue
+        invalid.value = true
+      }
+    }
+  }
+  return {
+    draft,
+    invalid,
+    onFocus: () => {
+      editing = true
+    },
+    save,
+  }
+}
+const caption = useTextField(
+  () => post.value.caption ?? '',
+  (id, o, n) => commitCaption(queryClient, id, o, n),
+  'error.captionFailed',
+)
+const source = useTextField(
+  () => post.value.source ?? '',
+  (id, o, n) => commitSource(queryClient, id, o, n),
+  'error.sourceFailed',
+)
+const captionDraft = caption.draft
+const captionInvalid = caption.invalid
+const sourceDraft = source.draft
+const sourceInvalid = source.invalid
+function onCaptionKeydown(e: KeyboardEvent) {
+  if (e.key === 'Enter' && (isMac ? e.metaKey : e.ctrlKey) && !e.isComposing) {
+    e.preventDefault()
+    caption.save()
+  }
+}
+function onSourceKeydown(e: KeyboardEvent) {
+  if (e.key === 'Enter' && !e.isComposing) {
+    e.preventDefault()
+    source.save()
+  }
+}
 const groupNameOrder = ['artist', 'copyright', 'character', 'general', 'meta']
 function sortByGroup(a: PostHasTagPublic, b: PostHasTagPublic) {
   // 手动标签排在同一堆的前面：分类是一回事，谁打的是另一回事，人打的先看。
@@ -239,6 +331,7 @@ const uid = useId()
 const tagsHeadingId = `${uid}-tags`
 const ratingLabelId = `${uid}-rating`
 const scoreLabelId = `${uid}-score`
+const captionHintId = `${uid}-caption-hint`
 
 const SILVA_SCORER = 'silva'
 const SILVA_LUNA_SCORER = 'silva_luna'
@@ -352,7 +445,7 @@ function onComputeScore(kind: ScorerKind) {
               :colors="RATING_LEVEL_COLORS"
               :icons="RATING_LEVEL_ICONS"
               :labels="ratingLabels"
-              @select="(d) => commitRating(queryClient, [post], [post.id], d)"
+              @select="onSelectRating"
             />
             <span class="text-fg-subtle truncate" aria-hidden="true">{{ ratingValueLabel }}</span>
           </div>
@@ -726,13 +819,20 @@ function onComputeScore(kind: ScorerKind) {
         :title="$t('post.caption')"
         :default-open="false"
       >
-        <PInput
-          :model-value="post.caption ?? ''"
+        <PTextarea
+          v-model="captionDraft"
           :aria-label="$t('post.caption')"
+          :aria-describedby="captionHintId"
+          :invalid="captionInvalid"
           size="sm"
-          block
-          @update:model-value="updateCaption"
+          :max-rows="10"
+          @focus="caption.onFocus"
+          @blur="caption.save"
+          @keydown="onCaptionKeydown"
         />
+        <div :id="captionHintId" class="text-2xs text-fg-subtle mt-1">
+          {{ $t('post.panel.captionHint', { shortcut: isMac ? '⌘ Enter' : 'Ctrl+Enter' }) }}
+        </div>
       </PDisclosure>
 
       <!-- Source -->
@@ -743,11 +843,15 @@ function onComputeScore(kind: ScorerKind) {
         :default-open="false"
       >
         <PInput
-          :model-value="post.source ?? ''"
+          :model-value="sourceDraft"
           :aria-label="$t('post.source')"
+          :invalid="sourceInvalid"
           size="sm"
           block
-          @update:model-value="updateSource"
+          @update:model-value="(v) => sourceDraft = String(v ?? '')"
+          @focus="source.onFocus"
+          @blur="source.save"
+          @keydown="onSourceKeydown"
         />
       </PDisclosure>
 

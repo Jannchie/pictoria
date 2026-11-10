@@ -1,6 +1,6 @@
 import type { UndoableCommand } from '@/shared/history'
 import { beforeEach, describe, expect, it } from 'vitest'
-import { canRedo, canUndo, clearHistory, pushCommand, redo, undo } from '@/shared/history'
+import { canRedo, canUndo, clearHistory, dropCommand, pushCommand, redo, undo } from '@/shared/history'
 
 function cmd(label: string, log: string[]): UndoableCommand {
   return {
@@ -176,5 +176,17 @@ describe('history store: overlapping steps', () => {
     await pending
     expect(canUndo.value).toBe(false)
     expect(canRedo.value).toBe(false)
+  })
+
+  it('dropcommand removes a command that never landed, leaving the rest in order', async () => {
+    const log: string[] = []
+    const a = cmd('a', log)
+    const b = cmd('b', log)
+    pushCommand(a)
+    pushCommand(b)
+    dropCommand(a)
+    await undo()
+    expect(log).toEqual(['revert:b'])
+    expect(canUndo.value).toBe(false)
   })
 })

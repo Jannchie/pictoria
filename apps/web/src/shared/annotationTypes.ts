@@ -60,3 +60,10 @@ export const DIMENSION_META: Record<AnnotationDimension, DimensionMeta> = {
 export function dimensionMeta(d: string | null | undefined): DimensionMeta | undefined {
   return d != null && Object.hasOwn(DIMENSION_META, d) ? DIMENSION_META[d as AnnotationDimension] : undefined
 }
+
+/** Streamed pairwise pairing strategies, in launcher order (`close` is the default). */
+export const PAIRWISE_STRATEGIES: readonly { value: PairwiseStrategy, labelKey: string, hintKey: string }[] = [
+  { value: 'close', labelKey: 'annotate.pairing.close', hintKey: 'annotate.pairing.closeHint' },
+  { value: 'similar', labelKey: 'annotate.pairing.similar', hintKey: 'annotate.pairing.similarHint' },
+  { value: 'random', labelKey: 'annotate.pairing.random', hintKey: 'annotate.pairing.randomHint' },
+]

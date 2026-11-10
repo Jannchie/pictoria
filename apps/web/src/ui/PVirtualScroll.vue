@@ -186,6 +186,15 @@ watch([startIdx, endIdx], () => {
   })
 }, { flush: 'pre' })
 
+/** Scroll position (px) and a way to set it — for callers that pin a header or jump to a row. */
+function scrollToOffset(top: number) {
+  const el = wrapperEl()
+  if (el) {
+    el.scrollTop = top
+  }
+}
+defineExpose({ scrollY, scrollToOffset })
+
 const remainHeight = computed(() => accumulatedHeights.value[props.items.length] - accumulatedHeights.value[endIdx.value])
 const paddingTop = computed(() => accumulatedHeights.value[startIdx.value])
 </script>

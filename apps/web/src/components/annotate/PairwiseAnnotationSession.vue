@@ -5,6 +5,7 @@ import { useQueryClient } from '@tanstack/vue-query'
 import { computed, ref, useTemplateRef, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { v2CountPairwise, v2NextPairwise, v2SamplePairwise } from '@/api'
+import AnnotationFinished from '@/components/annotate/AnnotationFinished.vue'
 import AnnotationKeyHints from '@/components/annotate/AnnotationKeyHints.vue'
 import AnnotationLoadError from '@/components/annotate/AnnotationLoadError.vue'
 import AnnotationReviewBanner from '@/components/annotate/AnnotationReviewBanner.vue'
@@ -15,7 +16,7 @@ import { useAPIError } from '@/composables/useAPIError'
 import { preloadImage } from '@/composables/usePostPrefetch'
 import { formatNumber } from '@/locale'
 import { endReview, prependEntry, submitPairwise, winnerLabel } from '@/shared'
-import { dimensionMeta } from '@/shared/annotationTypes'
+import { dimensionMeta, PAIRWISE_STRATEGIES } from '@/shared/annotationTypes'
 import { useHotkey } from '@/ui/useHotkey'
 import { getPostImageURL } from '@/utils'
 import { shortcutKeys } from '@/utils/keyboard'
@@ -30,7 +31,7 @@ interface BufferItem {
 // strategy 仅流式有效：close = 视觉相近且模型分不开的边界对，并自动接上已标过的比较图（默认）；
 // similar = 内容相似 + 旧分相近（不参考模型，留作评估）；random = 全库随机。
 const props = defineProps<{ queue?: QueueSummaryPublic, dimension?: AnnotationDimension, strategy?: PairwiseStrategy }>()
-const emit = defineEmits<{ exit: [] }>()
+const emit = defineEmits<{ exit: [], switchStrategy: [strategy: PairwiseStrategy] }>()
 
 const { handle: handleAPIError } = useAPIError()
 const { t } = useI18n()
@@ -152,32 +153,36 @@ function decide(winner: PairwiseWinner) {
 }
 
 function judge(winner: PairwiseWinner) {
-  return stream.submitCurrent(async (item) => {
-    const elapsedMs = stream.elapsedMs()
-    const ids = await postJudgement(item, winner, elapsedMs)
-    advancePast(winner)
-    noteInHistory(item, winner, ids)
-    // Ctrl+Z 收回手滑的那几下。会话切到别的维度后，把旧维度的一对塞回新 buffer
-    // 会让它被按错维度重判 —— 那种情况下只删事件，不动界面。
-    const judgedIn = dimension.value
-    stream.pushUndoable({
-      item,
-      ids,
+  // 乐观推进：先翻到下一对，判决在后台按键序提交 —— 快速连按不会被在飞的请求吞掉。
+  // 判决绑定的是**此刻**的这一对和这一刻的耗时，与之后屏幕上是什么无关。
+  const elapsedMs = stream.elapsedMs()
+  // Ctrl+Z 收回手滑的那几下。会话切到别的维度后，把旧维度的一对塞回新 buffer
+  // 会让它被按错维度重判 —— 那种情况下只删事件，不动界面。
+  const judgedIn = dimension.value
+  const send = (item: BufferItem) => postJudgement(item, winner, elapsedMs)
+  const unCount = () => {
+    if (winner !== 'skip' && cumulativeCount.value != null) {
+      cumulativeCount.value -= 1
+    }
+  }
+  stream.judgeAhead({
+    send,
+    advance: () => advancePast(winner),
+    onSent: (item, ids) => noteInHistory(item, winner, ids),
+    onFailed: unCount,
+    onError: error => handleAPIError(error, t('annotate.error.submit')),
+    undo: item => ({
       label: t(winner === 'skip' ? 'history.skipPair' : 'history.judgePair'),
       redo: async () => {
-        const again = await postJudgement(item, winner, elapsedMs)
+        const again = await send(item)
         advancePast(winner)
         noteInHistory(item, winner, again)
         return again
       },
       stillHere: () => dimension.value === judgedIn,
-      onRevert: () => {
-        if (winner !== 'skip' && cumulativeCount.value != null) {
-          cumulativeCount.value -= 1
-        }
-      },
-    })
-  }, error => handleAPIError(error, t('annotate.error.submit')))
+      onRevert: unCount,
+    }),
+  })
 }
 
 // ── Keyboard ────────────────────────────────────────────────────────────────
@@ -216,6 +221,13 @@ const question = computed(() => {
   return meta ? t(meta.questionKey) : t('annotate.dimension.questionFallback', { dimension: dimension.value })
 })
 
+// Ran dry with nothing on screen: the banner and the key legend have nothing to act on.
+const finished = computed(() => exhausted.value && !shown.value)
+// 流式对比跑干了：另外两种配对方式就是最近的出路。
+const otherStrategies = computed(() => (props.queue
+  ? []
+  : PAIRWISE_STRATEGIES.filter(s => s.value !== strategy.value)))
+
 const hints = computed(() => [
   { keys: ['←'], label: t('annotate.keys.pickLeft') },
   { keys: ['→'], label: t('annotate.keys.pickRight') },
@@ -247,14 +259,14 @@ const hints = computed(() => [
       </div>
       <div class="text-xs text-fg-muted flex shrink-0 gap-4 items-center">
         <span class="text-fg font-medium tabular-nums">{{ totalLabel }}</span>
-        <AnnotationKeyHints :hints="hints" />
+        <AnnotationKeyHints v-if="!finished" :hints="hints" />
       </div>
     </div>
 
     <div class="flex flex-1 flex-col min-h-0 min-w-0">
       <!-- 维度问题横幅；复判时换成"在改哪一条" -->
       <AnnotationReviewBanner v-if="review" :verdict="reviewVerdict" @exit="endReview()" />
-      <div v-else :id="`${sessionId}-q`" class="text-sm text-fg font-medium px-4 py-2 text-center p-divider shrink-0">
+      <div v-else-if="!finished" :id="`${sessionId}-q`" class="text-sm text-fg font-medium px-4 py-2 text-center p-divider shrink-0">
         {{ question }}
       </div>
       <!-- @mousedown.prevent: a click judges and moves on; it must not leave focus on
@@ -290,17 +302,18 @@ const hints = computed(() => [
 
       <!-- 空态 / 完成态 -->
       <div v-else class="flex flex-1 items-center justify-center">
-        <div v-if="exhausted" class="text-center">
-          <div class="text-3xl mb-3" aria-hidden="true">
-            🎉
-          </div>
-          <div class="text-sm text-fg font-medium">
-            {{ $t('annotate.pairwise.exhausted') }}
-          </div>
-          <div class="text-xs text-fg-muted mt-1">
-            {{ $t('annotate.pairwise.exhaustedDetail', { n: formatNumber(doneCount) }) }}
-          </div>
-        </div>
+        <AnnotationFinished v-if="exhausted" kind="pairwise" :done="doneCount" @home="emit('exit')">
+          <PButton
+            v-for="s in otherStrategies"
+            :key="s.value"
+            size="sm"
+            :variant="s === otherStrategies[0] ? 'primary' : 'subtle'"
+            @click="emit('switchStrategy', s.value)"
+          >
+            <i class="i-tabler-arrows-shuffle" aria-hidden="true" />
+            {{ $t('annotate.finished.switchPairing', { name: $t(s.labelKey) }) }}
+          </PButton>
+        </AnnotationFinished>
         <AnnotationLoadError v-else-if="loadState === 'error'" @retry="stream.refill()" />
         <div v-else role="status" class="text-sm text-fg-muted flex gap-2 items-center">
           <span class="pairwise-spinner" aria-hidden="true" />{{ $t('common.loading') }}

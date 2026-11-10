@@ -2,7 +2,7 @@ import type { MaybeRefOrGetter } from 'vue'
 import { useDebounceFn } from '@vueuse/core'
 import { computed, toValue } from 'vue'
 import { useI18n } from 'vue-i18n'
-import { currentPostList } from '@/shared'
+import { currentPostList, postNavContext } from '@/shared'
 import { announce } from '@/shared/announce'
 
 /**
@@ -18,30 +18,47 @@ import { announce } from '@/shared/announce'
  * `neighbor`。
  */
 export function usePostNavigation(postId: MaybeRefOrGetter<number | undefined>) {
-  /** 当前图在列表中的下标，-1 表示不在列表里（例如直接输 URL 进来的）。 */
-  const index = computed(() => {
+  /**
+   * 翻页走哪张列表：画廊列表里有这张就走画廊；否则走「从哪张图的相似图点进来的」
+   * 那张相似图列表（[[postNavContext]]）；都没有则 `source = null`，不能翻。
+   */
+  const located = computed(() => {
     const id = toValue(postId)
     if (id === undefined) {
-      return -1
+      return { source: null, list: currentPostList.value, index: -1 } as const
     }
-    return currentPostList.value.findIndex(p => p.id === id)
+    const i = currentPostList.value.findIndex(p => p.id === id)
+    if (i !== -1) {
+      return { source: 'gallery', list: currentPostList.value, index: i } as const
+    }
+    const ctx = postNavContext.value
+    const j = ctx ? ctx.list.findIndex(p => p.id === id) : -1
+    if (ctx && j !== -1) {
+      return { source: ctx.kind, list: ctx.list, index: j } as const
+    }
+    return { source: null, list: currentPostList.value, index: -1 } as const
   })
 
+  /** 当前图在翻页列表中的下标，-1 表示不在任何列表里（例如直接输 URL 进来的）。 */
+  const index = computed(() => located.value.index)
+  const list = computed(() => located.value.list)
+  const source = computed(() => located.value.source)
+
   /** 列表长度，用于「n / total」式的播报。 */
-  const total = computed(() => currentPostList.value.length)
+  const total = computed(() => list.value.length)
 
   const canPrev = computed(() => index.value > 0)
-  const canNext = computed(() => index.value >= 0 && index.value < currentPostList.value.length - 1)
+  const canNext = computed(() => index.value >= 0 && index.value < list.value.length - 1)
 
   /** 相邻的那张，越界时为 undefined —— 调用方据此决定翻不翻。 */
   function neighbor(delta: -1 | 1) {
     if (index.value === -1) {
       return
     }
-    return currentPostList.value[index.value + delta]
+    return list.value[index.value + delta]
   }
 
-  return { index, total, canPrev, canNext, neighbor }
+  return { index, total, list, source, canPrev, canNext, neighbor }
 }
 
 /** 连按 ←→ 时只播报停下来的那一张。 */

@@ -6,6 +6,7 @@ import { computed, ref, useId, useTemplateRef, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { v2NextAbsolute, v2SampleAbsolute } from '@/api'
 import AnnotationChoiceGroup from '@/components/annotate/AnnotationChoiceGroup.vue'
+import AnnotationFinished from '@/components/annotate/AnnotationFinished.vue'
 import AnnotationKeyHints from '@/components/annotate/AnnotationKeyHints.vue'
 import AnnotationLoadError from '@/components/annotate/AnnotationLoadError.vue'
 import AnnotationReviewBanner from '@/components/annotate/AnnotationReviewBanner.vue'
@@ -14,7 +15,6 @@ import { useAnnotationReview } from '@/composables/useAnnotationReview'
 import { useAnnotationSessionFrame, useAnnotationStream } from '@/composables/useAnnotationStream'
 import { useAPIError } from '@/composables/useAPIError'
 import { preloadImage } from '@/composables/usePostPrefetch'
-import { formatNumber } from '@/locale'
 import { endReview, flagGlyph, prependEntry, pushCommand, submitAbsolute, submitContentFlag } from '@/shared'
 import { dimensionMeta } from '@/shared/annotationTypes'
 import { useHotkey } from '@/ui/useHotkey'
@@ -119,33 +119,30 @@ function advance() {
  * 题材 flag 不进撤销栈：'none' 本来就是它自己的撤回，且它是另一条事件流。
  */
 function recordItem(item: BufferItem, ids: number[], label: string, redo: () => Promise<number[]>) {
-  const restore = { choices: choices.value, elapsed: elapsed.value, flag: flagState.value }
+  const restore: Verdict = { choices: choices.value, elapsed: elapsed.value, flag: flagState.value }
   stream.pushUndoable({
     item,
     ids,
     label,
     redo,
-    onRevert: () => {
-      // 把上一张的档位选择也还原，撤销后能看到当时按了什么、只改错的那一档。
-      choices.value = restore.choices
-      elapsed.value = restore.elapsed
-      flagState.value = restore.flag
-      flagSeq += 1
-    },
+    onRevert: () => restoreVerdict(restore),
   })
 }
 
-async function postAnnotation(item: BufferItem): Promise<number[]> {
+/** The verdict as it stands on screen now — captured before the session moves on. */
+interface Verdict { choices: Record<string, number>, elapsed: Record<string, number>, flag: ContentFlag }
+
+async function postAnnotation(item: BufferItem, verdict: Verdict): Promise<number[]> {
   const dims = dimensions.value
   const ids = await submitAbsolute(queryClient, {
     events: dims.map(d => ({
       postId: item.post.id,
       dimension: d,
       scale: scale.value,
-      value: choices.value[d],
+      value: verdict.choices[d],
       rubricVersion: rubricVersions.value[d],
       sessionId,
-      elapsedMs: elapsed.value[d] ?? null,
+      elapsedMs: verdict.elapsed[d] ?? null,
     })),
     queueId: props.queue?.id ?? null,
     queuePosition: item.position ?? null,
@@ -155,22 +152,38 @@ async function postAnnotation(item: BufferItem): Promise<number[]> {
   for (const [i, id] of ids.entries()) {
     const dimension = dims[i]
     if (dimension) {
-      prependEntry(queryClient, { kind: 'absolute', id, post: item.post, dimension, scale: scale.value, value: choices.value[dimension] })
+      prependEntry(queryClient, { kind: 'absolute', id, post: item.post, dimension, scale: scale.value, value: verdict.choices[dimension] })
     }
   }
   return ids
 }
 
+function restoreVerdict(verdict: Verdict) {
+  // 把上一张的档位选择也还原，撤销后能看到当时按了什么、只改错的那一档。
+  choices.value = verdict.choices
+  elapsed.value = verdict.elapsed
+  flagState.value = verdict.flag
+  flagSeq += 1
+}
+
 function submitAndAdvance() {
-  return stream.submitCurrent(async (item) => {
-    const ids = await postAnnotation(item)
-    recordItem(item, ids, t('history.annotatePost'), async () => {
-      const again = await postAnnotation(item)
-      advance()
-      return again
-    })
-    advance()
-  }, error => handleAPIError(error, t('annotate.error.submit')))
+  // 乐观推进：选满即翻页，提交在后台按键序进行；失败时这张图和当时的选择一起回来。
+  const verdict: Verdict = { choices: choices.value, elapsed: elapsed.value, flag: flagState.value }
+  stream.judgeAhead({
+    send: item => postAnnotation(item, verdict),
+    advance,
+    onFailed: () => restoreVerdict(verdict),
+    onError: error => handleAPIError(error, t('annotate.error.submit')),
+    undo: item => ({
+      label: t('history.annotatePost'),
+      redo: async () => {
+        const again = await postAnnotation(item, verdict)
+        advance()
+        return again
+      },
+      onRevert: () => restoreVerdict(verdict),
+    }),
+  })
 }
 
 // 选择一个档位（键盘与鼠标共用）：记录耗时，选满全部维度即提交翻页。
@@ -322,6 +335,8 @@ function choiceOptions(row: number) {
 }
 const idBase = useId()
 
+const finished = computed(() => exhausted.value && !shownPost.value)
+
 const hints = computed(() => [
   { keys: ['Space'], label: t('annotate.keys.skip') },
   { keys: ['0'], label: t('annotate.keys.flag') },
@@ -357,7 +372,7 @@ const hints = computed(() => [
       </div>
       <div class="text-xs text-fg-muted flex shrink-0 gap-4 items-center">
         <span class="text-fg font-medium tabular-nums">{{ totalLabel }}</span>
-        <AnnotationKeyHints :hints="hints" />
+        <AnnotationKeyHints v-if="!finished" :hints="hints" />
       </div>
     </div>
 
@@ -404,22 +419,7 @@ const hints = computed(() => [
 
       <!-- 空态 / 完成态 -->
       <div v-else class="flex flex-1 items-center justify-center">
-        <div v-if="exhausted" class="text-center">
-          <div class="text-3xl mb-3" aria-hidden="true">
-            🎉
-          </div>
-          <div class="text-sm text-fg font-medium">
-            {{ $t('annotate.absolute.exhausted') }}
-          </div>
-          <i18n-t keypath="annotate.absolute.exhaustedDetail" tag="div" scope="global" class="text-xs text-fg-muted mt-1">
-            <template #n>
-              {{ formatNumber(doneCount) }}
-            </template>
-            <template #esc>
-              <kbd class="annotate-kbd-inline">Esc</kbd>
-            </template>
-          </i18n-t>
-        </div>
+        <AnnotationFinished v-if="exhausted" kind="absolute" :done="doneCount" @home="emit('exit')" />
         <AnnotationLoadError v-else-if="loadState === 'error'" @retry="stream.refill()" />
         <div v-else role="status" class="text-sm text-fg-muted flex gap-2 items-center">
           <span class="annotate-spinner" aria-hidden="true" />{{ $t('common.loading') }}
@@ -450,18 +450,6 @@ const hints = computed(() => [
 
 .annotate-session:focus {
   outline: none;
-}
-
-.annotate-kbd-inline {
-  display: inline-block;
-  padding: 1px 5px;
-  margin: 0 1px;
-  font-family: var(--p-font-mono);
-  font-size: 10px;
-  border: 1px solid var(--p-border);
-  border-bottom-width: 2px;
-  border-radius: var(--p-radius-xs);
-  color: var(--p-fg-muted);
 }
 
 /* 判断卡片 */

@@ -1,4 +1,4 @@
-import { computed, ref } from 'vue'
+import { computed, ref, toRaw } from 'vue'
 
 export interface UndoableCommand {
   /** toast 文案，如 "给 3 张图评分 5"。 */
@@ -122,6 +122,16 @@ export function undo(): Promise<UndoResult> {
 /** 重做最近一次撤销。与 `undo` 共用同一条队列。 */
 export function redo(): Promise<UndoResult> {
   return step('redoing')
+}
+
+/**
+ * 把一条命令从两个栈里拿掉 —— 它代表的操作最终没有落库（乐观提交失败），留着只会
+ * 让下一次 Ctrl+Z 撤销一件没发生的事。正在飞的那一步不受影响。
+ */
+export function dropCommand(command: UndoableCommand): void {
+  const keep = (c: UndoableCommand) => toRaw(c) !== command
+  undoStack.value = undoStack.value.filter(keep)
+  redoStack.value = redoStack.value.filter(keep)
 }
 
 export function clearHistory(): void {

@@ -142,8 +142,9 @@ function sortBy(id: typeof postSort.value) {
 }
 
 // Sorting commands, unless the sort is locked here (text search, /recently,
-// /unrated-artists — see sortLock): they would change nothing visible.
-const sortCommands = computed<CommandDef[]>(() => sortLock(route.meta.view, textSearchQuery.value.trim().length > 0)
+// /unrated-artists — see sortLock) or there is no gallery on this page at all:
+// they would change nothing visible.
+const sortCommands = computed<CommandDef[]>(() => !route.meta.gallery || sortLock(route.meta.view, textSearchQuery.value.trim().length > 0)
   ? []
   : [
       { id: 'sort-score', section: 'sort', label: t('command.sortBy', { label: t('sort.score') }), icon: SCORE_ICON, run: sortBy('score') },
@@ -241,6 +242,11 @@ function closeThen(run: () => void) {
 function applyQuery() {
   postFilter.value = applyParsedFilter(postFilter.value, parsed.value)
   textSearchQuery.value = parsed.value.text
+  // Off the gallery (post page, tags, settings…) there is nothing here for the
+  // filter to act on: take it to the gallery (same as the detail panel's tag filter).
+  if (!route.meta.gallery) {
+    void router.push('/')
+  }
 }
 
 /** Writes new input text and puts the caret where the completion left it. */

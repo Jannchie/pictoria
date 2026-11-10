@@ -135,6 +135,46 @@ function endGesture() {
   gesture.value = 'idle'
 }
 
+// 平移的边界：画面至少留 KEEP 像素在视口里，拖不丢。图比 2×KEEP 还小时按半张算。
+const KEEP = 80
+function clampPosition() {
+  const ww = imgWrapperWidth.value
+  const wh = imgWrapperHeight.value
+  const sw = scaledWidth.value
+  const sh = scaledHeight.value
+  if (!(ww > 0 && wh > 0 && sw > 0 && sh > 0)) {
+    return
+  }
+  const keepX = Math.min(KEEP, sw / 2)
+  const keepY = Math.min(KEEP, sh / 2)
+  const cx = Math.min(ww - keepX, Math.max(keepX - sw, x.value))
+  const cy = Math.min(wh - keepY, Math.max(keepY - sh, y.value))
+  if (cx !== x.value) {
+    x.value = cx
+  }
+  if (cy !== y.value) {
+    y.value = cy
+  }
+}
+// 每一种改位置的途径（拖、滚轮、小地图、方向键、缩放）都过这一道，不必逐个记得调用。
+watch([x, y, scale, imgWrapperWidth, imgWrapperHeight], clampPosition, { flush: 'sync' })
+
+/** 图在视口里放不下（任一方向超出）：只有这时小地图才有用。 */
+// 「适应窗口」就是 initScale；初始缩放是它取整到 1%，会比真正放得下的多出几十像素，
+// 所以按比例比，不按像素比。
+const overflows = computed(() => scale.value > initScale.value + 0.01)
+
+/** 双击：「适应窗口」⇄ 100%（以指针处为锚点放大）。 */
+function onDoubleClick() {
+  if (Math.abs(scale.value - initScale.value) <= 0.01) {
+    adjustForScaling(1, mx.value, my.value)
+    scale.value = 1
+  }
+  else {
+    toInit()
+  }
+}
+
 function onPointerDown(e: PointerEvent) {
   if (e.buttons === 1) {
     e.preventDefault()
@@ -232,11 +272,11 @@ function close() {
 // 指针贴近画布左右边缘时才浮出翻页按钮。
 const nearEdge = useEdgeProximity(imgWrapperRef)
 
-const { index, total, canPrev, canNext, neighbor } = usePostNavigation(() => post.value.id)
+const { index, total, list: navList, canPrev, canNext, neighbor } = usePostNavigation(() => post.value.id)
 // 预取相邻两张的原图和详情请求（和 views/Post.vue 同一个 composable）。这个
 // 覆盖层是列表里 ←→ 浏览的主路径，此前只有 /post/:id 独立页有预载 —— 在这里
 // 切图每张都是冷加载，大图要等一拍。
-useAdjacentPostPrefetch(index)
+useAdjacentPostPrefetch(index, () => navList.value)
 const announceNav = usePostNavAnnounce()
 
 function navigateDetail(delta: -1 | 1) {
@@ -345,31 +385,19 @@ const fileLabel = computed(() => `${post.value.fileName}.${post.value.extension}
   >
     <header class="px-2 py-2 border-b border-border-default flex gap-2 items-center justify-between">
       <div class="flex flex-1 basis-0 gap-2 items-center overflow-hidden">
-        <PPopover
-          position="bottom"
-          trigger="hover"
+        <!-- 提示用 title 而不是悬停浮层：浮层在图层栈上会先吃掉一次 Esc，
+             指针停在按钮上时要按两下才关得掉。 -->
+        <PButton
+          icon
+          size="sm"
+          variant="ghost"
+          :aria-label="$t('post.closeViewer')"
+          :title="`${$t('post.closeViewer')} (Esc)`"
+          aria-keyshortcuts="Escape"
+          @click="close"
         >
-          <PButton
-            icon
-            size="sm"
-            variant="ghost"
-            :aria-label="$t('post.closeViewer')"
-            aria-keyshortcuts="Escape"
-            @click="close"
-          >
-            <i class="i-tabler-arrow-left" aria-hidden="true" />
-          </PButton>
-          <template #content>
-            <PSurface
-              level="1"
-              bordered
-              class="text-xs px-2 py-1 text-center"
-            >
-              <kbd>Esc</kbd>
-              <span class="text-fg-muted ml-1">{{ $t('post.escToClose') }}</span>
-            </PSurface>
-          </template>
-        </PPopover>
+          <i class="i-tabler-arrow-left" aria-hidden="true" />
+        </PButton>
         <span class="text-sm text-fg-muted truncate">
           {{ fileLabel }}
         </span>
@@ -389,33 +417,21 @@ const fileLabel = computed(() => `${post.value.fileName}.${post.value.extension}
           :aria-valuetext="`${scaleStr}%`"
           @update:model-value="scaleWithSlider"
         />
-        <PPopover
-          position="bottom"
-          trigger="hover"
+        <PButton
+          icon
+          size="sm"
+          :aria-label="$t('post.fitToViewport')"
+          :title="`${$t('post.initialScale')} (0)`"
+          aria-keyshortcuts="0"
+          @click="toInit"
         >
-          <PButton
-            icon
-            size="sm"
-            :aria-label="$t('post.fitToViewport')"
-            aria-keyshortcuts="0"
-            @click="toInit"
-          >
-            <i class="i-tabler-focus-centered" aria-hidden="true" />
-          </PButton>
-          <template #content>
-            <PSurface
-              level="1"
-              bordered
-              class="text-xs px-2 py-1 text-center"
-            >
-              {{ $t('post.initialScale') }}
-            </PSurface>
-          </template>
-        </PPopover>
+          <i class="i-tabler-focus-centered" aria-hidden="true" />
+        </PButton>
         <PButton
           icon
           size="sm"
           :aria-label="$t('post.actualSize')"
+          :title="$t('post.actualSize')"
           aria-keyshortcuts="\"
           @click="to1x"
         >
@@ -448,6 +464,7 @@ const fileLabel = computed(() => `${post.value.fileName}.${post.value.extension}
       @pointermove.stop="onPointermove"
       @lostpointercapture="endGesture"
       @wheel.stop="onWheel"
+      @dblclick="onDoubleClick"
     >
       <!-- 缩略图占位：与原图同几何叠放在下层，原图 onload 前顶着画面。 -->
       <img
@@ -509,6 +526,7 @@ const fileLabel = computed(() => `${post.value.fileName}.${post.value.extension}
       />
       <!-- 小地图只是指针的快捷平移（键盘用 Shift+方向键），对读屏是装饰。 -->
       <div
+        v-if="overflows"
         ref="miniMapRef"
         aria-hidden="true"
         class="border border-border-strong rounded bg-bg shadow-md bottom-4 left-4 absolute z-1 overflow-hidden"

@@ -6,6 +6,7 @@ import { useQueryClient } from '@tanstack/vue-query'
 import { computed, nextTick, ref, useId, useTemplateRef, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { v2NextListwise, v2SampleListwise } from '@/api'
+import AnnotationFinished from '@/components/annotate/AnnotationFinished.vue'
 import AnnotationKeyHints from '@/components/annotate/AnnotationKeyHints.vue'
 import AnnotationLoadError from '@/components/annotate/AnnotationLoadError.vue'
 import { gateOnSubmit, moveItem, noLayerOpen, sortableIntent, sortableTarget } from '@/composables/useAnnotationKeymap'
@@ -20,7 +21,7 @@ import { useHotkey } from '@/ui/useHotkey'
 import { useRovingFocus } from '@/ui/useRovingFocus'
 import { getPostImageURL } from '@/utils'
 import { focusElement } from '@/utils/focus'
-import { formatShortcut, isMac } from '@/utils/keyboard'
+import { formatShortcut, isMac, shortcutKeys } from '@/utils/keyboard'
 
 interface BufferItem {
   posts: QueueItemPostPublic[]
@@ -295,33 +296,40 @@ function noteInHistory(item: BufferItem, ranking: number[], ids: number[]) {
 }
 
 function submit(ranking: number[]) {
-  return stream.submitCurrent(async (item) => {
-    const elapsedMs = stream.elapsedMs()
-    const ids = await postRanking(item, ranking, elapsedMs)
-    stream.advance()
-    noteInHistory(item, ranking, ids)
-    applyAgreement(item, ranking, 1)
+  // 乐观推进（同 pairwise）：立刻换下一组，排序在后台提交；失败时这一组连同你排好的
+  // 顺序一起回到屏幕上。
+  const elapsedMs = stream.elapsedMs()
+  const judgedIn = dimension.value
+  const send = (item: BufferItem) => postRanking(item, ranking, elapsedMs)
+  // 组回到屏幕时恢复当时的行序：watch(current) 看到成员相同就不会再把它重置成呈现序。
+  const restore = (item: BufferItem) => {
+    order.value = ranking.length > 0 ? [...ranking] : item.posts.map(p => p.id)
+    gate.value = ranking.length > 0 ? 'adjusted' : 'untouched'
+    applyAgreement(item, ranking, -1)
+  }
+  stream.judgeAhead({
+    send,
+    advance: () => {
+      applyAgreement(current.value!, ranking, 1)
+      stream.advance()
+    },
+    onSent: (item, ids) => noteInHistory(item, ranking, ids),
+    onFailed: restore,
+    onError: error => handleAPIError(error, t('annotate.error.submit')),
     // 与 pairwise 相同的撤销契约：真删事件行（误排会直接进训练导出），再把组塞回屏幕。
-    const judgedIn = dimension.value
-    stream.pushUndoable({
-      item,
-      ids,
+    undo: item => ({
       label: t(ranking.length > 0 ? 'annotate.listwise.rankGroup' : 'annotate.listwise.skipGroup'),
       redo: async () => {
-        const again = await postRanking(item, ranking, elapsedMs)
+        const again = await send(item)
         stream.advance()
         noteInHistory(item, ranking, again)
         applyAgreement(item, ranking, 1)
         return again
       },
       stillHere: () => dimension.value === judgedIn,
-      onRevert: () => {
-        order.value = ranking.length > 0 ? [...ranking] : item.posts.map(p => p.id)
-        gate.value = ranking.length > 0 ? 'adjusted' : 'untouched'
-        applyAgreement(item, ranking, -1)
-      },
-    })
-  }, error => handleAPIError(error, t('annotate.error.submit')))
+      onRevert: () => restore(item),
+    }),
+  })
 }
 
 // ── Keyboard ────────────────────────────────────────────────────────────────
@@ -499,11 +507,18 @@ watch(() => [props.queue?.id, props.dimension] as const, () => {
 
 const title = computed(() => props.queue?.name ?? t('annotate.listwise.streamTitle'))
 
+const finished = computed(() => exhausted.value && !current.value)
+// The keyboard sorting model (see the Keyboard section) is listed too: without it
+// the cards look mouse-only. Space on a focused card picks it up; elsewhere it skips.
 const hints = computed(() => [
   { keys: [t('annotate.keys.drag')], label: t('annotate.keys.reorder') },
   { keys: [t('annotate.keys.click')], label: t('annotate.keys.enlarge') },
+  { keys: ['←', '→'], label: t('annotate.keys.selectCard') },
+  { keys: ['Space'], label: t('annotate.keys.grabCard') },
+  { keys: ['Alt', '↑↓'], label: t('annotate.keys.move') },
   { keys: ['Enter'], label: t('annotate.keys.submit') },
   { keys: ['Space'], label: t('annotate.keys.skip') },
+  { keys: shortcutKeys('Mod+Z'), label: t('annotate.keys.undo') },
   { keys: ['Esc'], label: t('annotate.keys.exit') },
 ])
 const lightboxHints = computed(() => [
@@ -516,8 +531,8 @@ const submitKeyAria = isMac ? 'Meta+Enter' : 'Control+Enter'
 <template>
   <div ref="root" class="listwise-session flex flex-col h-full" tabindex="-1" role="region" :aria-label="title">
     <!-- 顶栏 -->
-    <div class="text-sm px-4 py-2.5 p-divider flex shrink-0 items-center justify-between">
-      <div class="flex gap-3 min-w-0 items-center">
+    <div class="text-sm px-4 py-2.5 p-divider flex shrink-0 gap-4 items-center justify-between">
+      <div class="flex shrink-0 gap-3 max-w-1/3 min-w-0 items-center">
         <button
           type="button"
           class="listwise-exit"
@@ -532,19 +547,20 @@ const submitKeyAria = isMac ? 'Meta+Enter' : 'Control+Enter'
           {{ title }}
         </h2>
       </div>
-      <div class="text-xs text-fg-muted flex shrink-0 gap-4 items-center">
-        <span class="text-fg font-medium tabular-nums">{{ totalLabel }}</span>
+      <!-- 键位说明较长：窄窗口下让它换行，而不是把标题和返回按钮挤出屏幕。 -->
+      <div class="text-xs text-fg-muted flex gap-4 min-w-0 items-center justify-end">
+        <span class="text-fg font-medium shrink-0 whitespace-nowrap tabular-nums">{{ totalLabel }}</span>
         <span
           v-if="agreeLabel"
           class="tabular-nums"
           :title="$t('annotate.listwise.agreementTitle', { n: formatNumber(agreeTotal) })"
         >{{ $t('annotate.listwise.agreement') }} <span class="text-fg font-medium">{{ agreeLabel }}</span></span>
-        <AnnotationKeyHints :hints="hints" />
+        <AnnotationKeyHints v-if="!finished" :hints="hints" />
       </div>
     </div>
 
     <div class="flex flex-1 flex-col min-h-0 min-w-0">
-      <div class="text-sm font-medium px-4 py-2 text-center p-divider shrink-0" :class="gate === 'armed' ? 'listwise-confirm' : 'text-fg'">
+      <div v-if="!finished" class="text-sm font-medium px-4 py-2 text-center p-divider shrink-0" :class="gate === 'armed' ? 'listwise-confirm' : 'text-fg'">
         <i18n-t v-if="gate === 'armed'" keypath="annotate.listwise.confirm" tag="span" scope="global">
           <template #enter>
             <kbd class="listwise-kbd">Enter</kbd>
@@ -622,20 +638,22 @@ const submitKeyAria = isMac ? 'Meta+Enter' : 'Control+Enter'
 
       <!-- 空态 / 完成态 -->
       <div v-else class="flex flex-1 items-center justify-center">
-        <div v-if="exhausted" class="text-center">
-          <div class="text-3xl mb-3" aria-hidden="true">
-            🎉
-          </div>
-          <div class="text-sm text-fg font-medium">
-            {{ $t('annotate.listwise.exhausted') }}
-          </div>
-          <div class="text-xs text-fg-muted mt-1">
-            {{ $t('annotate.listwise.exhaustedDetail', { n: formatNumber(doneCount) }) }}
-          </div>
-        </div>
+        <AnnotationFinished v-if="exhausted" kind="listwise" :done="doneCount" @home="emit('exit')" />
         <AnnotationLoadError v-else-if="loadState === 'error'" @retry="stream.refill()" />
-        <div v-else role="status" class="text-sm text-fg-muted flex gap-2 items-center">
-          <span class="listwise-spinner" aria-hidden="true" />{{ $t('common.loading') }}
+        <!-- 首组：采样要跑分数窗口查询，可能要一两秒 —— 用与真卡片同形的骨架占住行，
+             不让屏幕空着只剩一个转圈。 -->
+        <div v-else role="status" class="flex flex-col gap-3 h-full w-full">
+          <div class="listwise-row flex-1 min-h-0" aria-hidden="true">
+            <div
+              v-for="i in groupSize"
+              :key="i"
+              class="listwise-card listwise-card--skeleton p-skeleton"
+              :style="{ '--i': i - 1 }"
+            />
+          </div>
+          <div class="text-sm text-fg-muted pb-4 flex gap-2 items-center justify-center">
+            <span class="listwise-spinner" aria-hidden="true" />{{ $t('annotate.listwise.sampling') }}
+          </div>
         </div>
       </div>
     </div>
@@ -774,6 +792,11 @@ const submitKeyAria = isMac ? 'Meta+Enter' : 'Control+Enter'
   to { opacity: 1; }
 }
 
+.listwise-card.listwise-card--skeleton {
+  background: var(--p-skeleton);
+  border-radius: var(--p-radius-md);
+  cursor: default;
+}
 .listwise-card {
   position: relative;
   display: flex;

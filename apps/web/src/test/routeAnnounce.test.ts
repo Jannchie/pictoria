@@ -11,6 +11,9 @@ describe('routetitle', () => {
   it('uses route keys for fixed pages', () => {
     expect(routeTitle(home)).toEqual({ key: 'route.home' })
     expect(routeTitle(tags)).toEqual({ key: 'route.tags' })
+    expect(routeTitle({ path: '/annotate', name: 'annotate', query: { mode: 'pairwise', strategy: 'close' } })).toEqual({ key: 'route.annotatePairwise' })
+    expect(routeTitle({ path: '/annotate', name: 'annotate', query: { queue: '12' } })).toEqual({ key: 'route.annotateQueue', params: { id: '12' } })
+    expect(routeTitle({ path: '/annotate', name: 'annotate', query: {} })).toEqual({ key: 'route.annotate' })
     expect(routeTitle({ path: '/all', name: 'all', meta: { gallery: true, view: 'all' } })).toEqual({ key: 'route.all' })
     expect(routeTitle({ path: '/random', meta: { gallery: true, view: 'random' } })).toEqual({ key: 'route.random' })
     expect(routeTitle({ path: '/recently', name: 'recently', meta: { gallery: true, view: 'recently' } })).toEqual({ key: 'route.recently' })
