@@ -3,39 +3,59 @@
  * 采样器真正用到的那几个同步核心（`exists_sync` / `existing_sync` /
  * `unit_vectors_sync` / `knn_sync`）。
  *
- * 表是 vec0 虚表，点查是虚表探测而不是 B-tree 探测（实测约 1.5 ms/条），
- * 所以这里凡是能批量的一律批量。
+ * ⚠️ 对这张 vec0 虚表**不要**写 `post_id IN (...)`：vec0 只把 `post_id = ?` 认成点查，
+ * `IN` 列表退化成全表扫描（真库 37 万行，64 个 id 110–170 ms；prepare 一次后逐条
+ * `post_id = ?` 约 1 ms）。所以这里一律逐 id 点查，不批量。只问"有没有"的查影子表
+ * `<table>_rowids`：普通 B-tree，`rowid` 就是 `post_id`，vec0 删行时连它那一行一起删。
  */
-import { placeholders } from '../sql.js'
 import type BetterSqlite3 from 'better-sqlite3'
 
 export const SIGLIP2_TABLE = 'post_vectors_siglip2'
 
-/**
- * 一个 `IN (...)` 里塞多少个 id。
- *
- * 现代 SQLite 的 SQLITE_MAX_VARIABLE_NUMBER 是 32766，老版本是 999 —— 900
- * 两边都不越界,而分块数本身不影响什么。与 Python 侧同值。
- */
-const IN_CHUNK = 900
+/** vec0 的影子 rowid 表（`rowid` = `post_id`）。存在性检查走它的主键。 */
+export const SIGLIP2_ROWIDS_TABLE = `${SIGLIP2_TABLE}_rowids`
 
-/** 这些 id 里哪些有 embedding —— 每块一条 `IN (...)`。 */
+/** 这些 id 里哪些有 embedding —— 影子表上逐条主键点查。 */
 export function existingVectors(
   sqlite: BetterSqlite3.Database,
   postIds: number[],
 ): Set<number> {
   const found = new Set<number>()
-  for (let start = 0; start < postIds.length; start += IN_CHUNK) {
-    const chunk = postIds.slice(start, start + IN_CHUNK)
-    const ph = placeholders(chunk.length)
-    for (const row of sqlite
-      .prepare<unknown[], { post_id: number }>(
-        `SELECT post_id FROM ${SIGLIP2_TABLE} WHERE post_id IN (${ph})`,
-      )
-      .all(...chunk))
-      found.add(row.post_id)
+  if (!postIds.length)
+    return found
+  const probe = sqlite.prepare<[number], number>(`SELECT 1 FROM ${SIGLIP2_ROWIDS_TABLE} WHERE rowid = ?`).pluck()
+  for (const id of postIds) {
+    if (probe.get(id) !== undefined)
+      found.add(id)
   }
   return found
+}
+
+/**
+ * `post_id -> embedding blob`，原样取出不做数值转换；没有向量的 id 不出现。
+ * 逐 id `post_id = ?` 点查（见文件头：vec0 上的 `IN` 是全表扫）。
+ *
+ * 交给 cairnq payload 的就是这段字节的 base64（见 `@pictoria/contracts` 的
+ * codec）—— 从库里读出来到 worker 手上，中间没有任何一步把它变成十进制。
+ */
+export function embeddingBlobs(
+  sqlite: BetterSqlite3.Database,
+  postIds: number[],
+): Map<number, Buffer> {
+  const out = new Map<number, Buffer>()
+  if (!postIds.length)
+    return out
+  const point = sqlite
+    .prepare<[number], Buffer>(`SELECT embedding FROM ${SIGLIP2_TABLE} WHERE post_id = ?`)
+    .pluck()
+  for (const id of postIds) {
+    if (out.has(id))
+      continue
+    const blob = point.get(id)
+    if (blob !== undefined)
+      out.set(id, blob)
+  }
+  return out
 }
 
 /**
@@ -49,15 +69,7 @@ export function unitVectors(
   postIds: number[],
 ): Map<number, Float32Array> {
   const out = new Map<number, Float32Array>()
-  if (!postIds.length)
-    return out
-  const ph = placeholders(postIds.length)
-  for (const row of sqlite
-    .prepare<unknown[], { post_id: number, embedding: Buffer }>(
-      `SELECT post_id, embedding FROM ${SIGLIP2_TABLE} WHERE post_id IN (${ph})`,
-    )
-    .all(...postIds)) {
-    const raw = row.embedding
+  for (const [postId, raw] of embeddingBlobs(sqlite, postIds)) {
     const vec = new Float32Array(raw.buffer, raw.byteOffset, raw.length / 4)
     let sum = 0
     for (const v of vec) sum += v * v
@@ -66,7 +78,7 @@ export function unitVectors(
       continue
     const unit = new Float32Array(vec.length)
     for (let i = 0; i < vec.length; i++) unit[i] = vec[i]! / norm
-    out.set(row.post_id, unit)
+    out.set(postId, unit)
   }
   return out
 }
@@ -79,9 +91,7 @@ export function cosine(a: Float32Array, b: Float32Array): number {
 }
 
 export function vectorExists(sqlite: BetterSqlite3.Database, postId: number): boolean {
-  return sqlite
-    .prepare(`SELECT 1 FROM ${SIGLIP2_TABLE} WHERE post_id = ?`)
-    .get(postId) !== undefined
+  return existingVectors(sqlite, [postId]).has(postId)
 }
 
 /**

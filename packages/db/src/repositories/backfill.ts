@@ -310,28 +310,6 @@ function silvaScan(scorer: AestheticScorerName, { withVector = false } = {}): Fl
 }
 
 /**
- * `post_id -> embedding blob`，原样取出不做数值转换。
- *
- * 交给 cairnq payload 的就是这段字节的 base64（见 `@pictoria/contracts` 的
- * codec）—— 从库里读出来到 worker 手上，中间没有任何一步把它变成十进制。
- */
-export function fetchEmbeddingBlobs(
-  sqlite: BetterSqlite3.Database,
-  ids: number[],
-): Map<number, Buffer> {
-  const out = new Map<number, Buffer>()
-  if (!ids.length)
-    return out
-  for (const row of sqlite
-    .prepare<unknown[], { post_id: number, embedding: Buffer }>(
-      `SELECT post_id, embedding FROM ${SIGLIP2_TABLE} WHERE post_id IN (${placeholders(ids.length)})`,
-    )
-    .all(...ids))
-    out.set(row.post_id, row.embedding)
-  return out
-}
-
-/**
  * 只留下 post 还在的那些行。
  *
  * 待办查询选中一批 → 任务算几秒到几分钟 → 这期间 sync 可能已经把其中的 post 删了

@@ -19,8 +19,29 @@
  * 不需要幂等的路径就**别传 key**（`routes/images.ts` 的缩略图、`dedup.ts` 的矩阵
  * 都是这么做的，各自的注释有原因）。
  */
-import { CairnQ } from 'cairnq'
+import { type CallOptions, CairnQ } from 'cairnq'
 import { tasksDbPath } from './paths.js'
+
+/**
+ * `tasks.call` 的默认轮询间隔：首拍 20ms、退避上限 50ms。`connect` 用 `withTightPoll`
+ * 把它合并进真实句柄的每一次 `call`，调用点不用写。
+ *
+ * cairnq 默认会一路退避到 500ms —— 交互端点平白多等几百毫秒，调度器那头则是 GPU
+ * 空转到下一批提交。0.8 起一次轮询是 tasks.sqlite 上的纯状态主键探针（不回读
+ * payload），20 次/秒不值一提。
+ *
+ * 调用点自己给了 `pollMs` 就整组轮询参数归它（不再混入这里的 `maxPollMs`）：分钟级
+ * 的下载任务（Danbooru / URL 导入）用 500ms，这是有意的。
+ */
+const TIGHT_POLL = { pollMs: 20, maxPollMs: 50 } as const
+
+/** 让句柄的 `call` 默认带 `TIGHT_POLL`。类型不变：注入的 `fakeTasks` 不受影响。 */
+export function withTightPoll(tasks: CairnQ): CairnQ {
+  const call = tasks.call.bind(tasks) as (task: unknown, payload?: unknown, opts?: CallOptions) => Promise<unknown>
+  tasks.call = ((task: unknown, payload?: unknown, opts?: CallOptions) =>
+    call(task, payload, opts?.pollMs === undefined ? { ...TIGHT_POLL, ...opts } : opts)) as CairnQ['call']
+  return tasks
+}
 
 /**
  * 终态任务分层保留（cairnq ≥ 0.8 的 per-status retention）。
@@ -48,7 +69,7 @@ async function connect(): Promise<CairnQ> {
   const tasks = CairnQ.sqlite(tasksDbPath(), { retention: { olderThanMs: RETENTION } })
   try {
     await tasks.connect()
-    return tasks
+    return withTightPoll(tasks)
   }
   catch (err) {
     await tasks.close().catch(() => {})

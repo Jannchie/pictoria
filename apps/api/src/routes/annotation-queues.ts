@@ -1,5 +1,5 @@
 /**
- * `/v2/annotation-queues` —— 从显式列表建队列、列队列、取下一批。
+ * `/v2/annotation-queues` —— 从显式列表建队列、列队列、删队列、取下一批。
  *
  * 两个 `generate-*` 先跑采样器（PairGraph、并查集、多样性子集、重访池，见
  * `@pictoria/db` 的 sampling.ts）再把抽出来的 id / 对写成一个队列。
@@ -9,12 +9,12 @@ import {
   createAbsoluteQueue,
   createListwiseQueue,
   createPairwiseQueue,
+  deleteQueue,
   listQueues,
   MUTABLE_KINDS,
   nextAbsoluteItems,
-  nextListwiseItems,
   nextPairwiseItems,
-  postsById,
+  nextPresentableListwiseItems,
   sampleGroups,
   samplePairs,
   samplePostIds,
@@ -194,8 +194,38 @@ annotationQueuesRoutes.openapi(
 
 const queueIdParam = z.coerce.number().int()
   .openapi({ param: { name: 'queue_id', in: 'path', required: true }, type: 'integer' })
-const limitParam = z.coerce.number().int().default(20)
+
+/** 一次取件的上限。前端一次要 10~20 项；没有上限时 `limit=-1` 就是 SQLite 的"不限"。 */
+const MAX_NEXT_ITEMS = 200
+const limitParam = z.coerce.number().int().min(1).max(MAX_NEXT_ITEMS).default(20)
   .openapi({ param: { name: 'limit', in: 'query', required: false }, type: 'integer', default: 20 })
+
+/**
+ * 一次生成的队列最多多少项。与前端表单的 `max="5000"` 对齐；采样器内部会按它开
+ * `IN (...)` 列表（超量 2 倍），不设上限时一个大数直接撞 SQLite 的变量数上限变成 500。
+ */
+const MAX_GENERATE_COUNT = 5000
+
+annotationQueuesRoutes.openapi(
+  createRoute({
+    method: 'delete',
+    path: '/v2/annotation-queues/{queue_id}',
+    operationId: 'v2DeleteQueue',
+    summary: 'DeleteQueue',
+    description: 'Delete a queue and all of its items. Annotations already submitted from it are kept: events do not reference queues.',
+    request: { params: z.object({ queue_id: queueIdParam }) },
+    responses: {
+      204: { description: 'No Content' },
+      ...errors(400, 404),
+    },
+  }),
+  (c) => {
+    const { queue_id: queueId } = c.req.valid('param')
+    if (!deleteQueue(c.var.db, queueId))
+      return fail(404, 'QueueNotFoundError', `Queue with id ${queueId} not found.`)
+    return c.body(null, 204)
+  },
+)
 
 annotationQueuesRoutes.openapi(
   createRoute({
@@ -262,7 +292,7 @@ annotationQueuesRoutes.openapi(
     path: '/v2/annotation-queues/{queue_id}/next-listwise',
     operationId: 'v2NextListwise',
     summary: 'NextListwise',
-    description: 'Next undone items of a listwise queue, each a group of posts to rank.',
+    description: 'Next undone items of a listwise queue, each a group of posts to rank. Items whose surviving members (after deletions) are too few to rank are marked done and skipped.',
     request: {
       params: z.object({ queue_id: queueIdParam }),
       query: z.object({ limit: limitParam }),
@@ -275,14 +305,11 @@ annotationQueuesRoutes.openapi(
   (c) => {
     const { queue_id: queueId } = c.req.valid('param')
     const { limit } = c.req.valid('query')
-    const sqlite = c.var.db
-    const items = nextListwiseItems(sqlite, queueId, limit)
-    // 一次取齐所有成员的图片行；已删除的图从组里静默消失，剩下的仍然可排。
-    const posts = postsById(sqlite, items.flatMap(i => i.post_ids))
+    // 已删除的图从组里静默消失；剩得太少、提交不了的组在仓库层就地标完成并跳过。
     return c.json(
-      items.map(i => ({
+      nextPresentableListwiseItems(c.var.db, queueId, limit).map(i => ({
         position: i.position,
-        posts: i.post_ids.flatMap(pid => posts.get(pid) ?? []).map(p => toQueuePost(p)),
+        posts: i.posts.map(p => toQueuePost(p)),
       })),
       200,
     )
@@ -293,7 +320,7 @@ const GenerateAbsoluteIn = z
   .object({
     dimensions: z.array(z.enum(VALID_DIMENSIONS)).min(1),
     scale: ScaleSchema,
-    count: z.int().min(1),
+    count: z.int().min(1).max(MAX_GENERATE_COUNT),
     strategy: z.enum(VALID_STRATEGIES).default('random'),
     name: z.union([z.string(), z.null()]).optional(),
   })
@@ -302,7 +329,7 @@ const GenerateAbsoluteIn = z
 const GeneratePairwiseIn = z
   .object({
     dimension: z.enum(VALID_DIMENSIONS),
-    count: z.int().min(1),
+    count: z.int().min(1).max(MAX_GENERATE_COUNT),
     strategy: z.enum(VALID_PAIRWISE_STRATEGIES).default('random'),
     name: z.union([z.string(), z.null()]).optional(),
   })
@@ -311,7 +338,7 @@ const GeneratePairwiseIn = z
 const GenerateListwiseIn = z
   .object({
     dimension: z.enum(VALID_DIMENSIONS),
-    count: z.int().min(1),
+    count: z.int().min(1).max(MAX_GENERATE_COUNT),
     size: z.int().min(3).max(16).default(4),
     name: z.union([z.string(), z.null()]).optional(),
   })

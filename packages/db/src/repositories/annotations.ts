@@ -145,14 +145,34 @@ export interface QueueRef {
   queuePosition?: number | null
 }
 
+/**
+ * 提交撞上了一个已经完成的队列项：同一个 (queueId, position) 第二次提交（双击、两个标签页、
+ * 重放的请求）。整笔事务因它回滚 —— 第二条判决不落库，路由回 409。
+ */
+export class QueueItemAlreadyDoneError extends Error {
+  override name = 'QueueItemAlreadyDoneError'
+  constructor(readonly queueId: number, readonly position: number) {
+    super(`queue ${queueId} item ${position} is already done`)
+  }
+}
+
 function advanceQueue(
   sqlite: BetterSqlite3.Database,
   { queueId, queuePosition }: QueueRef,
   kind: MutableKind,
   done: boolean,
 ): void {
-  if (queueId != null && queuePosition != null)
-    markQueueItemDone(sqlite, queueId, { kind, position: queuePosition, done })
+  if (queueId == null || queuePosition == null)
+    return
+  if (markQueueItemDone(sqlite, queueId, { kind, position: queuePosition, done }) || !done)
+    return
+  // 没翻过去：要么项不存在（队列被删了，事件照写，见下），要么它已经是 done —— 后者就是
+  // 一次重复提交，抛出去让外层事务把刚写的事件一起退掉。
+  const exists = sqlite
+    .prepare(`SELECT 1 FROM ${ITEM_TABLES[kind]} WHERE queue_id = ? AND position = ?`)
+    .get(queueId, queuePosition) !== undefined
+  if (exists)
+    throw new QueueItemAlreadyDoneError(queueId, queuePosition)
 }
 
 /*
@@ -165,6 +185,10 @@ function advanceQueue(
  *
  * 队列项不存在（id/position 对不上）**不是**错误：markQueueItemDone 只是改到 0 行。
  * 这与拆分前的行为一致 —— 队列可能在标注途中被清掉，事件本身仍然有效。
+ *
+ * 队列项**已经 done** 则是错误（QueueItemAlreadyDoneError）：推进带 `done = 0` 前置条件，
+ * 同一项提交两次，第二次在事务里抛出、连同它写的事件一起回滚。否则一次双击就是两条判决，
+ * 而且第二条与第一条同 session、同秒，没有任何读者分得出它是重放。
  */
 
 /** 一批 absolute 事件（同一张图的几个维度），原子地写入并推进队列。返回新行 id。 */
@@ -206,6 +230,9 @@ export function recordListwise(sqlite: BetterSqlite3.Database, e: ListwiseEventI
  * 撤回本会话刚写的事件并把队列项放回去，原子地。返回真正删掉的行数。
  *
  * 空 `ids` 合法：被跳过的队列项不写事件就标记完成，它的 undo 就只是取消标记。
+ *
+ * 给了 `ids` 却一行都没删掉（session 不匹配、id 早已不在）时**不**放回队列项：那一项的
+ * 判决还在表里，把它重新打开就是请人再判一次，得到的第二条判决是重放而不是重测。
  */
 export function retractAnnotations(
   sqlite: BetterSqlite3.Database,
@@ -213,7 +240,8 @@ export function retractAnnotations(
 ): number {
   return sqlite.transaction(() => {
     const deleted = undoAnnotations(sqlite, { kind, ids, sessionId })
-    advanceQueue(sqlite, queue, kind, false)
+    if (!ids.length || deleted > 0)
+      advanceQueue(sqlite, queue, kind, false)
     return deleted
   })()
 }
@@ -361,23 +389,54 @@ export function timelinePage(
   }
 }
 
+export type EditOutcome
+  = | { kind: 'updated' }
+    | { kind: 'not-found' }
+    | { kind: 'invalid', message: string }
+
+/** pairwise 判决的取值（`pairwise_annotations.winner` 另有同一组值的 CHECK 约束）。 */
+export const VALID_WINNERS = ['a', 'b', 'tie', 'skip'] as const
+export type Winner = typeof VALID_WINNERS[number]
+
 /**
- * 原地更正一条事件的判决，返回是否有行被改。
+ * 能经 PATCH 原地更正的种类。listwise 不在此列：前端的更正入口只有 pairwise / absolute
+ * （`ReviewKind`），而 listwise 的判决是一整个排列，按单值 PATCH 的形状收它只会多一条
+ * 能写坏 JSON 列的路。
+ */
+export const EDITABLE_KINDS = ['pairwise', 'absolute'] as const
+export type EditableKind = typeof EDITABLE_KINDS[number]
+
+/**
+ * 原地更正一条事件的判决。
  *
  * 原地而非追加：见 migration 0014 —— pairwise 导出是一行一条判决、没有 latest-wins
  * 环节，追加一条更正只会让**错的那条**留在训练集里。`edited_at` 是标记
  * `elapsed_ms` 不再描述这一行的东西。
+ *
+ * 判决的值域在这里校验而不是只在路由里：absolute 要对上**这一行**的 scale，得先读出行。
  */
 export function editAnnotation(
   sqlite: BetterSqlite3.Database,
-  { kind, annotationId, verdict }: { kind: MutableKind, annotationId: number, verdict: number | string },
-): boolean {
+  { kind, annotationId, verdict }: { kind: EditableKind, annotationId: number, verdict: number | string },
+): EditOutcome {
   const spec = MUTABLE[kind]
-  return (
-    sqlite
-      .prepare(`UPDATE ${spec.table} SET ${spec.column} = ?, edited_at = datetime('now') WHERE id = ?`)
-      .run(verdict, annotationId).changes > 0
-  )
+  if (kind === 'pairwise') {
+    if (!(VALID_WINNERS as ReadonlyArray<unknown>).includes(verdict))
+      return { kind: 'invalid', message: `invalid winner: ${JSON.stringify(verdict)}` }
+  }
+  else {
+    const row = sqlite
+      .prepare<[number], { scale: number }>('SELECT scale FROM absolute_annotations WHERE id = ?')
+      .get(annotationId)
+    if (!row)
+      return { kind: 'not-found' }
+    if (!(typeof verdict === 'number' && Number.isInteger(verdict) && verdict >= 1 && verdict <= row.scale))
+      return { kind: 'invalid', message: `invalid value ${JSON.stringify(verdict)} for scale ${row.scale}` }
+  }
+  const changed = sqlite
+    .prepare(`UPDATE ${spec.table} SET ${spec.column} = ?, edited_at = datetime('now') WHERE id = ?`)
+    .run(verdict, annotationId).changes
+  return changed > 0 ? { kind: 'updated' } : { kind: 'not-found' }
 }
 
 /** `absolute_annotations` 的一行（ABSOLUTE_COLUMNS）。 */
@@ -508,7 +567,12 @@ export const ITEM_TABLES: Record<string, string> = {
   listwise: 'listwise_queue_items',
 }
 
-/** 翻转一个队列项的 done 标记。`done=false` 是 undo 放回去用的。 */
+/**
+ * 翻转一个队列项的 done 标记，返回是否真的翻了。`done=false` 是 undo 放回去用的。
+ *
+ * 带前置条件（`done` 必须是相反值）：改到 0 行既可能是项不存在，也可能是它本来就在
+ * 目标状态 —— 调用方（advanceQueue）需要分清这两种情况。
+ */
 export function markQueueItemDone(
   sqlite: BetterSqlite3.Database,
   queueId: number,
@@ -519,9 +583,24 @@ export function markQueueItemDone(
     throw new Error(`unknown queue kind: ${kind}`)
   return (
     sqlite
-      .prepare(`UPDATE ${table} SET done = ? WHERE queue_id = ? AND position = ?`)
-      .run(done ? 1 : 0, queueId, position).changes > 0
+      .prepare(`UPDATE ${table} SET done = ? WHERE queue_id = ? AND position = ? AND done = ?`)
+      .run(done ? 1 : 0, queueId, position, done ? 0 : 1).changes > 0
   )
+}
+
+/**
+ * 删掉一个队列，返回它是否存在过。
+ *
+ * 删队列和它的**全部项**（done 与否都删 —— 项表对 annotation_queues 有外键且不级联，
+ * 留着已完成的项，队列行就删不掉）。判决事件不动：事件表不引用队列，标过的就是标过的，
+ * 与它出自哪个队列无关；项上的 done 只是进度条用的标记。
+ */
+export function deleteQueue(sqlite: BetterSqlite3.Database, queueId: number): boolean {
+  return sqlite.transaction(() => {
+    for (const table of Object.values(ITEM_TABLES))
+      sqlite.prepare(`DELETE FROM ${table} WHERE queue_id = ?`).run(queueId)
+    return sqlite.prepare('DELETE FROM annotation_queues WHERE id = ?').run(queueId).changes > 0
+  })()
 }
 
 /** timeline / 采样 / 队列取件共用的七个图片列。 */
@@ -599,7 +678,7 @@ export function pairsWithPosts(
 }
 
 /** 一组少于这么多张就不值得排了（成员被删后剩下的）。 */
-const MIN_PRESENTABLE_GROUP = 3
+export const MIN_PRESENTABLE_GROUP = 3
 
 /**
  * 一批 listwise 组的图片行与同序的 silva 分。被删的成员静默消失，剩不到

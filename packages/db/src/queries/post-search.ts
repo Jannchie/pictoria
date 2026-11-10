@@ -4,7 +4,8 @@
 import { placeholders, whereSql } from '../sql.js'
 import type BetterSqlite3 from 'better-sqlite3'
 import { Buffer } from 'node:buffer'
-import { buildWhere, ORDERABLE_COLUMNS, type PostFilter } from '../filters.js'
+import { buildWhere, type BuildWhereOptions, ORDERABLE_COLUMNS, type PostFilter } from '../filters.js'
+import { LIST_DRIVE_MAX_POSTS, pickDrivingTag } from './tag-drive.js'
 import { FILTERABLE_SCORERS, orderColumn, SILVA } from '../scorers.js'
 import { SIGLIP2_TABLE } from '../repositories/vectors.js'
 import {
@@ -98,8 +99,9 @@ export function buildSearchQuery(
   f: PostFilterWithOrder,
   limit: number,
   offset: number,
+  whereOpts?: BuildWhereOptions,
 ): { sql: string, params: unknown[] } {
-  const { where, params, joins } = buildWhere(f)
+  const { where, params, joins } = buildWhere(f, whereOpts)
   const wSql = whereSql(where)
   let selectCols = `SELECT ${SIMPLE_BASE_SELECT}`
 
@@ -172,7 +174,9 @@ export function searchPosts(
   f: PostFilterWithOrder,
   { limit = 100, offset = 0 }: { limit?: number, offset?: number } = {},
 ): Array<Record<string, unknown>> {
-  const { sql, params } = buildSearchQuery(f, limit, offset)
+  // 冷门 tag 从 tag 侧驱动（见 `tag-drive.ts`）；SQL 文本只在选中时才变，golden 不受影响。
+  const drivingTag = pickDrivingTag(sqlite, f.tags, LIST_DRIVE_MAX_POSTS)
+  const { sql, params } = buildSearchQuery(f, limit, offset, { drivingTag })
   const rows = sqlite.prepare<unknown[], Record<string, unknown>>(sql).all(...params)
 
   for (const r of rows) {

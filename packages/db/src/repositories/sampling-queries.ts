@@ -40,18 +40,28 @@ const REPEAT_PRIOR = `dimension = ? AND winner != 'skip'`
  *
  * 顺带把 random / similar 偶然重问到老对的情况也收进来：那同样是一次可用的重复测量，
  * 冷却期条件已经保证了它可用。
+ *
+ * 性能：每次 pairwise 提交都跑一遍，所以必须是两次索引探测而不是扫维度。写成
+ * `dimension = ? AND ((a,b) OR (b,a))` 时，规划器拿 dimension 的等值去配
+ * `idx_pairwise_annotations_dimension`，然后在整个维度（几乎就是整张表）里逐行核对
+ * 两端；拆成两个方向各一条 EXISTS，每条都是 `(post_a, post_b, dimension)` 的全列等值，
+ * 正好落在 `idx_pairwise_annotations_posts` 上，命中行数是"这一对被判过几次"。
+ * `EXPLAIN QUERY PLAN` 由 sampling-repeat.test.ts 钉住。
  */
 export function isRepeatMeasurement(
   sqlite: BetterSqlite3.Database,
   { a, b, dimension }: { a: number, b: number, dimension: string },
 ): boolean {
   return sqlite
-    .prepare<[string, number, number, number, number], { 1: number }>(
-      `SELECT 1 FROM pairwise_annotations WHERE ${REPEAT_PRIOR}`
-      + ` AND ((post_a = ? AND post_b = ?) OR (post_a = ? AND post_b = ?)) LIMIT 1`,
-    )
-    .get(dimension, a, b, b, a) !== undefined
+    .prepare<[number, number, string, number, number, string], number>(REPEAT_MEASUREMENT_SQL)
+    .pluck()
+    .get(a, b, dimension, b, a, dimension) === 1
 }
+
+const REPEAT_PRIOR_ROW = `SELECT 1 FROM pairwise_annotations WHERE post_a = ? AND post_b = ? AND ${REPEAT_PRIOR}`
+
+/** isRepeatMeasurement 的语句，导出给测试看查询计划。参数：`a, b, dimension, b, a, dimension`。 */
+export const REPEAT_MEASUREMENT_SQL = `SELECT EXISTS (${REPEAT_PRIOR_ROW}) OR EXISTS (${REPEAT_PRIOR_ROW})`
 
 /**
  * 候选必须有 embedding（训练时要 join 它）、不能是被隐藏的近重复、不能在任何一个被请求的
@@ -144,8 +154,9 @@ export interface AnchoredMember { readonly silva: number, readonly format: Forma
 /**
  * 只保留有 SigLIP2 embedding 的 id，保持抽取顺序。
  *
- * 一次集合查询而不是每个 id 探一次：一次约 1.5 ms，逐个探的写法在
- * `generate-pairwise count=200` 里光是配对开始前就花掉 1.2 s。
+ * 走 `existingVectors`：影子 rowid 表上 prepare 一次、逐 id 主键点查。不要改成
+ * vec0 上的 `post_id IN (...)` 集合查询 —— vec0 把 `IN` 退化成全表扫描（见
+ * `vectors.ts` 文件头）。
  */
 export function withEmbedding(sqlite: BetterSqlite3.Database, ids: number[]): number[] {
   const embedded = existingVectors(sqlite, ids)

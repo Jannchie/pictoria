@@ -279,7 +279,8 @@ export async function syncMetadata(
     }
     else {
       log.info(`[sync] 检测到 ${deletable.length} 个文件已被删除`)
-      deletePostFiles(sqlite, deletable.map(d => d.id))
+      // 分块、块间让出事件循环（见 `post-files.ts`）：一次删几万行不该让 API 停摆。
+      await deletePostFiles(sqlite, deletable.map(d => d.id))
       removed = deletable.length
     }
   }

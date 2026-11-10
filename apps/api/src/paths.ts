@@ -11,6 +11,7 @@
  * `_resolve_inside` 包含检查。相对的覆盖值（`PICTORIA_TARGET_DIR`/`DB_PATH`/
  * `TASKS_DB_PATH`）两边都锚到仓库根，与各进程的 cwd 无关。
  */
+import fs from 'node:fs'
 import process from 'node:process'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -154,7 +155,28 @@ export function isDedupMatrix(name: string): boolean {
  * 分成两份实现迟早分叉。
  */
 export function isInside(target: string, root: string): boolean {
+  // NTFS 不区分大小写：`.PICTORIA` 和 `.pictoria` 是同一个目录，按字节比会被绕过。
+  if (process.platform === 'win32') {
+    target = target.toLowerCase()
+    root = root.toLowerCase()
+  }
   return target === root || target.startsWith(root + path.sep)
+}
+
+/**
+ * 文件系统眼里的真实路径（解开大小写、8.3 短名、末尾点号、junction / symlink）；
+ * 解析不出来（不存在、无权限）就退回 `path.resolve`。
+ *
+ * 给 `isInside` 做第二道判定用：字符串层面的包含挡不住文件系统自己的别名，两边都
+ * 过一遍这个再比。
+ */
+export function realPathOrResolved(p: string): string {
+  try {
+    return fs.realpathSync.native(p)
+  }
+  catch {
+    return path.resolve(p)
+  }
 }
 
 /**

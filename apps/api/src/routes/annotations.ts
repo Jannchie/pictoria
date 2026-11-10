@@ -5,6 +5,7 @@
 import { createRoute, z } from '@hono/zod-openapi'
 import {
   countPairwise,
+  EDITABLE_KINDS,
   editAnnotation,
   expandListwiseAnnotations,
   groupsWithSilva,
@@ -17,6 +18,7 @@ import {
   pairsWithPosts,
   parseTimelineCursor,
   postsInOrder,
+  QueueItemAlreadyDoneError,
   recordAbsolute,
   recordListwise,
   recordPairwise,
@@ -24,10 +26,13 @@ import {
   sampleGroups,
   samplePairs,
   samplePostIds,
+  TIMELINE_MAX_LIMIT,
   timelinePage,
+  VALID_WINNERS,
+  type Winner,
 } from '@pictoria/db'
 import { newRoutes } from '../env.js'
-import { CREATED, OK, errors, invalidRequest, validationError } from '../openapi.js'
+import { CREATED, OK, errors, fail, invalidRequest, validationError } from '../openapi.js'
 import { toIsoDateTime } from '../schemas.js'
 import {
   QueueItemPostPublic,
@@ -38,12 +43,24 @@ import {
   VALID_STRATEGIES,
 } from './annotation-shared.js'
 
-const VALID_WINNERS = ['a', 'b', 'tie', 'skip'] as const
 const VALID_FLAGS = ['love', 'hate', 'none'] as const
+
+/** 无队列取样一次最多要多少。前端一次要 20 个 / 3 组；上限只是不让 LIMIT 失控。 */
+const MAX_SAMPLE = 200
+const MAX_SAMPLE_GROUPS = 50
+
+/**
+ * 同一个队列项第二次提交。在 record* 的事务里抛出，事件已经随事务回滚，所以这里只是
+ * 翻译成 409 —— 其它异常照常往外抛（500）。
+ */
+function alreadyDoneOrThrow(err: unknown) {
+  if (err instanceof QueueItemAlreadyDoneError)
+    return fail(409, 'QueueItemAlreadyDoneError', `Queue ${err.queueId} item ${err.position} was already submitted.`)
+  throw err
+}
 
 // 读回来的列在写入时都经过了 enum 校验（且 winner 另有 CHECK 约束），所以只需断言。
 type Dimension = typeof VALID_DIMENSIONS[number]
-type Winner = typeof VALID_WINNERS[number]
 type Scale = z.infer<typeof ScaleSchema>
 
 const InsertedPublic = z.object({ inserted: z.int(), ids: z.array(z.int()) }).openapi('InsertedPublic')
@@ -176,16 +193,21 @@ annotationsRoutes.openapi(
     path: '/v2/annotations/absolute',
     operationId: 'v2SubmitAbsolute',
     summary: 'SubmitAbsolute',
-    description: 'Submit a batch of absolute annotation events (one image, several dimensions). Optionally marks a queue item done.',
+    description: 'Submit a batch of absolute annotation events (one image, several dimensions). Optionally marks a queue item done. 409 if that queue item was already submitted (nothing is written).',
     request: { body: { required: true, content: { 'application/json': { schema: AbsoluteBatchIn } } } },
     responses: {
       201: { description: CREATED, content: { 'application/json': { schema: InsertedPublic } } },
-      ...errors(400),
+      ...errors(400, 409),
     },
   }),
   (c) => {
-    const ids = recordAbsolute(c.var.db, c.req.valid('json'))
-    return c.json({ inserted: ids.length, ids }, 201)
+    try {
+      const ids = recordAbsolute(c.var.db, c.req.valid('json'))
+      return c.json({ inserted: ids.length, ids }, 201)
+    }
+    catch (err) {
+      return alreadyDoneOrThrow(err)
+    }
   },
 )
 
@@ -195,16 +217,20 @@ annotationsRoutes.openapi(
     path: '/v2/annotations/pairwise',
     operationId: 'v2SubmitPairwise',
     summary: 'SubmitPairwise',
-    description: 'Submit one pairwise judgement. Optionally marks a queue item done.',
+    description: 'Submit one pairwise judgement. Optionally marks a queue item done. 409 if that queue item was already submitted (nothing is written).',
     request: { body: { required: true, content: { 'application/json': { schema: PairwiseEventIn } } } },
     responses: {
       201: { description: CREATED, content: { 'application/json': { schema: InsertedPublic } } },
-      ...errors(400),
+      ...errors(400, 409),
     },
   }),
   (c) => {
-    const rowId = recordPairwise(c.var.db, c.req.valid('json'))
-    return c.json({ inserted: 1, ids: [rowId] }, 201)
+    try {
+      return c.json({ inserted: 1, ids: [recordPairwise(c.var.db, c.req.valid('json'))] }, 201)
+    }
+    catch (err) {
+      return alreadyDoneOrThrow(err)
+    }
   },
 )
 
@@ -214,16 +240,20 @@ annotationsRoutes.openapi(
     path: '/v2/annotations/listwise',
     operationId: 'v2SubmitListwise',
     summary: 'SubmitListwise',
-    description: 'Submit one group ranking (best first; empty ranking = skip). Optionally marks a queue item done.',
+    description: 'Submit one group ranking (best first; empty ranking = skip). Optionally marks a queue item done. 409 if that queue item was already submitted (nothing is written).',
     request: { body: { required: true, content: { 'application/json': { schema: ListwiseEventIn } } } },
     responses: {
       201: { description: CREATED, content: { 'application/json': { schema: InsertedPublic } } },
-      ...errors(400),
+      ...errors(400, 409),
     },
   }),
   (c) => {
-    const rowId = recordListwise(c.var.db, c.req.valid('json'))
-    return c.json({ inserted: 1, ids: [rowId] }, 201)
+    try {
+      return c.json({ inserted: 1, ids: [recordListwise(c.var.db, c.req.valid('json'))] }, 201)
+    }
+    catch (err) {
+      return alreadyDoneOrThrow(err)
+    }
   },
 )
 
@@ -271,10 +301,10 @@ annotationsRoutes.openapi(
     path: '/v2/annotations/{kind}/{annotation_id}',
     operationId: 'v2EditAnnotation',
     summary: 'EditAnnotation',
-    description: "Correct one already-submitted verdict IN PLACE (kind = 'pairwise' | 'absolute'). Not an appended correction: pairwise exports one row per judgement with no latest-wins pass, so a second row would leave the wrong verdict in the training set. Stamps edited_at.",
+    description: "Correct one already-submitted verdict IN PLACE (kind = 'pairwise' | 'absolute'; an absolute value must lie in 1..scale of that row). Not an appended correction: pairwise exports one row per judgement with no latest-wins pass, so a second row would leave the wrong verdict in the training set. Stamps edited_at.",
     request: {
       params: z.object({
-        kind: z.enum(MUTABLE_KINDS).openapi({ param: { name: 'kind', in: 'path', required: true } }),
+        kind: z.enum(EDITABLE_KINDS).openapi({ param: { name: 'kind', in: 'path', required: true } }),
         annotation_id: z.coerce.number().int()
           .openapi({ param: { name: 'annotation_id', in: 'path', required: true }, type: 'integer' }),
       }),
@@ -288,12 +318,11 @@ annotationsRoutes.openapi(
   (c) => {
     const { kind, annotation_id: annotationId } = c.req.valid('param')
     const { verdict } = c.req.valid('json')
-    if (kind === 'pairwise' && !VALID_WINNERS.includes(verdict as never))
-      return validationError(`invalid winner: ${JSON.stringify(verdict)}`)
-    if (kind === 'absolute' && !(typeof verdict === 'number' && Number.isInteger(verdict) && verdict >= 1))
-      return validationError(`invalid value: ${JSON.stringify(verdict)}`)
-    const changed = editAnnotation(c.var.db, { kind, annotationId, verdict })
-    return c.json({ updated: changed ? 1 : 0 }, 200)
+    // 值域（winner 枚举、absolute 的 1..scale）在仓库层按那一行校验。
+    const outcome = editAnnotation(c.var.db, { kind, annotationId, verdict })
+    if (outcome.kind === 'invalid')
+      return validationError(outcome.message)
+    return c.json({ updated: outcome.kind === 'updated' ? 1 : 0 }, 200)
   },
 )
 
@@ -405,7 +434,7 @@ annotationsRoutes.openapi(
     description: "Everything submitted so far, newest first, across all three event kinds. Cursor-paged: pass the previous page's nextCursor as 'before'. Cursor rather than offset because the head of this list grows while it is being scrolled.",
     request: {
       query: z.object({
-        limit: z.coerce.number().int().default(30)
+        limit: z.coerce.number().int().min(1).max(TIMELINE_MAX_LIMIT).default(30)
           .openapi({ param: { name: 'limit', in: 'query', required: false }, type: 'integer', default: 30 }),
         before: z.string().nullable().optional()
           .openapi({ param: { name: 'before', in: 'query', required: false } }),
@@ -464,7 +493,7 @@ annotationsRoutes.openapi(
           .openapi({ param: { name: 'dimensions', in: 'query', required: true }, type: 'array', items: { type: 'string', enum: [...VALID_DIMENSIONS] } }),
         strategy: z.enum(VALID_STRATEGIES).default('random')
           .openapi({ param: { name: 'strategy', in: 'query', required: false } }),
-        limit: z.coerce.number().int().default(10)
+        limit: z.coerce.number().int().min(1).max(MAX_SAMPLE).default(10)
           .openapi({ param: { name: 'limit', in: 'query', required: false }, type: 'integer', default: 10 }),
       }),
     },
@@ -490,7 +519,7 @@ annotationsRoutes.openapi(
     description: 'Queue-less streaming: sample pairs for pairwise annotation. \'close\' (default) = visually similar and hard for the model, extending the comparison graph already collected for this dimension; \'similar\' = model-agnostic content-similar + old-score band; \'random\' = uniform.',
     request: {
       query: z.object({
-        limit: z.coerce.number().int().default(10)
+        limit: z.coerce.number().int().min(1).max(MAX_SAMPLE).default(10)
           .openapi({ param: { name: 'limit', in: 'query', required: false }, type: 'integer', default: 10 }),
         strategy: z.enum(VALID_PAIRWISE_STRATEGIES).default('close')
           .openapi({ param: { name: 'strategy', in: 'query', required: false } }),
@@ -537,7 +566,7 @@ annotationsRoutes.openapi(
     description: 'Queue-less streaming: sample groups of ~size posts whose silva scores sit in one close window, visually spread. Ranking one group yields C(size,2) boundary comparisons — worth Sum_{k=2..size}(1-1/k) in Plackett-Luce information, not C(size,2) independent observations.',
     request: {
       query: z.object({
-        limit: z.coerce.number().int().default(5)
+        limit: z.coerce.number().int().min(1).max(MAX_SAMPLE_GROUPS).default(5)
           .openapi({ param: { name: 'limit', in: 'query', required: false }, type: 'integer', default: 5 }),
         size: z.coerce.number().int().min(3).max(16).default(4)
           .openapi({ param: { name: 'size', in: 'query', required: false }, type: 'integer', default: 4 }),

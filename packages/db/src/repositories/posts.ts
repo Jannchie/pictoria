@@ -393,8 +393,9 @@ export function markDifferent(
  * canonical 感知的 `tags.post_count` 触发器（migration 0009）看到的是每个 post
  * 真实的 canonical 状态，而不是和外键级联抢跑。
  *
- * 分块，于是调用方可以传任意多个 id 而不撞上 SQLite 的绑定参数上限；每块的三条
- * DELETE 在一个事务里，被中断也不会留下一个活着但被剥了标签和向量的 post。
+ * 分块，于是调用方可以传任意多个 id 而不撞上 SQLite 的绑定参数上限；每块的
+ * DELETE 在一个事务里，被中断也不会留下一个活着但被剥了标签和向量的 post。同一个
+ * 事务里还把引用这些 post 的未完成标注队列项标成完成（`closeQueueItemsFor`）。
  *
  * 文件不在这里删 —— 返回路径由调用方处理，因为 target_dir 是 API 层的知识。
  */
@@ -404,11 +405,12 @@ export function deleteManyReturningPaths(
 ): string[] {
   if (!ids.length)
     return []
-  const CHUNK = 500
   const fullPaths: string[] = []
+  // vec0 上的 `post_id IN (...)` 是全表扫（见 `vectors.ts` 文件头），逐 id 点删。
+  const delVector = sqlite.prepare(`DELETE FROM ${SIGLIP2_TABLE} WHERE post_id = ?`)
 
-  for (let i = 0; i < ids.length; i += CHUNK) {
-    const chunk = ids.slice(i, i + CHUNK)
+  for (let i = 0; i < ids.length; i += DELETE_CHUNK) {
+    const chunk = ids.slice(i, i + DELETE_CHUNK)
     const ph = placeholders(chunk.length)
     sqlite.transaction(() => {
       // 删行之前先把文件路径收集起来
@@ -416,14 +418,40 @@ export function deleteManyReturningPaths(
         .prepare<unknown[], { full_path: string }>(`SELECT full_path FROM posts WHERE id IN (${ph})`)
         .all(...chunk))
         fullPaths.push(row.full_path)
+      // vec0 虚表 —— 没有外键级联。⚠️ 排在 post_has_tag 之前：那条 DELETE 弄脏的页会
+      // 占满默认页缓存（~2 MB），之后 vec0 每删一行都要重读 4.7 MB 的向量分块 blob ——
+      // 真库副本上 500 条点删从 35 ms 变成 2.4–4.5 s。顺序对结果没有影响。
+      for (const id of chunk)
+        delVector.run(id)
       // 显式且排在 posts 之前，好让 trg_post_has_tag_count_ad 在 post 行还在时触发
       sqlite.prepare(`DELETE FROM post_has_tag WHERE post_id IN (${ph})`).run(...chunk)
-      // vec0 虚表 —— 没有外键级联
-      sqlite.prepare(`DELETE FROM ${SIGLIP2_TABLE} WHERE post_id IN (${ph})`).run(...chunk)
+      closeQueueItemsFor(sqlite, chunk)
       sqlite.prepare(`DELETE FROM posts WHERE id IN (${ph})`).run(...chunk)
     })()
   }
   return fullPaths
+}
+
+/** `deleteManyReturningPaths` 每块的大小（一块一个事务）；`post-files.ts` 按同一大小切，于是每次调用恰好一个事务。 */
+export const DELETE_CHUNK = 500
+
+/**
+ * 把引用到这些 post 的**未完成**标注队列项标成完成。
+ *
+ * 队列项表对 posts 没有外键（0011 / 0016），post 删了它们还在：`nextAbsoluteItems` /
+ * `nextPairwiseItems` 是 JOIN posts 取的，于是这些项永远取不出来，也永远不会被标完 ——
+ * 进度条卡在 `done < total`。标成 done 让进度对得上；不删，`total` 也就不变。
+ * 标注事件表（absolute/pairwise/listwise_annotations）不动：训练标注删不删由用户决定。
+ *
+ * listwise 项**不在这里关**：组里删掉一张不等于这组不能排了。取件时
+ * （`nextPresentableListwiseItems`）按剩余成员数判定，不足 `MIN_PRESENTABLE_GROUP`
+ * 才跳过并标完成 —— 两处各有一套规则会互相矛盾，而这里每块还要全扫一遍 json_each。
+ */
+function closeQueueItemsFor(sqlite: BetterSqlite3.Database, ids: number[]): void {
+  const ph = placeholders(ids.length)
+  sqlite.prepare(`UPDATE absolute_queue_items SET done = 1 WHERE done = 0 AND post_id IN (${ph})`).run(...ids)
+  sqlite.prepare(`UPDATE pairwise_queue_items SET done = 1 WHERE done = 0 AND post_a IN (${ph})`).run(...ids)
+  sqlite.prepare(`UPDATE pairwise_queue_items SET done = 1 WHERE done = 0 AND post_b IN (${ph})`).run(...ids)
 }
 
 /**
@@ -562,12 +590,4 @@ export function insertPostTriples(sqlite: BetterSqlite3.Database, triples: reado
   })()
   if (firstId !== undefined)
     notifyRepending(sqlite, BACKFILL_WORKERS, firstId)
-}
-
-/** 一个目录（`posts.file_path` 精确相等，不含子目录）下已有的 `file_name`。 */
-export function listFileNamesInDir(sqlite: BetterSqlite3.Database, filePath: string): string[] {
-  return sqlite
-    .prepare<[string], { file_name: string }>('SELECT file_name FROM posts WHERE file_path = ?')
-    .all(filePath)
-    .map(r => r.file_name)
 }

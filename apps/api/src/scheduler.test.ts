@@ -235,3 +235,52 @@ describe('循环订阅重新待办信号', () => {
     }
   })
 })
+
+describe('一批失败之后 force 旗的去留', () => {
+  function stubSpec(seen: boolean[], listThrows: () => boolean): WorkerSpec<any, any, any> {
+    return {
+      ...waifuSpec,
+      listPending: (_s, _l, { force }) => {
+        seen.push(force)
+        if (listThrows())
+          throw new Error('scan failed')
+        return [{ postId: 1, relPath: 'dir/f1.jpg' }]
+      },
+      countPending: () => [0],
+    }
+  }
+
+  it('待办查询已经跑过、异常出在 tasks.call 上 → 不还回去（worker 故障期间不反复整库重扫）', async () => {
+    const seen: boolean[] = []
+    const { tasks } = fakeTasks(() => { throw new Error('worker down') })
+    const handle = startBackfill(sqlite, tasks, stubSpec(seen, () => false), { log: quiet })
+    try {
+      await new Promise(r => setTimeout(r, 20))
+      notifyRepending(sqlite, 'waifu')
+      await new Promise(r => setTimeout(r, 20))
+      notifyRepending(sqlite, 'waifu', 1) // 带 id：只叫醒，不要求 force
+      await new Promise(r => setTimeout(r, 20))
+      expect(seen).toEqual([false, true, false])
+    }
+    finally {
+      handle.stop()
+    }
+  })
+
+  it('异常出在待办查询本身 → 还回去，下一轮仍然 force', async () => {
+    const seen: boolean[] = []
+    const { tasks } = fakeTasks(() => ({ scores: [], failures: [] }))
+    const handle = startBackfill(sqlite, tasks, stubSpec(seen, () => seen.at(-1) === true && seen.length === 2), { log: quiet })
+    try {
+      await new Promise(r => setTimeout(r, 20))
+      notifyRepending(sqlite, 'waifu')
+      await new Promise(r => setTimeout(r, 20))
+      notifyRepending(sqlite, 'waifu', 1)
+      await new Promise(r => setTimeout(r, 20))
+      expect(seen).toEqual([false, true, true])
+    }
+    finally {
+      handle.stop()
+    }
+  })
+})

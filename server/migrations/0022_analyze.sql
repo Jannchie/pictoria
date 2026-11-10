@@ -1,0 +1,25 @@
+-- 给 planner 一份统计信息（sqlite_stat1 + sqlite_stat4）。
+--
+-- 此前库里从没跑过 ANALYZE。没有统计时 planner 把 `p.canonical_post_id IS NULL` 当成
+-- 高选择性的等值条件，首页这类 `WHERE canonical_post_id IS NULL ORDER BY <列> DESC
+-- LIMIT 100` 一律走 ix_posts_canonical 取出全部 canonical 行再 TEMP B-TREE 排序 ——
+-- 而实际 81% 的 post 都是 canonical。
+--
+-- 在真库（375,612 posts）的一致快照上 ANALYZE 前后：
+--     created_at desc 首页    409 ms → 0.9 ms   SCAN p USING INDEX ix_posts_created_at
+--     score / rating / published_at / updated_at desc 首页   36–73 ms → 0.7–0.8 ms
+--     created_at desc offset 50000                          1003 ms → 12 ms
+--     folder + created_at desc                               745 ms → 0.7 ms
+--     ANALYZE 本身                                            约 3 s，一次性
+--
+-- ⚠️ 起作用的是 sqlite_stat4（better-sqlite3 自带的 SQLite 编译了 ENABLE_STAT4）：
+-- 它的样本里有 NULL，planner 才知道 IS NULL 命中的是大半张表；只有 stat1 时
+-- `ix_posts_canonical` 的"每个键平均 8 行"照样会骗过它。所以这里**不能**设
+-- analysis_limit —— 带 limit 的 ANALYZE 不写 stat4，还会删掉那张表已有的 stat4 行
+-- （实测：posts 的 319 个样本被清空，首页计划当场退回 TEMP B-TREE）。之后的维护是
+-- `apps/api` 启动时跑一次、之后每小时一次的 `PRAGMA optimize`，那里同样钉 analysis_limit = 0。
+--
+-- 不改 SQL 文本、不加索引：ANALYZE 之后上面这些排序全都翻对了。翻不过来的是排序列在
+-- LEFT JOIN 右表上的 silva_score / silva_luna_score / discrepancy / waifu_score
+-- （planner 不能从 LEFT JOIN 的右表驱动），那要改查询本身，不是统计信息的事。
+ANALYZE;

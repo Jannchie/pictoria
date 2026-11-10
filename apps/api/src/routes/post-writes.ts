@@ -318,11 +318,11 @@ postWritesRoutes.openapi(
       ...errors(400),
     },
   }),
-  (c) => {
+  async (c) => {
     const raw = c.req.queries('ids') ?? []
     const ids = raw.map(Number).filter(n => Number.isInteger(n))
     const sqlite = c.var.db
-    deletePostFiles(sqlite, ids)
+    await deletePostFiles(sqlite, ids)
     return c.body(null, 204)
   },
 )
@@ -359,7 +359,7 @@ postWritesRoutes.openapi(
       originalPath: postAbsPath(post.fullPath),
       thumbnailPath: thumbnailPathFor(post.fullPath),
       clockwise,
-    }, { queue: IO_QUEUE, timeoutMs: 120_000, pollMs: 20, maxAttempts: 1 })
+    }, { queue: IO_QUEUE, timeoutMs: 120_000, maxAttempts: 1 })
 
     // `arthash` 写回 NULL 会让这张图重新变成 basics 待办 —— `updateForRotate` 自己
     // 会发重新待办信号（`packages/db` 的 `repending.ts`），这里不用管。
@@ -370,6 +370,35 @@ postWritesRoutes.openapi(
 
 /** 让 hotlink 有防护的站点（比如 pixiv 的 i.pximg.net）愿意给我们文件的普通浏览器 UA。 */
 const BROWSER_UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/127.0.0.0 Safari/537.36'
+
+/** 远程上传的整个下载（连接 + 读完 body）最多等多久。挂住的上游不该占着请求不放。 */
+const REMOTE_FETCH_TIMEOUT_MS = 30_000
+
+/**
+ * 把一个远程 URL 下成字节，只认 2xx 且 `content-type: image/*` 的响应。
+ *
+ * 原来是 `fetch` 完直接 `arrayBuffer()`：404 页、Cloudflare 的挑战页、防盗链返回的
+ * HTML 都会被当成图片落盘建行，而 backfill 随后在它上面解码失败、把它拉进失败黑名单
+ * —— 一张"图"从此在库里，打开是一页 HTML。失败时什么都不写（行和文件都不建）。
+ */
+async function fetchRemoteImage(url: string): Promise<{ ok: true, bytes: Buffer } | { ok: false, detail: string }> {
+  const headers: Record<string, string> = { 'user-agent': BROWSER_UA }
+  if (url.includes('pximg.net'))
+    headers.referer = 'https://www.pixiv.net/'
+  try {
+    const r = await fetch(url, { headers, signal: AbortSignal.timeout(REMOTE_FETCH_TIMEOUT_MS) })
+    if (!r.ok)
+      return { ok: false, detail: `Fetching ${url} failed: HTTP ${r.status}.` }
+    const type = r.headers.get('content-type') ?? ''
+    if (!type.toLowerCase().startsWith('image/'))
+      return { ok: false, detail: `Fetching ${url} returned ${JSON.stringify(type || 'no content-type')}, not an image.` }
+    return { ok: true, bytes: Buffer.from(await r.arrayBuffer()) }
+  }
+  catch (err) {
+    const reason = (err as Error).name === 'TimeoutError' ? `timed out after ${REMOTE_FETCH_TIMEOUT_MS / 1000} s` : String(err)
+    return { ok: false, detail: `Fetching ${url} failed: ${reason}.` }
+  }
+}
 
 /**
  * 把上传（multipart 文件**或**一个远程 URL）变成一个 post。
@@ -395,7 +424,7 @@ postWritesRoutes.openapi(
     },
     responses: {
       201: { description: CREATED },
-      ...errors(400, 409),
+      ...errors(400, 409, 422),
     },
   }),
   async (c) => {
@@ -431,11 +460,10 @@ postWritesRoutes.openapi(
       bytes = Buffer.from(await (file as File).arrayBuffer())
     }
     else {
-      const headers: Record<string, string> = { 'user-agent': BROWSER_UA }
-      if (url!.includes('pximg.net'))
-        headers.referer = 'https://www.pixiv.net/'
-      const r = await fetch(url!, { headers })
-      bytes = Buffer.from(await r.arrayBuffer())
+      const fetched = await fetchRemoteImage(url!)
+      if (!fetched.ok)
+        return fail(422, 'UpstreamFetchError', fetched.detail)
+      bytes = fetched.bytes
     }
 
     fs.mkdirSync(path.dirname(absPath), { recursive: true })
@@ -445,12 +473,22 @@ postWritesRoutes.openapi(
     const nameWithExt = relPosix.slice(lastSlash + 1)
     const dot = nameWithExt.lastIndexOf('.')
 
-    createPost(c.var.db, {
-      filePath: dir,
-      fileName: dot === -1 ? nameWithExt : nameWithExt.slice(0, dot),
-      extension: dot === -1 ? '' : nameWithExt.slice(dot + 1),
-      source,
-    })
+    try {
+      createPost(c.var.db, {
+        filePath: dir,
+        fileName: dot === -1 ? nameWithExt : nameWithExt.slice(0, dot),
+        extension: dot === -1 ? '' : nameWithExt.slice(dot + 1),
+        source,
+      })
+    }
+    catch (err) {
+      // 上面的 existsSync 和这里之间隔着一次下载：同一路径的两个并发上传都会过那道检查，
+      // 后到的那个撞上 posts 的 (file_path, file_name, extension) 唯一索引。那是"文件已
+      // 存在"，不是服务器错误；也绝不能接着写文件，否则会盖掉先到那个的字节。
+      if ((err as { code?: string }).code === 'SQLITE_CONSTRAINT_UNIQUE')
+        return fail(409, 'FileAlreadyExistsError', 'File already exists.')
+      throw err
+    }
     fs.writeFileSync(absPath, bytes)
     return c.body(null, 201)
   },

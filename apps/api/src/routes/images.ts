@@ -122,8 +122,6 @@ async function ensureThumbnail(tasks: TaskSource, originalPath: string, thumbPat
     // 那个"已生成"的结论，于是文件不在、fileResponse 404，而且会一直 404。
     // 重复生成是幂等的、几十毫秒的 CPU，比这个陷阱便宜得多。
     timeoutMs: 60_000,
-    pollMs: 20,
-    maxPollMs: 50,
     maxAttempts: 1,
   })
   if (!result.ok) {

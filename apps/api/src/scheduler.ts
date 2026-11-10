@@ -121,9 +121,11 @@ export async function runBatch(
   sqlite: SqliteHandle,
   tasks: Pick<CairnQ, 'call'>,
   spec: WorkerSpec<any, any, any>,
-  { force, log = console }: { force: boolean, log?: Log },
+  { force, log = console, onScanned }: { force: boolean, log?: Log, onScanned?: () => void },
 ): Promise<BatchOutcome | null> {
   let pending = spec.listPending(sqlite, spec.batch, { force })
+  // 强制重扫兑现了：水位线已经清零重落。之后（提交、落库）再抛异常，旗子也不该还回去。
+  onScanned?.()
   // 扫空了一个窗口但没到表尾（进程刚启动、水位线还在 0 时就是这样，见 packages/db 的
   // `SCAN_WINDOW_ROWS`）：让出事件循环再扫下一窗，别把整表判定压成一次同步查询。
   // `force` 只属于第一窗 —— 它已经把水位线清零，之后的窗口从推进后的水位线接着扫。
@@ -182,7 +184,7 @@ export async function runBatch(
 function loop(
   sqlite: SqliteHandle,
   spec: WorkerSpec<any, any, any>,
-  tick: (opts: { force: boolean }) => Promise<BatchOutcome | null>,
+  tick: (opts: { force: boolean, onScanned: () => void }) => Promise<BatchOutcome | null>,
   log: Log,
 ): BackfillHandle {
   const { name } = spec
@@ -203,9 +205,10 @@ function loop(
       forceRescan = false
       woken = false
       let worked = false
+      let scanned = false
       tracker.begin()
       try {
-        const outcome = await tick({ force })
+        const outcome = await tick({ force, onScanned: () => { scanned = true } })
         if (outcome === null) {
           tracker.idle()
         }
@@ -217,9 +220,12 @@ function loop(
       catch (err) {
         tracker.error(err)
         log.warn(`[${name}] 这一批失败：${String(err)}`)
-        // 这一轮的强制重扫没兑现（查询可能压根没跑到）—— 旗子还回去，别把
-        // 重新待办的信号吞在一次异常里。
-        forceRescan ||= force
+        // 强制重扫没兑现（异常出在待办查询之前或之中）—— 旗子还回去，别把重新待办的
+        // 信号吞在一次异常里。兑现了就不还：异常出在 tasks.call 上（worker 挂了、
+        // 任务失败）时水位线已经清零重落过，再还回去就是 worker 故障期间每 30 秒
+        // 一次从 id=1 起的整库重扫，扫出来的还是同一批。
+        if (!scanned)
+          forceRescan ||= force
       }
       if (!worked && !woken)
         await sleep(IDLE_MS, signal, waker)
@@ -269,8 +275,8 @@ export function startBackfill(
     () => onDrained({ sqlite, tasks, log }),
     spec.drainCooldownMs ?? 0,
   )
-  return loop(sqlite, spec, async ({ force }) => {
-    const outcome = await runBatch(sqlite, tasks, spec, { force, log })
+  return loop(sqlite, spec, async ({ force, onScanned }) => {
+    const outcome = await runBatch(sqlite, tasks, spec, { force, log, onScanned })
     if (outcome === null) {
       if (writtenSinceIdle && requestDrained) {
         log.info(`[${spec.name}] 待办清空，本轮写入 ${writtenSinceIdle} 条，请求后置钩子`)

@@ -6,7 +6,7 @@
  */
 import type BetterSqlite3 from 'better-sqlite3'
 import type { MutableKind, QueueItemPost } from './annotations.js'
-import { aliasedPostCols, ITEM_TABLES } from './annotations.js'
+import { aliasedPostCols, ITEM_TABLES, MIN_PRESENTABLE_GROUP, postsById } from './annotations.js'
 
 /** 图片列加前缀：一行里带两张图的查询（pairwise 的 `a_` / `b_`）用。 */
 export type PrefixedPost<P extends string> = { [K in keyof QueueItemPost as `${P}${K}`]: QueueItemPost[K] }
@@ -135,18 +135,60 @@ export function nextAbsoluteItems(
  *
  * 不在这里 join posts：一项有 ~8 个成员，成员的图片行由调用方拿着扁平 id 列表经
  * `postsById` 一次取齐（与 timeline 同一份查询），而不是在 SQL 里对 JSON 展开。
+ * 只取 `position > after` 的项 —— `nextPresentableListwiseItems` 跳过不可排的项后
+ * 从这里接着往后取。
  */
 export function nextListwiseItems(
   sqlite: BetterSqlite3.Database,
   queueId: number,
   limit = 20,
+  after = -1,
 ): Array<{ position: number, post_ids: number[] }> {
   return sqlite
-    .prepare<[number, number], { position: number, post_ids: string }>(
-      'SELECT position, post_ids FROM listwise_queue_items WHERE queue_id = ? AND done = 0 ORDER BY position LIMIT ?',
+    .prepare<[number, number, number], { position: number, post_ids: string }>(
+      'SELECT position, post_ids FROM listwise_queue_items '
+      + 'WHERE queue_id = ? AND done = 0 AND position > ? ORDER BY position LIMIT ?',
     )
-    .all(queueId, limit)
+    .all(queueId, after, limit)
     .map(r => ({ position: r.position, post_ids: JSON.parse(r.post_ids) as number[] }))
+}
+
+/**
+ * listwise 队列接下来的 `limit` 个**可排**的项，成员已换成图片行（呈现顺序不变）。
+ *
+ * 成员被删到不足 MIN_PRESENTABLE_GROUP 张的项不发出去，而是就地标完成：发出去的话，
+ * 剩一张的组根本提交不了（提交要求 >= 2 张），客户端就卡在这一项上；不标完成的话，它会
+ * 永远占着队列头，每次取件都重新被跳过一遍。被跳过的项不写任何事件 —— 它没被排过。
+ * 删图时（`deleteManyReturningPaths`）不关 listwise 项，这里是唯一的判定处。
+ *
+ * 跳过之后继续往后取，直到凑满 `limit` 或队列见底，所以调用方拿到的条数与没有被删图时
+ * 一致。
+ */
+export function nextPresentableListwiseItems(
+  sqlite: BetterSqlite3.Database,
+  queueId: number,
+  limit: number,
+): Array<{ position: number, posts: QueueItemPost[] }> {
+  const retire = sqlite.prepare('UPDATE listwise_queue_items SET done = 1 WHERE queue_id = ? AND position = ? AND done = 0')
+  return sqlite.transaction(() => {
+    const out: Array<{ position: number, posts: QueueItemPost[] }> = []
+    let after = -1
+    while (out.length < limit) {
+      const items = nextListwiseItems(sqlite, queueId, limit - out.length, after)
+      if (!items.length)
+        break
+      const byId = postsById(sqlite, items.flatMap(i => i.post_ids))
+      for (const item of items) {
+        const posts = item.post_ids.flatMap(pid => byId.get(pid) ?? [])
+        if (posts.length >= MIN_PRESENTABLE_GROUP)
+          out.push({ position: item.position, posts })
+        else
+          retire.run(queueId, item.position)
+      }
+      after = items[items.length - 1]!.position
+    }
+    return out
+  })()
 }
 
 export function nextPairwiseItems(

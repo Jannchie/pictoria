@@ -97,6 +97,26 @@ export function persistPostsWithTags(
 }
 
 /**
+ * 某个目录下**已经被导入器持久化过**的 `file_name`（gallery-dl 的 URL 导入用）。
+ *
+ * ⚠️ 判据是 `source != ''`，**不是**"post 行存在"。和 listImportedDanbooruIds 同一个坑：
+ * 下载中途失败（任务超时、worker 重启）时，已经落盘的文件会被磁盘对账建成裸行 ——
+ * `source` 是列默认值 `''`、没有手工标签。按"行存在"去重，重跑就会把它们当成已导入
+ * 过滤掉，标签永远补不进去。导入器写的行 `source` 一定非空（worker 的
+ * `resolve_source` 回退到站点页 URL），而 sync 建的行一定为空，所以这一列就是"被
+ * 导入器持久化过"的标记。不按手工标签判，是因为 kemono 的帖子根本不带标签。
+ */
+export function listImportedFileNamesInDir(
+  sqlite: BetterSqlite3.Database,
+  filePathStr: string,
+): string[] {
+  return sqlite
+    .prepare<[string], string>("SELECT file_name FROM posts WHERE file_path = ? AND source != ''")
+    .pluck()
+    .all(filePathStr)
+}
+
+/**
  * 某个目录下**已经带 tag 导入过**的 Danbooru post id。
  *
  * id 从 `posts.file_name` 里来，因为对这个导入器来说那一列**就是** Danbooru 的

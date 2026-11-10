@@ -5,9 +5,19 @@ import { placeholders, whereSql } from '../sql.js'
 import type BetterSqlite3 from 'better-sqlite3'
 import { buildWhere, GROUPABLE_COLUMNS, hasActiveFilters, type PostFilter } from '../filters.js'
 import { bucketCaseSql, WAIFU, type ScorerSpec } from '../scorers.js'
+import { COUNT_DRIVE_MAX_POSTS, pickDrivingTag } from './tag-drive.js'
+
+/**
+ * 计数类查询的 where：带 tag 过滤时让最冷门的那个 tag 驱动（`IN` 子查询），而不是对
+ * 每张 canonical post 做一次 EXISTS 探测。计数没有 LIMIT 可以提前停，所以除非 tag
+ * 占了全库的大半，IN 都更快 —— 阈值和实测见 `tag-drive.ts`。
+ */
+function countWhere(sqlite: BetterSqlite3.Database, f: PostFilter) {
+  return buildWhere(f, { drivingTag: pickDrivingTag(sqlite, f.tags, COUNT_DRIVE_MAX_POSTS) })
+}
 
 export function countPosts(sqlite: BetterSqlite3.Database, f: PostFilter): number {
-  const { where, params, joins } = buildWhere(f)
+  const { where, params, joins } = countWhere(sqlite, f)
   const row = sqlite
     .prepare<unknown[], { n: number }>(
       `SELECT count(p.id) AS n FROM posts p ${joins.join('\n')} ${whereSql(where)}`,
@@ -30,7 +40,7 @@ export function countByColumn(
   if (!GROUPABLE_COLUMNS.has(column))
     throw new Error(`Cannot group by unsafe column: ${column}`)
 
-  const { where, params, joins } = buildWhere(f)
+  const { where, params, joins } = countWhere(sqlite, f)
   return sqlite
     .prepare<unknown[], Record<string, number>>(
       `SELECT p.${column} AS ${column}, count(*) AS count `
@@ -62,7 +72,7 @@ export function countByScorerBucket(
   // 一起没了 —— 调用方直接传 spec。
   scorer: ScorerSpec,
 ): BucketCount[] {
-  const { where, params, joins } = buildWhere(f)
+  const { where, params, joins } = countWhere(sqlite, f)
   const localJoins = [...joins]
 
   // 整词匹配，别名共享前缀时（pas_silva ⊂ pas_silva_luna）不能误判
@@ -97,7 +107,7 @@ export interface AggregateStats {
  * `post_waifu_scores` 按主键 1:1 join，LEFT JOIN 不会让行数翻倍。
  */
 export function aggregateStats(sqlite: BetterSqlite3.Database, f: PostFilter): AggregateStats {
-  const { where, params, joins } = buildWhere(f)
+  const { where, params, joins } = countWhere(sqlite, f)
   const localJoins = [...joins]
   if (!WAIFU.isJoined(localJoins))
     localJoins.push(WAIFU.joinSql())
@@ -159,7 +169,7 @@ export function countByTag(
   f: PostFilter,
   { query = '', limit = 50, extraNames = [] as string[] } = {},
 ): TagCount[] {
-  const { where: clauses, params, joins } = buildWhere(f)
+  const { where: clauses, params, joins } = countWhere(sqlite, f)
 
   // 转义 LIKE 的元字符，让搜索框里打的 '%' / '_' 按字面匹配
   // （默认转义符 '\' 自己要先转义）。

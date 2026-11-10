@@ -95,6 +95,8 @@ export interface InsertPostOptions {
   thumbnail?: boolean
   score?: number
   rating?: number
+  /** `posts.source`；默认 `''`（列的 DEFAULT，即"非导入器写的行"）。 */
+  source?: string
 }
 
 export function createTestApp(options: { tasks?: TaskSource, danbooruImports?: DanbooruImportsOptions } = {}) {
@@ -108,8 +110,8 @@ export function createTestApp(options: { tasks?: TaskSource, danbooruImports?: D
   /** 插一行 post，返回 id；`filePath` 是相对图库根的目录（根是 `'.'`）。 */
   function insertPost(filePath: string, fileName: string, extension: string, opts: InsertPostOptions = {}): number {
     const { lastInsertRowid } = sqlite
-      .prepare('INSERT INTO posts (file_path, file_name, extension, score, rating) VALUES (?, ?, ?, ?, ?)')
-      .run(filePath, fileName, extension, opts.score ?? 0, opts.rating ?? 0)
+      .prepare('INSERT INTO posts (file_path, file_name, extension, score, rating, source) VALUES (?, ?, ?, ?, ?, ?)')
+      .run(filePath, fileName, extension, opts.score ?? 0, opts.rating ?? 0, opts.source ?? '')
     const rel = path.posix.join(filePath, `${fileName}.${extension}`)
     if (opts.file)
       writeFile(rel)

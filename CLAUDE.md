@@ -126,7 +126,7 @@ uv run python scripts/inspect_db.py
 - **API**: Hono route handlers call `packages/db` repositories directly; `better-sqlite3` is synchronous, so one connection per process is enough (no pool). Raw SQL strings, no ORM. FK `ON DELETE CASCADE` is real and enforced (`PRAGMA foreign_keys = ON`) — the manual cascade is `post_vectors_siglip2` (a `vec0` virtual table that doesn't participate in FK cascades; `deleteManyReturningPaths` clears it explicitly)
 - **Worker**: a cairnq handler takes a payload with absolute paths, computes, and returns plain data. It opens no connection to `pictoria.sqlite` — that invariant is what keeps a single writer
 - **Frontend**: Composition API, TanStack Query for server state, composables for logic reuse
-- **Database**: Embedded SQLite (WAL) with `sqlite-vec`; `post_vectors_siglip2` (`FLOAT[1152]`, SigLIP 2) is a `vec0` virtual table (cosine); `posts.dominant_color` is a serialized `FLOAT[3]` BLOB queried by brute-force `vec_distance_L2` (no index — a 3-d scan is sub-millisecond); `GENERATED ALWAYS AS ... VIRTUAL` columns for `posts.full_path` and `posts.aspect_ratio`; `INTEGER PRIMARY KEY AUTOINCREMENT` IDs
+- **Database**: Embedded SQLite (WAL) with `sqlite-vec`; `post_vectors_siglip2` (`FLOAT[1152]`, SigLIP 2) is a `vec0` virtual table (cosine); `posts.dominant_color` is a serialized `FLOAT[3]` BLOB queried by brute-force `vec_distance_L2` (no index — a full scan is ~450 ms at 375k posts; measured 2026-11-10); `GENERATED ALWAYS AS ... VIRTUAL` columns for `posts.full_path` and `posts.aspect_ratio`; `INTEGER PRIMARY KEY AUTOINCREMENT` IDs
 - **API**: OpenAPI-based code generation for type-safe client-server communication
 
 ## Database Schema

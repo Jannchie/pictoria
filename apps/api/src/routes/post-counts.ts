@@ -1,16 +1,14 @@
 /**
  * `/v2/posts/count*` 与 `/v2/posts/stats` —— 过滤后的计数与聚合。
  * 全是 `POST` + `PostFilter` 请求体、只读、无副作用。
+ *
+ * 查询全部走读线程（`c.var.reads`，见 `read-pool.ts` / `read-fns.ts`）：它们扫的是整个
+ * 过滤集，带过滤的 tag facet 在真库上要 5–30 s，在主线程上跑就是整个 API 停摆这么久。
  */
 import { createRoute, z } from '@hono/zod-openapi'
 import {
-  aggregateStats,
-  countByColumn,
-  countByScorerBucket,
-  countByTag,
-  countPosts,
+  FILTERABLE_SCORERS,
   pascalKey,
-  SCORERS,
   urlSlug,
   WAIFU,
   type PostFilter as DbPostFilter,
@@ -66,7 +64,7 @@ postCountsRoutes.openapi(
     request: { body: filterBody() },
     responses: jsonOk(CountPostsResponse),
   }),
-  c => c.json({ count: countPosts(c.var.db, c.req.valid('json') as DbPostFilter) }, 200),
+  async c => c.json({ count: await c.var.reads.countPosts(c.req.valid('json') as DbPostFilter) }, 200),
 )
 
 /** rating / score / extension 三个都是同一条 GROUP BY，只是列不同。 */
@@ -87,7 +85,7 @@ for (const facet of columnFacets) {
       request: { body: filterBody() },
       responses: jsonOk(z.array(facet.schema)),
     }),
-    c => c.json(countByColumn(c.var.db, facet.column, c.req.valid('json') as DbPostFilter), 200),
+    async c => c.json(await c.var.reads.countByColumn(facet.column, c.req.valid('json') as DbPostFilter), 200),
   )
 }
 
@@ -95,10 +93,7 @@ for (const facet of columnFacets) {
  * 分档 facet：waifu 走独立表（描述措辞不同，单列），`SCORERS` 里每个打分器走
  * post_aesthetic_scores，路径 / operationId / 组件名都由注册项派生。
  */
-const bucketFacets = [
-  WAIFU,
-  ...SCORERS,
-].map(scorer => ({
+const bucketFacets = FILTERABLE_SCORERS.map(scorer => ({
   path: `/v2/posts/count/${urlSlug(scorer)}`,
   id: `v2Get${pascalKey(scorer)}BucketCount`,
   scorer,
@@ -119,7 +114,7 @@ for (const facet of bucketFacets) {
       request: { body: filterBody() },
       responses: jsonOk(z.array(facet.schema)),
     }),
-    c => c.json(countByScorerBucket(c.var.db, c.req.valid('json') as DbPostFilter, facet.scorer), 200),
+    async c => c.json(await c.var.reads.countByScorerBucket(c.req.valid('json') as DbPostFilter, facet.scorer.name), 200),
   )
 }
 
@@ -133,8 +128,8 @@ postCountsRoutes.openapi(
     request: { body: filterBody() },
     responses: jsonOk(PostStatsResponse),
   }),
-  (c) => {
-    const s = aggregateStats(c.var.db, c.req.valid('json') as DbPostFilter)
+  async (c) => {
+    const s = await c.var.reads.aggregateStats(c.req.valid('json') as DbPostFilter)
     return c.json({
       total: s.total,
       avgScore: s.avg_score,
@@ -164,9 +159,9 @@ postCountsRoutes.openapi(
     request: { body: { required: true, content: { 'application/json': { schema: TagCountRequest } } } },
     responses: jsonOk(z.array(TagCountItem)),
   }),
-  (c) => {
+  async (c) => {
     const data = c.req.valid('json')
-    const rows = countByTag(c.var.db, data as DbPostFilter, {
+    const rows = await c.var.reads.countByTag(data as DbPostFilter, {
       query: data.query ?? '',
       limit: data.limit ?? 50,
       extraNames: searchTagsByTranslation(data.query ?? '', data.lang ?? 'zh-Hans'),

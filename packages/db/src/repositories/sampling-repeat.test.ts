@@ -13,7 +13,7 @@ import { afterAll, beforeAll, beforeEach, expect, it } from 'vitest'
 import { createTempDb, insertPost } from '../__fixtures__/testdb.js'
 import { insertPairwise } from './annotations.js'
 import { repeatSlots, Sampler } from './sampling.js'
-import { isRepeatMeasurement } from './sampling-queries.js'
+import { isRepeatMeasurement, REPEAT_MEASUREMENT_SQL } from './sampling-queries.js'
 import { flipPair } from './sampling-random.js'
 import { edgeKey } from './variant-edges.js'
 
@@ -113,4 +113,15 @@ it('repeatSlots 是伯努利抽样，均值贴着 share', () => {
   // 期望 400 × 20 × 0.05 = 400，σ ≈ 19.5；±5σ 的区间，随机失败率可忽略
   expect(total).toBeGreaterThan(300)
   expect(total).toBeLessThan(500)
+})
+
+it('isRepeatMeasurement 走 (post_a, post_b, dimension) 索引，不扫整个维度', () => {
+  // 每次 pairwise 提交都要跑一遍：两个方向各一次全列等值探测，而不是 dimension 等值 + 逐行核对
+  const plan = sqlite
+    .prepare(`EXPLAIN QUERY PLAN ${REPEAT_MEASUREMENT_SQL}`)
+    .all(1, 2, 'overall', 2, 1, 'overall') as Array<{ detail: string }>
+  const searches = plan.map(r => r.detail).filter(d => /pairwise_annotations/.test(d))
+  expect(searches).toHaveLength(2)
+  for (const d of searches)
+    expect(d).toMatch(/SEARCH pairwise_annotations USING INDEX idx_pairwise_annotations_posts \(post_a=\? AND post_b=\? AND dimension=\?\)/)
 })

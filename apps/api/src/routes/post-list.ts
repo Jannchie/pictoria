@@ -3,7 +3,7 @@
  */
 import { createRoute, z } from '@hono/zod-openapi'
 import { decodeVector, INTERACTIVE_QUEUE, textEmbedTask } from '@pictoria/contracts'
-import { listPaginated, listSimpleByIdsPreservingOrder, searchPosts, unratedArtistPickIds, type PostFilter as DbPostFilter, type PostFilterWithOrder } from '@pictoria/db'
+import { listPaginated, listSimpleByIdsPreservingOrder, searchPosts, type PostFilter as DbPostFilter, type PostFilterWithOrder } from '@pictoria/db'
 import { newRoutes } from '../env.js'
 import { PostFilterWithOrderSchema, TextSearchRequestSchema as TextSearchRequest } from '../filter-schema.js'
 import { OK, errors } from '../openapi.js'
@@ -84,7 +84,7 @@ postListRoutes.openapi(
  * 为什么要快照而不是每页重算：
  * - 用户在这个视图里就是在逐张打分，每打一张，那位画师就不再"未评分"，列表随之缩短。
  *   每页都现算的话 offset 会整体前移，第二页开头的若干画师被跳过、永远看不到。
- * - 整条查询在真库上约 1.3 s（阻塞事件循环），一次访问只付一次。
+ * - 整条查询在真库上约 0.2–1.3 s，一次访问只付一次；跑在读线程上（`c.var.reads`），不占事件循环。
  * `offset === 0`（前端重新进入视图 / 刷新列表）时重算；翻页只切快照。
  */
 let unratedArtistSnapshot: number[] | null = null
@@ -110,11 +110,11 @@ postListRoutes.openapi(
       ...errors(400),
     },
   }),
-  (c) => {
+  async (c) => {
     const { limit, offset } = c.req.valid('query')
     const sqlite = c.var.db
     if (offset === 0 || unratedArtistSnapshot === null)
-      unratedArtistSnapshot = unratedArtistPickIds(sqlite)
+      unratedArtistSnapshot = await c.var.reads.unratedArtistPickIds()
     const ids = unratedArtistSnapshot.slice(offset, offset + limit)
     return c.json(listSimpleByIdsPreservingOrder(sqlite, ids).map(toPostSimple), 200)
   },
@@ -161,10 +161,6 @@ postListRoutes.openapi(
       // 真缓存。失败的那个仍然会被换掉，否则一次 worker OOM 会让这个词从此搜不了。
       conflict: 'reuse-succeeded',
       timeoutMs: 60_000,
-      // 有人在等，不能用默认的 500ms 轮询（§4.6）；maxPollMs 把退避也按住 ——
-      // 0.8 起轮询是纯状态探针（不回读 payload），50ms 一拍便宜到可以忽略。
-      pollMs: 20,
-      maxPollMs: 50,
       maxAttempts: 1,
     })
 

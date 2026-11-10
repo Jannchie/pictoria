@@ -3,6 +3,7 @@ import process from 'node:process'
 import { serve } from '@hono/node-server'
 import { createApp } from './app.js'
 import { getDb, migrate } from './db.js'
+import { OPTIMIZE_INTERVAL_MS, optimizeDb } from './optimize.js'
 import { dbPath } from './paths.js'
 import { BACKFILL_LOOP_KEYS, setSchedulerState } from './queue-status.js'
 import { createReadPool, inProcessReads, readThreadsFromEnv } from './read-pool.js'
@@ -20,6 +21,20 @@ const PORT = Number(process.env.PICTORIA_API_PORT ?? 4777)
 
 // schema 先于流量：迁移失败就不该开始服务，否则第一批请求会打在半旧的 schema 上。
 migrate()
+
+// 统计信息先于流量：表规模自上次 ANALYZE 以来变了一个数量级的话，在这里重新分析，
+// 否则首页排序会退回 TEMP B-TREE（见 `optimize.ts`）。没变化时是毫秒级空操作。之后每小时
+// 一次，追上导入 / 打标 / sync 批量增删带来的增长。读线程在这之后才起，
+// 打开连接时读到的就是新统计。
+optimizeDb(getDb().sqlite)
+setInterval(() => {
+  try {
+    optimizeDb(getDb().sqlite)
+  }
+  catch (err) {
+    console.error('[pictoria-api] PRAGMA optimize 失败（不影响服务）：', err)
+  }
+}, OPTIMIZE_INTERVAL_MS).unref()
 
 // 相似图 / 文搜图的整库 KNN 放到读线程上（见 `read-pool.ts`）。迁移之后再起：线程开的是
 // 只读连接，跑不了 DDL，得看到迁移完的 schema。`PICTORIA_READ_THREADS=0` 退回主线程，

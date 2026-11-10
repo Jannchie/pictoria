@@ -69,7 +69,7 @@ describe('DELETE /v2/folders/{folder_path}', () => {
     expect(fs.existsSync(path.join(t.root, 'file.txt'))).toBe(true)
   })
 
-  it.each(['@', '.pictoria', '.pictoria/thumbnails'])('拒绝删库根 / .pictoria：%s → 400', async (folder) => {
+  it.each(['@', '.pictoria', '.pictoria/thumbnails', '.PICTORIA', '.Pictoria/thumbnails', '.pictoria::$INDEX_ALLOCATION', 'art/../.PICTORIA'])('拒绝删库根 / .pictoria：%s → 400', async (folder) => {
     t.insertPost('.', 'root', 'png', { file: true, thumbnail: true })
     const { status, body } = await requestJson(t.app, `/v2/folders/${folder}`, { method: 'DELETE' })
     expect(status).toBe(400)

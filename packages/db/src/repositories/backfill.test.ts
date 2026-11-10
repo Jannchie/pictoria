@@ -24,7 +24,6 @@ import {
   countSilvaPending,
   countTaggerPending,
   countWaifuPending,
-  fetchEmbeddingBlobs,
   listSilvaPending,
   ensureCanonicalTagGroups,
   listBasicsPending,
@@ -41,6 +40,7 @@ import {
   upsertVectors,
   upsertWaifuScores,
 } from './backfill.js'
+import { embeddingBlobs } from './vectors.js'
 
 const here = path.dirname(fileURLToPath(import.meta.url))
 
@@ -167,15 +167,15 @@ describe('向量取回', () => {
     const blob = vectorBlob(7)
     sqlite.prepare('INSERT INTO post_vectors_siglip2(post_id, embedding) VALUES (?, ?)').run(BigInt(1), blob)
 
-    const got = fetchEmbeddingBlobs(sqlite, [1]).get(1)!
+    const got = embeddingBlobs(sqlite, [1]).get(1)!
     // 这是整条链路的地基：payload 里传的就是这段字节的 base64，中间不做数值转换
     expect(Buffer.compare(got, blob)).toBe(0)
     expect(got.length).toBe(1152 * 4)
   })
 
   it('id 不存在就不在结果里，不抛', () => {
-    expect(fetchEmbeddingBlobs(sqlite, [999]).size).toBe(0)
-    expect(fetchEmbeddingBlobs(sqlite, []).size).toBe(0)
+    expect(embeddingBlobs(sqlite, [999]).size).toBe(0)
+    expect(embeddingBlobs(sqlite, []).size).toBe(0)
   })
 })
 
@@ -531,7 +531,7 @@ describe('embedding 向量落库', () => {
     // 这条是回归钉：better-sqlite3 把 JS number 按 REAL 绑定，vec0 的主键只收整数，
     // 直接传 number 会报 "Only integers are allowed for primary key values"。
     expect(() => upsertVectors(sqlite, [{ postId: 1, embedding: blob }])).not.toThrow()
-    const got = fetchEmbeddingBlobs(sqlite, [1]).get(1)!
+    const got = embeddingBlobs(sqlite, [1]).get(1)!
     expect(Buffer.compare(got, blob)).toBe(0)
   })
 
@@ -540,7 +540,7 @@ describe('embedding 向量落库', () => {
     upsertVectors(sqlite, [{ postId: 1, embedding: vectorBlob(1) }])
     upsertVectors(sqlite, [{ postId: 1, embedding: vectorBlob(2) }])
     expect(sqlite.prepare<[], { n: number }>('SELECT COUNT(*) AS n FROM post_vectors_siglip2').get()!.n).toBe(1)
-    expect(Buffer.compare(fetchEmbeddingBlobs(sqlite, [1]).get(1)!, vectorBlob(2))).toBe(0)
+    expect(Buffer.compare(embeddingBlobs(sqlite, [1]).get(1)!, vectorBlob(2))).toBe(0)
   })
 
   it('写完之后待办查询就不再返回它', () => {
@@ -570,7 +570,7 @@ describe('embedding 向量落库', () => {
     insertPost(1)
     upsertVectors(sqlite, [{ postId: 1, embedding: vectorBlob(1) }, { postId: 999, embedding: vectorBlob(2) }])
     expect(sqlite.prepare<[], { n: number }>('SELECT COUNT(*) AS n FROM post_vectors_siglip2').get()!.n).toBe(1)
-    expect(fetchEmbeddingBlobs(sqlite, [999]).size).toBe(0)
+    expect(embeddingBlobs(sqlite, [999]).size).toBe(0)
   })
 })
 

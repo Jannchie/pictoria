@@ -79,13 +79,15 @@ export function runMigrations(sqlite: BetterSqlite3.Database, dir: string): numb
         continue
 
       const script = fs.readFileSync(file, 'utf8')
+      // 外键检查必须在同一事务里：放在提交之后的话，第一次启动报错时迁移和版本行都已落盘，
+      // 第二次启动就静默通过、把悬空外键留在库里。
       sqlite.transaction(() => {
         sqlite.exec(script)
+        const dangling = sqlite.pragma('foreign_key_check') as unknown[]
+        if (dangling.length)
+          throw new Error(`migration ${version} left dangling foreign keys: ${JSON.stringify(dangling.slice(0, 3))}`)
         record.run(version)
       })()
-      const dangling = sqlite.pragma('foreign_key_check') as unknown[]
-      if (dangling.length)
-        throw new Error(`migration ${version} left dangling foreign keys: ${JSON.stringify(dangling.slice(0, 3))}`)
       count++
     }
   }

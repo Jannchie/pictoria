@@ -16,15 +16,15 @@ import {
 import {
   type AestheticScorerName,
   ensureCanonicalTagGroups,
-  fetchEmbeddingBlobs,
   getAestheticScore,
   getPostPath,
   getWaifuScore,
   isImagePath,
-  listFileNamesInDir,
+  listImportedFileNamesInDir,
   persistPostsWithTags,
   type SqliteHandle,
   updateField,
+  vectorExists,
 } from '@pictoria/db'
 import fs from 'node:fs'
 import os from 'node:os'
@@ -198,7 +198,7 @@ function silvaOneShot(scorer: AestheticScorerName) {
       return c.json(existing, 200)
 
     const tasks: CairnQ = await c.var.tasks.get()
-    if (!fetchEmbeddingBlobs(sqlite, [postId]).has(postId))
+    if (!vectorExists(sqlite, postId))
       await runOneShot(sqlite, tasks, embeddingSpec, [guard.item])
     // 向量算不出来 = 这张图读不进来。和 waifu 一样报 400。（silva 的 payload 组装
     // 在没有向量时给出空 items，`runOneShot` 据此不提交、返回 null。）
@@ -313,7 +313,7 @@ commandsRoutes.openapi(
     const tasks: CairnQ = await c.var.tasks.get()
     const result = await tasks.call(captionTask, {
       imagePath: postAbsPath(post.fullPath),
-    }, { queue: IO_QUEUE, timeoutMs: 120_000, pollMs: 20, maxPollMs: 50, maxAttempts: 1 })
+    }, { queue: IO_QUEUE, timeoutMs: 120_000, maxAttempts: 1 })
 
     if (!result.configured)
       return fail(400, 'MissingConfigError', 'OpenAI API key is not set.')
@@ -468,6 +468,11 @@ async function runUrlImport(sqlite: SqliteHandle, tasks: TaskSource, run: Runnin
   startSync(sqlite)
 }
 
+/** URL 导入一块多少项。和 Danbooru 导入的默认块大小一致。 */
+const URL_IMPORT_CHUNK = 50
+/** 一块的下载超时。worker 16 线程并发、单张 60 s 超时，50 张一块 10 分钟绰绰有余。 */
+const URL_IMPORT_CHUNK_TIMEOUT_MS = 10 * 60_000
+
 /**
  * 一次导入的三步。只往 `run.stats` 里记进度，不碰阶段 —— 阶段归 `runUrlImport`。
  *
@@ -490,28 +495,51 @@ async function importOnce(sqlite: SqliteHandle, source: TaskSource, run: Running
   if (!scan.items.length)
     return
 
-  // 一个目录下已经有的 file_name。判据是"行存在"而不是"有手工标签"（Danbooru
-  // 那边是后者）。
-  const existing = new Set(listFileNamesInDir(sqlite, scan.filePath))
-  const fresh = scan.items.filter((it: { fileName: string }) => !existing.has(it.fileName))
+  // 一个目录下已经被导入器持久化过的 file_name。判据是"行存在且 source 非空"，不是
+  // "行存在"：下载中途失败时落了盘的文件会被 sync 建成裸行，按行存在去重会让重跑永远
+  // 跳过它们、标签再也补不上（见 listImportedFileNamesInDir）。
+  const imported = new Set(listImportedFileNamesInDir(sqlite, scan.filePath))
+  const fresh = scan.items.filter((it: { fileName: string }) => !imported.has(it.fileName))
   stats.new = fresh.length
   if (!fresh.length)
     return
 
-  const result = await tasks.call(urlDownloadTask, {
-    items: fresh,
-    saveDir: path.resolve(targetDir(), scan.filePath),
-    filePathStr: scan.filePath,
-    typeToGroupId: ensureCanonicalTagGroups(sqlite),
-  }, {
-    queue: IO_QUEUE,
-    timeoutMs: 60 * 60_000,
-    pollMs: 200,
-    maxAttempts: 1,
-  })
-  stats.downloaded = result.downloaded
-  stats.failed = result.failed
-  persistPostsWithTags(sqlite, result.rows)
+  const saveDir = path.resolve(targetDir(), scan.filePath)
+  const typeToGroupId = ensureCanonicalTagGroups(sqlite)
+  let lastError: unknown
+  // 分块下载、每块回来立刻落库 —— 与 Danbooru 导入同一个做法（danbooru-imports.ts）。
+  // 一次性下完再落库时，任务在第 900 张超时就是 900 张已落盘、0 行带标签；分块后损失
+  // 最多一块，而且那一块的文件会在下一次导入里被重新认作"新"（上面的判据）补全。
+  // 块串行：同一次导入的两块并行不会更快，只会让 IO 队列上的别的任务排更久。
+  for (let i = 0; i < fresh.length; i += URL_IMPORT_CHUNK) {
+    const chunk = fresh.slice(i, i + URL_IMPORT_CHUNK)
+    try {
+      const result = await tasks.call(urlDownloadTask, {
+        items: chunk,
+        saveDir,
+        filePathStr: scan.filePath,
+        typeToGroupId,
+      }, {
+        queue: IO_QUEUE,
+        timeoutMs: URL_IMPORT_CHUNK_TIMEOUT_MS,
+        pollMs: 200,
+        maxAttempts: 1,
+      })
+      // worker 只回字节已落盘的行，所以这里落库不会早于文件。
+      persistPostsWithTags(sqlite, result.rows)
+      stats.downloaded += result.downloaded
+      stats.failed += result.failed
+    }
+    catch (err) {
+      // 一块失败不中断整次导入：整块记为失败，接着下一块。
+      stats.failed += chunk.length
+      lastError = err
+      console.warn(`[url-import] ${url} 第 ${i / URL_IMPORT_CHUNK + 1} 块失败：${String(err)}`)
+    }
+  }
+  // 一块都没成：这是导入失败（worker 不在、站点封了），不是"完成但全部失败"。
+  if (lastError !== undefined && stats.downloaded === 0)
+    throw lastError
 }
 
 commandsRoutes.openapi(

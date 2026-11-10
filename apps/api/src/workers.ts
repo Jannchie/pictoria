@@ -57,8 +57,8 @@ import {
   countSilvaPending,
   countTaggerPending,
   countWaifuPending,
+  embeddingBlobs,
   ensureCanonicalTagGroups,
-  fetchEmbeddingBlobs,
   listBasicsPending,
   listEmbeddingPending,
   listSilvaPending,
@@ -167,7 +167,7 @@ function silvaSpec(scorer: AestheticScorerName): WorkerSpec<{ postId: number }, 
       listSilvaPending(sqlite, scorer, limit, { force }).map(postId => ({ postId })),
     countPending: (sqlite, rows) => countSilvaPending(sqlite, scorer, rows),
     buildPayload: (sqlite, pending) => {
-      const blobs = fetchEmbeddingBlobs(sqlite, pending.map(p => p.postId))
+      const blobs = embeddingBlobs(sqlite, pending.map(p => p.postId))
       // 待办查询说它们有向量，取的时候却没有 —— 两次查询之间被删了。待办并没有扫空，
       // 所以是空 items（→ `{0, 0}`）而不是"扫空"。
       return {

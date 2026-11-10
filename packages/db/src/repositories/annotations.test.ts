@@ -7,10 +7,13 @@
  */
 import { afterAll, beforeAll, beforeEach, expect, it } from 'vitest'
 import { createTempDb, insertPost } from '../__fixtures__/testdb.js'
-import { createAbsoluteQueue, createListwiseQueue, createPairwiseQueue } from './annotation-queues.js'
+import { createAbsoluteQueue, createListwiseQueue, createPairwiseQueue, nextPresentableListwiseItems } from './annotation-queues.js'
 import {
+  deleteQueue,
+  editAnnotation,
   encodeTimelineCursor,
   insertPairwise,
+  QueueItemAlreadyDoneError,
   listwiseShapeError,
   parseTimelineCursor,
   recordAbsolute,
@@ -191,4 +194,87 @@ it('timelinePage：post 已删的事件被剔掉，但游标仍按原始最后�
 
   expect(timelinePage(sqlite, { limit: 2, before: lastRaw as [string, string, number] }).entries).toEqual([])
   expect(timelinePage(sqlite, { limit: 0 }).entries).toHaveLength(1) // 夹到 >= 1
+})
+
+it('同一队列项提交两次：第二次抛 QueueItemAlreadyDoneError，只留一条判决', () => {
+  const qid = createPairwiseQueue(sqlite, { name: 'q', dimensions: ['overall'], pairs: [[1, 2]] })
+  recordPairwise(sqlite, { ...pairwise, queueId: qid, queuePosition: 0 })
+  expect(() => recordPairwise(sqlite, { ...pairwise, winner: 'b', queueId: qid, queuePosition: 0 }))
+    .toThrow(QueueItemAlreadyDoneError)
+  expect(count('pairwise_annotations')).toBe(1)
+  expect(done('pairwise_queue_items', qid)).toBe(1)
+})
+
+it('absolute / listwise 重复提交同样整笔回滚', () => {
+  const aq = createAbsoluteQueue(sqlite, { name: 'q', dimensions: ['overall'], scale: 5, postIds: [1] })
+  recordAbsolute(sqlite, { events: [absolute(3)], queueId: aq, queuePosition: 0 })
+  expect(() => recordAbsolute(sqlite, { events: [absolute(4), { ...absolute(2), dimension: 'color' }], queueId: aq, queuePosition: 0 }))
+    .toThrow(QueueItemAlreadyDoneError)
+  expect(count('absolute_annotations')).toBe(1)
+
+  const lq = createListwiseQueue(sqlite, { name: 'q', dimensions: ['overall'], groups: [[1, 2, 3]] })
+  const event = { postIds: [1, 2, 3], ranking: [2, 1, 3], dimension: 'overall', rubricVersion: 'v1', sessionId: 's', queueId: lq, queuePosition: 0 }
+  recordListwise(sqlite, event)
+  expect(() => recordListwise(sqlite, event)).toThrow(QueueItemAlreadyDoneError)
+  expect(count('listwise_annotations')).toBe(1)
+})
+
+it('undo 之后再提交是合法的（放回去的项又是 done = 0）', () => {
+  const qid = createPairwiseQueue(sqlite, { name: 'q', dimensions: ['overall'], pairs: [[1, 2]] })
+  const id = recordPairwise(sqlite, { ...pairwise, queueId: qid, queuePosition: 0 })
+  retractAnnotations(sqlite, { kind: 'pairwise', ids: [id], sessionId: 's', queueId: qid, queuePosition: 0 })
+  recordPairwise(sqlite, { ...pairwise, winner: 'b', queueId: qid, queuePosition: 0 })
+  expect(count('pairwise_annotations')).toBe(1)
+})
+
+it('retract：session 不匹配删了 0 行时不放回队列项', () => {
+  const qid = createPairwiseQueue(sqlite, { name: 'q', dimensions: ['overall'], pairs: [[1, 2]] })
+  const id = recordPairwise(sqlite, { ...pairwise, queueId: qid, queuePosition: 0 })
+  expect(retractAnnotations(sqlite, { kind: 'pairwise', ids: [id], sessionId: 'other', queueId: qid, queuePosition: 0 })).toBe(0)
+  expect(count('pairwise_annotations')).toBe(1)
+  expect(done('pairwise_queue_items', qid)).toBe(1)
+})
+
+it('editAnnotation：absolute 的值必须落在这一行的 scale 里', () => {
+  const [id] = recordAbsolute(sqlite, { events: [absolute(2, 3)] })
+  expect(editAnnotation(sqlite, { kind: 'absolute', annotationId: id!, verdict: 4 }).kind).toBe('invalid')
+  expect(editAnnotation(sqlite, { kind: 'absolute', annotationId: id!, verdict: 0 }).kind).toBe('invalid')
+  expect(editAnnotation(sqlite, { kind: 'absolute', annotationId: id!, verdict: 3 })).toEqual({ kind: 'updated' })
+  expect(editAnnotation(sqlite, { kind: 'absolute', annotationId: 9999, verdict: 3 })).toEqual({ kind: 'not-found' })
+})
+
+it('editAnnotation：pairwise 只收四个 winner', () => {
+  const id = insertPairwise(sqlite, pairwise)
+  expect(editAnnotation(sqlite, { kind: 'pairwise', annotationId: id, verdict: 'oops' }).kind).toBe('invalid')
+  expect(editAnnotation(sqlite, { kind: 'pairwise', annotationId: id, verdict: 'tie' })).toEqual({ kind: 'updated' })
+  expect(editAnnotation(sqlite, { kind: 'pairwise', annotationId: 9999, verdict: 'tie' })).toEqual({ kind: 'not-found' })
+})
+
+it('deleteQueue：队列与它的项（done 与否）都删掉，判决留着', () => {
+  const qid = createPairwiseQueue(sqlite, { name: 'q', dimensions: ['overall'], pairs: [[1, 2], [3, 4]] })
+  recordPairwise(sqlite, { ...pairwise, queueId: qid, queuePosition: 0 })
+  expect(deleteQueue(sqlite, qid)).toBe(true)
+  expect(count('annotation_queues')).toBe(0)
+  expect(count('pairwise_queue_items')).toBe(0)
+  expect(count('pairwise_annotations')).toBe(1)
+  expect(deleteQueue(sqlite, qid)).toBe(false)
+})
+
+it('nextPresentableListwiseItems：成员删到不足 3 张的组跳过并标完成，后面的补上', () => {
+  for (const id of [10, 11, 12, 13, 14, 15]) insertPost(sqlite, { id })
+  try {
+    const qid = createListwiseQueue(sqlite, {
+      name: 'q',
+      dimensions: ['overall'],
+      groups: [[10, 11, 12], [1, 2, 3], [13, 14, 15], [3, 4, 5]],
+    })
+    sqlite.prepare('DELETE FROM posts WHERE id IN (11, 12, 14)').run()
+    const items = nextPresentableListwiseItems(sqlite, qid, 2)
+    expect(items.map(i => i.position)).toEqual([1, 3])
+    expect(items[0]!.posts.map(p => p.post_id)).toEqual([1, 2, 3])
+    expect([0, 1, 2, 3].map(pos => done('listwise_queue_items', qid, pos))).toEqual([1, 0, 1, 0])
+  }
+  finally {
+    sqlite.prepare('DELETE FROM posts WHERE id >= 10').run()
+  }
 })

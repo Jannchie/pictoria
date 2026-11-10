@@ -44,7 +44,8 @@ describe('inProcessReads', () => {
   })
 })
 
-describe('createReadPool（真实线程）', () => {
+// 真实工作线程：每个池子冷启动都要经 tsx 转译整个 @pictoria/db，负载高时会超过默认的 5 s。
+describe('createReadPool（真实线程）', { timeout: 20_000 }, () => {
   let dir: string
   let dbFile: string
   let reference: SqliteHandle

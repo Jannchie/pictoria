@@ -125,13 +125,29 @@ export function hasActiveFilters(f: PostFilter): boolean {
   )
 }
 
+/** `buildWhere` 的执行提示 —— 只影响查询计划，不影响命中哪些 post。 */
+export interface BuildWhereOptions {
+  /**
+   * 用 `p.id IN (SELECT post_id FROM post_has_tag WHERE tag_name = ?)` 表达的那一个 tag
+   * （必须在 `f.tags` 里，否则忽略），其余 tag 照旧是相关 EXISTS。
+   *
+   * 两种写法语义相同，计划完全不同：SQLite 见到 rowid 上的 `IN (子查询)` **无条件**拿它
+   * 驱动（先取出这个 tag 的全部 post，再回表、再排序），而相关 EXISTS 是从 posts 驱动、
+   * 沿排序索引逐行探测、凑满 LIMIT 就停。哪个快取决于这个 tag 有多少图，而 planner
+   * 不知道（stat4 在 2400 万行的 post_has_tag 上只有 24 个样本，见 `tag-drive.ts`）：
+   * 真库上冷门 tag 列表 EXISTS 150–260 ms / IN 0.1 ms，热门 tag 反过来 0.3 ms / 60–545 ms。
+   * 所以由调用方按 `tags.post_count` 决定（`pickDrivingTag`），不传就全是 EXISTS。
+   */
+  drivingTag?: string | null
+}
+
 /**
  * 把 `PostFilter` 翻成 `(where, params, joins)`。
  *
  * `lab` 故意不在这里处理：距离排序需要 SELECT 列表里的表达式和特殊 ORDER BY，
  * 归搜索方法自己管。
  */
-export function buildWhere(f: PostFilter): WhereParts {
+export function buildWhere(f: PostFilter, opts: BuildWhereOptions = {}): WhereParts {
   const where: string[] = []
   const params: unknown[] = []
   const joins: string[] = []
@@ -150,11 +166,20 @@ export function buildWhere(f: PostFilter): WhereParts {
   if (f.tags?.length) {
     // AND 语义：post 必须带上**每一个**选中的 tag。每个 tag 一条相关 EXISTS
     // （单个 IN(...) 会变成 OR），每条都命中 post_has_tag 的主键 (post_id, tag_name)，
-    // 所以仍然走索引。
+    // 所以仍然走索引。`drivingTag` 那一个改写成 rowid 上的 IN 子查询，让它驱动
+    // （见 `BuildWhereOptions`）；只改一个 —— 两个 IN 子查询只有一个能驱动，另一个
+    // 会被物化成临时表，白白多扫一遍那个 tag。
+    let drove = false
     for (const tag of f.tags) {
-      where.push(
-        'EXISTS (SELECT 1 FROM post_has_tag pht WHERE pht.post_id = p.id AND pht.tag_name = ?)',
-      )
+      if (!drove && opts.drivingTag != null && tag === opts.drivingTag) {
+        drove = true
+        where.push('p.id IN (SELECT pht.post_id FROM post_has_tag pht WHERE pht.tag_name = ?)')
+      }
+      else {
+        where.push(
+          'EXISTS (SELECT 1 FROM post_has_tag pht WHERE pht.post_id = p.id AND pht.tag_name = ?)',
+        )
+      }
       params.push(tag)
     }
   }
