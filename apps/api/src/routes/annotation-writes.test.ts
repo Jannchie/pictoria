@@ -182,3 +182,17 @@ describe('limit / count 的上下界', () => {
     expect((await requestJson(t.app, '/v2/annotation-queues/1/next-pairwise?limit=200')).status).toBe(200)
   })
 })
+
+describe('GET /v2/annotation-queues 的 createdAt', () => {
+  it('ISO 8601 UTC（带 Z）', async () => {
+    const [a, b] = posts(2)
+    const q = await requestJson(t.app, '/v2/annotation-queues/pairwise', {
+      method: 'POST',
+      body: { name: 'q', dimensions: ['overall'], pairs: [[a, b]] },
+    })
+    t.sqlite.prepare("UPDATE annotation_queues SET created_at = '2026-01-02 03:04:05' WHERE id = ?").run(q.body.id)
+    const { body } = await requestJson(t.app, '/v2/annotation-queues')
+    expect(body).toHaveLength(1)
+    expect(body[0].createdAt).toBe('2026-01-02T03:04:05Z')
+  })
+})

@@ -45,6 +45,7 @@ import {
 import type { AutoEdge, SqliteHandle, VariantEdge } from '@pictoria/db'
 import {
   assignFromEdges,
+  assignFromEdgesAsync,
   edgeKey,
   exportVectorMatrix,
   listFullPaths,
@@ -55,6 +56,7 @@ import {
   upsertAutoEdges,
 } from '@pictoria/db'
 import process from 'node:process'
+import { yieldToEventLoop } from './event-loop.js'
 import { dedupMatrixPath, isDedupMatrix, pictoriaDir, thumbnailPathFor } from './paths.js'
 
 type Log = Pick<Console, 'info' | 'warn'>
@@ -77,7 +79,7 @@ const BIG_GROUP = 20
  *
  * 灰带的第一轮是一次性的存量债：全库 23 万张，即使每行只留 20 个邻居，落在
  * 0.01–0.06 之间的对也可能是几十万。CPU 上每对几十毫秒、两个并发，几十万对就是
- * 几个小时，而 `inFlight` 期间任何别的重建都要排队等它。
+ * 几个小时，而这期间任何别的重建都要排队等它（`DedupRebuilder`）。
  *
  * 所以每轮只啃一截，按 SigLIP 距离从近到远 —— 最像的那些先有结果，用户最快看到
  * 效果。剩下的留给下一轮：证据按对缓存，重建是幂等的，多跑几轮就收敛了。
@@ -108,20 +110,6 @@ function formatSizeHistogram(sizes: Map<number, number>): string {
     .sort((a, b) => a[0] - b[0])
     .map(([size, groups]) => `${size}:${groups}`)
     .join(' ')
-}
-
-/**
- * 序列化全量重建。
- *
- * 重建以一次整体的 canonical 指针替换收尾，所以两个并发的重建就是"后写者赢"外加
- * 一次白烧的 GPU（一次被双击的 /v2/cmd/group-duplicates，或者这个端点撞上调度器
- * 写完向量后的自动重组）。形状承自已删除的 `services/dedup.py::rebuild_lock`。
- */
-let inFlight: Promise<number> | null = null
-
-/** 端点用它做"忙不忙"的判断 —— 和 Python 侧 `rebuild_lock.locked()` 同义。 */
-export function isRebuilding(): boolean {
-  return inFlight !== null
 }
 
 /** 灰带里的一对：已经翻译成 post id，带着召回时的 SigLIP 距离。 */
@@ -168,32 +156,93 @@ export interface RebuildOptions {
 }
 
 /**
- * 从头重算每个 post 的分组，返回被归组的成员数。
+ * 全量重建的串行化与临时矩阵的归属 —— 每个库一个（`rebuilderFor`），`createApp` 把它
+ * 注入成 `c.var.dedup`，调度器（`workers.ts`）拿同一个库的同一个实例。
  *
- * 已经有一次在跑时**等它**而不是跳过：触发这一次的那些新向量同样值得一次重组，
- * 只是可以等在流程后面（Python 侧 `group_near_duplicates` 的同款选择）。
+ * 重建以一次整体的 canonical 指针替换收尾，所以两个并发的重建就是"后写者赢"外加
+ * 一次白烧的 GPU（一次被双击的 /v2/cmd/group-duplicates，或者这个端点撞上调度器
+ * 写完向量后的自动重组）。形状承自已删除的 `services/dedup.py::rebuild_lock`。
+ *
+ * 原来 `inFlight` 是模块级变量：同一个进程里的所有测试 app 共用它。
  */
-export async function rebuildGroups(
+export class DedupRebuilder {
+  private inFlight: Promise<number> | null = null
+  /** 本实例正在用的临时矩阵（绝对路径）—— 回收残留时要跳过它。 */
+  readonly activeFiles = new Set<string>()
+
+  /** 端点用它做"忙不忙"的判断 —— 和 Python 侧 `rebuild_lock.locked()` 同义。 */
+  isRebuilding(): boolean {
+    return this.inFlight !== null
+  }
+
+  /**
+   * 从头重算每个 post 的分组，返回被归组的成员数。
+   *
+   * 已经有一次在跑时**等它**而不是跳过：触发这一次的那些新向量同样值得一次重组，
+   * 只是可以等在流程后面（Python 侧 `group_near_duplicates` 的同款选择）。
+   */
+  async rebuild(
+    sqlite: SqliteHandle,
+    tasks: Pick<CairnQ, 'call'>,
+    options: RebuildOptions = {},
+  ): Promise<number> {
+    while (this.inFlight) {
+      try {
+        await this.inFlight
+      }
+      catch {
+        // 上一轮失败与这一轮无关 —— 它的错误已经由它自己的调用方处理了
+      }
+    }
+    const run = doRebuild(sqlite, tasks, options, this.activeFiles)
+    this.inFlight = run
+    busyRebuilders.add(this)
+    try {
+      return await run
+    }
+    finally {
+      this.inFlight = null
+      busyRebuilders.delete(this)
+    }
+  }
+
+  /**
+   * 回收 `.pictoria/` 下的残留矩阵（进程被杀 / 超时留下的，一个 1–2 GB），跳过本实例
+   * 正在用的。启动时调一次（`index.ts`），每轮重建开始前也会调。
+   */
+  async sweepStale(log: Log = console): Promise<void> {
+    await sweepStaleMatrices(pictoriaDir(), log, this.activeFiles)
+  }
+}
+
+const rebuilders = new WeakMap<SqliteHandle, DedupRebuilder>()
+const busyRebuilders = new Set<DedupRebuilder>()
+
+/** 这个库的重建器（每个连接一个，懒建）。 */
+export function rebuilderFor(sqlite: SqliteHandle): DedupRebuilder {
+  let r = rebuilders.get(sqlite)
+  if (!r) {
+    r = new DedupRebuilder()
+    rebuilders.set(sqlite, r)
+  }
+  return r
+}
+
+/**
+ * 兼容入口：`routes/commands.ts` 还在用（应改成 `c.var.dedup.isRebuilding()`）。
+ * 不带库时回答"这个进程里有没有重建在跑"。
+ */
+export function isRebuilding(sqlite?: SqliteHandle): boolean {
+  return sqlite ? rebuilderFor(sqlite).isRebuilding() : busyRebuilders.size > 0
+}
+
+/** 兼容入口：等价于 `rebuilderFor(sqlite).rebuild(...)`。 */
+export function rebuildGroups(
   sqlite: SqliteHandle,
   tasks: Pick<CairnQ, 'call'>,
   options: RebuildOptions = {},
 ): Promise<number> {
-  while (inFlight) {
-    try {
-      await inFlight
-    }
-    catch {
-      // 上一轮失败与这一轮无关 —— 它的错误已经由它自己的调用方处理了
-    }
-  }
-  const run = doRebuild(sqlite, tasks, options)
-  inFlight = run
-  try {
-    return await run
-  }
-  finally {
-    inFlight = null
-  }
+  return rebuilderFor(sqlite).rebuild(sqlite, tasks, options)
 }
 
 /**
@@ -252,7 +301,8 @@ async function arbitrate(
   if (grey.length === 0)
     return { distances, pending: 0, verified: 0 }
 
-  const known = readEdgesByLeft(sqlite, [...new Set(grey.map(pair => pair.a))])
+  // 灰带的左端点可能有十几万个：一次读完是 ~0.6 s 的主线程停顿，分块读、块间让出。
+  const known = await readEdgesByLeftYielding(sqlite, [...new Set(grey.map(pair => pair.a))])
   const todo: GreyPair[] = []
   for (const pair of grey) {
     const key = edgeKey(pair.a, pair.b)
@@ -377,6 +427,36 @@ export function buildEdges(
   verdicts: ReadonlyArray<{ postA: number, postB: number, verdict: 'same' | 'different' }>,
   lpipsThreshold: number,
 ): VariantEdge[] {
+  const steps = buildEdgeSteps(accepted, grey, distances, verdicts, lpipsThreshold)
+  for (;;) {
+    const r = steps.next()
+    if (r.done)
+      return r.value
+  }
+}
+
+/** `buildEdges` 的分步版：每 5 万条让出一次事件循环，结果相同（同一个生成器驱动）。 */
+async function buildEdgesAsync(
+  ...args: Parameters<typeof buildEdges>
+): Promise<VariantEdge[]> {
+  const steps = buildEdgeSteps(...args)
+  for (;;) {
+    const r = steps.next()
+    if (r.done)
+      return r.value
+    await yieldToEventLoop()
+  }
+}
+
+const BUILD_STEP = 50_000
+
+function* buildEdgeSteps(
+  accepted: readonly VariantEdge[],
+  grey: readonly GreyPair[],
+  distances: ReadonlyMap<string, number>,
+  verdicts: ReadonlyArray<{ postA: number, postB: number, verdict: 'same' | 'different' }>,
+  lpipsThreshold: number,
+): Generator<void, VariantEdge[]> {
   const blocked = new Set<string>()
   const edges: VariantEdge[] = []
   for (const one of verdicts) {
@@ -385,11 +465,17 @@ export function buildEdges(
     else
       edges.push({ a: one.postA, b: one.postB, strength: USER_STRENGTH })
   }
-  for (const edge of accepted) {
+  for (let i = 0; i < accepted.length; i++) {
+    const edge = accepted[i]!
     if (!blocked.has(edgeKey(edge.a, edge.b)))
       edges.push(edge)
+    if ((i + 1) % BUILD_STEP === 0)
+      yield
   }
-  for (const pair of grey) {
+  for (let i = 0; i < grey.length; i++) {
+    if ((i + 1) % BUILD_STEP === 0)
+      yield
+    const pair = grey[i]!
     const key = edgeKey(pair.a, pair.b)
     const lpips = distances.get(key)
     if (lpips === undefined || lpips > lpipsThreshold || blocked.has(key))
@@ -404,6 +490,7 @@ async function doRebuild(
   sqlite: SqliteHandle,
   tasks: Pick<CairnQ, 'call'>,
   options: RebuildOptions,
+  activeFiles: Set<string>,
 ): Promise<number> {
   const threshold = options.threshold ?? DEDUP_THRESHOLD
   const greyThreshold = options.greyThreshold ?? DEDUP_GREY_THRESHOLD
@@ -422,8 +509,9 @@ async function doRebuild(
   await fs.mkdir(dir, { recursive: true })
   // 上一次超时留下的（删不掉的那个）在这里回收。删不掉就跳过 —— 说明还有人拿着它。
   // 本轮的文件此刻还不存在（下面的 exportVectorMatrix 才创建），所以不必排除它。
-  await sweepStaleMatrices(dir, log)
+  await sweepStaleMatrices(dir, log, activeFiles)
 
+  activeFiles.add(file)
   try {
     // 导出也在 try 里：它中途失败（磁盘满）会留下一个半截的 1 GB 文件，
     // 而 finally 是唯一会去删它的地方。
@@ -440,7 +528,7 @@ async function doRebuild(
     // 召回按**灰带**上限发，判同的那一档在 TS 侧用 `threshold` 切出来 —— worker
     // 一次矩阵乘就够，没必要为两个阈值跑两遍。
     // 不设 key：`conflict: 'reuse'` 会把上一次的结果原样还回来，而矩阵文件的
-    // 内容每次都不同。串行化由上面的 inFlight 负责，不需要队列帮忙去重。
+    // 内容每次都不同。串行化由 `DedupRebuilder` 负责，不需要队列帮忙去重。
     const { pairs } = await tasks.call(dedupTask, {
       matrixPath: file,
       count,
@@ -483,15 +571,26 @@ async function doRebuild(
 
     // 用户意图（判定、拆出、设封面）在仲裁之后**重读**：仲裁可能跑上几个小时，这期间
     // 用户在界面上做的分组修改要是拿开头那份快照来分，就会被这一轮的 `replaceAllGroups`
-    // 覆盖掉（下一轮才修回来）。从这里到落库是一段同步代码，中间插不进写入。
-    const verdicts = listUserVerdicts(sqlite)
-    const latest = listGroupOverrides(sqlite)
-    const edges = buildEdges(accepted, grey, distances, verdicts, lpipsThreshold)
-    const assignments = assignFromEdges(edges, {
-      excluded: latest.standalone,
-      pinned: latest.canonical,
+    // 覆盖掉（下一轮才修回来）。
+    //
+    // 建边 + 分配是几十万到上百万条边的纯计算（~0.6 s），分步做、步间让出事件循环；
+    // 让出期间用户可能又改了意图，所以落库前在**同一段同步代码**里再读一次意图做比对：
+    // 没变就落库，变了就按最新的意图同步重算一遍再落（罕见）。于是"落库用的是最新意图"
+    // 这条保证和原来的整段同步写法一样。
+    const intent = readIntent(sqlite)
+    const assignOpts = (it: Intent) => ({
+      excluded: it.overrides.standalone,
+      pinned: it.overrides.canonical,
       ...(maxGroupSize == null ? {} : { maxGroupSize }),
     })
+    let assignments = await assignFromEdgesAsync(
+      await buildEdgesAsync(accepted, grey, distances, intent.verdicts, lpipsThreshold),
+      assignOpts(intent),
+      yieldToEventLoop,
+    )
+    const latest = readIntent(sqlite)
+    if (latest.fingerprint !== intent.fingerprint)
+      assignments = assignFromEdges(buildEdges(accepted, grey, distances, latest.verdicts, lpipsThreshold), assignOpts(latest))
     if (!dryRun)
       replaceAllGroups(sqlite, assignments)
 
@@ -521,17 +620,74 @@ async function doRebuild(
     // 一个看不懂的文件错误。留给下一轮的 `sweepStaleMatrices` 收。
     await fs.rm(file, { force: true }).catch((err: unknown) =>
       log.warn(`[dedup] 临时矩阵删不掉，留给下一轮回收：${file}（${String(err)}）`))
+    activeFiles.delete(file)
+  }
+}
+
+interface Intent {
+  verdicts: ReturnType<typeof listUserVerdicts>
+  overrides: ReturnType<typeof listGroupOverrides>
+  /** 比对用：两次读到的意图是否相同。行数是用户操作的量级（几十到几千），拼串不贵。 */
+  fingerprint: string
+}
+
+function readIntent(sqlite: SqliteHandle): Intent {
+  const verdicts = listUserVerdicts(sqlite)
+  const overrides = listGroupOverrides(sqlite)
+  const fingerprint = JSON.stringify([
+    verdicts.map(v => `${v.postA}:${v.postB}:${v.verdict}`).sort(),
+    [...overrides.standalone].sort((a, b) => a - b),
+    [...overrides.canonical].sort((a, b) => a - b),
+  ])
+  return { verdicts, overrides, fingerprint }
+}
+
+/** `readEdgesByLeft` 分块读，块间让出事件循环。块内仍是同一个查询，结果与一次读完相同。 */
+async function readEdgesByLeftYielding(
+  sqlite: SqliteHandle,
+  leftIds: readonly number[],
+): Promise<ReturnType<typeof readEdgesByLeft>> {
+  const CHUNK = 5_000
+  const out: ReturnType<typeof readEdgesByLeft> = new Map()
+  for (let i = 0; i < leftIds.length; i += CHUNK) {
+    for (const [k, v] of readEdgesByLeft(sqlite, leftIds.slice(i, i + CHUNK)))
+      out.set(k, v)
+    await yieldToEventLoop()
+  }
+  return out
+}
+
+/**
+ * 文件名里的 pid（`dedupMatrixPath(`${pid}-${ts}`)`）是另一个**还活着**的进程 —— 同一个库上
+ * 临时起了第二个 API（验证、调试）。它可能正写着导出，不能替它删。pid 被无关进程复用时
+ * 只是这一轮不回收，下一轮再来。
+ */
+function ownedByAnotherLiveProcess(name: string): boolean {
+  const m = /^dedup-vectors-(\d+)-\d+\.f32$/.exec(name)
+  if (!m)
+    return false
+  const pid = Number(m[1])
+  if (pid === process.pid)
+    return false
+  try {
+    process.kill(pid, 0)
+    return true
+  }
+  catch (err) {
+    // EPERM：进程在，只是没权限发信号。
+    return (err as { code?: string }).code === 'EPERM'
   }
 }
 
 /**
  * 回收 `.pictoria/` 下别的 `dedup-vectors-*.f32`。
  *
- * 来源有两种：上一轮超时后 worker 还占着的那个，以及进程被杀时留下的。同一个库
- * 只有一个 API 进程、重建又由 `inFlight` 串行化，所以走到这里时**每一个**匹配的
- * 文件都是垃圾；还占着的删不掉，跳过就是了，反正下一轮还会再来一次。
+ * 来源有两种：上一轮超时后 worker 还占着的那个，以及进程被杀时留下的。重建由
+ * `DedupRebuilder` 串行化，所以除了 `keep`（本进程正在用的）和另一个活着的进程的
+ * （`ownedByAnotherLiveProcess`）之外，每一个匹配的文件都是垃圾；还占着的删不掉
+ * （Windows 上 EBUSY），跳过就是了，反正下一轮还会再来一次。
  */
-async function sweepStaleMatrices(dir: string, log: Log): Promise<void> {
+async function sweepStaleMatrices(dir: string, log: Log, keep: ReadonlySet<string> = new Set()): Promise<void> {
   let names: string[]
   try {
     names = await fs.readdir(dir)
@@ -542,7 +698,7 @@ async function sweepStaleMatrices(dir: string, log: Log): Promise<void> {
   for (const name of names) {
     // 认名字的那一半在 paths.ts，和造名字的挨着 —— 分开写迟早漂移，而漂移的表现是
     // 回收静默停摆、`.pictoria/` 下堆 1 GB 一个的文件。
-    if (!isDedupMatrix(name))
+    if (!isDedupMatrix(name) || keep.has(path.join(dir, name)) || ownedByAnotherLiveProcess(name))
       continue
     await fs.rm(path.join(dir, name), { force: true })
       .then(() => log.info(`[dedup] 回收了残留的临时矩阵 ${name}`))

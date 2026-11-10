@@ -156,6 +156,88 @@ export function assignFromEdges(
   edges: readonly VariantEdge[],
   options: AssignOptions = {},
 ): Array<[number, number]> {
+  const steps = assignSteps(edges, options)
+  for (;;) {
+    const r = steps.next()
+    if (r.done)
+      return r.value
+  }
+}
+
+/**
+ * `assignFromEdges` 的分步版：每做完一截（过滤 / 每块排序 / 归并 / union-find 各 5 万条）
+ * `await pause()` 一次。结果与同步版逐位相同（同一个生成器驱动）。
+ *
+ * 全库重建的边集是几十万到上百万条，一口气排序 + union-find 在 API 的事件循环上是
+ * 半秒以上的停顿（`apps/api/src/dedup.ts`）。
+ */
+export async function assignFromEdgesAsync(
+  edges: readonly VariantEdge[],
+  options: AssignOptions,
+  pause: () => Promise<void>,
+): Promise<Array<[number, number]>> {
+  const steps = assignSteps(edges, options)
+  for (;;) {
+    const r = steps.next()
+    if (r.done)
+      return r.value
+    await pause()
+  }
+}
+
+/** 一步做多少条（过滤、排序块、归并、union-find 都按它切）。 */
+const ASSIGN_STEP = 50_000
+
+/**
+ * 边的全序：强度降序，再 (min id, max id) 升序。键完全相同的两条边对 union-find 是
+ * 同一条（第二条必然 `ra === rb`），所以它们之间的先后不影响结果 —— 分块排序再归并
+ * 和一次整体排序给出同一个分配。
+ */
+function edgeOrder(x: VariantEdge, y: VariantEdge): number {
+  return y.strength - x.strength
+    || Math.min(x.a, x.b) - Math.min(y.a, y.b)
+    || Math.max(x.a, x.b) - Math.max(y.a, y.b)
+}
+
+/** 分块排序 + 两两归并，每 `ASSIGN_STEP` 条交出一次控制权。 */
+function* sortedSteps(items: VariantEdge[]): Generator<void, VariantEdge[]> {
+  let runs: VariantEdge[][] = []
+  for (let i = 0; i < items.length; i += ASSIGN_STEP) {
+    runs.push(items.slice(i, i + ASSIGN_STEP).sort(edgeOrder))
+    yield
+  }
+  while (runs.length > 1) {
+    const merged: VariantEdge[][] = []
+    for (let r = 0; r < runs.length; r += 2) {
+      const left = runs[r]!
+      const right = runs[r + 1]
+      if (!right) {
+        merged.push(left)
+        continue
+      }
+      const out: VariantEdge[] = new Array(left.length + right.length)
+      let i = 0
+      let j = 0
+      let k = 0
+      while (i < left.length && j < right.length) {
+        out[k++] = edgeOrder(left[i]!, right[j]!) <= 0 ? left[i++]! : right[j++]!
+        if (k % ASSIGN_STEP === 0)
+          yield
+      }
+      while (i < left.length) out[k++] = left[i++]!
+      while (j < right.length) out[k++] = right[j++]!
+      merged.push(out)
+      yield
+    }
+    runs = merged
+  }
+  return runs[0] ?? []
+}
+
+function* assignSteps(
+  edges: readonly VariantEdge[],
+  options: AssignOptions,
+): Generator<void, Array<[number, number]>> {
   const excluded = options.excluded
   const pinned = options.pinned
   const maxGroupSize = options.maxGroupSize ?? DEFAULT_MAX_GROUP_SIZE
@@ -183,14 +265,20 @@ export function assignFromEdges(
     return root
   }
 
-  const usable = edges.filter(e =>
-    e.a !== e.b && !excluded?.has(e.a) && !excluded?.has(e.b))
-  usable.sort((x, y) =>
-    y.strength - x.strength
-    || Math.min(x.a, x.b) - Math.min(y.a, y.b)
-    || Math.max(x.a, x.b) - Math.max(y.a, y.b))
+  const usable: VariantEdge[] = []
+  for (let i = 0; i < edges.length; i++) {
+    const e = edges[i]!
+    if (e.a !== e.b && !excluded?.has(e.a) && !excluded?.has(e.b))
+      usable.push(e)
+    if ((i + 1) % ASSIGN_STEP === 0)
+      yield
+  }
+  const ordered = yield* sortedSteps(usable)
 
-  for (const edge of usable) {
+  for (let i = 0; i < ordered.length; i++) {
+    const edge = ordered[i]!
+    if ((i + 1) % ASSIGN_STEP === 0)
+      yield
     const ra = find(edge.a)
     const rb = find(edge.b)
     if (ra === rb)
@@ -220,7 +308,11 @@ export function assignFromEdges(
     // 用户钉过封面就用它；钉了多个（跨组的两个 pin 被并到了一起）取最小 id，
     // 和无 pin 时同一条规则，免得结果取决于成员的遍历顺序。
     const pins = pinned ? members.filter(m => pinned.has(m)) : []
-    const canonical = Math.min(...(pins.length ? pins : members))
+    let canonical = Infinity
+    for (const m of pins.length ? pins : members) {
+      if (m < canonical)
+        canonical = m
+    }
     for (const member of members) {
       if (member !== canonical)
         out.push([member, canonical])

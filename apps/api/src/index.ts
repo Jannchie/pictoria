@@ -3,10 +3,12 @@ import process from 'node:process'
 import { serve } from '@hono/node-server'
 import { createApp } from './app.js'
 import { getDb, migrate } from './db.js'
+import { rebuilderFor } from './dedup.js'
 import { OPTIMIZE_INTERVAL_MS, optimizeDb } from './optimize.js'
-import { dbPath } from './paths.js'
 import { BACKFILL_LOOP_KEYS, setSchedulerState } from './queue-status.js'
+import { dbPath, targetDir } from './paths.js'
 import { createReadPool, inProcessReads, readThreadsFromEnv } from './read-pool.js'
+import { FolderTree } from './routes/folders.js'
 import { startBackfills } from './scheduler.js'
 import { startAutoSync } from './sync.js'
 import { getTasks, peekTasks } from './tasks.js'
@@ -54,7 +56,16 @@ const reads = readThreads > 0
   ? createReadPool({ dbPath: dbPath(), size: readThreads })
   : inProcessReads(getDb().sqlite)
 
-const app = createApp({ db: getDb().sqlite, tasks: { get: getTasks, peek: peekTasks }, reads })
+// 目录树挂文件监视：之后的 `/v2/folders` 只重读变了的目录（见 `routes/folders.ts`）。
+// 启动时先在后台冷走一遍，第一次点开侧边栏就不用等。
+const folderTree = new FolderTree({ watch: true })
+folderTree.warm(targetDir())
+
+const app = createApp({ db: getDb().sqlite, tasks: { get: getTasks, peek: peekTasks }, reads, folderTree })
+
+// 回收上一个进程留下的近重复临时矩阵（被杀 / 超时，一个 1–2 GB）。还被 worker 占着的
+// 删不掉，跳过；本进程正在用的由 `DedupRebuilder` 记着，不会被删。
+void rebuilderFor(getDb().sqlite).sweepStale()
 
 serve({ fetch: app.fetch, port: PORT, hostname: HOST }, (info) => {
   const shown = info.family === 'IPv6' ? `[${info.address}]` : info.address

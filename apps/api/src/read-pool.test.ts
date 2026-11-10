@@ -32,6 +32,14 @@ function seed(sqlite: SqliteHandle): void {
 }
 
 describe('inProcessReads', () => {
+  it('已 abort 的 signal 不执行', async () => {
+    const sqlite = createTestDb()
+    const ctl = new AbortController()
+    ctl.abort()
+    await expect(inProcessReads(sqlite).withSignal(ctl.signal).countPosts({})).rejects.toMatchObject({ name: 'AbortError' })
+    sqlite.close()
+  })
+
   it('与直接调 @pictoria/db 一致', async () => {
     const sqlite = createTestDb()
     seed(sqlite)
@@ -151,6 +159,125 @@ describe('createReadPool（真实线程）', { timeout: 20_000 }, () => {
       // 上一次已经结束，key 已删：同样的调用会重新派一次。
       await pool.knn(5, 10)
       expect(await seen()).toBe(2)
+    }
+    finally {
+      await pool.close()
+    }
+  })
+
+  /** 线程里睡 `ms`（同步）：模拟一个正在跑的重查询。 */
+  const sleep = (ms: number) => `Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ${ms})`
+
+  it('慢通道的重计数挡不住快通道的 KNN', async () => {
+    const pool = createReadPool({
+      dbPath: dbFile,
+      size: 1,
+      slowSize: 1,
+      entry: wrappedEntry('slow-lane-worker', '', `if (m.fn === 'countAllTags') ${sleep(1500)}; fn(m)`),
+    })
+    try {
+      const order: string[] = []
+      const slow = pool.countAllTags({ rating: [0] }).then(() => order.push('countAllTags'))
+      const fast = pool.knn(3, 5).then((r) => {
+        order.push('knn')
+        return r
+      })
+      expect(await fast).toEqual(knn(reference, 3, 5))
+      await slow
+      expect(order).toEqual(['knn', 'countAllTags'])
+    }
+    finally {
+      await pool.close()
+    }
+  })
+
+  it('已 abort 的不派发；排队中被 abort 的出队；去重合并的要所有等待者都放弃', async () => {
+    const pool = createReadPool({
+      dbPath: dbFile,
+      size: 1,
+      slowSize: 0,
+      entry: wrappedEntry(
+        'abort-worker',
+        'let seen = 0',
+        `if (m.args[0] === -2) { parentPort.postMessage({ id: m.id, ok: true, value: seen }); return } seen++; if (m.args[0] === -5) ${sleep(400)}; fn(m)`,
+      ),
+    })
+    const seen = async () => (await pool.knn(-2, 0)) as unknown as number
+    try {
+      const gone = new AbortController()
+      gone.abort()
+      await expect(pool.withSignal(gone.signal).knn(1, 5)).rejects.toMatchObject({ name: 'AbortError' })
+      expect(await seen()).toBe(0)
+
+      // 线程被 -5 占着 400 ms；排在后面的那个在排队时被放弃。
+      const busy = pool.knn(-5, 5)
+      const queued = new AbortController()
+      const p = pool.withSignal(queued.signal).knn(2, 5)
+      queued.abort()
+      await expect(p).rejects.toMatchObject({ name: 'AbortError' })
+      await busy
+      expect(await seen()).toBe(1) // 只有 -5 被派发过
+
+      // 同参数两个等待者：一个放弃，另一个照样拿到结果，而且只派发一次。
+      const blocker = pool.knn(-5, 6)
+      const one = new AbortController()
+      const a = pool.withSignal(one.signal).countPosts({ rating: [0] })
+      const b = pool.countPosts({ rating: [0] })
+      one.abort()
+      await expect(a).rejects.toMatchObject({ name: 'AbortError' })
+      expect(await b).toBe(POSTS)
+      await blocker
+      expect(await seen()).toBe(3) // 两个 -5 + 一次 countPosts
+    }
+    finally {
+      await pool.close()
+    }
+  })
+
+  it('正在跑的读被放弃时，线程能从取消字读到（分块的读据此提前停下）', async () => {
+    const pool = createReadPool({
+      dbPath: dbFile,
+      size: 1,
+      slowSize: 1,
+      entry: wrappedEntry(
+        'cancel-word-worker',
+        `import { workerData } from 'node:worker_threads'
+let lastCancelled = null`,
+        `if (m.args[0] === -3) { parentPort.postMessage({ id: m.id, ok: true, value: lastCancelled }); return }`
+        + ` if (m.fn === 'countAllTags') { ${sleep(300)}; lastCancelled = Atomics.load(workerData.cancel, 0) === m.id }`
+        + ` fn(m)`,
+      ),
+    })
+    try {
+      const ctl = new AbortController()
+      const p = pool.withSignal(ctl.signal).countAllTags({ rating: [0] })
+      await new Promise(resolve => setTimeout(resolve, 50))
+      ctl.abort()
+      await expect(p).rejects.toMatchObject({ name: 'AbortError' })
+      // 探针和 countAllTags 都在慢通道那一条线程上：它回来时 countAllTags 已经跑完。
+      const probe = pool.countAllTags(-3 as never)
+      expect(await probe).toBe(true)
+    }
+    finally {
+      await pool.close()
+    }
+  })
+
+  it('同参数的并发计数只派一次线程', async () => {
+    const pool = createReadPool({
+      dbPath: dbFile,
+      size: 1,
+      slowSize: 0,
+      entry: wrappedEntry(
+        'counting-count-worker',
+        'let seen = 0',
+        'if (m.args[0] === -2) parentPort.postMessage({ id: m.id, ok: true, value: seen }); else { seen++; fn(m) }',
+      ),
+    })
+    try {
+      const [a, b, c] = await Promise.all([pool.countPosts({}), pool.countPosts({}), pool.countPosts({ rating: [1] })])
+      expect([a, b, c]).toEqual([POSTS, POSTS, 0])
+      expect(await pool.knn(-2, 0)).toBe(2)
     }
     finally {
       await pool.close()

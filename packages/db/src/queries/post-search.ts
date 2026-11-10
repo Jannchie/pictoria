@@ -168,16 +168,184 @@ export function buildSearchQuery(
   return { sql, params: [...params, limit, offset] }
 }
 
+interface SqlAndParams { sql: string, params: unknown[] }
+
+/**
+ * 分数类排序（`<scorer>_score` / `discrepancy`，非随机、无 `lab`）的分段计划。
+ *
+ * 单条 `LEFT JOIN 分数表 ... ORDER BY 分数 NULLS LAST` 的问题：排序列在 LEFT JOIN 的
+ * 右表上，planner 不能从右表驱动，只能把命中的 post 全部 join 一遍再 TEMP B-TREE 排序
+ * （真库 37.5 万 posts：120–580 ms，深页数秒）。这里把同一个结果序拆成两段：
+ *
+ *   1. `scored`：有排序值的那段。打分器排序从分数表的 `(scorer, score, post_id)` 索引
+ *      驱动（0023 迁移），沿索引凑满 LIMIT 就停；
+ *   2. `unscored`：排序值为 NULL 的那段（`NULLS LAST` 的尾巴），按 `p.id` 同向排。
+ *
+ * 两段拼起来与原 `ORDER BY v DIR NULLS LAST, p.id DIR` 逐行相同（`post-search-sort.test.ts`
+ * 对拍）。offset 落在第二段时，第一段的行数由 `countScored` 给出（只有第一段一行都没取到
+ * 时才需要数 —— 取到 k 行就说明第一段一共 offset + k 行）。
+ *
+ * ⚠️ 沿分数索引走只在过滤**宽**时赢：过滤很窄（尤其是按另一个打分器的分档过滤，和排序
+ * 列强相关）时要把整条索引走完，每行三次随机点查，真库实测 3–5 s，而原查询顺序扫 posts
+ * 只要 300 ms。所以第一段先限在索引的前 `budget` 项里找（`scored(budget)`）：凑满了就是
+ * 精确结果（前 offset+limit 个命中必然都在这个前缀里）；没凑满且前缀已经是整条索引，
+ * 第一段也是精确的；否则说明过滤太窄，交还给原查询（`fallback`）。最坏情况是多付一次
+ * 有界的探测（1 万项约 10–25 ms）。
+ *
+ * discrepancy 没法走索引（它是两张表的列算出来的），但“有值”的前提是 `p.score >= 1`，
+ * 由 `ix_posts_score` 的范围驱动，不需要预算。
+ */
+export interface ScoreSortPlan {
+  /** `budget` 为 null 时不限（discrepancy 恒为不限）。 */
+  scored: (budget: number | null) => SqlAndParams
+  /** 索引驱动时：分数表这个打分器第 `budget` 项是否存在（不存在 = 前缀即全表）。 */
+  hasMoreThan: ((budget: number) => SqlAndParams) | null
+  countScored: SqlAndParams
+  unscored: (limit: number, offset: number) => SqlAndParams
+}
+
+/** 候选集不超过它就不走分段计划（原查询从小集合驱动再排序更快）。 */
+export const SCORE_SORT_SMALL_SET = 20_000
+
+function isScoreSort(f: PostFilterWithOrder): boolean {
+  return f.lab == null && f.order !== 'random' && Boolean(f.orderBy) && VIRTUAL_SORT_COLUMNS.has(f.orderBy!)
+}
+
+/** 文件夹过滤命中不超过 `SCORE_SORT_SMALL_SET` 个 post（有界计数，最多走 2 万项索引）。 */
+function isSmallFolder(sqlite: BetterSqlite3.Database, folder: string | null | undefined): boolean {
+  if (!folder || folder === '.')
+    return false
+  const n = sqlite
+    .prepare<unknown[], number>(
+      'SELECT COUNT(*) FROM (SELECT 1 FROM posts WHERE file_path = ? OR (file_path >= ? AND file_path < ?) LIMIT ?)',
+    )
+    .pluck()
+    .get(folder, `${folder}/`, `${folder}0`, SCORE_SORT_SMALL_SET + 1)!
+  return n <= SCORE_SORT_SMALL_SET
+}
+
+/** 索引驱动的探测预算：至少 1 万项，深页按需要的行数放大。 */
+export const SCORE_SORT_MIN_BUDGET = 10_000
+const SCORE_SORT_BUDGET_FACTOR = 20
+
+export function buildScoreSortPlan(
+  f: PostFilterWithOrder,
+  whereOpts?: BuildWhereOptions,
+): ScoreSortPlan | null {
+  if (!isScoreSort(f))
+    return null
+
+  const { where, params, joins } = buildWhere(f, whereOpts)
+  const direction = f.order === 'asc' ? 'ASC' : 'DESC'
+  const isDiscrepancy = f.orderBy === 'discrepancy'
+  const spec = isDiscrepancy ? SILVA : FILTERABLE_SCORERS.find(s => orderColumn(s) === f.orderBy)!
+
+  const leftJoin = spec.joinSql()
+  const otherJoins = joins.filter(j => j !== leftJoin)
+  // 第二段：保留 LEFT JOIN，取排序值为 NULL 的行。
+  const unscoredJoins = spec.isJoined(joins) ? joins : [...joins, leftJoin]
+  const unscoredWhere = isDiscrepancy
+    ? `NOT COALESCE(p.score >= 1 AND ${SILVA.nullCol()} IS NOT NULL, 0)`
+    : `${spec.nullCol()} IS NULL`
+  const unscored = (lim: number, off: number): SqlAndParams => ({
+    sql: `SELECT ${SIMPLE_BASE_SELECT}, NULL AS _sort_col FROM posts p\n${unscoredJoins.join('\n')} `
+      + `${whereSql([...where, unscoredWhere])} ORDER BY p.id ${direction} LIMIT ? OFFSET ?`,
+    params: [...params, lim, off],
+  })
+
+  if (isDiscrepancy) {
+    const sortExpr = `ABS(${SILVA.scoreExpr()} - p.score)`
+    const innerJoin = leftJoin.replace(/^LEFT JOIN /, 'JOIN ')
+    const from = `FROM posts p\n${[innerJoin, ...otherJoins].join('\n')} ${whereSql([...where, 'p.score >= 1'])}`
+    return {
+      scored: () => ({
+        sql: `SELECT ${SIMPLE_BASE_SELECT}, ${sortExpr} AS _sort_col ${from} `
+          + `ORDER BY _sort_col ${direction}, p.id ${direction} LIMIT ? OFFSET ?`,
+        params,
+      }),
+      hasMoreThan: null,
+      countScored: { sql: `SELECT COUNT(*) ${from}`, params },
+      unscored,
+    }
+  }
+
+  // 分数表的这一段：别名沿用打分器自己的别名，过滤里引用它的子句（分档、waifu 区间）
+  // 照样成立，`<alias>.post_id IS NULL` 分支在这一段里恒假，与原语义一致。
+  const table = leftJoin.slice('LEFT JOIN '.length).split(' ')[0]!
+  const a = spec.alias
+  const scope = leftJoin.includes(`${a}.scorer = `) ? `WHERE ${a}.scorer = '${spec.name}' ` : ''
+  const indexOrder = `ORDER BY ${a}.score ${direction}, ${a}.post_id ${direction}`
+  const source = (budget: number | null) =>
+    `(SELECT ${a}.post_id, ${a}.score FROM ${table} ${a} ${scope}${indexOrder}${budget == null ? '' : ` LIMIT ${Math.trunc(budget)}`}) ${a}`
+  const from = (budget: number | null) =>
+    `FROM ${source(budget)}\nJOIN posts p ON p.id = ${a}.post_id${otherJoins.length ? `\n${otherJoins.join('\n')}` : ''} ${whereSql(where)}`
+  return {
+    scored: budget => ({
+      sql: `SELECT ${SIMPLE_BASE_SELECT}, ${a}.score AS _sort_col ${from(budget)} ${indexOrder} LIMIT ? OFFSET ?`,
+      params,
+    }),
+    hasMoreThan: budget => ({
+      sql: `SELECT 1 FROM ${table} ${a} ${scope}${indexOrder} LIMIT 1 OFFSET ${Math.trunc(budget)}`,
+      params: [],
+    }),
+    countScored: { sql: `SELECT COUNT(*) ${from(null)}`, params },
+    unscored,
+  }
+}
+
+/**
+ * 执行 `buildScoreSortPlan`：先取有排序值的一段，不够再接 NULL 尾巴。返回 null 表示
+ * 预算内没凑满、交还给原查询。
+ */
+export function runScoreSortPlan(
+  sqlite: BetterSqlite3.Database,
+  plan: ScoreSortPlan,
+  limit: number,
+  offset: number,
+  budget: number | null,
+): Array<Record<string, unknown>> | null {
+  const all = (q: SqlAndParams, ...extra: unknown[]) =>
+    sqlite.prepare<unknown[], Record<string, unknown>>(q.sql).all(...q.params, ...extra)
+  const effectiveBudget = plan.hasMoreThan ? budget : null
+  const rows = all(plan.scored(effectiveBudget), limit, offset)
+  if (rows.length >= limit)
+    return rows
+  if (effectiveBudget != null) {
+    const more = plan.hasMoreThan!(effectiveBudget)
+    if (sqlite.prepare(more.sql).get(...more.params) !== undefined)
+      return null
+  }
+  // 第一段取到了 k 行（k < limit）：它一共 offset + k 行，第二段从 0 开始。
+  // 一行没取到：offset 越过了第一段，得数一下第一段有多少行才知道第二段的 offset。
+  const scoredTotal = rows.length > 0
+    ? offset + rows.length
+    : (offset > 0
+        ? sqlite.prepare<unknown[], number>(plan.countScored.sql).pluck().get(...plan.countScored.params)!
+        : 0)
+  rows.push(...all(plan.unscored(limit - rows.length, Math.max(0, offset - scoredTotal))))
+  return rows
+}
+
 /** 搜索，返回可直接喂给 `PostSimplePublic` 的行。 */
 export function searchPosts(
   sqlite: BetterSqlite3.Database,
   f: PostFilterWithOrder,
   { limit = 100, offset = 0 }: { limit?: number, offset?: number } = {},
 ): Array<Record<string, unknown>> {
+  const scoreSort = isScoreSort(f)
   // 冷门 tag 从 tag 侧驱动（见 `tag-drive.ts`）；SQL 文本只在选中时才变，golden 不受影响。
-  const drivingTag = pickDrivingTag(sqlite, f.tags, LIST_DRIVE_MAX_POSTS)
-  const { sql, params } = buildSearchQuery(f, limit, offset, { drivingTag })
-  const rows = sqlite.prepare<unknown[], Record<string, unknown>>(sql).all(...params)
+  // 分数排序的阈值更高：原查询无论如何要整库排序，从 tag 取 2 万张以内再排序反而便宜。
+  const drivingTag = pickDrivingTag(sqlite, f.tags, scoreSort ? SCORE_SORT_SMALL_SET : LIST_DRIVE_MAX_POSTS)
+  // 候选集本来就小（冷门 tag、小文件夹）时原查询从那一侧驱动只要几毫秒，探测预算反而是白付。
+  const plan = scoreSort && !drivingTag && !isSmallFolder(sqlite, f.folder)
+    ? buildScoreSortPlan(f)
+    : null
+  const budget = Math.max(SCORE_SORT_MIN_BUDGET, (offset + limit) * SCORE_SORT_BUDGET_FACTOR)
+  let rows = plan ? runScoreSortPlan(sqlite, plan, limit, offset, budget) : null
+  if (!rows) {
+    const { sql, params } = buildSearchQuery(f, limit, offset, { drivingTag })
+    rows = sqlite.prepare<unknown[], Record<string, unknown>>(sql).all(...params)
+  }
 
   for (const r of rows) {
     // `_dist` 是排序用的内部列，直接丢掉。

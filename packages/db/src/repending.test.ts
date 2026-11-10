@@ -12,10 +12,10 @@ import Database from 'better-sqlite3'
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest'
 import type { TaggerCategories } from '@pictoria/contracts'
 import { notifyRepending, onRepending } from './repending.js'
-import { ensureCanonicalTagGroups, listTaggerPending, listWaifuPending, persistTaggerResults, resetScanFloors } from './repositories/backfill.js'
+import { clearMissingFiles, ensureCanonicalTagGroups, listTaggerPending, listWaifuPending, persistTaggerResults, recordMissingFiles, resetScanFloors } from './repositories/backfill.js'
 import { persistPostsWithTags } from './repositories/import-persist.js'
 import { createPost, insertPostTriples, updateForRotate } from './repositories/posts.js'
-import { addTagToPost, deleteTag, deleteTags, removeTagFromPost, setTagSource } from './repositories/tags.js'
+import { addTagToPost, addTagToPosts, deleteTag, deleteTags, removeTagFromPost, removeTagFromPosts, setTagSource } from './repositories/tags.js'
 import type { BackfillWorker } from './workers.js'
 import { BACKFILL_WORKERS, failureKey } from './workers.js'
 import { createTestDb } from './testing.js'
@@ -23,7 +23,7 @@ import { createTestDb } from './testing.js'
 const MODEL = 'test-model'
 
 let sqlite: Database.Database
-/** 这个用例里收到的信号，按到达顺序。`'*'` 结尾 = 要求强制全扫（没带 id）。 */
+/** 这个用例里收到的信号，按到达顺序。 */
 let heard: string[][]
 let unsubscribe: () => void
 
@@ -46,9 +46,9 @@ function taggerRow(postId: number, general: string[]) {
   }
 }
 
-/** 订阅者：记下被点名的 worker，强制全扫的信号在末尾多记一个 `'*'`。 */
+/** 订阅者：记下被点名的 worker。水位线在信号里已经退好了（带 id 退到那里，不带退到 0）。 */
 function listen(): () => void {
-  return onRepending(sqlite, (ws, { force }) => heard.push(force ? [...ws, '*'] : [...ws]))
+  return onRepending(sqlite, ws => heard.push([...ws]))
 }
 
 beforeAll(() => {
@@ -76,7 +76,24 @@ describe('通知机制本身', () => {
     other.close()
     expect(heard).toEqual([])
     notifyRepending(sqlite, ['basics', 'tagger'])
-    expect(heard).toEqual([['basics', 'tagger', '*']])
+    expect(heard).toEqual([['basics', 'tagger']])
+  })
+
+  it('不带 id：当场把被点名循环的水位线退到 0（下一轮全扫），没点名的不动', () => {
+    for (const id of [1, 2, 3]) insertPost(id)
+    expect(listWaifuPending(sqlite).map(p => p.postId)).toEqual([1, 2, 3])
+    sqlite.prepare('INSERT INTO post_waifu_scores (post_id, score) VALUES (1, 1), (2, 1), (3, 1)').run()
+    expect(listWaifuPending(sqlite)).toEqual([])
+    for (const id of [1, 2, 3]) link(id, 'a', 1)
+    sqlite.prepare('UPDATE posts SET tagger = ?').run(MODEL)
+    expect(listTaggerPending(sqlite, MODEL)).toEqual([])
+
+    sqlite.prepare('DELETE FROM post_waifu_scores').run()
+    sqlite.prepare('DELETE FROM post_has_tag').run()
+    notifyRepending(sqlite, 'waifu')
+    expect(heard).toEqual([['waifu']])
+    expect(listWaifuPending(sqlite).map(p => p.postId)).toEqual([1, 2, 3])
+    expect(listTaggerPending(sqlite, MODEL)).toEqual([])
   })
 
   it('取消订阅之后收不到；不点名是空操作', () => {
@@ -88,7 +105,7 @@ describe('通知机制本身', () => {
     expect(heard).toEqual([])
   })
 
-  it('带 id：当场把被点名循环的水位线退到那里，不要求强制全扫；没点名的不动', () => {
+  it('带 id：当场把被点名循环的水位线退到那里（不全扫）；没点名的不动', () => {
     for (const id of [1, 2, 3]) insertPost(id)
     // 两条循环的水位线都推到 MAX(id)+1
     expect(listWaifuPending(sqlite).map(p => p.postId)).toEqual([1, 2, 3])
@@ -138,6 +155,44 @@ describe('摘标签 → tagger', () => {
     insertPost(1)
     expect(removeTagFromPost(sqlite, 1, 'nope')).toBe(false)
     expect(addTagToPost(sqlite, 1, 'manual')).toBe(true)
+    expect(heard).toEqual([])
+  })
+})
+
+describe('批量摘标签 → tagger', () => {
+  it('剥光若干张图的自动标签：只发一次，水位线退到其中最小的那张', () => {
+    for (const id of [1, 2, 3]) insertPost(id)
+    link(1, 'keep', 1)
+    link(1, 'auto_a', 1)
+    link(2, 'auto_a', 1)
+    link(3, 'auto_a', 1)
+    sqlite.prepare('UPDATE posts SET tagger = ?').run(MODEL)
+    expect(listTaggerPending(sqlite, MODEL)).toEqual([])
+
+    expect(removeTagFromPosts(sqlite, [3, 1, 2, 9], 'auto_a')).toEqual({ removed: [3, 1, 2], absent: [9] })
+    expect(heard).toEqual([['tagger']])
+    expect(listTaggerPending(sqlite, MODEL).map(p => p.postId)).toEqual([2, 3])
+  })
+
+  it('只摘手工标签、每张图都还剩自动标签、本来就没有：不发', () => {
+    insertPost(1)
+    insertPost(2)
+    link(1, 'manual', 0)
+    link(1, 'auto_b', 1)
+    link(2, 'auto_a', 1)
+    link(2, 'auto_b', 1)
+    removeTagFromPosts(sqlite, [1, 2], 'manual')
+    removeTagFromPosts(sqlite, [2], 'auto_a')
+    removeTagFromPosts(sqlite, [1, 2], 'nope')
+    expect(heard).toEqual([])
+  })
+
+  it('批量加标签（人工或自动）、单张加自动标签：不发', () => {
+    insertPost(1)
+    insertPost(2)
+    expect(addTagToPosts(sqlite, [1, 2], 'manual')).toEqual({ added: [1, 2], already: [] })
+    expect(addTagToPosts(sqlite, [1], 'auto', true)).toEqual({ added: [1], already: [] })
+    expect(addTagToPost(sqlite, 2, 'auto2', true)).toBe(true)
     expect(heard).toEqual([])
   })
 })
@@ -282,6 +337,25 @@ describe('新建 post → 全部 worker（只叫醒，不强制全扫）', () =>
     expect(listWaifuPending(sqlite)).toEqual([])
     const id = createPost(sqlite, { filePath: 'dir', fileName: 'new', extension: 'jpg' })
     expect(listWaifuPending(sqlite).map(p => p.postId)).toEqual([id])
+  })
+})
+
+describe('"文件不在盘上"的黑名单清掉 → 被记过的那几条循环', () => {
+  it('只点名有这类行的 worker，水位线退到其中最小的 id；真失败的行不动、不发', () => {
+    for (const id of [1, 2, 3]) insertPost(id)
+    sqlite.prepare('INSERT INTO post_waifu_scores (post_id, score) VALUES (1, 1), (2, 1), (3, 1)').run()
+    expect(listWaifuPending(sqlite)).toEqual([])
+    sqlite.prepare('DELETE FROM post_waifu_scores WHERE post_id >= 2').run()
+    recordMissingFiles(sqlite, 'waifu', [2, 3])
+    recordMissingFiles(sqlite, 'embedding', [3])
+    sqlite.prepare(`INSERT INTO post_process_failures (post_id, worker, error) VALUES (1, 'tagger', 'unreadable')`).run()
+    expect(heard).toEqual([])
+
+    expect(clearMissingFiles(sqlite, [1])).toBe(0)
+    expect(heard).toEqual([])
+    expect(clearMissingFiles(sqlite, [3, 2])).toBe(3)
+    expect(heard).toEqual([['waifu', 'embedding']])
+    expect(listWaifuPending(sqlite).map(p => p.postId)).toEqual([2, 3])
   })
 })
 

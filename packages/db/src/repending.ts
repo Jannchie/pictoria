@@ -15,8 +15,13 @@
  *
  * 写函数知道是哪几张图时带上**最小的 id**（`fromId`）：信号当场把被点名循环的水位线
  * 退到那里（`scan-floor.ts` 的 `lowerFloor`），循环被叫醒后只从那张图起扫。说不清是
- * 哪几张时不带，监听器收到 `force: true`，被点名的循环下一轮清零水位线、全库重扫一次
- * （tagger 在真实库上是 1.8 秒的同步阻塞，所以能带 id 就带）。
+ * 哪几张时不带，水位线当场退到 0，被点名的循环下一轮从头重扫（按窗口分段，见
+ * `backfill.ts` 的 `SCAN_WINDOW_ROWS`；能带 id 还是带上，省一遍全表判定）。
+ *
+ * 两种情况都是**在信号里同步**把水位线退好，监听器只负责叫醒。原来不带 id 的信号是
+ * 一面 `force` 旗，从监听器经调度循环、`runBatch`、`WorkerSpec.listPending` 一路传到
+ * `readFloor`，还要处理"这一批失败了旗子还不还回去"—— 退水位本来就是幂等的、当场生效
+ * 的，那一整条传递链换来的只是推迟。
  *
  * **新建 post** 也走这条信号（`createPost` / `insertPostTriples` / `persistPostsWithTags`，
  * 点名全部 worker、带上新行的最小 id）：新行天然在水位线之上，退水位是空操作，信号只是
@@ -39,11 +44,8 @@ import type { SqliteHandle } from './connection.js'
 import { lowerFloor } from './scan-floor.js'
 import type { BackfillWorker } from './workers.js'
 
-/**
- * `force`：发信号的一方说不清是哪几张图（没带 `fromId`），被点名的循环下一轮要清零
- * 水位线全扫。带了 `fromId` 的信号水位线已经退好了，只需要叫醒。
- */
-export type RependingListener = (workers: readonly BackfillWorker[], opts: { force: boolean }) => void
+/** 被点名的循环。水位线在信号里已经退好了，监听器只需要叫醒它们。 */
+export type RependingListener = (workers: readonly BackfillWorker[]) => void
 
 const listeners = new WeakMap<SqliteHandle, Set<RependingListener>>()
 
@@ -64,7 +66,7 @@ export function onRepending(sqlite: SqliteHandle, listener: RependingListener): 
  * 宣布这些 worker 在这条连接上有 post 变成了待办。不点名是空操作。
  *
  * `fromId` 是其中最小的 post id：给了就当场把这几条循环的水位线退到它（见文件头），
- * 不给就让监听器强制全扫。
+ * 不给就退到 0（下一轮全扫）。
  */
 export function notifyRepending(
   sqlite: SqliteHandle,
@@ -74,13 +76,10 @@ export function notifyRepending(
   const named: readonly BackfillWorker[] = typeof workers === 'string' ? [workers] : workers
   if (!named.length)
     return
-  if (fromId !== undefined) {
-    for (const w of named) lowerFloor(sqlite, w, fromId)
-  }
+  for (const w of named) lowerFloor(sqlite, w, fromId ?? 0)
   const set = listeners.get(sqlite)
   if (!set)
     return
-  const opts = { force: fromId === undefined }
   // 拷一份再派发：监听器里取消订阅不该打乱这一轮的遍历。
-  for (const listener of [...set]) listener(named, opts)
+  for (const listener of [...set]) listener(named)
 }

@@ -178,6 +178,49 @@ export type TagBatchDelete = {
 };
 
 /**
+ * BulkPostTagAddResult
+ */
+export type BulkPostTagAddResult = {
+    /**
+     * Posts the tag was newly added to.
+     */
+    added: Array<number>;
+    /**
+     * Posts that already had the tag (left untouched).
+     */
+    already: Array<number>;
+};
+
+/**
+ * BulkPostTagAdd
+ */
+export type BulkPostTagAdd = {
+    postIds: Array<number>;
+    isAuto?: boolean;
+};
+
+/**
+ * BulkPostTagRemoveResult
+ */
+export type BulkPostTagRemoveResult = {
+    /**
+     * Posts the tag was removed from.
+     */
+    removed: Array<number>;
+    /**
+     * Posts that did not have the tag.
+     */
+    absent: Array<number>;
+};
+
+/**
+ * BulkPostTagRemove
+ */
+export type BulkPostTagRemove = {
+    postIds: Array<number>;
+};
+
+/**
  * PostDetailPublic
  */
 export type PostDetailPublic = {
@@ -250,6 +293,16 @@ export type TagWithGroupPublic = {
     translatedName?: string | null;
     updatedAt: string;
     createdAt: string;
+};
+
+/**
+ * PostTagAdd
+ */
+export type PostTagAdd = {
+    /**
+     * Write the row as auto (tagger-owned). Default false (human). Used to undo removing an auto tag.
+     */
+    isAuto?: boolean;
 };
 
 /**
@@ -516,6 +569,7 @@ export type QueueSummaryPublic = {
     total: number;
     done: number;
     strategy?: 'random' | 'similar' | 'close' | null;
+    createdAt: string;
 };
 
 /**
@@ -1343,6 +1397,68 @@ export type V2UpdateTagResponses = {
 
 export type V2UpdateTagResponse = V2UpdateTagResponses[keyof V2UpdateTagResponses];
 
+export type V2BulkRemoveTagFromPostsData = {
+    body: BulkPostTagRemove;
+    path: {
+        tag_name: string;
+    };
+    query?: never;
+    url: '/v2/posts/bulk/tags/{tag_name}';
+};
+
+export type V2BulkRemoveTagFromPostsErrors = {
+    /**
+     * Bad Request
+     */
+    400: ErrorBody;
+    /**
+     * Not Found
+     */
+    404: ErrorBody;
+};
+
+export type V2BulkRemoveTagFromPostsError = V2BulkRemoveTagFromPostsErrors[keyof V2BulkRemoveTagFromPostsErrors];
+
+export type V2BulkRemoveTagFromPostsResponses = {
+    /**
+     * OK
+     */
+    200: BulkPostTagRemoveResult;
+};
+
+export type V2BulkRemoveTagFromPostsResponse = V2BulkRemoveTagFromPostsResponses[keyof V2BulkRemoveTagFromPostsResponses];
+
+export type V2BulkAddTagToPostsData = {
+    body: BulkPostTagAdd;
+    path: {
+        tag_name: string;
+    };
+    query?: never;
+    url: '/v2/posts/bulk/tags/{tag_name}';
+};
+
+export type V2BulkAddTagToPostsErrors = {
+    /**
+     * Bad Request
+     */
+    400: ErrorBody;
+    /**
+     * Not Found
+     */
+    404: ErrorBody;
+};
+
+export type V2BulkAddTagToPostsError = V2BulkAddTagToPostsErrors[keyof V2BulkAddTagToPostsErrors];
+
+export type V2BulkAddTagToPostsResponses = {
+    /**
+     * OK
+     */
+    200: BulkPostTagAddResult;
+};
+
+export type V2BulkAddTagToPostsResponse = V2BulkAddTagToPostsResponses[keyof V2BulkAddTagToPostsResponses];
+
 export type V2RemoveTagFromPostData = {
     body?: never;
     path: {
@@ -1416,7 +1532,7 @@ export type V2SetPostTagSourceResponses = {
 export type V2SetPostTagSourceResponse = V2SetPostTagSourceResponses[keyof V2SetPostTagSourceResponses];
 
 export type V2AddTagToPostData = {
-    body?: never;
+    body?: PostTagAdd;
     path: {
         post_id: number;
         tag_name: string;

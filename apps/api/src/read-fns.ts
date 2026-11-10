@@ -12,11 +12,13 @@
 import type { PostFilter, SqliteHandle } from '@pictoria/db'
 import {
   aggregateStats,
+  countAllTags,
   countByColumn,
   countByScorerBucket,
-  countByTag,
+  countByTagFast,
   countPosts,
   FILTERABLE_SCORERS,
+  folderScoreAggregates,
   knn,
   searchByTextVector,
   unratedArtistPickIds,
@@ -34,8 +36,31 @@ function countByScorerBucketNamed(db: SqliteHandle, f: PostFilter, scorer: Bucke
 }
 
 /**
+ * 当前这次读的取消检查。读线程（`read-worker.ts`）在每次调用前用 `withAbortCheck` 换上
+ * “主线程是不是已经放弃了这个请求”的判断；分块执行的读（`countAllTags`）在块之间问它。
+ * 线程是单线程同步执行的，一个模块级变量就够，不会串到别的请求上。
+ */
+let currentAbortCheck: () => boolean = () => false
+
+export function withAbortCheck<T>(check: () => boolean, run: () => T): T {
+  const prev = currentAbortCheck
+  currentAbortCheck = check
+  try {
+    return run()
+  }
+  finally {
+    currentAbortCheck = prev
+  }
+}
+
+/** 带过滤的 tag facet 全量（`read-cache.ts` 按过滤签名缓存它）：可取消。 */
+function countAllTagsCancellable(db: SqliteHandle, f: PostFilter) {
+  return countAllTags(db, f, { shouldAbort: currentAbortCheck })
+}
+
+/**
  * 除了整库 KNN（`knn` / `searchByTextVector`，1.5–3 s），这里还有 facet 计数与聚合：
- * 带过滤的 `countByTag` 要对过滤集的全部标签行 GROUP BY（真库 5–30 s），
+ * 带过滤的 tag facet（`countAllTags`）要对过滤集的全部标签行 GROUP BY（真库 0.3–8 s），
  * `countByColumn` / `countByScorerBucket` / `aggregateStats` 扫整个过滤集（50–300 ms），
  * `unratedArtistPickIds` 约 0.2–1.3 s。放在主线程上，它们每一次都让所有请求一起排队。
  */
@@ -45,8 +70,10 @@ export const READ_FNS = {
   countPosts,
   countByColumn,
   countByScorerBucket: countByScorerBucketNamed,
-  countByTag,
+  countByTagFast,
+  countAllTags: countAllTagsCancellable,
   aggregateStats,
+  folderScoreAggregates,
   unratedArtistPickIds,
 } satisfies Record<string, (db: SqliteHandle, ...args: any[]) => unknown>
 
@@ -58,3 +85,25 @@ export type ReadArgs<K extends ReadFnName> = Parameters<typeof READ_FNS[K]> exte
 export type ReadResult<K extends ReadFnName> = ReturnType<typeof READ_FNS[K]>
 
 export const READ_FN_NAMES = Object.keys(READ_FNS) as ReadFnName[]
+
+/**
+ * 走慢通道的读：它们有专用线程（`createReadPool` 的 `slowSize`），排队也排在自己的队里，
+ * 于是一个几秒的 facet 计数挡不住 KNN 和轻计数。
+ */
+export const SLOW_READS: ReadonlySet<ReadFnName> = new Set<ReadFnName>(['countAllTags'])
+
+/**
+ * 同参数并发调用合并成一次派发的读：参数是小的普通数据（过滤器、数字），拼 key 不花钱。
+ * `searchByTextVector` 不在里面：参数里有 Float32Array，JSON 化又贵又难得重复。
+ */
+export const DEDUPED_READS: ReadonlySet<ReadFnName> = new Set<ReadFnName>([
+  'knn',
+  'countPosts',
+  'countByColumn',
+  'countByScorerBucket',
+  'countByTagFast',
+  'countAllTags',
+  'aggregateStats',
+  'folderScoreAggregates',
+  'unratedArtistPickIds',
+])

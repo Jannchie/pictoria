@@ -8,12 +8,12 @@
  *    空列（`@pictoria/db` 的 `repending.ts`）—— 活是 worker 干的，不占着这个请求（这个
  *    端点本来就是 fire-and-forget）。
  */
-import { insertPostTriples, listPostTriples, type PostTriple, type PostTripleRow, type SqliteHandle } from '@pictoria/db'
+import { clearMissingFiles, insertPostTriples, listMissingFilePosts, listPostTriples, type PostTriple, type PostTripleRow, type SqliteHandle } from '@pictoria/db'
 import fs from 'node:fs'
 import path from 'node:path'
 import process from 'node:process'
 import { coalesceWithCooldown, yieldToEventLoop } from './event-loop.js'
-import { pictoriaDir, targetDir } from './paths.js'
+import { pictoriaDir, postAbsPath, targetDir } from './paths.js'
 import { deletePostFiles } from './post-files.js'
 
 type Log = Pick<Console, 'info' | 'warn'>
@@ -290,6 +290,8 @@ export async function syncMetadata(
     insertPostTriples(sqlite, newTriples)
   }
 
+  await restoreReturnedFiles(sqlite, log)
+
   return {
     onDisk: diskKeys.size,
     inDb: dbByKey.size,
@@ -297,6 +299,32 @@ export async function syncMetadata(
     added: newTriples.length,
     skippedDeletes,
   }
+}
+
+/**
+ * 调度器提交前发现文件不在盘上的 post 会被记成"文件不在盘上"黑名单（`scheduler.ts` 的
+ * `runBatch`，让出队首）。文件回来了（外置盘重新挂上、移动完成）就在这里清掉，并让对应
+ * 循环退水位重新捡起它们（`clearMissingFiles` 发重新待办信号）。行数是这类异常的量级，
+ * 逐个 access 一次不贵。文件真的没了的那些，上面的删除判定会连行带黑名单一起删掉。
+ */
+export async function restoreReturnedFiles(sqlite: SqliteHandle, log: Log = console): Promise<number> {
+  const missing = listMissingFilePosts(sqlite)
+  if (!missing.length)
+    return 0
+  const back = (await Promise.all(missing.map(async (m) => {
+    try {
+      await fs.promises.access(postAbsPath(m.relPath))
+      return m.postId
+    }
+    catch {
+      return null
+    }
+  }))).filter((id): id is number => id !== null)
+  if (!back.length)
+    return 0
+  clearMissingFiles(sqlite, back)
+  log.info(`[sync] ${back.length} 个之前不在盘上的文件回来了，重新排进 backfill`)
+  return back.length
 }
 
 /**

@@ -85,9 +85,9 @@ postListRoutes.openapi(
  * - 用户在这个视图里就是在逐张打分，每打一张，那位画师就不再"未评分"，列表随之缩短。
  *   每页都现算的话 offset 会整体前移，第二页开头的若干画师被跳过、永远看不到。
  * - 整条查询在真库上约 0.2–1.3 s，一次访问只付一次；跑在读线程上（`c.var.reads`），不占事件循环。
- * `offset === 0`（前端重新进入视图 / 刷新列表）时重算；翻页只切快照。
+ * `offset === 0`（前端重新进入视图 / 刷新列表）时重算；翻页只切快照。快照挂在 app 上
+ * （`c.var.unratedArtists`），测试之间不共享。
  */
-let unratedArtistSnapshot: number[] | null = null
 
 postListRoutes.openapi(
   createRoute({
@@ -113,9 +113,10 @@ postListRoutes.openapi(
   async (c) => {
     const { limit, offset } = c.req.valid('query')
     const sqlite = c.var.db
-    if (offset === 0 || unratedArtistSnapshot === null)
-      unratedArtistSnapshot = await c.var.reads.unratedArtistPickIds()
-    const ids = unratedArtistSnapshot.slice(offset, offset + limit)
+    const snap = c.var.unratedArtists
+    if (offset === 0 || snap.ids === null)
+      snap.ids = await c.var.reads.unratedArtistPickIds()
+    const ids = snap.ids.slice(offset, offset + limit)
     return c.json(listSimpleByIdsPreservingOrder(sqlite, ids).map(toPostSimple), 200)
   },
 )

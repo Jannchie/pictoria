@@ -495,11 +495,13 @@ describe('tagger 落库', () => {
     sqlite.prepare('INSERT INTO tags(name) VALUES (?) ON CONFLICT DO NOTHING').run('a')
     sqlite.prepare("INSERT INTO post_has_tag(post_id, tag_name, is_auto) VALUES (2, 'a', 1)").run()
 
-    expect(listTaggerPending(sqlite, MODEL, undefined, { force: true }).map(p => p.postId))
+    notifyRepending(sqlite, 'tagger')
+    expect(listTaggerPending(sqlite, MODEL).map(p => p.postId))
       .toEqual([1, 2])
     // 换成当前模型之后就都不是待办了
     persistTaggerResults(sqlite, [taggerRow(1, { general: ['a'] }), taggerRow(2, { general: ['a'] })], g, MODEL)
-    expect(listTaggerPending(sqlite, MODEL, undefined, { force: true })).toEqual([])
+    notifyRepending(sqlite, 'tagger')
+    expect(listTaggerPending(sqlite, MODEL)).toEqual([])
   })
 
   it('被遮住的 post 也盖章，于是只靠黑名单之外还有第二道防线', () => {
@@ -623,14 +625,15 @@ describe('embedding 待办扫描的水位线', () => {
     expect(listEmbeddingPending(sqlite).map(p => p.postId)).toEqual([3])
   })
 
-  it('force 把水位线清零，重新看得见老 post', () => {
+  it('不带 id 的重新待办信号把水位线退到 0，重新看得见老 post', () => {
     insertPost(1)
     upsertVectors(sqlite, [{ postId: 1, embedding: vectorBlob(1) }])
     expect(listEmbeddingPending(sqlite)).toEqual([])
 
     sqlite.exec('DELETE FROM post_vectors_siglip2')
     expect(listEmbeddingPending(sqlite)).toEqual([])
-    expect(listEmbeddingPending(sqlite, undefined, { force: true }).map(p => p.postId)).toEqual([1])
+    notifyRepending(sqlite, 'embedding')
+    expect(listEmbeddingPending(sqlite).map(p => p.postId)).toEqual([1])
   })
 })
 
@@ -668,12 +671,12 @@ describe('待办水位线（waifu / tagger / basics）', () => {
       complete[worker]!(3)
       expect(list[worker]!()).toEqual([])
 
-      // 水位线在 MAX(id)+1 上，新 post 的 id 更大 —— 不需要 force 就扫得到
+      // 水位线在 MAX(id)+1 上，新 post 的 id 更大 —— 不需要谁喊就扫得到
       insertPost(4)
       expect(list[worker]!()).toEqual([4])
     })
 
-    it(`${worker}：水位线以下重新变成待办的行要靠 force 才看得见`, () => {
+    it(`${worker}：水位线以下重新变成待办的行要靠重新待办信号才看得见`, () => {
       insertPost(1)
       complete[worker]!(1)
       expect(list[worker]!()).toEqual([])
@@ -687,12 +690,8 @@ describe('待办水位线（waifu / tagger / basics）', () => {
         sqlite.prepare('UPDATE posts SET sha256 = ?, arthash = NULL, dominant_color = NULL').run('')
       expect(list[worker]!()).toEqual([])
 
-      const forced = worker === 'waifu'
-        ? listWaifuPending(sqlite, undefined, { force: true })
-        : worker === 'tagger'
-          ? listTaggerPending(sqlite, MODEL, undefined, { force: true })
-          : listBasicsPending(sqlite, undefined, { force: true })
-      expect(forced.map(p => p.postId)).toEqual([1])
+      notifyRepending(sqlite, worker as 'waifu' | 'tagger' | 'basics')
+      expect(list[worker]!()).toEqual([1])
     })
   }
 })

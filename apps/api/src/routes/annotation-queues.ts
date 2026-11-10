@@ -15,6 +15,7 @@ import {
   nextAbsoluteItems,
   nextPairwiseItems,
   nextPresentableListwiseItems,
+  queueCreatedAt,
   sampleGroups,
   samplePairs,
   samplePostIds,
@@ -48,8 +49,18 @@ const QueueSummaryPublic = z
     done: z.int(),
     /** pairwise 队列的采样策略；其余形态为 null。提交时前端带回到事件行。 */
     strategy: z.enum(VALID_PAIRWISE_STRATEGIES).nullable().optional(),
+    /** 创建时间，ISO 8601 UTC（带 `Z`）。 */
+    createdAt: z.iso.datetime(),
   })
   .openapi('QueueSummaryPublic')
+
+/**
+ * `annotation_queues.created_at` 是 `datetime('now')` 写的 —— UTC、不带时区的
+ * `YYYY-MM-DD HH:MM:SS`。补上 `T` 和 `Z`，否则浏览器 `new Date()` 会把它当本地时间。
+ */
+function queueCreatedAtIso(raw: string): string {
+  return `${raw.replace(' ', 'T')}Z`
+}
 
 type QueueSummary = z.infer<typeof QueueSummaryPublic>
 
@@ -187,6 +198,7 @@ annotationQueuesRoutes.openapi(
       total,
       done,
       strategy: queue.strategy as QueueSummary['strategy'],
+      createdAt: queueCreatedAtIso(queue.created_at),
     })),
     200,
   ),
@@ -373,6 +385,7 @@ annotationQueuesRoutes.openapi(
       scale: d.scale,
       total: postIds.length,
       done: 0,
+      createdAt: queueCreatedAtIso(queueCreatedAt(sqlite, id)!),
     }, 201)
   },
 )
@@ -406,6 +419,7 @@ annotationQueuesRoutes.openapi(
       scale: null,
       total: pairs.length,
       done: 0,
+      createdAt: queueCreatedAtIso(queueCreatedAt(sqlite, id)!),
       strategy: d.strategy,
     }, 201)
   },
@@ -440,6 +454,7 @@ annotationQueuesRoutes.openapi(
       scale: null,
       total: groups.length,
       done: 0,
+      createdAt: queueCreatedAtIso(queueCreatedAt(sqlite, id)!),
     }, 201)
   },
 )

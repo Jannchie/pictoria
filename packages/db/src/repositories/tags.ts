@@ -146,23 +146,113 @@ export function deleteTags(sqlite: BetterSqlite3.Database, names: string[]): voi
 }
 
 /**
- * 给 post 打 tag，插入成功返回 true，本来就有返回 false。
+ * 给 post 打 tag，插入成功返回 true，本来就有返回 false（已有行的 `is_auto` 不动）。
  *
  * 两条语句而不是三条：tags 表的插入是幂等的（`ON CONFLICT DO NOTHING`），关联表
  * 的插入用 `RETURNING` —— 冲突路径不会 RETURNING，于是"有没有取到行"就是存在信号。
+ *
+ * `isAuto` 默认 false（人工）。写回 `is_auto = 1` 是给"撤销删除一个自动标签"用的：
+ * 加一行自动标签只会让这张图**不再**是 tagger 待办，不会制造待办，所以不喊。
  */
 export function addTagToPost(
   sqlite: BetterSqlite3.Database,
   postId: number,
   tagName: string,
+  isAuto = false,
 ): boolean {
   sqlite.prepare('INSERT INTO tags(name) VALUES(?) ON CONFLICT DO NOTHING').run(tagName)
   const row = sqlite
     .prepare(
-      'INSERT INTO post_has_tag(post_id, tag_name, is_auto) VALUES(?, ?, 0) ON CONFLICT DO NOTHING RETURNING post_id',
+      'INSERT INTO post_has_tag(post_id, tag_name, is_auto) VALUES(?, ?, ?) ON CONFLICT DO NOTHING RETURNING post_id',
     )
-    .get(postId, tagName)
+    .get(postId, tagName, isAuto ? 1 : 0)
   return row !== undefined
+}
+
+/** 批量加 / 摘一次最多多少张图。与标注队列生成的上限、前端多选的量级对齐。 */
+export const MAX_BULK_TAG_POSTS = 5000
+
+/**
+ * 给一批 post 打同一个 tag，一个事务。tag 不存在就建（与单张一致）。
+ *
+ * 返回按入参顺序（去重后）分成两组：`added` 新插入的，`already` 本来就有的（已有行的
+ * `is_auto` 不动）。不检查 post 存不存在 —— 那是调用方的事（见 `missingPostIds`），
+ * 不存在的 id 插入会撞外键抛错、整个事务回滚。
+ *
+ * 和单张一样，加标签不制造 tagger 待办，不喊。
+ */
+export function addTagToPosts(
+  sqlite: BetterSqlite3.Database,
+  postIds: readonly number[],
+  tagName: string,
+  isAuto = false,
+): { added: number[], already: number[] } {
+  const ids = [...new Set(postIds)]
+  const insert = sqlite.prepare(
+    'INSERT INTO post_has_tag(post_id, tag_name, is_auto) VALUES(?, ?, ?) ON CONFLICT DO NOTHING RETURNING post_id',
+  )
+  const out = { added: [] as number[], already: [] as number[] }
+  if (!ids.length)
+    return out
+  sqlite.transaction(() => {
+    sqlite.prepare('INSERT INTO tags(name) VALUES(?) ON CONFLICT DO NOTHING').run(tagName)
+    for (const id of ids)
+      (insert.get(id, tagName, isAuto ? 1 : 0) === undefined ? out.already : out.added).push(id)
+  })()
+  return out
+}
+
+/**
+ * 从一批 post 上摘掉同一个 tag，一个事务。返回 `removed`（摘掉了的）与 `absent`
+ * （本来就没有的），都按入参顺序（去重后）。
+ *
+ * 重新待办语义与单张 `removeTagFromPost` 一致：摘掉的若是某张图最后一个 `is_auto = 1`
+ * 行，它重新是 tagger 待办 —— 这一批里被剥光的图取最小的 id 喊**一次**（水位线只需
+ * 退到那里，见 `../repending.ts`）。只摘了手工标签、或者每张图都还剩别的自动标签，不喊。
+ */
+export function removeTagFromPosts(
+  sqlite: BetterSqlite3.Database,
+  postIds: readonly number[],
+  tagName: string,
+): { removed: number[], absent: number[] } {
+  const ids = [...new Set(postIds)]
+  const del = sqlite.prepare<[number, string], { is_auto: number }>(
+    'DELETE FROM post_has_tag WHERE post_id = ? AND tag_name = ? RETURNING is_auto',
+  )
+  const anyAutoLeft = sqlite
+    .prepare<[number], number>('SELECT 1 FROM post_has_tag WHERE post_id = ? AND is_auto = 1 LIMIT 1')
+    .pluck()
+  const out = { removed: [] as number[], absent: [] as number[] }
+  let firstStranded: number | undefined
+  sqlite.transaction(() => {
+    for (const id of ids) {
+      const row = del.get(id, tagName)
+      if (row === undefined) {
+        out.absent.push(id)
+        continue
+      }
+      out.removed.push(id)
+      if (row.is_auto === 1 && anyAutoLeft.get(id) === undefined && (firstStranded === undefined || id < firstStranded))
+        firstStranded = id
+    }
+  })()
+  if (firstStranded !== undefined)
+    notifyRepending(sqlite, 'tagger', firstStranded)
+  return out
+}
+
+/** 这些 id 里 `posts` 表没有的，按入参顺序（去重后）。 */
+export function missingPostIds(sqlite: BetterSqlite3.Database, postIds: readonly number[]): number[] {
+  const ids = [...new Set(postIds)]
+  if (!ids.length)
+    return []
+  const present = new Set(
+    sqlite
+      .prepare<[string], number>('SELECT p.id FROM posts p JOIN json_each(?) j ON j.value = p.id')
+      .pluck()
+      .all(JSON.stringify(ids)),
+  )
+  return ids.filter(id => !present.has(id))
 }
 
 /**

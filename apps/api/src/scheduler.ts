@@ -17,8 +17,9 @@
  * `workers.ts` 的 `WorkerSpec` 里；这里只有通用的一批（`runBatch`）和循环骨架（`loop`）。
  */
 import type { CairnQ } from 'cairnq'
+import fs from 'node:fs'
 import { queueOf } from '@pictoria/contracts'
-import { onRepending, recordFailures, scanIncomplete, type SqliteHandle } from '@pictoria/db'
+import { onRepending, recordFailures, recordMissingFiles, scanIncomplete, type SqliteHandle } from '@pictoria/db'
 import { coalesceWithCooldown, createYieldQueue } from './event-loop.js'
 import { registerLoop } from './queue-status.js'
 import { BACKFILL_SPECS, type WorkerSpec } from './workers.js'
@@ -96,10 +97,13 @@ function sleep(ms: number, signal: AbortSignal, waker: { resolve?: () => void })
  * 一批的结果：落库了几条、拉黑了几条。`tick` 在待办查询**扫空**时返回 `null`。
  *
  * 两者要分开：`null` 证明了此刻没有待办（状态区据此显示精确的 0），而 `{0, 0}` 只是
- * 这一批一步没动 —— worker 会把文件已经不在盘上的项静默丢掉（`handlers.py` 的
- * `_resolve_items`），整批都这样时回来的就是空结果。两种都让循环退到 `IDLE_MS`：
- * 把"一步没动"当成干了活就是一个不睡觉的死循环 —— 待办查询按 id 排序，下一轮选出的
- * 还是同一批。
+ * 这一批一步没动。两种都让循环退到 `IDLE_MS`：把"一步没动"当成干了活就是一个不睡觉的
+ * 死循环 —— 待办查询按 id 排序，下一轮选出的还是同一批。
+ *
+ * 文件不在盘上的项原来正是"一步没动"的来源：worker 把它们静默丢掉（`handlers.py` 的
+ * `_resolve_items`），而它们排在队首，每一轮都被选中、每一轮都被丢，后面的图永远轮不到。
+ * 现在提交前先查盘（`missingOnDisk`），不在的记成"文件不在盘上"黑名单（可恢复：sync 发现
+ * 文件回来就清掉，见 `sync.ts`），计入 `failed` —— 它们离开了待办集合，这一批算推进了。
  */
 export interface BatchOutcome {
   done: number
@@ -113,7 +117,29 @@ export interface BatchOutcome {
 const scanTurn = createYieldQueue()
 
 /**
- * 通用的一批：取待办 → 组 payload → 提交并等结果 → 落库 → 按规格拉黑 → 打日志。
+ * payload 里带 `path`（原图绝对路径）的项中，文件不在盘上的那些 post id。
+ *
+ * 只认 ENOENT / ENOTDIR：读权限之类的错误交给 worker 去报（它会进真正的失败黑名单）。
+ */
+export async function missingOnDisk(items: ReadonlyArray<{ postId: number, path?: unknown }>): Promise<number[]> {
+  const checks = await Promise.all(items.map(async (item) => {
+    if (typeof item.path !== 'string')
+      return null
+    try {
+      await fs.promises.access(item.path)
+      return null
+    }
+    catch (err) {
+      const code = (err as { code?: string }).code
+      return code === 'ENOENT' || code === 'ENOTDIR' ? item.postId : null
+    }
+  }))
+  return checks.filter((id): id is number => id !== null)
+}
+
+/**
+ * 通用的一批：取待办 → 组 payload → 剔掉文件不在盘上的 → 提交并等结果 → 落库 → 按规格
+ * 拉黑 → 打日志。
  *
  * 六条循环原来各写一遍这一段（每段约 30 行），差别全在 `WorkerSpec` 里。
  */
@@ -121,26 +147,33 @@ export async function runBatch(
   sqlite: SqliteHandle,
   tasks: Pick<CairnQ, 'call'>,
   spec: WorkerSpec<any, any, any>,
-  { force, log = console, onScanned }: { force: boolean, log?: Log, onScanned?: () => void },
+  { log = console }: { log?: Log } = {},
 ): Promise<BatchOutcome | null> {
-  let pending = spec.listPending(sqlite, spec.batch, { force })
-  // 强制重扫兑现了：水位线已经清零重落。之后（提交、落库）再抛异常，旗子也不该还回去。
-  onScanned?.()
+  let pending = spec.listPending(sqlite, spec.batch)
   // 扫空了一个窗口但没到表尾（进程刚启动、水位线还在 0 时就是这样，见 packages/db 的
   // `SCAN_WINDOW_ROWS`）：让出事件循环再扫下一窗，别把整表判定压成一次同步查询。
-  // `force` 只属于第一窗 —— 它已经把水位线清零，之后的窗口从推进后的水位线接着扫。
   while (!pending.length && scanIncomplete(sqlite, spec.name)) {
     await scanTurn()
-    pending = spec.listPending(sqlite, spec.batch, { force: false })
+    pending = spec.listPending(sqlite, spec.batch)
   }
   if (!pending.length)
     return null
 
-  const payload = spec.buildPayload(sqlite, pending)
+  const built = spec.buildPayload(sqlite, pending)
+  const missing = await missingOnDisk(built.items)
+  let payload = built
+  if (missing.length) {
+    // 在 await 之后才落：这期间 sync 可能已经把行删了，`recordFailures` 只写还在的。
+    recordMissingFiles(sqlite, spec.name, missing)
+    log.warn(`[${spec.name}] ${missing.length} 条的文件不在盘上，暂时跳过（sync 发现文件回来时恢复），首个 id ${missing[0]}`)
+    const gone = new Set(missing)
+    payload = { ...built, items: (built.items as Array<{ postId: number }>).filter(i => !gone.has(i.postId)) }
+  }
   const ids = (payload.items as Array<{ postId: number }>).map(i => i.postId)
-  // 一个输入都取不到（silva：向量在两次查询之间被删了）。待办并没有扫空。
+  // 一个输入都取不到（silva：向量在两次查询之间被删了；或者整批文件都不在盘上）。
+  // 待办并没有扫空。
   if (!ids.length)
-    return { done: 0, failed: 0, written: 0 }
+    return { done: 0, failed: missing.length, written: 0 }
 
   const result = await tasks.call(spec.task, payload, {
     queue: queueOf(spec.task),
@@ -154,7 +187,7 @@ export async function runBatch(
     recordFailures(sqlite, spec.name, out.failures)
 
   const written = out.written ?? out.done
-  const failed = out.failures.length
+  const failed = out.failures.length + missing.length
   log.info(
     `[${spec.name}] 落库 ${written} 条`
     + (failed ? `，拉黑 ${failed} 条` : '')
@@ -172,19 +205,17 @@ export async function runBatch(
  * tick 只管返回结果。
  *
  * 循环订阅自己那条连接上的重新待办信号（`onRepending`，见 `packages/db` 的
- * `repending.ts`），被点名时叫醒自己；`stop()` 同时退订。信号分两种：带了 post id 的，
- * 水位线已经由 db 包退好了，只需要叫醒；没带的要求下一轮**强制重扫**（清掉水位线全扫），
- * 于是立一个 `force` 旗，`tick` 读走。
+ * `repending.ts`），被点名时叫醒自己；`stop()` 同时退订。水位线在信号里已经由 db 包
+ * 退好了（带 id 退到那张图，不带退到 0），这里只管叫醒。
  *
- * 两面旗（`woken` / `forceRescan`）都是"读了就清"，而信号可能发生在一次 tick 正跑到
- * 一半的时候 —— 那时 `waker.resolve` 是 undefined（没在空等），旗子就是唯一还留得住
- * 这个信号的东西：`woken` 让这一轮跑完不去空等，`forceRescan` 被**下一轮**读走。读和
- * 清之间没有 await，所以中间插不进信号。
+ * `woken` 是"读了就清"的旗：信号可能发生在一次 tick 正跑到一半的时候 —— 那时
+ * `waker.resolve` 是 undefined（没在空等），旗子就是唯一还留得住这个信号的东西，让这一轮
+ * 跑完不去空等。读和清之间没有 await，所以中间插不进信号。
  */
 function loop(
   sqlite: SqliteHandle,
   spec: WorkerSpec<any, any, any>,
-  tick: (opts: { force: boolean, onScanned: () => void }) => Promise<BatchOutcome | null>,
+  tick: () => Promise<BatchOutcome | null>,
   log: Log,
 ): BackfillHandle {
   const { name } = spec
@@ -194,21 +225,15 @@ function loop(
   const { signal } = controller
   // 空等时这里放着那一次 sleep 的 resolve；信号来了就是提前调它。
   const waker: { resolve?: () => void } = {}
-  // 显式标注：下面 `force = forceRescan` 与 `forceRescan ||= force` 互相引用，
-  // 少了它 tsc 会判成循环推断（TS7022）。
-  let forceRescan: boolean = false
   let woken = false
 
   void (async () => {
     while (!signal.aborted) {
-      const force: boolean = forceRescan
-      forceRescan = false
       woken = false
       let worked = false
-      let scanned = false
       tracker.begin()
       try {
-        const outcome = await tick({ force, onScanned: () => { scanned = true } })
+        const outcome = await tick()
         if (outcome === null) {
           tracker.idle()
         }
@@ -220,22 +245,15 @@ function loop(
       catch (err) {
         tracker.error(err)
         log.warn(`[${name}] 这一批失败：${String(err)}`)
-        // 强制重扫没兑现（异常出在待办查询之前或之中）—— 旗子还回去，别把重新待办的
-        // 信号吞在一次异常里。兑现了就不还：异常出在 tasks.call 上（worker 挂了、
-        // 任务失败）时水位线已经清零重落过，再还回去就是 worker 故障期间每 30 秒
-        // 一次从 id=1 起的整库重扫，扫出来的还是同一批。
-        if (!scanned)
-          forceRescan ||= force
       }
       if (!worked && !woken)
         await sleep(IDLE_MS, signal, waker)
     }
   })()
 
-  const unsubscribe = onRepending(sqlite, (workers, { force }) => {
+  const unsubscribe = onRepending(sqlite, (workers) => {
     if (!workers.includes(name))
       return
-    forceRescan ||= force
     woken = true
     waker.resolve?.()
   })
@@ -275,8 +293,8 @@ export function startBackfill(
     () => onDrained({ sqlite, tasks, log }),
     spec.drainCooldownMs ?? 0,
   )
-  return loop(sqlite, spec, async ({ force, onScanned }) => {
-    const outcome = await runBatch(sqlite, tasks, spec, { force, log, onScanned })
+  return loop(sqlite, spec, async () => {
+    const outcome = await runBatch(sqlite, tasks, spec, { log })
     if (outcome === null) {
       if (writtenSinceIdle && requestDrained) {
         log.info(`[${spec.name}] 待办清空，本轮写入 ${writtenSinceIdle} 条，请求后置钩子`)

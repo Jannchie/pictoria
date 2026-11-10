@@ -5,14 +5,17 @@
  * 把结果原样发回去。只读是 SQLite 层面的硬保证（`SQLITE_OPEN_READONLY`），不靠约定：
  * 哪天有人往白名单里加了一个会写的函数，它会当场报 "attempt to write a readonly
  * database"，而不是悄悄变出第二个写者。
+ *
+ * 取消：主线程把要放弃的请求 id 写进共享的 `cancel` 字（`read-pool.ts` 的 `abandon`），
+ * 分块执行的读在块之间经 `withAbortCheck` 问一下，命中就抛 `AbortError` 提前结束。
  */
 import type { SqliteHandle } from '@pictoria/db'
 import type { ReadReply, ReadRequest } from './read-pool.js'
 import { parentPort, workerData } from 'node:worker_threads'
 import { createDb } from '@pictoria/db'
-import { READ_FNS } from './read-fns.js'
+import { READ_FNS, withAbortCheck } from './read-fns.js'
 
-const { dbPath } = workerData as { dbPath: string }
+const { dbPath, cancel } = workerData as { dbPath: string, cancel?: Int32Array }
 const { sqlite } = createDb({ path: dbPath, readonly: true })
 
 parentPort!.on('message', ({ id, fn, args }: ReadRequest) => {
@@ -22,9 +25,10 @@ parentPort!.on('message', ({ id, fn, args }: ReadRequest) => {
     if (!Object.hasOwn(READ_FNS, fn))
       throw new Error(`读线程不认识的函数：${String(fn)}`)
     const handler = READ_FNS[fn] as (db: SqliteHandle, ...a: unknown[]) => unknown
+    const aborted = () => cancel !== undefined && Atomics.load(cancel, 0) === id
     // postMessage 也在 try 里：结果里混进不可克隆的值会抛 DataCloneError，那该是这个
     // 请求失败，而不是整个线程崩掉重启。
-    parentPort!.postMessage({ id, ok: true, value: handler(sqlite, ...args) } satisfies ReadReply)
+    parentPort!.postMessage({ id, ok: true, value: withAbortCheck(aborted, () => handler(sqlite, ...args)) } satisfies ReadReply)
   }
   catch (err) {
     parentPort!.postMessage(errorReply(id, err))

@@ -15,7 +15,7 @@ import * as sqliteVec from 'sqlite-vec'
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest'
 import { MIGRATIONS_DIR, runMigrations } from '../migrate.js'
 import type { VariantEdge } from './dedup.js'
-import { assignFromEdges, exportVectorMatrix, replaceAllGroups } from './dedup.js'
+import { assignFromEdges, assignFromEdgesAsync, exportVectorMatrix, replaceAllGroups } from './dedup.js'
 
 const here = path.dirname(fileURLToPath(import.meta.url))
 
@@ -276,5 +276,64 @@ describe('原子换组', () => {
     // 999 是快照里有、现在没了的成员：UPDATE 匹配 0 行，天然无害，不需要过滤。
     expect(() => replaceAllGroups(sqlite, [[999, 1], [2, 1]])).not.toThrow()
     expect(canonicalOf(2)).toBe(1)
+  })
+})
+
+describe('assignFromEdges 的分块排序 + 分步执行', () => {
+  /** 改写前的写法：一次整体排序 + union-find。分块排序再归并必须给出同一个分配。 */
+  function reference(edges: readonly VariantEdge[], maxGroupSize: number): Array<[number, number]> {
+    const parent = new Map<number, number>()
+    const size = new Map<number, number>()
+    const find = (x: number): number => {
+      if (!parent.has(x)) {
+        parent.set(x, x)
+        size.set(x, 1)
+      }
+      while (parent.get(x) !== x) x = parent.get(x)!
+      return x
+    }
+    const usable = edges.filter(e => e.a !== e.b)
+    usable.sort((x, y) => y.strength - x.strength || Math.min(x.a, x.b) - Math.min(y.a, y.b) || Math.max(x.a, x.b) - Math.max(y.a, y.b))
+    for (const e of usable) {
+      const ra = find(e.a)
+      const rb = find(e.b)
+      if (ra === rb || size.get(ra)! + size.get(rb)! > maxGroupSize)
+        continue
+      const [big, small] = size.get(ra)! >= size.get(rb)! ? [ra, rb] : [rb, ra]
+      parent.set(small, big)
+      size.set(big, size.get(ra)! + size.get(rb)!)
+    }
+    const groups = new Map<number, number[]>()
+    for (const n of parent.keys()) groups.set(find(n), [...(groups.get(find(n)) ?? []), n])
+    const out: Array<[number, number]> = []
+    for (const m of groups.values()) {
+      if (m.length < 2)
+        continue
+      const c = Math.min(...m)
+      for (const x of m) {
+        if (x !== c)
+          out.push([x, c])
+      }
+    }
+    return out.sort((x, y) => x[0] - y[0])
+  }
+
+  it('12 万条边（跨多个排序块）：同步、分步、参照三者一致', async () => {
+    let s = 12345
+    const r = () => ((s = (s * 1664525 + 1013904223) >>> 0) / 2 ** 32)
+    const edges: VariantEdge[] = []
+    for (let i = 0; i < 120_000; i++) {
+      // 强度只取少数几个值，制造大量打平，检验次序键。
+      edges.push({ a: Math.floor(r() * 60_000), b: Math.floor(r() * 60_000), strength: Math.floor(r() * 8) / 8 })
+    }
+    const byMember = (xs: Array<[number, number]>) => [...xs].sort((x, y) => x[0] - y[0])
+    const want = reference(edges, 6)
+    expect(byMember(assignFromEdges(edges, { maxGroupSize: 6 }))).toEqual(want)
+    let pauses = 0
+    const got = await assignFromEdgesAsync(edges, { maxGroupSize: 6 }, async () => {
+      pauses++
+    })
+    expect(byMember(got)).toEqual(want)
+    expect(pauses).toBeGreaterThan(4)
   })
 })

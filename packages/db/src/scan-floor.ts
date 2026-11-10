@@ -16,12 +16,8 @@ interface Floor { floor: number, windowed: boolean }
 
 const floors = new WeakMap<BetterSqlite3.Database, Map<BackfillWorker, Floor>>()
 
-/** 这一轮该从哪个 id 开始扫。`force` 除了返回 0 还要把旧水位删掉，否则下一轮又被推回去。 */
-export function readFloor(sqlite: BetterSqlite3.Database, key: BackfillWorker, force: boolean): number {
-  if (force) {
-    floors.get(sqlite)?.delete(key)
-    return 0
-  }
+/** 这一轮该从哪个 id 开始扫。 */
+export function readFloor(sqlite: BetterSqlite3.Database, key: BackfillWorker): number {
   return floors.get(sqlite)?.get(key)?.floor ?? 0
 }
 

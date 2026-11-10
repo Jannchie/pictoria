@@ -7,13 +7,17 @@
 import { createRoute, z } from '@hono/zod-openapi'
 import {
   addTagToPost,
+  addTagToPosts,
   createTag,
   deleteTag,
   deleteTags,
   getTag,
   getTagGroup,
+  MAX_BULK_TAG_POSTS,
+  missingPostIds,
   postExists,
   removeTagFromPost,
+  removeTagFromPosts,
   setTagSource,
   updateTagGroup,
 } from '@pictoria/db'
@@ -42,6 +46,38 @@ const TagUpdate = z.object({ groupId: z.int().nullable().optional() }).openapi('
 const PostTagSourceUpdate = z
   .object({ isAuto: z.boolean() })
   .openapi('PostTagSourceUpdate')
+
+const PostTagAdd = z
+  .object({
+    isAuto: z.boolean().default(false)
+      .openapi({ description: 'Write the row as auto (tagger-owned). Default false (human). Used to undo removing an auto tag.' }),
+  })
+  .openapi('PostTagAdd')
+
+const BulkPostTagAdd = z
+  .object({
+    postIds: z.array(z.int()).min(1).max(MAX_BULK_TAG_POSTS),
+    isAuto: z.boolean().default(false),
+  })
+  .openapi('BulkPostTagAdd')
+
+const BulkPostTagRemove = z
+  .object({ postIds: z.array(z.int()).min(1).max(MAX_BULK_TAG_POSTS) })
+  .openapi('BulkPostTagRemove')
+
+const BulkPostTagAddResult = z
+  .object({
+    added: z.array(z.int()).openapi({ description: 'Posts the tag was newly added to.' }),
+    already: z.array(z.int()).openapi({ description: 'Posts that already had the tag (left untouched).' }),
+  })
+  .openapi('BulkPostTagAddResult')
+
+const BulkPostTagRemoveResult = z
+  .object({
+    removed: z.array(z.int()).openapi({ description: 'Posts the tag was removed from.' }),
+    absent: z.array(z.int()).openapi({ description: 'Posts that did not have the tag.' }),
+  })
+  .openapi('BulkPostTagRemoveResult')
 
 const TagBatchDelete = z
   .object({ names: z.array(z.string().min(1).max(MAX_TAG_LENGTH)).min(1) })
@@ -155,6 +191,78 @@ tagWritesRoutes.openapi(
   },
 )
 
+/**
+ * 批量 post ↔ tag：一批图加 / 摘同一个 tag，一个事务。
+ *
+ * ⚠️ **必须注册在 `/v2/posts/{post_id}/tags/{tag_name}` 之前** —— Hono 按注册顺序匹配，
+ * 否则 `DELETE /v2/posts/bulk/tags/x` 会先命中 `{post_id}`，把 "bulk" coerce 成 NaN 报 400。
+ *
+ * 任何一个 id 不存在就整批 404、一行不写（与单张的 404 一致，而不是静默跳过）。
+ */
+const bulkTagParams = z.object({
+  tag_name: z.string().min(1).max(MAX_TAG_LENGTH).openapi({ param: { name: 'tag_name', in: 'path', required: true } }),
+})
+
+function postsNotFound(ids: number[]) {
+  const shown = ids.slice(0, 20).join(', ')
+  return fail(404, 'PostNotFoundError', `Posts not found: ${shown}${ids.length > 20 ? ` (+${ids.length - 20} more)` : ''}.`)
+}
+
+tagWritesRoutes.openapi(
+  createRoute({
+    method: 'post',
+    path: '/v2/posts/bulk/tags/{tag_name}',
+    operationId: 'v2BulkAddTagToPosts',
+    summary: 'BulkAddTagToPosts',
+    description: `Add one tag to many posts in one transaction (creates the tag if needed). At most ${MAX_BULK_TAG_POSTS} posts.`,
+    request: {
+      params: bulkTagParams,
+      body: { required: true, content: { 'application/json': { schema: BulkPostTagAdd } } },
+    },
+    responses: {
+      200: { description: OK, content: { 'application/json': { schema: BulkPostTagAddResult } } },
+      ...errors(400, 404),
+    },
+  }),
+  (c) => {
+    const { tag_name: tagName } = c.req.valid('param')
+    const { postIds, isAuto } = c.req.valid('json')
+    const sqlite = c.var.db
+    const missing = missingPostIds(sqlite, postIds)
+    if (missing.length)
+      return postsNotFound(missing)
+    return c.json(addTagToPosts(sqlite, postIds, tagName, isAuto), 200)
+  },
+)
+
+tagWritesRoutes.openapi(
+  createRoute({
+    method: 'delete',
+    path: '/v2/posts/bulk/tags/{tag_name}',
+    operationId: 'v2BulkRemoveTagFromPosts',
+    summary: 'BulkRemoveTagFromPosts',
+    description: `Remove one tag from many posts in one transaction. At most ${MAX_BULK_TAG_POSTS} posts.`,
+    request: {
+      params: bulkTagParams,
+      body: { required: true, content: { 'application/json': { schema: BulkPostTagRemove } } },
+    },
+    responses: {
+      200: { description: OK, content: { 'application/json': { schema: BulkPostTagRemoveResult } } },
+      ...errors(400, 404),
+    },
+  }),
+  (c) => {
+    const { tag_name: tagName } = c.req.valid('param')
+    const { postIds } = c.req.valid('json')
+    const sqlite = c.var.db
+    const missing = missingPostIds(sqlite, postIds)
+    if (missing.length)
+      return postsNotFound(missing)
+    // 剥掉某些图最后一个自动标签时，`removeTagFromPosts` 自己发 tagger 重新待办信号。
+    return c.json(removeTagFromPosts(sqlite, postIds, tagName), 200)
+  },
+)
+
 /** post ↔ tag 关联：两个端点都在成功后回读整个详情。 */
 const postTagParams = z.object({
   post_id: postIdParam,
@@ -167,7 +275,11 @@ tagWritesRoutes.openapi(
     path: '/v2/posts/{post_id}/tags/{tag_name}',
     operationId: 'v2AddTagToPost',
     summary: 'AddTagToPost',
-    request: { params: postTagParams },
+    description: 'Add a tag to a post (creates the tag if needed). Optional body `{isAuto}`; default is a human tag.',
+    request: {
+      params: postTagParams,
+      body: { required: false, content: { 'application/json': { schema: PostTagAdd } } },
+    },
     responses: {
       200: { description: OK, content: { 'application/json': { schema: PostDetailPublic } } },
       ...errors(400, 404, 409),
@@ -178,7 +290,9 @@ tagWritesRoutes.openapi(
     const sqlite = c.var.db
     if (!postExists(sqlite, postId))
       return postNotFound(postId)
-    if (!addTagToPost(sqlite, postId, tagName))
+    // 没带 body 时校验器给的是 `{}`，`isAuto` 的默认值不会被填上。
+    const isAuto = c.req.valid('json').isAuto ?? false
+    if (!addTagToPost(sqlite, postId, tagName, isAuto))
       return fail(409, 'TagAlreadyExistsError', `Tag ${tagName} already exists in post ${postId}.`)
     return postDetailResponse(c, postId)
   },

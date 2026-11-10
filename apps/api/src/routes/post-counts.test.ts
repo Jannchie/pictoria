@@ -21,6 +21,9 @@ function recordingReads(inner: Reads): Reads {
       const v = Reflect.get(target, prop, receiver)
       if (typeof v !== 'function' || prop === 'close')
         return v
+      // 每个请求拿的是挂了 abort signal 的那一份（`app.ts`）：signal 不过线程，接着记录那一份。
+      if (prop === 'withSignal')
+        return (signal: AbortSignal | undefined) => recordingReads(target.withSignal(signal))
       return (...args: unknown[]) => {
         calls.push(String(prop))
         return (v as (...a: unknown[]) => unknown)(...structuredClone(args))
@@ -77,7 +80,31 @@ describe('计数端点走读线程', () => {
     expect(stats.body).toMatchObject({ total: 3, scoredCount: 1, avgScore: 3, waifuCount: 1, avgWaifuScore: 8.5 })
     const tags = await post('/v2/posts/count/tags', { rating: [1], lang: 'en' })
     expect(tags.body).toEqual([expect.objectContaining({ tagName: 'red', count: 2 })])
-    expect(calls).toEqual(['aggregateStats', 'countByTag'])
+    // 带过滤的 tag facet 在线程里取全量（慢通道），名字筛选 / 取前 N 在主线程上做。
+    expect(calls).toEqual(['aggregateStats', 'countAllTags'])
+  })
+
+  it('没有内容过滤的 tag facet 走快路径（tags.post_count），不进慢通道', async () => {
+    const tags = await post('/v2/posts/count/tags', { query: 'RE', lang: 'en' })
+    expect(tags.body).toEqual([expect.objectContaining({ tagName: 'red', count: 2 })])
+    expect(calls).toEqual(['countByTagFast'])
+  })
+
+  it('计数结果按数据版本缓存：同一过滤器第二次不再派发，任何写之后重算', async () => {
+    const facet = () => post('/v2/posts/count/tags', { rating: [1, 2], lang: 'en' })
+    expect((await facet()).body.map((r: { tagName: string, count: number }) => [r.tagName, r.count])).toEqual([['red', 2], ['blue', 1]])
+    // 名字筛选在缓存的全量结果上做，也不再派发。
+    expect((await post('/v2/posts/count/tags', { rating: [1, 2], query: 'BL', lang: 'en' })).body)
+      .toEqual([expect.objectContaining({ tagName: 'blue', count: 1 })])
+    await facet()
+    expect((await post('/v2/posts/count', { rating: [1] })).body).toEqual({ count: 2 })
+    await post('/v2/posts/count', { rating: [1] })
+    expect(calls).toEqual(['countAllTags', 'countPosts'])
+
+    t.sqlite.prepare('UPDATE posts SET rating = 2 WHERE file_name = ?').run('b')
+    expect((await post('/v2/posts/count', { rating: [1] })).body).toEqual({ count: 1 })
+    await facet()
+    expect(calls).toEqual(['countAllTags', 'countPosts', 'countPosts', 'countAllTags'])
   })
 
   it('未评分画师的快照', async () => {

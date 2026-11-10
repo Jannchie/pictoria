@@ -3,7 +3,8 @@
  * 全是 `POST` + `PostFilter` 请求体、只读、无副作用。
  *
  * 查询全部走读线程（`c.var.reads`，见 `read-pool.ts` / `read-fns.ts`）：它们扫的是整个
- * 过滤集，带过滤的 tag facet 在真库上要 5–30 s，在主线程上跑就是整个 API 停摆这么久。
+ * 过滤集，带过滤的 tag facet 在真库上冷算要 0.3–8 s，在主线程上跑就是整个 API 停摆这么久。
+ * 结果按数据版本缓存（`read-cache.ts`），客户端断开的请求不再派发（`withSignal`）。
  */
 import { createRoute, z } from '@hono/zod-openapi'
 import {
@@ -160,16 +161,18 @@ postCountsRoutes.openapi(
     responses: jsonOk(z.array(TagCountItem)),
   }),
   async (c) => {
-    const data = c.req.valid('json')
-    const rows = await c.var.reads.countByTag(data as DbPostFilter, {
-      query: data.query ?? '',
-      limit: data.limit ?? 50,
-      extraNames: searchTagsByTranslation(data.query ?? '', data.lang ?? 'zh-Hans'),
+    // 搜索框的三个字段摘掉，剩下的才是过滤器：结果缓存按过滤器签名（`read-cache.ts`），
+    // 敲字只换 query，不该让它算成另一个过滤器。
+    const { query, limit, lang, ...filter } = c.req.valid('json')
+    const rows = await c.var.reads.countByTag(filter as DbPostFilter, {
+      query: query ?? '',
+      limit: limit ?? 50,
+      extraNames: searchTagsByTranslation(query ?? '', lang ?? 'zh-Hans'),
     })
     return c.json(rows.map(r => ({
       tagName: r.tag_name,
       count: r.count,
-      translatedName: translateTag(r.tag_name, data.lang ?? 'zh-Hans'),
+      translatedName: translateTag(r.tag_name, lang ?? 'zh-Hans'),
     })), 200)
   },
 )

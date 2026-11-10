@@ -82,6 +82,14 @@ export function createListwiseQueue(
   return qid
 }
 
+/** 一个队列的 `created_at`（SQLite 的 `YYYY-MM-DD HH:MM:SS`，UTC）；队列不存在为 null。 */
+export function queueCreatedAt(sqlite: BetterSqlite3.Database, queueId: number): string | null {
+  return sqlite
+    .prepare<[number], string>('SELECT created_at FROM annotation_queues WHERE id = ?')
+    .pluck()
+    .get(queueId) ?? null
+}
+
 export interface QueueWithProgress {
   queue: AnnotationQueueRow
   total: number

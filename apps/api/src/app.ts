@@ -9,19 +9,21 @@
  * diff 就失败。从 Litestar 迁过来的记录在 `docs/refactor-monorepo-hono.md`。
  */
 import type { SqliteHandle } from '@pictoria/db'
-import type { AppEnv, TaskSource } from './env.js'
+import type { AppEnv, TaskSource, UnratedArtistSnapshot } from './env.js'
 import { OpenAPIHono } from '@hono/zod-openapi'
 import { compress } from 'hono/compress'
 import { cors } from 'hono/cors'
 import { DanbooruImports } from './danbooru-imports.js'
+import { type DedupRebuilder, rebuilderFor } from './dedup.js'
 import { fail } from './openapi.js'
+import { createAppReads, ReadCache } from './read-cache.js'
 import { inProcessReads, type Reads } from './read-pool.js'
 import { originGuard, originPolicyFromEnv } from './security.js'
 import { annotationQueuesRoutes } from './routes/annotation-queues.js'
 import { annotationsRoutes } from './routes/annotations.js'
 import { commandsRoutes } from './routes/commands.js'
 import { danbooruImportsRoutes } from './routes/danbooru-imports.js'
-import { foldersRoutes } from './routes/folders.js'
+import { FolderTree, foldersRoutes } from './routes/folders.js'
 import { imagesRoutes } from './routes/images.js'
 import { postCountsRoutes } from './routes/post-counts.js'
 import { postListRoutes } from './routes/post-list.js'
@@ -47,10 +49,26 @@ export interface AppDeps {
    * `index.ts` 传读线程池。
    */
   reads?: Reads
+  /** 计数类读的结果缓存。省略时每个 app 新建一个（测试之间不共享）。 */
+  readCache?: ReadCache
+  /** 目录树状态。省略时新建一个不挂文件监视的（每次请求按 mtime 全量校验）；生产传 `{ watch: true }` 的。 */
+  folderTree?: FolderTree
+  /** 近重复重建器。省略时取这个库的那一个（`rebuilderFor(db)`，调度器用的也是它）。 */
+  dedup?: DedupRebuilder
 }
 
-export function createApp({ db, tasks, danbooruImports = new DanbooruImports(db, tasks), reads = inProcessReads(db) }: AppDeps) {
+export function createApp({
+  db,
+  tasks,
+  danbooruImports = new DanbooruImports(db, tasks),
+  reads = inProcessReads(db),
+  readCache = new ReadCache(db),
+  folderTree = new FolderTree(),
+  dedup = rebuilderFor(db),
+}: AppDeps) {
   const app = new OpenAPIHono<AppEnv>()
+  const appReads = createAppReads(reads, readCache)
+  const unratedArtists: UnratedArtistSnapshot = { ids: null }
 
   /**
    * 浏览器来源的闸门（`security.ts`）：先 Host / Origin，再 CORS。
@@ -73,12 +91,16 @@ export function createApp({ db, tasks, danbooruImports = new DanbooruImports(db,
   // CPU），也跳过 206。
   app.use('*', compress())
 
-  // 依赖注入：路由只认 `c.var.db` / `c.var.tasks` / `c.var.danbooruImports` / `c.var.reads`（见 `env.ts`）。
+  // 依赖注入：路由只认 `c.var.*`（见 `env.ts`），不碰模块级状态。读挂上这个请求的
+  // abort signal：客户端断开（切走、过滤器变了）之后，排队中的读不再派发。
   app.use('*', async (c, next) => {
     c.set('db', db)
     c.set('tasks', tasks)
     c.set('danbooruImports', danbooruImports)
-    c.set('reads', reads)
+    c.set('reads', appReads.withSignal(c.req.raw.signal))
+    c.set('folderTree', folderTree)
+    c.set('dedup', dedup)
+    c.set('unratedArtists', unratedArtists)
     await next()
   })
 
@@ -121,7 +143,10 @@ export function createApp({ db, tasks, danbooruImports = new DanbooruImports(db,
   // 没有路由匹配时的 404 和没被路由接住的异常：Hono 默认回纯文本，前端的错误处理
   // 只认 `ErrorBody`。500 的细节进日志不进响应。
   app.notFound(() => fail(404, 'NotFound', 'Not Found'))
-  app.onError((err) => {
+  app.onError((err, c) => {
+    // 客户端已经走了（`c.var.reads` 的读因为 abort 被放弃）：没人收响应，也不是错误。
+    if (err.name === 'AbortError' && c.req.raw.signal.aborted)
+      return new Response(null, { status: 499 })
     console.error(`[pictoria-api] 未处理的异常：${err.stack ?? String(err)}`)
     return fail(500, 'InternalServerError', 'Internal Server Error')
   })

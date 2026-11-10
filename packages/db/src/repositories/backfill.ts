@@ -14,7 +14,7 @@ import { readFloor, resetFloors, writeFloor } from '../scan-floor.js'
 import type { AestheticScorerName } from '../scorers.js'
 import { AESTHETIC_SCORES_TABLE } from '../scorers.js'
 import type { BackfillWorker } from '../workers.js'
-import { failureKey } from '../workers.js'
+import { BACKFILL_WORKERS, failureKey } from '../workers.js'
 import { postExists } from './posts.js'
 import { SIGLIP2_TABLE } from './vectors.js'
 
@@ -63,13 +63,12 @@ function notFailedClause(alias = 'p'): string {
  * 表现是**静默的**：没有报错、没有日志，backfill 就是永远不再动那张图。所以每一条
  * "让老 post 重新变成待办"的写函数都必须在**自己内部**调 `notifyRepending()`
  * （`../repending.ts`）。知道是哪几张图时带上最小的 id，信号当场把被点名循环的水位线
- * 退到那里（`lowerFloor`），下一轮只从那张图起扫；说不清是哪几张时不带，调度器
- * （`apps/api/src/scheduler.ts`）给被点名的循环立一个 `force` 标志，下一轮带
- * `{ force: true }` 进来把水位线清零、从头重扫一次。加新的这类写点时，漏掉那一句的
- * 代价就是那些 post 永久停在待办状态。
+ * 退到那里（`lowerFloor`），下一轮只从那张图起扫；说不清是哪几张时不带，水位线当场
+ * 退到 0、下一轮从头重扫。加新的这类写点时，漏掉那一句的代价就是那些 post 永久停在
+ * 待办状态。
  *
  * 这一段替换掉的是原来的 `MAX(id)` 指纹门（"上一轮扫空且 MAX(id) 没变就跳过"）。
- * 逃生通道和风险面与那一版**完全相同** —— 同样是 `force`、同样是那几条写路径；
+ * 逃生通道和风险面与那一版**完全相同** —— 同样是重新待办的信号、同样是那几条写路径；
  * 差别在于指纹门只在**全库算完**时才省得下钱（一有待办就整个失效，而那正是导入
  * 期间的常态），水位线则是每一批都省。空库/空扫的场景两者等价：`MAX(id)+1` 的
  * 水位线让下一轮的 `p.id >= ?` 直接定位到表尾，扫 0 行。
@@ -82,17 +81,6 @@ function notFailedClause(alias = 'p'): string {
  * 按**循环**存（`Map<key, floor>`）而不是一个共用值：六条循环各自消化待办的进度不同，
  * 共用一条水位线会让跑得快的那条把还有活的那条一起推过头。
  */
-
-/** 五个待办查询共用的可选参数。 */
-export interface PendingScanOpts {
-  /**
-   * 把水位线清零，强制这一次从 id=1 重新全扫。
-   *
-   * 由调度循环一路传下来（触发它的是不带 id 的 `notifyRepending`）—— 见上面那段 ⚠️：
-   * 说不清是哪几张老 post 重新变成待办时，它是唯一的逃生通道。
-   */
-  force?: boolean
-}
 
 /** 扫描开始那一刻的 `MAX(id)`。主键探测，亚毫秒。 */
 function maxPostId(sqlite: BetterSqlite3.Database): number {
@@ -154,10 +142,9 @@ function scanByFloor<R extends { id: number }>(
     /** `SELECT` 之后、`FROM posts p` 之前的列清单。 */
     columns: string
     limit?: number
-    force: boolean
   },
 ): R[] {
-  const floor = readFloor(sqlite, scan.key, opts.force)
+  const floor = readFloor(sqlite, scan.key)
   // 必须在查询**之前**读，理由见 `scanFloor` 的注释。
   const maxId = maxPostId(sqlite)
   const below = windowEnd(sqlite, floor, maxId)
@@ -230,11 +217,11 @@ function advanceFloor(sqlite: BetterSqlite3.Database, key: BackfillWorker, first
  *
  * 只读水位线、不写：计数不是一次"扫描证明"（它不按 id 顺序停在第一个候选上），
  * 推进水位线是扫描的事。从水位线往上数是准确的，因为待办不变式说它以下没有待办
- * （`force` 待兑现的那些老 post 除外 —— 它们会在下一轮被扫到，届时计数自然跟上）。
+ * （重新待办的信号当场就把水位线退好了，所以这里看得见它们）。
  */
 function* countByFloor(sqlite: BetterSqlite3.Database, scan: FloorScan, chunkRows?: number): Generator<number, void, undefined> {
   const count = sqlite.prepare<unknown[], number>(`SELECT COUNT(*) ${floorSql(scan)}`).pluck()
-  for (let from = readFloor(sqlite, scan.key, false); ;) {
+  for (let from = readFloor(sqlite, scan.key); ;) {
     // 这一块的上界；不足一块就数到表尾。
     const to = chunkRows === undefined ? undefined : idAtOffset(sqlite, from, chunkRows)
     yield count.get(...floorParams(scan, from, to))!
@@ -269,10 +256,9 @@ export function listSilvaPending(
   sqlite: BetterSqlite3.Database,
   scorer: AestheticScorerName,
   limit?: number,
-  { force = false }: PendingScanOpts = {},
 ): number[] {
   const candidates = silvaScan(scorer)
-  const floor = readFloor(sqlite, scorer, force)
+  const floor = readFloor(sqlite, scorer)
   const maxId = maxPostId(sqlite)
 
   // 水位线记的是**第一个候选**，不是第一个 pending：候选里没向量的那些仍然是待办
@@ -372,12 +358,10 @@ export interface PendingImage {
 export function listWaifuPending(
   sqlite: BetterSqlite3.Database,
   limit?: number,
-  { force = false }: PendingScanOpts = {},
 ): PendingImage[] {
   const rows = scanByFloor<{ id: number, full_path: string }>(sqlite, WAIFU_SCAN, {
     columns: 'p.id, p.full_path',
     limit,
-    force,
   })
   return rows.map(r => ({ postId: r.id, relPath: r.full_path }))
 }
@@ -431,6 +415,69 @@ export function recordFailures(
   sqlite.transaction(() => {
     for (const r of livePosts(sqlite, rows)) stmt.run(r.postId, key, r.error)
   })()
+}
+
+/**
+ * "文件不在盘上"这一类的黑名单行的 `error` 值。
+ *
+ * 待办选出来的 post 文件却不在（sync 还没来得及删行、删除判定被跳过、外置盘没挂上），
+ * worker 会把它静默丢掉（`handlers.py` 的 `_resolve_items`）。待办查询按 id 排序，于是
+ * 下一轮选出的还是它 —— 一批全是这种时整条循环就卡在队首，后面的图永远轮不到。
+ * 所以调度器在提交前就查文件（`apps/api/src/scheduler.ts` 的 `runBatch`），不在的记成
+ * 这一类黑名单让出队首；和真正的失败不同，它**可以恢复**：sync 发现文件回来了就删掉
+ * 这行并发重新待办信号（`clearReturnedMissingFiles`）。
+ */
+export const MISSING_FILE_ERROR = 'missing-file'
+
+/** 把这些 post 记成"文件不在盘上"（见 `MISSING_FILE_ERROR`）。已有任何黑名单行的不动。 */
+export function recordMissingFiles(sqlite: BetterSqlite3.Database, worker: BackfillWorker, postIds: readonly number[]): void {
+  recordFailures(sqlite, worker, postIds.map(postId => ({ postId, error: MISSING_FILE_ERROR })))
+}
+
+/** 被记成"文件不在盘上"的 post（去重），带相对路径好让调用方去盘上看。 */
+export function listMissingFilePosts(sqlite: BetterSqlite3.Database): Array<{ postId: number, relPath: string }> {
+  return sqlite
+    .prepare<[string], { id: number, full_path: string }>(
+      `SELECT DISTINCT p.id, p.full_path FROM post_process_failures f JOIN posts p ON p.id = f.post_id WHERE f.error = ? ORDER BY p.id`,
+    )
+    .all(MISSING_FILE_ERROR)
+    .map(r => ({ postId: r.id, relPath: r.full_path }))
+}
+
+/**
+ * 文件回来了：删掉这些 post 的"文件不在盘上"黑名单行，并让对应循环把水位线退到其中
+ * 最小的 id（重新待办，见 `../repending.ts`）。返回删掉的行数。
+ */
+export function clearMissingFiles(sqlite: BetterSqlite3.Database, postIds: readonly number[]): number {
+  if (!postIds.length)
+    return 0
+  const byKey = new Map(BACKFILL_WORKERS.map(w => [failureKey(w), w]))
+  const touched = new Set<BackfillWorker>()
+  let removed = 0
+  sqlite.transaction(() => {
+    for (const batch of chunked(postIds, 500)) {
+      const rows = sqlite
+        .prepare<unknown[], { worker: string }>(
+          `DELETE FROM post_process_failures WHERE error = ? AND post_id IN (${placeholders(batch.length)}) RETURNING worker`,
+        )
+        .all(MISSING_FILE_ERROR, ...batch)
+      removed += rows.length
+      for (const r of rows) {
+        const w = byKey.get(r.worker)
+        if (w)
+          touched.add(w)
+      }
+    }
+  })()
+  if (touched.size)
+    notifyRepending(sqlite, BACKFILL_WORKERS.filter(w => touched.has(w)), postIds.reduce((a, b) => Math.min(a, b)))
+  return removed
+}
+
+function chunked<T>(xs: readonly T[], n: number): T[][] {
+  const out: T[][] = []
+  for (let i = 0; i < xs.length; i += n) out.push(xs.slice(i, i + n))
+  return out
 }
 
 // ─── tagger ───────────────────────────────────────────────────────────
@@ -497,12 +544,10 @@ export function listTaggerPending(
   sqlite: BetterSqlite3.Database,
   model: string,
   limit?: number,
-  { force = false }: PendingScanOpts = {},
 ): PendingImage[] {
   const rows = scanByFloor<{ id: number, full_path: string }>(sqlite, taggerScan(model), {
     columns: 'p.id, p.full_path',
     limit,
-    force,
   })
   return rows.map(r => ({ postId: r.id, relPath: r.full_path }))
 }
@@ -698,12 +743,10 @@ const SHADOWED_ERROR = 'all auto tags shadowed by manual tags'
 export function listEmbeddingPending(
   sqlite: BetterSqlite3.Database,
   limit?: number,
-  { force = false }: PendingScanOpts = {},
 ): PendingImage[] {
   const rows = scanByFloor<{ id: number, full_path: string }>(sqlite, EMBEDDING_SCAN, {
     columns: 'p.id, p.full_path',
     limit,
-    force,
   })
   return rows.map(r => ({ postId: r.id, relPath: r.full_path }))
 }
@@ -727,10 +770,9 @@ export function countSilvaPending(sqlite: BetterSqlite3.Database, scorer: Aesthe
 }
 
 /**
- * 把这条连接上**所有**循环的水位线清零，等价于下一次每条都 `{ force: true }`。
+ * 把这条连接上**所有**循环的水位线清零。
  *
- * 生产路径不走这里 —— 调度器用的是 `PendingScanOpts.force`（由循环的 `wake()`
- * 一路传下来）。这个函数是给测试用的：水位线是**连接级**状态，而测试套件共用一条
+ * 生产路径不走这里 —— 那边是 `notifyRepending` 当场退水位。这个函数是给测试用的：水位线是**连接级**状态，而测试套件共用一条
  * 连接、每个用例之间只 `DELETE FROM` 清表，清不掉水位线。不在 `beforeEach` 里调它
  * 的话，前一个用例把水位推到 `MAX(id)+1` 会让后一个用例插进去的低 id 行整批看不见 ——
  * 表现是一堆"待办查询返回空"的失败，而查询本身没有任何问题。
@@ -803,7 +845,6 @@ export interface BasicsPending {
 export function listBasicsPending(
   sqlite: BetterSqlite3.Database,
   limit?: number,
-  { force = false }: PendingScanOpts = {},
 ): BasicsPending[] {
   const rows = scanByFloor<{
     id: number
@@ -814,7 +855,6 @@ export function listBasicsPending(
   }>(sqlite, BASICS_SCAN, {
     columns: 'p.id, p.full_path, p.sha256, p.arthash, p.dominant_color',
     limit,
-    force,
   })
   return rows
     .map(r => ({

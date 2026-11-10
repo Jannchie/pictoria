@@ -5,9 +5,14 @@
  * 当成同一张（假阳性洪水），要么全被丢掉（功能等于没上）；汇边错了，用户点过的
  * "不是同一张"会在下一次重建里被计算结果盖回去。
  */
+import fs from 'node:fs'
+import process from 'node:process'
 import { DEDUP_THRESHOLD, LPIPS_SAME_THRESHOLD } from '@pictoria/contracts'
+import { createTestDb } from '@pictoria/db'
 import { describe, expect, it } from 'vitest'
-import { buildEdges, classifyPairs } from './dedup.js'
+import { buildEdges, classifyPairs, isRebuilding, rebuilderFor } from './dedup.js'
+import { dedupMatrixPath, pictoriaDir } from './paths.js'
+import { createTestApp } from './testing/app.js'
 
 /** post id 与行下标错开，这样"忘了翻译下标"会被测出来而不是碰巧通过。 */
 const IDS = [101, 202, 303, 404]
@@ -103,5 +108,45 @@ describe('buildEdges', () => {
     expect(edges).toEqual([{ a: 700, b: 800, strength: expect.any(Number) }])
     // 用户那一档必须强过任何算出来的边，组大小闸才不会先放弃它。
     expect(edges[0]!.strength).toBeGreaterThan(2)
+  })
+})
+
+describe('DedupRebuilder', () => {
+  const quiet = { info: () => {}, warn: () => {} }
+
+  it('每个库一个实例，createApp 注入的就是它；不同库互不相干', () => {
+    const t = createTestApp()
+    const other = createTestDb()
+    try {
+      const r = rebuilderFor(t.sqlite)
+      expect(rebuilderFor(t.sqlite)).toBe(r)
+      expect(rebuilderFor(other)).not.toBe(r)
+      expect(r.isRebuilding()).toBe(false)
+      expect(isRebuilding()).toBe(false)
+    }
+    finally {
+      other.close()
+      t.close()
+    }
+  })
+
+  it('回收残留矩阵时跳过本实例正在用的那个', async () => {
+    const t = createTestApp()
+    try {
+      fs.mkdirSync(pictoriaDir(), { recursive: true })
+      const stale = dedupMatrixPath('1-1')
+      const legacy = dedupMatrixPath('').replace(/-\.f32$/, '.f32')
+      const mine = dedupMatrixPath('2-2')
+      // 另一个还活着的进程（这里拿父进程）正在用的：不替它删。
+      const othersLive = dedupMatrixPath(`${process.ppid}-3`)
+      for (const f of [stale, legacy, mine, othersLive]) fs.writeFileSync(f, 'x')
+      const r = rebuilderFor(t.sqlite)
+      r.activeFiles.add(mine)
+      await r.sweepStale(quiet)
+      expect([stale, legacy, mine, othersLive].map(f => fs.existsSync(f))).toEqual([false, false, true, true])
+    }
+    finally {
+      t.close()
+    }
   })
 })

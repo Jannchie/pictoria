@@ -33,6 +33,7 @@ import {
   IO_QUEUE,
 } from '@pictoria/contracts'
 import { ensureCanonicalTagGroups, listImportedDanbooruIds, persistPostsWithTags } from '@pictoria/db'
+import { IMPORT_CHUNK_SIZE, runInChunks } from './chunked-import.js'
 import { targetDir } from './paths.js'
 
 /**
@@ -71,7 +72,7 @@ export type DanbooruImportJob = z.infer<typeof DanbooruImportJobSchema>
 export interface DanbooruImportsOptions {
   /** 同时 running 的作业上限。默认 2 —— 再多只是把同一份 CDN 配额劈得更碎。 */
   concurrency?: number
-  /** 下载一块多少条。默认 50，按 ~1 req/s 约一分钟落一次库。 */
+  /** 下载一块多少条。默认 `IMPORT_CHUNK_SIZE`（50），按 ~1 req/s 约一分钟落一次库。 */
   chunkSize?: number
   /** 已结束的作业最多保留多少个。默认 1000。 */
   maxRetained?: number
@@ -125,7 +126,7 @@ export class DanbooruImports {
     opts: DanbooruImportsOptions = {},
   ) {
     this.concurrency = Math.max(1, opts.concurrency ?? 2)
-    this.chunkSize = Math.max(1, opts.chunkSize ?? 50)
+    this.chunkSize = Math.max(1, opts.chunkSize ?? IMPORT_CHUNK_SIZE)
     this.maxRetained = opts.maxRetained ?? 1000
   }
 
@@ -264,11 +265,10 @@ export class DanbooruImports {
     job.skipped = stats.filtered - items.length
 
     job.phase = 'downloading'
-    // 块是**串行**的：一个作业同时只占 IO 队列的一个槽，CDN 配额由全部作业共享，
-    // 并行下同一个作业的两块不会更快，只会让别的作业排更久。
-    for (let i = 0; i < items.length; i += this.chunkSize) {
-      const chunk: DanbooruItem[] = items.slice(i, i + this.chunkSize)
-      try {
+    // 串行分块、每块落库、块失败继续 —— 规矩见 `chunked-import.ts`。
+    await runInChunks<DanbooruItem>(items, this.chunkSize, {
+      label: `[danbooru-import] ${job.tags}`,
+      run: async (chunk) => {
         // 行留在这边，不跟着下载走：worker 只要知道下什么、存成什么名字。
         const downloadItems = chunk.map(i => ({
           fileUrl: i.fileUrl,
@@ -290,16 +290,16 @@ export class DanbooruImports {
         job.downloaded += result.downloaded
         job.skipped += result.skipped
         job.failed += result.failed
-      }
-      catch (err) {
-        // 一块失败不中断整个作业：整块记为失败，接着下一块。这块里已经落盘、却没落库
-        // 的文件，下次运行下载会 skip 并照样报告为 landed。
+      },
+      // 整块记为失败。这块里已经落盘、却没落库的文件，下次运行下载会 skip 并照样报告为 landed。
+      onError: (chunk, err) => {
         job.failed += chunk.length
         job.error = String(err)
-        console.warn(`[danbooru-import] ${job.tags} 第 ${i / this.chunkSize + 1} 块失败：${String(err)}`)
-      }
-      job.processed += chunk.length
-    }
+      },
+      after: (chunk) => {
+        job.processed += chunk.length
+      },
+    })
   }
 
   /**

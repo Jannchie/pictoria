@@ -27,6 +27,7 @@ import {
   vectorExists,
 } from '@pictoria/db'
 import path from 'node:path'
+import { IMPORT_CHUNK_SIZE, runInChunks } from '../chunked-import.js'
 import { DEDUP_THRESHOLD, isRebuilding, rebuildGroups } from '../dedup.js'
 import { type AppEnv, newRoutes, type TaskSource } from '../env.js'
 import { boolQuery, CREATED, OK, errors, fail, postNotFound } from '../openapi.js'
@@ -385,11 +386,11 @@ interface RunningUrlImport {
 }
 
 /**
- * 当前 / 上一次 URL 导入。进程内的一个值，不落库，重启即回到 idle。前端靠轮询拿进度。
+ * 当前 / 上一次 URL 导入的阶段。不落库，重启即回到 idle。前端靠轮询拿进度。
  *
  * 原来是一个六个字段的扁平对象（`state` + 五个可空字段），"done 却没有 finishedAt"
  * "running 却带着上一次的 error"都写得出来，转移又散在路由、`runUrlImport`、
- * `importOnce` 三处。现在每个阶段只带它有的字段，转移只发生在 `runUrlImport`；
+ * `importOnce` 三处。现在每个阶段只带它有的字段，转移只发生在 `UrlImports` 里；
  * 对外的 JSON 形状不变，由 `urlImportBody` 摊平。
  */
 type UrlImport
@@ -397,8 +398,6 @@ type UrlImport
     | RunningUrlImport
     | (Omit<RunningUrlImport, 'kind'> & { kind: 'done', finishedAt: string })
     | (Omit<RunningUrlImport, 'kind'> & { kind: 'failed', finishedAt: string, error: string })
-
-let urlImport: UrlImport = { kind: 'idle' }
 
 /** 摊平成 `/v2/cmd/import-from-url/status` 的 JSON：不属于这个阶段的字段一律 null。 */
 function urlImportBody(s: UrlImport): z.infer<typeof UrlImportStatus> {
@@ -415,35 +414,79 @@ function urlImportBody(s: UrlImport): z.infer<typeof UrlImportStatus> {
 }
 
 /**
- * 后台跑一次 gallery-dl 导入。
+ * URL 导入的状态机：同一时刻最多一次导入。每个 app 一个实例（纯内存）。
  *
- * 三步，中间那步必须回到 TS：扫描（worker 跑 gallery-dl）→ **按目录去重**
- * （读库）→ 下载 + 落库。gallery-dl 是个 Python 工具，所以扫描和下载只能在
- * worker；去重是数据库读，所以只能在这里。
+ * 原来是模块级的一个 `let`，于是同一进程里的所有 app（测试里每个用例一个）共享一份
+ * 状态。理想的做法是像 `DanbooruImports` 那样由 `createApp` 注入成 `c.var.urlImports`；
+ * 在那之前，`urlImportsFor` 按库连接取实例 —— 一个 app 恰好一条连接，效果相同。
  */
-async function runUrlImport(sqlite: SqliteHandle, tasks: TaskSource, run: RunningUrlImport): Promise<void> {
-  const { url } = run
-  try {
-    await importOnce(sqlite, tasks, run)
+export class UrlImports {
+  private state: UrlImport = { kind: 'idle' }
+
+  constructor(
+    private readonly db: SqliteHandle,
+    private readonly tasks: TaskSource,
+  ) {}
+
+  status(): z.infer<typeof UrlImportStatus> {
+    return urlImportBody(this.state)
   }
-  catch (err) {
-    urlImport = { ...run, kind: 'failed', finishedAt: new Date().toISOString(), error: String(err) }
-    console.warn(`[url-import] ${url} 失败：${String(err)}`)
-    return
+
+  /**
+   * 开始一次导入；已有一次在跑时返回 false，什么也不做。
+   *
+   * 同步换掉整个状态值，于是"忙不忙"的判断在单线程事件循环上没有竞态。
+   */
+  start(url: string): boolean {
+    if (this.state.kind === 'running')
+      return false
+    const run: RunningUrlImport = { kind: 'running', url, startedAt: new Date().toISOString(), stats: null }
+    this.state = run
+    void this.run(run)
+    return true
   }
-  urlImport = { ...run, kind: 'done', finishedAt: new Date().toISOString() }
-  // 新图需要向量 / 分数 / 自动标签（kemono 的帖子根本不带标签）—— 踢一脚既有的
-  // backfill 流程。已经有一轮在跑时 `startSync` 排一次补跑，新文件同样会被扫到。
-  startSync(sqlite)
+
+  /**
+   * 后台跑一次 gallery-dl 导入。
+   *
+   * 三步，中间那步必须回到 TS：扫描（worker 跑 gallery-dl）→ **按目录去重**
+   * （读库）→ 下载 + 落库。gallery-dl 是个 Python 工具，所以扫描和下载只能在
+   * worker；去重是数据库读，所以只能在这里。
+   */
+  private async run(run: RunningUrlImport): Promise<void> {
+    const { url } = run
+    try {
+      await importOnce(this.db, this.tasks, run)
+    }
+    catch (err) {
+      this.state = { ...run, kind: 'failed', finishedAt: new Date().toISOString(), error: String(err) }
+      console.warn(`[url-import] ${url} 失败：${String(err)}`)
+      return
+    }
+    this.state = { ...run, kind: 'done', finishedAt: new Date().toISOString() }
+    // 新图需要向量 / 分数 / 自动标签（kemono 的帖子根本不带标签）—— 踢一脚既有的
+    // backfill 流程。已经有一轮在跑时 `startSync` 排一次补跑，新文件同样会被扫到。
+    startSync(this.db)
+  }
 }
 
-/** URL 导入一块多少项。和 Danbooru 导入的默认块大小一致。 */
-const URL_IMPORT_CHUNK = 50
+const urlImportsByDb = new WeakMap<SqliteHandle, UrlImports>()
+
+/** 这个 app（= 这条库连接）的 URL 导入实例。 */
+function urlImportsFor(c: Context<AppEnv, any, any>): UrlImports {
+  let inst = urlImportsByDb.get(c.var.db)
+  if (!inst) {
+    inst = new UrlImports(c.var.db, c.var.tasks)
+    urlImportsByDb.set(c.var.db, inst)
+  }
+  return inst
+}
+
 /** 一块的下载超时。worker 16 线程并发、单张 60 s 超时，50 张一块 10 分钟绰绰有余。 */
 const URL_IMPORT_CHUNK_TIMEOUT_MS = 10 * 60_000
 
 /**
- * 一次导入的三步。只往 `run.stats` 里记进度，不碰阶段 —— 阶段归 `runUrlImport`。
+ * 一次导入的三步。只往 `run.stats` 里记进度，不碰阶段 —— 阶段归 `UrlImports`。
  *
  * 单独一个函数是为了让"没有可导的东西"能用 `return` 干净地退出，而不会顺带跳过
  * 外面那句转入 done —— 第一版把两者写在一起，结果空结果的导入永远停在
@@ -475,14 +518,11 @@ async function importOnce(sqlite: SqliteHandle, source: TaskSource, run: Running
 
   const saveDir = path.resolve(targetDir(), scan.filePath)
   const typeToGroupId = ensureCanonicalTagGroups(sqlite)
-  let lastError: unknown
-  // 分块下载、每块回来立刻落库 —— 与 Danbooru 导入同一个做法（danbooru-imports.ts）。
-  // 一次性下完再落库时，任务在第 900 张超时就是 900 张已落盘、0 行带标签；分块后损失
-  // 最多一块，而且那一块的文件会在下一次导入里被重新认作"新"（上面的判据）补全。
-  // 块串行：同一次导入的两块并行不会更快，只会让 IO 队列上的别的任务排更久。
-  for (let i = 0; i < fresh.length; i += URL_IMPORT_CHUNK) {
-    const chunk = fresh.slice(i, i + URL_IMPORT_CHUNK)
-    try {
+  // 串行分块、每块落库、块失败继续 —— 与 Danbooru 导入同一个循环（`chunked-import.ts`）。
+  // 失败那一块的文件会在下一次导入里被重新认作"新"（上面的判据）补全。
+  const { lastError } = await runInChunks(fresh, IMPORT_CHUNK_SIZE, {
+    label: `[url-import] ${url}`,
+    run: async (chunk) => {
       const result = await tasks.call(urlDownloadTask, {
         items: chunk,
         saveDir,
@@ -498,14 +538,11 @@ async function importOnce(sqlite: SqliteHandle, source: TaskSource, run: Running
       persistPostsWithTags(sqlite, result.rows)
       stats.downloaded += result.downloaded
       stats.failed += result.failed
-    }
-    catch (err) {
-      // 一块失败不中断整次导入：整块记为失败，接着下一块。
+    },
+    onError: (chunk) => {
       stats.failed += chunk.length
-      lastError = err
-      console.warn(`[url-import] ${url} 第 ${i / URL_IMPORT_CHUNK + 1} 块失败：${String(err)}`)
-    }
-  }
+    },
+  })
   // 一块都没成：这是导入失败（worker 不在、站点封了），不是"完成但全部失败"。
   if (lastError !== undefined && stats.downloaded === 0)
     throw lastError
@@ -533,13 +570,8 @@ commandsRoutes.openapi(
   }),
   (c) => {
     const { url } = c.req.valid('query')
-    if (urlImport.kind === 'running')
+    if (!urlImportsFor(c).start(url))
       return c.json({ msg: 'Import already running' }, 201)
-
-    // 同步换掉整个状态值，于是"忙不忙"的判断在单线程事件循环上没有竞态。
-    const run: RunningUrlImport = { kind: 'running', url, startedAt: new Date().toISOString(), stats: null }
-    urlImport = run
-    void runUrlImport(c.var.db, c.var.tasks, run)
     return c.json({ msg: 'Import started' }, 201)
   },
 )
@@ -555,5 +587,5 @@ commandsRoutes.openapi(
       200: { description: OK, content: { 'application/json': { schema: UrlImportStatus } } },
     },
   }),
-  c => c.json(urlImportBody(urlImport), 200),
+  c => c.json(urlImportsFor(c).status(), 200),
 )

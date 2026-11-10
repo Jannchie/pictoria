@@ -13,7 +13,9 @@ import type { RouteConfig, RouteHandler } from '@hono/zod-openapi'
 import type { CairnQ } from 'cairnq'
 import type { SqliteHandle } from '@pictoria/db'
 import type { DanbooruImports } from './danbooru-imports.js'
-import type { Reads } from './read-pool.js'
+import type { DedupRebuilder } from './dedup.js'
+import type { AppReads } from './read-cache.js'
+import type { FolderTree } from './routes/folders.js'
 import { OpenAPIHono } from '@hono/zod-openapi'
 import { zodErrorHook } from './openapi.js'
 
@@ -36,10 +38,22 @@ export interface AppVariables {
   /** Danbooru 导入的后台作业队列。每个 app 一个（纯内存），见 `danbooru-imports.ts`。 */
   danbooruImports: DanbooruImports
   /**
-   * 整库向量 KNN（相似图、文搜图）。生产是读线程池，别在主线程上跑它们 —— 一次 1.5–3 秒，
-   * 期间整个事件循环停摆。见 `read-pool.ts`。
+   * 整库向量 KNN（相似图、文搜图）与重计数。生产是读线程池，别在主线程上跑它们 —— 一次
+   * 1.5–3 秒，期间整个事件循环停摆。见 `read-pool.ts`。每个请求拿到的这一份挂着
+   * `c.req.raw.signal`（客户端断开就不再派发 / 取消），计数类结果按数据版本缓存
+   * （`read-cache.ts`）。
    */
-  reads: Reads
+  reads: AppReads
+  /** `/v2/folders` 的目录树缓存与监视（`routes/folders.ts`）。每个 app 一个。 */
+  folderTree: FolderTree
+  /** 近重复重建的串行化（`dedup.ts`）。同一个库与调度器共用一个实例。 */
+  dedup: DedupRebuilder
+  /** 「未评分画师」的 id 快照（`routes/post-list.ts`）：翻页切快照，offset 0 重算。 */
+  unratedArtists: UnratedArtistSnapshot
+}
+
+export interface UnratedArtistSnapshot {
+  ids: number[] | null
 }
 
 export interface AppEnv {

@@ -74,7 +74,7 @@ import {
   upsertWaifuScores,
 } from '@pictoria/db'
 import { Buffer } from 'node:buffer'
-import { rebuildGroups } from './dedup.js'
+import { rebuilderFor } from './dedup.js'
 import { postAbsPath, thumbnailPathFor } from './paths.js'
 
 type Log = Pick<Console, 'info' | 'warn'>
@@ -126,8 +126,8 @@ export interface WorkerSpec<
   keyPrefix?: string
   /** 失败要不要写进 `post_process_failures`。 */
   blacklist: boolean
-  /** 水位线以上的待办，按 id 升序，最多 `limit` 条。`force` 清掉水位线全扫。 */
-  listPending: (sqlite: SqliteHandle, limit: number, opts: { force: boolean }) => Pending[]
+  /** 水位线以上的待办，按 id 升序，最多 `limit` 条。 */
+  listPending: (sqlite: SqliteHandle, limit: number) => Pending[]
   /** 待办计数，按 `chunkRows` 行一块给出 —— 只给状态显示用（`queue-status.ts`）。 */
   countPending: (sqlite: SqliteHandle, chunkRows: number) => Iterable<number>
   /**
@@ -163,8 +163,7 @@ function silvaSpec(scorer: AestheticScorerName): WorkerSpec<{ postId: number }, 
     batch: SILVA_TASK_BATCH,
     task: silvaTask,
     blacklist: false,
-    listPending: (sqlite, limit, { force }) =>
-      listSilvaPending(sqlite, scorer, limit, { force }).map(postId => ({ postId })),
+    listPending: (sqlite, limit) => listSilvaPending(sqlite, scorer, limit).map(postId => ({ postId })),
     countPending: (sqlite, rows) => countSilvaPending(sqlite, scorer, rows),
     buildPayload: (sqlite, pending) => {
       const blobs = embeddingBlobs(sqlite, pending.map(p => p.postId))
@@ -197,7 +196,7 @@ export const waifuSpec: WorkerSpec<PendingImage, WaifuPayload, WaifuResult> = {
   batch: WAIFU_TASK_BATCH,
   task: waifuTask,
   blacklist: true,
-  listPending: (sqlite, limit, opts) => listWaifuPending(sqlite, limit, opts),
+  listPending: (sqlite, limit) => listWaifuPending(sqlite, limit),
   countPending: (sqlite, rows) => countWaifuPending(sqlite, rows),
   buildPayload: (_sqlite, pending) => ({ items: imageItems(pending) }),
   persist: (sqlite, result) => {
@@ -231,7 +230,7 @@ export const taggerSpec: WorkerSpec<PendingImage, TaggerPayload, TaggerBatchResu
   task: taggerTask,
   keyPrefix: `tagger:${TAGGER_MODEL}`,
   blacklist: true,
-  listPending: (sqlite, limit, opts) => listTaggerPending(sqlite, TAGGER_MODEL, limit, opts),
+  listPending: (sqlite, limit) => listTaggerPending(sqlite, TAGGER_MODEL, limit),
   countPending: (sqlite, rows) => countTaggerPending(sqlite, TAGGER_MODEL, rows),
   buildPayload: (_sqlite, pending) => ({ items: imageItems(pending) }),
   persist: (sqlite, result, { interactive }) => {
@@ -263,7 +262,7 @@ export const embeddingSpec: WorkerSpec<PendingImage, EmbeddingPayload, Embedding
   batch: EMBEDDING_TASK_BATCH,
   task: embeddingTask,
   blacklist: true,
-  listPending: (sqlite, limit, opts) => listEmbeddingPending(sqlite, limit, opts),
+  listPending: (sqlite, limit) => listEmbeddingPending(sqlite, limit),
   countPending: (sqlite, rows) => countEmbeddingPending(sqlite, rows),
   buildPayload: (_sqlite, pending) => ({ items: imageItems(pending) }),
   persist: (sqlite, result) => {
@@ -280,7 +279,7 @@ export const embeddingSpec: WorkerSpec<PendingImage, EmbeddingPayload, Embedding
   },
   // 失败只记一行：重组是尽力而为的，下一次清空还会再来。
   onDrained: async ({ sqlite, tasks, log }) => {
-    await rebuildGroups(sqlite, tasks, { log }).catch((err: unknown) => log.warn(`[dedup] 重建失败：${String(err)}`))
+    await rebuilderFor(sqlite).rebuild(sqlite, tasks, { log }).catch((err: unknown) => log.warn(`[dedup] 重建失败：${String(err)}`))
   },
   // 一次重建是全库的：31 万条向量导出 + GPU 矩阵乘 + 换组，主线程上就是 10 s 以上的 CPU。
   // 上传 / 导入时 embedding 每几十秒清空一次，不合并的话实测 10 分钟跑约 20 轮。新图晚
@@ -301,7 +300,7 @@ export const basicsSpec: WorkerSpec<BasicsPending, BasicsPayload, BasicsResult> 
   batch: BASICS_TASK_BATCH,
   task: basicsTask,
   blacklist: true,
-  listPending: (sqlite, limit, opts) => listBasicsPending(sqlite, limit, opts),
+  listPending: (sqlite, limit) => listBasicsPending(sqlite, limit),
   countPending: (sqlite, rows) => countBasicsPending(sqlite, rows),
   // 原图和缩略图路径都在这一侧算好再交给 worker（和 thumbnail / rotate 任务同一个
   // 出处），布局只在 `paths.ts` 有一份。逐字段拼而不是展开，免得待办行上多出来的
