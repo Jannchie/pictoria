@@ -18,8 +18,9 @@ const { data: postData, isError: postFailed } = usePostQuery(focusedPostId)
 const isAnnotating = computed(() => route.name === 'annotate')
 
 // The detail of a just-selected post is a request away; the list row it was
-// picked from is not. Until the detail lands, show that row instead of falling
-// back to the overview (which flashed in between every click).
+// picked from is not. Until the detail lands, PostDetailPanel renders from that
+// row instead of falling back to the overview (which flashed in between every
+// click).
 const listRow = computed(() => {
   const id = focusedPostId.value
   if (id === undefined) {
@@ -34,12 +35,8 @@ const listRow = computed(() => {
   <!-- A failed detail (deleted meanwhile) falls through to the overview. -->
   <template v-else-if="mode === 'single' && !(postFailed && !postData)">
     <PostDetailPanel
-      v-if="postData"
-      :post="postData"
-    />
-    <PostDetailPlaceholder
-      v-else-if="listRow"
-      :post="listRow"
+      v-if="postData || listRow"
+      :post="(postData || listRow)!"
     />
     <div
       v-else

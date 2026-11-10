@@ -15,7 +15,7 @@ import {
   scorerIcon,
   useCurrentFolder,
 } from '@/shared'
-import { galleryViewNameKey, isLibraryView } from '@/shared/galleryView'
+import { galleryViewNameKey, isGalleryRoute, isLibraryView } from '@/shared/galleryView'
 
 // Shown in the right pane whenever nothing is selected: a reading of the
 // *current view* — its name, how big it is and how its ratings are distributed,
@@ -26,9 +26,9 @@ const { t } = useI18n()
 const route = useRoute()
 const currentFolder = useCurrentFolder()
 
-// Every gallery route carries `meta.gallery` (main.ts). A hand-kept list of
-// names missed `/`, which has no name — the landing page never fetched stats.
-const inGalleryView = computed(() => route.meta.gallery === true)
+// Derived from the route table's `meta.view`. A hand-kept list of names
+// missed `/`, which has no name — the landing page never fetched stats.
+const inGalleryView = computed(() => isGalleryRoute(route))
 // The stats endpoint aggregates the filtered *library* (root or a folder).
 // /recently, /random and /unrated-artists are other lists over it, so its
 // numbers would describe something the grid isn't showing — not shown there.

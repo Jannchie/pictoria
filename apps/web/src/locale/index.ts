@@ -1,46 +1,21 @@
+import type { AppLocale, LocaleSetting } from './initial'
 import { useLocalStorage } from '@vueuse/core'
 import { computed, watch } from 'vue'
 import { createI18n } from 'vue-i18n'
+import { browserLanguages, LOCALE_STORAGE_KEY, MESSAGE_LOADERS, pickLocale } from './initial'
 // English is the schema source (MessageSchema) and the fallback, so it ships in
 // the main bundle; the other catalogues are split chunks loaded on demand.
 import en from './messages/en'
 
-export const SUPPORTED_LOCALES = ['en', 'zh-Hans', 'zh-Hant'] as const
-export type AppLocale = (typeof SUPPORTED_LOCALES)[number]
-export type LocaleSetting = AppLocale | 'auto'
+export { pickLocale, SUPPORTED_LOCALES } from './initial'
+export type { AppLocale, LocaleSetting } from './initial'
 
 // Persisted user choice; 'auto' follows the browser language.
-export const localeSetting = useLocalStorage<LocaleSetting>('pictoria.locale', 'auto')
-
-// Regions and scripts that write traditional Chinese. Taiwan, Hong Kong and
-// Macau are matched by region because that is what browsers actually send --
-// `zh-TW`, `zh-HK` -- while `zh-Hant` is the explicit script subtag. Everything
-// else under `zh` (including bare `zh` and `zh-CN`) is simplified: guessing
-// traditional for an unqualified `zh` would serve the wrong script to the
-// larger audience.
-const TRADITIONAL = /^zh-(?:hant|tw|hk|mo)\b/
-
-// Pure resolver (exported for tests): first browser language that maps to a
-// supported locale wins; anything unrecognised falls back to English.
-export function pickLocale(langs: readonly string[]): AppLocale {
-  for (const lang of langs) {
-    const lower = lang.toLowerCase()
-    if (TRADITIONAL.test(lower)) {
-      return 'zh-Hant'
-    }
-    if (lower.startsWith('zh')) {
-      return 'zh-Hans'
-    }
-    if (lower.startsWith('en')) {
-      return 'en'
-    }
-  }
-  return 'en'
-}
+export const localeSetting = useLocalStorage<LocaleSetting>(LOCALE_STORAGE_KEY, 'auto')
 
 export const resolvedLocale = computed<AppLocale>(() =>
   localeSetting.value === 'auto'
-    ? pickLocale(typeof navigator === 'undefined' ? [] : navigator.languages ?? [navigator.language])
+    ? pickLocale(browserLanguages())
     : localeSetting.value,
 )
 
@@ -56,10 +31,6 @@ export const i18n = createI18n({
   messages: { en } as Record<AppLocale, typeof en>,
 })
 
-const MESSAGE_LOADERS: Record<Exclude<AppLocale, 'en'>, () => Promise<{ default: typeof en }>> = {
-  'zh-Hans': () => import('./messages/zh-Hans'),
-  'zh-Hant': () => import('./messages/zh-Hant'),
-}
 /** One entry per locale fetched or being fetched; a failed fetch drops its entry so the next call retries. */
 const loads = new Map<AppLocale, Promise<void>>()
 
@@ -115,7 +86,9 @@ watch(resolvedLocale, (locale) => {
 
 /**
  * Resolves once the initial locale's catalogue is in (or failed to load) —
- * main.ts mounts after it, so a zh session never paints English first.
+ * boot.ts mounts after it, so a zh session never paints English first. The
+ * fetch itself usually started earlier: main.ts kicks it off
+ * (`preloadInitialLocale`) before the app chunk has even arrived.
  */
 export const localeReady: Promise<void> = loadLocaleMessages(resolvedLocale.value).catch(() => {})
 

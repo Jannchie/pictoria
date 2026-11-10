@@ -14,7 +14,7 @@ import PairwiseAnnotationSession from '@/components/annotate/PairwiseAnnotationS
 import ConfirmActionDialog from '@/components/ConfirmActionDialog.vue'
 import { useAPIError } from '@/composables/useAPIError'
 import { useConfirmAction } from '@/composables/useConfirmAction'
-import { formatNumber } from '@/locale'
+import { formatDateTime, formatNumber } from '@/locale'
 import { DIMENSION_META, dimensionMeta, PAIRWISE_STRATEGIES } from '@/shared/annotationTypes'
 import { deleteAnnotationQueue, generateAbsoluteQueue, generateListwiseQueue, generatePairwiseQueue } from '@/shared/mutations'
 import { queryKeys } from '@/shared/queryKeys'
@@ -629,6 +629,8 @@ async function generateQueue() {
                   {{ $t(KIND_LABEL_KEYS[q.kind]) }} · {{ q.dimensions.map(dimensionLabel).join(' / ') }}<template v-if="q.scale">
                     · {{ $t('annotate.scale.levels', { n: q.scale }) }}
                   </template>
+                  <!-- Creation time tells apart queues generated with the same name. -->
+                  · <time class="tabular-nums" :datetime="q.createdAt">{{ formatDateTime(q.createdAt) }}</time>
                 </div>
                 <div class="annotate-progress mt-2" aria-hidden="true">
                   <div class="annotate-progress__bar" :style="{ width: `${q.total ? (q.done / q.total) * 100 : 0}%` }" />

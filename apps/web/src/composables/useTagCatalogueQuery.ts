@@ -18,9 +18,6 @@ import { queryKeys } from '@/shared/queryKeys'
  * - `structuralSharing: false`: every response is a brand-new array, so the
  *   field-by-field deep compare finds nothing to reuse and costs more than the
  *   parse.
- * - `shallow: true`: read-only rows; deep reactive proxies made every property
- *   read in a search loop a WeakMap lookup (a search went from ~160–570 ms to
- *   ~30–80 ms without them).
  */
 export function useTagCatalogueQuery(options: { enabled?: MaybeRefOrGetter<boolean>, staleTime?: number } = {}) {
   return useQuery({
@@ -35,6 +32,5 @@ export function useTagCatalogueQuery(options: { enabled?: MaybeRefOrGetter<boole
     enabled: () => toValue(options.enabled ?? true),
     staleTime: options.staleTime,
     structuralSharing: false,
-    shallow: true,
   })
 }

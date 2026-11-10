@@ -13,13 +13,16 @@ declare global {
   const GALLERY_GRID_ATTR: typeof import('./composables/useGalleryGrid').GALLERY_GRID_ATTR
   const GRID_OUTSIDE_SHORTCUTS: typeof import('./composables/useGalleryGrid').GRID_OUTSIDE_SHORTCUTS
   const KEY_ROWS: typeof import('./composables/useAnnotationKeymap').KEY_ROWS
-  const SUPPORTED_LOCALES: typeof import('./locale/index').SUPPORTED_LOCALES
+  const LOCALE_STORAGE_KEY: typeof import('./locale/initial').LOCALE_STORAGE_KEY
+  const MESSAGE_LOADERS: typeof import('./locale/initial').MESSAGE_LOADERS
+  const SUPPORTED_LOCALES: typeof import('./locale/initial').SUPPORTED_LOCALES
   const THUMBNAIL_WIDTH: typeof import('./composables/useViewportHiRes').THUMBNAIL_WIDTH
   const UNCATEGORISED: typeof import('./composables/useTagTree').UNCATEGORISED
   const activateOptionOnKey: typeof import('./composables/useFacetFilter').activateOptionOnKey
   const activeKeys: typeof import('./composables/useAnnotationKeymap').activeKeys
   const asyncComputed: typeof import('@vueuse/core').asyncComputed
   const autoResetRef: typeof import('@vueuse/core').autoResetRef
+  const browserLanguages: typeof import('./locale/initial').browserLanguages
   const buildTagTree: typeof import('./composables/useTagTree').buildTagTree
   const choiceBindings: typeof import('./composables/useAnnotationKeymap').choiceBindings
   const commonValue: typeof import('./composables/useSelectedPostStats').commonValue
@@ -73,6 +76,7 @@ declare global {
   const handleHotkey: typeof import('./composables/useHotkey').handleHotkey
   const i18n: typeof import('./locale/index').i18n
   const ignorableWatch: typeof import('@vueuse/core').ignorableWatch
+  const initialLocale: typeof import('./locale/initial').initialLocale
   const initialOptionIndex: typeof import('./composables/useFacetFilter').initialOptionIndex
   const inject: typeof import('vue').inject
   const injectLocal: typeof import('@vueuse/core').injectLocal
@@ -118,10 +122,11 @@ declare global {
   const onUpdated: typeof import('vue').onUpdated
   const onWatcherCleanup: typeof import('vue').onWatcherCleanup
   const pausableWatch: typeof import('@vueuse/core').pausableWatch
-  const pickLocale: typeof import('./locale/index').pickLocale
+  const pickLocale: typeof import('./locale/initial').pickLocale
   const prefetchPost: typeof import('./composables/usePostPrefetch').prefetchPost
   const prefetchPostData: typeof import('./composables/usePostPrefetch').prefetchPostData
   const preloadImage: typeof import('./composables/usePostPrefetch').preloadImage
+  const preloadInitialLocale: typeof import('./locale/initial').preloadInitialLocale
   const provide: typeof import('vue').provide
   const provideFolderTree: typeof import('./composables/useFolderTree').provideFolderTree
   const provideGalleryTiles: typeof import('./composables/useViewportHiRes').provideGalleryTiles
@@ -465,6 +470,6 @@ declare global {
   export type { HiResPost } from './composables/useViewportHiRes'
   import('./composables/useViewportHiRes')
   // @ts-ignore
-  export type { AppLocale, LocaleSetting } from './locale/index'
-  import('./locale/index')
+  export type { AppLocale, LocaleSetting } from './locale/initial'
+  import('./locale/initial')
 }

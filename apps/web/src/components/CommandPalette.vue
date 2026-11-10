@@ -25,7 +25,7 @@ import {
   shortcutHelpOpen,
   textSearchQuery,
 } from '@/shared'
-import { sortLock } from '@/shared/galleryView'
+import { isGalleryRoute, sortLock } from '@/shared/galleryView'
 import { routeHasRightPane, toggleLeftPane, toggleRightPane } from '@/shared/paneLayout'
 import { applyParsedFilter, hasFilterTerms, parseFilterQuery, stringifyFilterQuery } from '@/shared/postFilter'
 import { shortcuts } from '@/shared/shortcuts'
@@ -144,7 +144,7 @@ function sortBy(id: typeof postSort.value) {
 // Sorting commands, unless the sort is locked here (text search, /recently,
 // /unrated-artists — see sortLock) or there is no gallery on this page at all:
 // they would change nothing visible.
-const sortCommands = computed<CommandDef[]>(() => !route.meta.gallery || sortLock(route.meta.view, textSearchQuery.value.trim().length > 0)
+const sortCommands = computed<CommandDef[]>(() => !isGalleryRoute(route) || sortLock(route.meta.view, textSearchQuery.value.trim().length > 0)
   ? []
   : [
       { id: 'sort-score', section: 'sort', label: t('command.sortBy', { label: t('sort.score') }), icon: SCORE_ICON, run: sortBy('score') },
@@ -244,7 +244,7 @@ function applyQuery() {
   textSearchQuery.value = parsed.value.text
   // Off the gallery (post page, tags, settings…) there is nothing here for the
   // filter to act on: take it to the gallery (same as the detail panel's tag filter).
-  if (!route.meta.gallery) {
+  if (!isGalleryRoute(route)) {
     void router.push('/')
   }
 }

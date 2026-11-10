@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import type { PostDetailPublic, PostHasTagPublic } from '@/api'
+import type { PostDetailPublic, PostHasTagPublic, PostSimplePublic } from '@/api'
 import type { ScorerKind } from '@/shared'
 import type { PMenuItem } from '@/ui'
 import { useQueryClient } from '@tanstack/vue-query'
@@ -15,13 +15,21 @@ import { usePostGroupQuery } from '@/composables/usePostGroupQuery'
 import { UNCATEGORISED, useTopCategoryGrouper } from '@/composables/useTagTree'
 import { formatDateTime } from '@/locale'
 import { announce, commitCaption, commitRating, commitScore, commitSource, commitTag, commitTagSource, computeScore, hideNSFW, makePostCanonical, markPostsDifferent, openTagSelectorWindow, postFilter, RATING_LEVEL_COLORS, RATING_LEVEL_ICONS, ratingLevelNames, ratingName, ungroupPost } from '@/shared'
+import { isGalleryRoute } from '@/shared/galleryView'
 import { revealPost } from '@/shared/postPaths'
 import { getPostThumbnailURL, isImageExtension, naturalizeTagName } from '@/utils'
 import { colorNumToHex, labToRgbaString } from '@/utils/color'
 import { isMac } from '@/utils/keyboard'
 
+// Either the post's detail, or — while that request is in flight — the gallery
+// row it was picked from. The row already carries the name, size, colours,
+// rating and score, so the panel renders at once (no flash back to the gallery
+// overview between a click and the response): rating and score stay editable
+// (the row holds their current values, and the writes patch both caches);
+// what only the detail has — tags, model scores, caption, source, dates — is a
+// skeleton or disabled until it lands.
 const props = defineProps<{
-  post: PostDetailPublic
+  post: PostDetailPublic | PostSimplePublic
 }>()
 
 const { t } = useI18n()
@@ -59,6 +67,10 @@ async function guardGroup(run: () => Promise<void>) {
   return true
 }
 const post = computed(() => props.post)
+// `tags` is detail-only: the discriminant between the two shapes.
+const detail = computed(() => 'tags' in props.post ? props.post : undefined)
+// Fixed widths: a skeleton that changes shape on every render reads as noise.
+const TAG_SKELETON_WIDTHS = [64, 88, 48, 72, 56, 96, 40, 68]
 const router = useRouter()
 const route = useRoute()
 
@@ -135,6 +147,11 @@ function useTextField(
   })
   async function save() {
     editing = false
+    // The fields are disabled until the detail is in; without it the old value
+    // would be a stand-in ''.
+    if (!detail.value) {
+      return
+    }
     const id = post.value.id
     const oldValue = read()
     const newValue = draft.value ?? ''
@@ -163,12 +180,12 @@ function useTextField(
   }
 }
 const caption = useTextField(
-  () => post.value.caption ?? '',
+  () => detail.value?.caption ?? '',
   (id, o, n) => commitCaption(queryClient, id, o, n),
   'error.captionFailed',
 )
 const source = useTextField(
-  () => post.value.source ?? '',
+  () => detail.value?.source ?? '',
   (id, o, n) => commitSource(queryClient, id, o, n),
   'error.sourceFailed',
 )
@@ -212,7 +229,11 @@ let seatsFor: number | undefined
 let seats = new Map<string, number>()
 const seat = (tag: PostHasTagPublic) => seats.get(tag.tagInfo.name) ?? Number.POSITIVE_INFINITY
 const tagSorted = computed(() => {
-  const sorted = post.value.tags?.toSorted(sortByGroup) ?? []
+  const tags = detail.value?.tags
+  if (!tags) {
+    return []
+  }
+  const sorted = tags.toSorted(sortByGroup)
   if (seatsFor !== post.value.id) {
     seatsFor = post.value.id
     seats = new Map(sorted.map((tag, i) => [tag.tagInfo.name, i]))
@@ -257,7 +278,7 @@ function filterByTag(name: string, only: boolean) {
   const current = postFilter.value.tags
   postFilter.value.tags = only ? [name] : current.includes(name) ? current : [...current, name]
   // 独立详情页上没有画廊可筛：带着筛选回画廊。
-  if (!route.meta.gallery) {
+  if (!isGalleryRoute(route)) {
     router.push('/')
   }
 }
@@ -336,10 +357,10 @@ const captionHintId = `${uid}-caption-hint`
 const SILVA_SCORER = 'silva'
 const SILVA_LUNA_SCORER = 'silva_luna'
 const silvaScore = computed(
-  () => post.value.aestheticScores?.find(s => s.scorer === SILVA_SCORER)?.score,
+  () => detail.value?.aestheticScores?.find(s => s.scorer === SILVA_SCORER)?.score,
 )
 const silvaLunaScore = computed(
-  () => post.value.aestheticScores?.find(s => s.scorer === SILVA_LUNA_SCORER)?.score,
+  () => detail.value?.aestheticScores?.find(s => s.scorer === SILVA_LUNA_SCORER)?.score,
 )
 
 // In-flight computes keyed by scorer AND post: the three buttons spin
@@ -370,6 +391,7 @@ function onComputeScore(kind: ScorerKind) {
 <template>
   <PScrollArea
     class="text-xs h-full overflow-x-hidden overflow-y-auto"
+    :aria-busy="detail ? undefined : 'true'"
   >
     <!-- px-3: the pane has no padding of its own (the scrollbar hugs its
          edge), so the scrolled content owns the 12px gutter. -->
@@ -462,8 +484,9 @@ function onComputeScore(kind: ScorerKind) {
           </div>
           <div>{{ $t('post.waifuLabel') }}</div>
           <div>
-            <template v-if="post.waifuScore">
-              <WaifuScoreLevel :score="post.waifuScore.score" />
+            <span v-if="!detail" class="rounded-sm h-5 w-16 block p-skeleton" />
+            <template v-else-if="detail.waifuScore">
+              <WaifuScoreLevel :score="detail.waifuScore.score" />
             </template>
             <template v-else>
               <PButton
@@ -478,7 +501,8 @@ function onComputeScore(kind: ScorerKind) {
           </div>
           <div>{{ $t('post.silvaLabel') }}</div>
           <div>
-            <template v-if="silvaScore !== undefined">
+            <span v-if="!detail" class="rounded-sm h-5 w-16 block p-skeleton" style="--i: 1" />
+            <template v-else-if="silvaScore !== undefined">
               <WaifuScoreLevel :score="silvaScore * 10" />
             </template>
             <template v-else>
@@ -494,7 +518,8 @@ function onComputeScore(kind: ScorerKind) {
           </div>
           <div>{{ $t('post.silvaLunaLabel') }}</div>
           <div>
-            <template v-if="silvaLunaScore !== undefined">
+            <span v-if="!detail" class="rounded-sm h-5 w-16 block p-skeleton" style="--i: 2" />
+            <template v-else-if="silvaLunaScore !== undefined">
               <WaifuScoreLevel :score="silvaLunaScore * 10" />
             </template>
             <template v-else>
@@ -648,16 +673,16 @@ function onComputeScore(kind: ScorerKind) {
           <div class="uppercase">
             {{ post.extension }}
           </div>
-          <template v-if="post.createdAt">
+          <template v-if="detail?.createdAt">
             <div>{{ $t('post.createdAt') }}</div>
             <div class="tabular-nums">
-              {{ formatDateTime(post.createdAt) }}
+              {{ formatDateTime(detail.createdAt) }}
             </div>
           </template>
-          <template v-if="post.publishedAt">
+          <template v-if="detail?.publishedAt">
             <div>{{ $t('post.publishedAt') }}</div>
             <div class="tabular-nums">
-              {{ formatDateTime(post.publishedAt) }}
+              {{ formatDateTime(detail.publishedAt) }}
             </div>
           </template>
         </div>
@@ -715,7 +740,7 @@ function onComputeScore(kind: ScorerKind) {
             <!-- xs + negative margin: the affordance stays clickable without
                  making this section heading taller than the others. -->
             <PButton
-              v-if="post.tags && post.tags.length > 0"
+              v-if="tagSorted.length > 0"
               size="xs"
               icon
               class="-my-1.5"
@@ -727,8 +752,22 @@ function onComputeScore(kind: ScorerKind) {
             </PButton>
           </div>
         </div>
+        <!-- The gallery row has no tags: a skeleton until the detail lands. -->
+        <div
+          v-if="!detail"
+          class="flex flex-wrap gap-1.5"
+          role="status"
+          :aria-label="$t('post.panel.loadingDetail')"
+        >
+          <span
+            v-for="(w, i) in TAG_SKELETON_WIDTHS"
+            :key="i"
+            class="rounded-sm h-5 p-skeleton"
+            :style="{ 'width': `${w}px`, '--i': i }"
+          />
+        </div>
         <PMenu
-          v-if="tagSorted.length > 0"
+          v-else-if="tagSorted.length > 0"
           ref="tagMenu"
           :data="tagMenuData"
           trigger="contextmenu"
@@ -824,6 +863,7 @@ function onComputeScore(kind: ScorerKind) {
           :aria-label="$t('post.caption')"
           :aria-describedby="captionHintId"
           :invalid="captionInvalid"
+          :disabled="!detail"
           size="sm"
           :max-rows="10"
           @focus="caption.onFocus"
@@ -846,6 +886,7 @@ function onComputeScore(kind: ScorerKind) {
           :model-value="sourceDraft"
           :aria-label="$t('post.source')"
           :invalid="sourceInvalid"
+          :disabled="!detail"
           size="sm"
           block
           @update:model-value="(v) => sourceDraft = String(v ?? '')"

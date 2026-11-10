@@ -15,13 +15,14 @@
 // page announces "n / total — file" itself) and the initial load.
 
 import type { GalleryView } from '@/shared/galleryView'
+import { isGalleryRoute } from '@/shared/galleryView'
 
 export interface RouteLike {
   path: string
   name?: string | symbol | null
   params?: Record<string, string | string[] | undefined>
   query?: Record<string, unknown>
-  meta?: { gallery?: boolean, view?: GalleryView }
+  meta?: { view?: GalleryView }
 }
 
 export interface RouteTitle {
@@ -100,7 +101,6 @@ export function routeTitle(route: RouteLike, postName?: string | null): RouteTit
 }
 
 const isPost = (r: RouteLike) => r.name === 'post'
-const isGallery = (r: RouteLike) => r.meta?.gallery === true
 
 /** Should this navigation announce the new page title? */
 export function shouldAnnounceRoute(to: RouteLike, from: RouteLike, initial: boolean): boolean {
@@ -115,5 +115,5 @@ export function shouldFocusMain(to: RouteLike, from: RouteLike, initial: boolean
   if (isPost(to) && isPost(from)) {
     return false
   }
-  return !(isGallery(to) && isGallery(from))
+  return !(isGalleryRoute(to) && isGalleryRoute(from))
 }

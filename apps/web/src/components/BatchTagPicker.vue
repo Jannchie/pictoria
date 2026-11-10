@@ -127,8 +127,8 @@ async function add(option: Option | undefined) {
   }
   busy.value = true
   try {
-    const { done, conflicted } = await commitTagMany(queryClient, [...props.ids], option.name)
-    announce(t('batchTag.done', { tag: naturalizeTagName(option.name), added: formatNumber(done.length), already: formatNumber(conflicted.length) }))
+    const { done, already } = await commitTagMany(queryClient, [...props.ids], option.name)
+    announce(t('batchTag.done', { tag: naturalizeTagName(option.name), added: formatNumber(done.length), already: formatNumber(already.length) }))
     open.value = false
   }
   catch (error) {

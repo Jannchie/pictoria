@@ -1,8 +1,19 @@
 import type { RouteMeta } from 'vue-router'
 import type { PostOrderColumn } from './postFilter'
 
-/** The gallery list a route shows — `meta.view` on the route table (main.ts). */
+/** The gallery list a route shows — `meta.view` on the route table (router.ts). */
 export type GalleryView = NonNullable<RouteMeta['view']>
+
+/**
+ * Whether a route renders the filtered waterfall (`/`, `/all`, `/dir/…`,
+ * `/random`, `/recently`, `/unrated-artists`): exactly the routes that declare
+ * a `meta.view`. Filter / sort state is projected into the URL query on these
+ * (useSyncFilterWithUrl in shared/state.ts), and the gallery list query only
+ * runs on them.
+ */
+export function isGalleryRoute(route: { meta?: Pick<RouteMeta, 'view'> }): boolean {
+  return route.meta?.view !== undefined
+}
 
 const VIEW_NAME_KEYS = {
   all: 'nav.all',

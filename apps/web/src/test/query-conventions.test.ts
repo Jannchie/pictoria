@@ -1,5 +1,7 @@
-import { QueryClient } from '@tanstack/vue-query'
+import { QueryClient, useQuery } from '@tanstack/vue-query'
 import { describe, expect, it } from 'vitest'
+import { effectScope, isProxy, nextTick } from 'vue'
+import { createQueryClient } from '@/shared/queryClient'
 import { queryKeys } from '@/shared/queryKeys'
 
 // Convention guard rails for TanStack Query usage and error handling.
@@ -194,5 +196,45 @@ describe('tag tree key is not under the tags prefix', () => {
     await qc.invalidateQueries({ queryKey: queryKeys.tagsRoot })
     expect(qc.getQueryState(queryKeys.tagTree())?.isInvalidated).toBe(false)
     expect(qc.getQueryState(queryKeys.tags())?.isInvalidated).toBe(true)
+  })
+})
+
+// 6. Query data is shallow app-wide (createQueryClient in shared/queryClient.ts):
+//    `data` is the cached object itself, not a deep reactive proxy. That holds
+//    only while nobody edits query data in place — a cache write must hand the
+//    cache a new reference (setQueryData / setQueriesData returning a copy).
+describe('query data is shallow', () => {
+  it('the app query client defaults every query to shallow', () => {
+    // query-core types the defaults without the vue-only `shallow` option.
+    const queries = createQueryClient().getDefaultOptions().queries as { shallow?: boolean } | undefined
+    expect(queries?.shallow).toBe(true)
+  })
+
+  it('a query under that client hands back the raw cached object', async () => {
+    const qc = createQueryClient()
+    const cached = { pages: [[{ id: 1 }]] }
+    qc.setQueryData(queryKeys.postGroup(1), cached)
+    const scope = effectScope()
+    const data = scope.run(() => useQuery({ queryKey: queryKeys.postGroup(1), queryFn: () => cached, staleTime: Infinity }, qc).data)!
+    await nextTick()
+    expect(isProxy(data.value)).toBe(false)
+    expect(data.value).toBe(cached)
+    scope.stop()
+  })
+
+  it('no per-query `shallow: true` (the default covers it)', () => {
+    const violations = findViolations(/\bshallow:\s*true/g, file => baseName(file) === 'queryClient.ts')
+    expect(violations, 'redundant per-query shallow: true (createQueryClient sets it for every query)').toEqual([])
+  })
+
+  // Static, so only the direct spelling: an assignment or mutating array call
+  // through `<something>.data.value` / a destructured `data.value`. Writes
+  // through a renamed destructure or a local alias are not caught.
+  it('no in-place writes through a query\'s data ref', () => {
+    const ACCESS = String.raw`\bdata\.value(?:\??\.[\w$]+|\[[^\]\n]+\])*`
+    const ASSIGN = new RegExp(String.raw`${ACCESS}(?:\??\.[\w$]+|\[[^\]\n]+\])\s*(?:[-+*/]?=(?!=)|\+\+|--)`, 'g')
+    const MUTATE = new RegExp(String.raw`${ACCESS}\.(?:push|pop|shift|unshift|splice|sort|reverse|fill|copyWithin)\(`, 'g')
+    const violations = [...findViolations(ASSIGN, () => false), ...findViolations(MUTATE, () => false)]
+    expect(violations, 'query data edited in place (replace it through queryClient.setQueryData instead)').toEqual([])
   })
 })

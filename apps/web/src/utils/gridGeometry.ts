@@ -198,3 +198,32 @@ export function revealScrollTop({ itemTop, itemHeight, viewTop, viewHeight, marg
   }
   return null
 }
+
+/** What the gallery does next with a `?post_id=` target (MainSection's revealPostIdTarget). */
+export type PostIdRevealStep = 'reveal' | 'wait' | 'loadMore' | 'drop'
+
+export interface PostIdRevealInput {
+  /** The target's index in the list, -1 when not loaded. */
+  index: number
+  /** vue-wf has a layout rect for that index. */
+  laidOut: boolean
+  /** Another page could still bring it in (and the page budget isn't spent). */
+  canLoadMore: boolean
+  /** A list request is in flight. */
+  fetching: boolean
+}
+
+/**
+ * Not in the list → load the next page if there is one (once the current
+ * request settles), else give the target up (deleted, filtered out, too far).
+ * In the list → wait for its layout, then reveal it.
+ */
+export function postIdRevealStep({ index, laidOut, canLoadMore, fetching }: PostIdRevealInput): PostIdRevealStep {
+  if (index === -1) {
+    if (fetching) {
+      return 'wait'
+    }
+    return canLoadMore ? 'loadMore' : 'drop'
+  }
+  return laidOut ? 'reveal' : 'wait'
+}

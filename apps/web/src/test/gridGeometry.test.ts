@@ -1,6 +1,6 @@
 import type { GridCell, GridDirection } from '@/utils/gridGeometry'
 import { describe, expect, it } from 'vitest'
-import { findGridNeighbor, findPageTarget, firstVisibleIndex, revealScrollTop } from '@/utils/gridGeometry'
+import { findGridNeighbor, findPageTarget, firstVisibleIndex, postIdRevealStep, revealScrollTop } from '@/utils/gridGeometry'
 
 // Helper: build a cell with a rect. Default item is 100x100.
 function cell(id: number, x: number, y: number, width = 100, height = 100): GridCell {
@@ -241,5 +241,29 @@ describe('revealscrolltop', () => {
 
   it('center-if-hidden behaves like nearest for a partly visible item', () => {
     expect(revealScrollTop({ ...view, itemTop: 1450, itemHeight: 100, align: 'center-if-hidden' })).toBe(1066)
+  })
+})
+
+describe('postidrevealstep', () => {
+  const base = { index: -1, laidOut: false, canLoadMore: true, fetching: false }
+
+  it('loads further pages while the target is not in the list', () => {
+    expect(postIdRevealStep(base)).toBe('loadMore')
+  })
+
+  it('waits for an in-flight page instead of asking for another', () => {
+    expect(postIdRevealStep({ ...base, fetching: true })).toBe('wait')
+    expect(postIdRevealStep({ ...base, fetching: true, canLoadMore: false })).toBe('wait')
+  })
+
+  it('gives the target up once no page can bring it in', () => {
+    expect(postIdRevealStep({ ...base, canLoadMore: false })).toBe('drop')
+  })
+
+  it('reveals a listed target once vue-wf has laid it out', () => {
+    expect(postIdRevealStep({ ...base, index: 12 })).toBe('wait')
+    expect(postIdRevealStep({ ...base, index: 12, laidOut: true })).toBe('reveal')
+    // A background refetch does not hold back a target already on the list.
+    expect(postIdRevealStep({ ...base, index: 12, laidOut: true, fetching: true })).toBe('reveal')
   })
 })

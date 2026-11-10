@@ -1,5 +1,6 @@
 import { useRoute } from 'vue-router'
 import { postFilter, randomSeed } from '@/shared'
+import { isGalleryRoute } from '@/shared/galleryView'
 
 export function useWatchRoute() {
   const route = useRoute()
@@ -28,7 +29,7 @@ export function useWatchRoute() {
       }
       default: {
         // The other gallery views (`/`, /random, /recently, /unrated-artists) span the whole library.
-        if (route.meta.gallery) {
+        if (isGalleryRoute(route)) {
           postFilter.value.folder = undefined
         }
       }

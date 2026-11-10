@@ -68,8 +68,6 @@ export function useTagTreeQuery() {
     // 分类树是离线生成的静态表，一次会话内不会变。
     staleTime: Number.POSITIVE_INFINITY,
     structuralSharing: false,
-    // 只读的一大张表：不要 vue-query 默认那层深 reactive（Tags 页每一趟都要走全表）。
-    shallow: true,
   })
 }
 

@@ -7,6 +7,7 @@ import { computed } from 'vue'
 import { useRoute } from 'vue-router'
 import { v2GetFolders, v2SearchPosts, v2UnratedArtistPicks } from '@/api'
 import { converter, parse } from '@/utils/culori'
+import { isGalleryRoute } from './galleryView'
 import { searchPostsBody } from './postFilter'
 import { queryKeys } from './queryKeys'
 import { postFilter, postSort, postSortColor, postSortOrder, randomSeed } from './state'
@@ -98,8 +99,8 @@ export function useInfinityPostsQuery() {
       })
       return resp.data
     },
-    // Every gallery route (main.ts `meta.gallery`), `/` included.
-    enabled: computed(() => route.meta.gallery === true),
+    // Every gallery route (isGalleryRoute), `/` included.
+    enabled: computed(() => isGalleryRoute(route)),
     initialPageParam: 0,
     staleTime: 1000 * 60 * 60,
     // 换到一个**新**筛选组合时保留上一组的页面，等新的第一页到了再整体换掉：
@@ -107,9 +108,6 @@ export function useInfinityPostsQuery() {
     // MainSection 的骨架条件本来就是 isLoading && posts.length === 0，天然兼容。
     // 切回用过的组合仍走上面 1 小时的 staleTime 缓存，连请求都不发。
     placeholderData: keepPreviousData,
-    // 只读的大数组（几万条 post）：不要默认的深 reactive。缓存写入一律整体替换
-    // 引用（patchPostsInListCache / removePostsFromCacheEntry），不依赖深层追踪。
-    shallow: true,
     getNextPageParam: (lastPage, allPages) => {
       if (!lastPage || lastPage.length < limit) {
         return
@@ -217,7 +215,5 @@ export function useFoldersQuery() {
       return resp.data
     },
     staleTime: 1000 * 60 * 60,
-    // 约 5 MB、数万节点的只读树：浅响应，消费方只读不写。
-    shallow: true,
   })
 }

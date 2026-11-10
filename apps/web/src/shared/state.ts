@@ -3,6 +3,7 @@ import type { PostSimplePublic } from '@/api'
 import { useActiveElement, useLocalStorage, useStorage } from '@vueuse/core'
 import { computed, ref, shallowRef, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
+import { isGalleryRoute } from './galleryView'
 import { emptyFacets, filterFromQuery, filterQuerySignature, filterToQuery } from './postFilter'
 
 export const baseURL = 'http://localhost:4777'
@@ -59,10 +60,10 @@ export function useSyncFilterWithUrl() {
   // Primitive-comparable signatures avoid deep traversal on every reactive flush.
   watch(
     () => {
-      // Only gallery routes carry filters in their URL (meta.gallery, declared
-      // on the route table in main.ts). Elsewhere collapse the signature so
+      // Only gallery routes carry filters in their URL (isGalleryRoute, derived
+      // from the route table's meta.view). Elsewhere collapse the signature so
       // the encode work below is skipped while e.g. /post/:id is open.
-      if (!route.meta.gallery) {
+      if (!isGalleryRoute(route)) {
         return false as const
       }
       return [

@@ -23,6 +23,7 @@ import { shortcuts } from '@/shared/shortcuts'
 import { useToast } from '@/shared/toast'
 import { useHotkey } from '@/ui/useHotkey'
 import { isImageExtension } from '@/utils'
+import { postIdRevealStep } from '@/utils/gridGeometry'
 import { nextCursorAfterRemoval } from '@/utils/gridSelection'
 import { formatShortcut } from '@/utils/keyboard'
 
@@ -53,7 +54,6 @@ const textSearchQueryResult = useQuery({
   },
   enabled: computed(() => isTextSearchActive.value),
   staleTime: 1000 * 30,
-  shallow: true,
 })
 const textSearchResults = computed<Array<PostSimplePublic>>(() => textSearchQueryResult.data.value ?? [])
 const folderPosts = computed<Array<PostSimplePublic>>(() => {
@@ -258,50 +258,6 @@ async function applyScoreToSelection(score: number) {
 }
 
 useScoreHotkeys('grid', applyScoreToSelection)
-
-const shouldScroll = ref(true)
-function isInScroller(el: Element): boolean {
-  const scroller = galleryScrollEl.value
-  if (!scroller) {
-    return false
-  }
-  const r = el.getBoundingClientRect()
-  const v = scroller.getBoundingClientRect()
-  return r.bottom > v.top && r.top < v.bottom
-}
-watchEffect(async () => {
-  if (route.query.post_id) {
-    // 如果有 post_id 参数，则选中这个 post，并且滚动到这个 post
-    const postId = Number(route.query.post_id)
-    if (posts.value.length === 0) {
-      return
-    }
-    const postIndex = posts.value.findIndex(post => post.id === postId)
-    if (postIndex === -1 && !infinityPostsQuery.hasNextPage.value) {
-      // 保留现有的查询参数，只清除 post_id
-      const currentQuery = { ...route.query }
-      delete currentQuery.post_id
-      await router.replace({ query: currentQuery })
-      return
-    }
-    if (postId) {
-      const postLayout = waterfallRef.value?.layoutData?.[postIndex]
-      if (postLayout) {
-        // Mounted is not on screen: vue-wf also mounts the rangeExpand margin.
-        const res = document.querySelector(`#post-item-${postId}`)
-        if (!(res && isInScroller(res)) && shouldScroll.value) {
-          waterfallWrapperDom.value?.scrollTo({
-            top: postLayout.y,
-            behavior: 'smooth',
-          })
-        }
-        shouldScroll.value = false
-        selectOnly(postId)
-        setGridCursor(postId)
-      }
-    }
-  }
-})
 
 // FIXME: 滚动到指定元素，但是有 Bug，会导致无法通过前进后退变更路由
 // 如果 selectedPostIdSet 只有一个元素，则变更路由，但是不要滚动
@@ -592,12 +548,61 @@ function restoreLastViewed() {
 }
 watch([lastViewedPostId, postIds, layoutData], restoreLastViewed, { flush: 'post' })
 
+// `?post_id=` (revealPost — "show in folder", the detail panel's folder
+// breadcrumb): select that post and scroll it into view, loading further pages
+// while it is not in the list yet. Scrolling goes through grid.reveal — the
+// scroller is the PScrollArea, and the item's offset is the wrapper's offset
+// plus its layout y (scrolling the waterfall wrapper itself moved nothing).
+// Once per post_id per mount, after the scroll restore; coming back from a
+// post, restoreLastViewed owns the selection instead.
+const REVEAL_MAX_PAGES = 25
+let revealedPostId: number | undefined
+function queryPostId(): number {
+  const raw = route.query.post_id
+  return Number(Array.isArray(raw) ? raw[0] : raw)
+}
+function revealPostIdTarget() {
+  const postId = queryPostId()
+  if (!scrollRestored || !Number.isInteger(postId) || postId <= 0 || postId === revealedPostId || posts.value.length === 0) {
+    return
+  }
+  const index = postIds.value.indexOf(postId)
+  const pages = infinityPostsQuery.data.value?.pages.length ?? 0
+  const step = postIdRevealStep({
+    index,
+    laidOut: !!layoutData.value?.[index],
+    canLoadMore: !isTextSearchActive.value && infinityPostsQuery.hasNextPage.value && pages < REVEAL_MAX_PAGES,
+    fetching: infinityPostsQuery.isFetching.value || textSearchQueryResult.isFetching.value,
+  })
+  if (step === 'wait') {
+    return
+  }
+  if (step === 'loadMore') {
+    void infinityPostsQuery.fetchNextPage()
+    return
+  }
+  revealedPostId = postId
+  if (step === 'drop') {
+    dropPostIdQuery()
+    return
+  }
+  selectOnly(postId)
+  setGridCursor(postId)
+  grid.reveal(postId, { align: 'center-if-hidden' })
+}
+watch([() => route.query.post_id, postIds, layoutData, () => infinityPostsQuery.isFetching.value, () => textSearchQueryResult.isFetching.value], revealPostIdTarget, { flush: 'post' })
+
 function finishScrollRestore() {
   scrollRestored = true
   restoreLastViewed()
+  revealPostIdTarget()
 }
 
 onMounted(() => {
+  // Back from a post: the post last viewed there wins over a stale ?post_id.
+  if (lastViewedPostId.value !== null) {
+    revealedPostId = queryPostId()
+  }
   const targetTop = galleryScrollPositions.get(route.fullPath)
   if (!targetTop) {
     finishScrollRestore()
