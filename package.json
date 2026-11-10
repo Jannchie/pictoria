@@ -13,6 +13,8 @@
     "build": "pnpm -r build",
     "test": "pnpm -r test",
     "lint": "pnpm -r lint",
+    "typecheck": "pnpm -r typecheck",
+    "check": "node scripts/check.mjs",
     "genapi": "pnpm --filter pictoria genapi",
     "contract:check": "pnpm genapi && git diff --exit-code --stat -- apps/web/src/api"
   },

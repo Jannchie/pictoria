@@ -1,0 +1,75 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  node:
+    name: Typecheck, test, lint (TS)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # Version comes from the root package.json's `packageManager` field.
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          # No .nvmrc / engines in the repo; the dev machine runs Node 24.
+          node-version: 24
+          cache: pnpm
+
+      - run: pnpm install --frozen-lockfile
+
+      - name: Typecheck
+        run: pnpm typecheck
+
+      # packages/db/src/prod-schema.test.ts reads the real library DB; it is
+      # `describe.skipIf(!exists)` and skips here.
+      - name: Test
+        run: pnpm -r test
+
+      - name: Lint (no --fix)
+        run: pnpm -r --if-present lint:check
+
+  python:
+    name: Ruff, pytest (worker)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: server
+    env:
+      # No test should fetch model weights. The ones that need them guard
+      # themselves (SigLIP: CUDA; LPIPS: local hub cache) and skip on a runner;
+      # offline mode turns any new one that forgets into a failure instead of a
+      # multi-GB download.
+      HF_HUB_OFFLINE: '1'
+    steps:
+      - uses: actions/checkout@v4
+
+      # torch / torchvision come from the cu128 index (pyproject's tool.uv.sources);
+      # with the NVIDIA runtime wheels that is several GB, more than a stock
+      # runner leaves free.
+      - name: Free disk space
+        working-directory: .
+        run: sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL
+
+      - uses: astral-sh/setup-uv@v6
+        with:
+          python-version: '3.12'
+          enable-cache: true
+          cache-dependency-glob: server/uv.lock
+
+      - run: uv sync --frozen
+
+      - name: Ruff
+        run: uv run --frozen ruff check src scripts tests
+
+      - name: Pytest
+        run: uv run --frozen pytest -rs

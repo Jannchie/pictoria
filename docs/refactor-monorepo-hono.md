@@ -89,6 +89,7 @@
 
 - **不重跑历史**。现有 15 个迁移已经在生产库跑完，`_schema_versions` 保留原样
 - ~~drizzle schema 走 `drizzle-kit pull` 从现有库 introspect 作为起点~~ → **放弃 pull，schema.ts 全部手写**。实测 pull 在这个库上三重失败（见 §4.8），且失败方式以静默居多
+- （**已过时，2026-11**：最终没有采用 —— 迁移一直是 `server/migrations/` 里手写的 SQL，由 `packages/db/src/migrate.ts` 的 `runMigrations` 执行；`drizzle-kit` 已从依赖中删除，`drizzle-orm` 只剩 `schema.ts` 的表声明与对拍测试。下面两条保留作决策记录。）
 - 新迁移用 `drizzle-kit generate` 产 SQL —— ✅ **实测通过**：不连库，手写 schema 里的生成列表达式原样正确输出（`GENERATED ALWAYS AS (CASE WHEN height = 0 THEN NULL ELSE (width * 1.0) / height END) VIRTUAL`）
 - 执行迁移用 `drizzle-orm/better-sqlite3/migrator` 的 `migrate(db, ...)`，传自己那个**已经 loadExtension 的连接**
 - ~~只有 `drizzle-kit push` / `studio` 需要活连接~~ → **`pull` 也在此列**。约定：**任何需要活连接的 drizzle-kit 子命令一律不用**（pull / push / studio），只用 `generate`
