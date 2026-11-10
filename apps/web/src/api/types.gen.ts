@@ -253,6 +253,13 @@ export type TagWithGroupPublic = {
 };
 
 /**
+ * PostTagSourceUpdate
+ */
+export type PostTagSourceUpdate = {
+    isAuto: boolean;
+};
+
+/**
  * InsertedPublic
  */
 export type InsertedPublic = {
@@ -1380,6 +1387,42 @@ export type V2RemoveTagFromPostResponses = {
 
 export type V2RemoveTagFromPostResponse = V2RemoveTagFromPostResponses[keyof V2RemoveTagFromPostResponses];
 
+export type V2SetPostTagSourceData = {
+    body: PostTagSourceUpdate;
+    path: {
+        post_id: number;
+        tag_name: string;
+    };
+    query?: never;
+    url: '/v2/posts/{post_id}/tags/{tag_name}';
+};
+
+export type V2SetPostTagSourceErrors = {
+    /**
+     * Bad Request
+     */
+    400: ErrorBody;
+    /**
+     * Not Found
+     */
+    404: ErrorBody;
+    /**
+     * Conflict
+     */
+    409: ErrorBody;
+};
+
+export type V2SetPostTagSourceError = V2SetPostTagSourceErrors[keyof V2SetPostTagSourceErrors];
+
+export type V2SetPostTagSourceResponses = {
+    /**
+     * OK
+     */
+    200: PostDetailPublic;
+};
+
+export type V2SetPostTagSourceResponse = V2SetPostTagSourceResponses[keyof V2SetPostTagSourceResponses];
+
 export type V2AddTagToPostData = {
     body?: never;
     path: {
@@ -1428,6 +1471,10 @@ export type V2SubmitAbsoluteErrors = {
      * Bad Request
      */
     400: ErrorBody;
+    /**
+     * Conflict
+     */
+    409: ErrorBody;
 };
 
 export type V2SubmitAbsoluteError = V2SubmitAbsoluteErrors[keyof V2SubmitAbsoluteErrors];
@@ -1453,6 +1500,10 @@ export type V2SubmitPairwiseErrors = {
      * Bad Request
      */
     400: ErrorBody;
+    /**
+     * Conflict
+     */
+    409: ErrorBody;
 };
 
 export type V2SubmitPairwiseError = V2SubmitPairwiseErrors[keyof V2SubmitPairwiseErrors];
@@ -1478,6 +1529,10 @@ export type V2SubmitListwiseErrors = {
      * Bad Request
      */
     400: ErrorBody;
+    /**
+     * Conflict
+     */
+    409: ErrorBody;
 };
 
 export type V2SubmitListwiseError = V2SubmitListwiseErrors[keyof V2SubmitListwiseErrors];
@@ -1544,7 +1599,7 @@ export type V2UndoAnnotationsResponse = V2UndoAnnotationsResponses[keyof V2UndoA
 export type V2EditAnnotationData = {
     body: EditIn;
     path: {
-        kind: 'absolute' | 'pairwise' | 'listwise';
+        kind: 'pairwise' | 'absolute';
         annotation_id: number;
     };
     query?: never;
@@ -1858,6 +1913,37 @@ export type V2ListQueuesResponses = {
 };
 
 export type V2ListQueuesResponse = V2ListQueuesResponses[keyof V2ListQueuesResponses];
+
+export type V2DeleteQueueData = {
+    body?: never;
+    path: {
+        queue_id: number;
+    };
+    query?: never;
+    url: '/v2/annotation-queues/{queue_id}';
+};
+
+export type V2DeleteQueueErrors = {
+    /**
+     * Bad Request
+     */
+    400: ErrorBody;
+    /**
+     * Not Found
+     */
+    404: ErrorBody;
+};
+
+export type V2DeleteQueueError = V2DeleteQueueErrors[keyof V2DeleteQueueErrors];
+
+export type V2DeleteQueueResponses = {
+    /**
+     * No Content
+     */
+    204: void;
+};
+
+export type V2DeleteQueueResponse = V2DeleteQueueResponses[keyof V2DeleteQueueResponses];
 
 export type V2NextAbsoluteData = {
     body?: never;
@@ -3144,6 +3230,10 @@ export type V2UploadFileErrors = {
      * Conflict
      */
     409: ErrorBody;
+    /**
+     * Unprocessable Content
+     */
+    422: ErrorBody;
 };
 
 export type V2UploadFileError = V2UploadFileErrors[keyof V2UploadFileErrors];

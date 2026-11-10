@@ -106,8 +106,19 @@ export const enableArthash = useStorage('pictoria.enableArthash', true)
 export const bottomBarInfo = ref<string>('')
 
 export const tagSelectorWindowRef = ref()
-export function openTagSelectorWindow() {
-  tagSelectorWindowRef.value?.toggle()
+/** 编辑器打开后要把光标放到的标签；TagSelector 消费后清空。 */
+export const tagSelectorFocusTag = ref<string | null>(null)
+/**
+ * 不带参数：开关编辑器（"添加标签"按钮）。带标签名：打开（已开着就保持开着）并把
+ * 光标定位到这个标签上 —— 从某个标签点进来的编辑，应该从它开始。
+ */
+export function openTagSelectorWindow(focusTag?: string) {
+  if (focusTag === undefined) {
+    tagSelectorWindowRef.value?.toggle()
+    return
+  }
+  tagSelectorFocusTag.value = focusTag
+  tagSelectorWindowRef.value?.open()
 }
 
 export const showPostDetail = ref<PostSimplePublic | null>(null)

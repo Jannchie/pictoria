@@ -34,6 +34,7 @@ import {
   v2MarkPostsDifferent,
   v2RemoveTagFromPost,
   v2RotatePostImage,
+  v2SetPostTagSource,
   v2SubmitAbsolute,
   v2SubmitContentFlag,
   v2SubmitListwise,
@@ -219,6 +220,12 @@ async function writeTag(qc: QueryClient, id: number, tagName: string, add: boole
   // The tag-filter facet counts (per-tag post totals) shift when a post gains or
   // loses a tag, so refresh every tag-count query.
   qc.invalidateQueries({ queryKey: queryKeys.countRoot('tags') })
+}
+
+/** 标签来源（人工 / 自动）只影响这张图的详情；计数和标签目录都不变。 */
+async function writeTagSource(qc: QueryClient, id: number, tagName: string, isAuto: boolean): Promise<void> {
+  await v2SetPostTagSource({ path: { post_id: id, tag_name: tagName }, body: { isAuto } })
+  qc.invalidateQueries({ queryKey: queryKeys.postRoot(id) })
 }
 
 /**
@@ -470,18 +477,46 @@ export async function commitSource(
   })
 }
 
+/**
+ * 加 / 摘一个标签。摘的是自动标签时传 `wasAuto`：撤销要把它按自动标签放回去 ——
+ * 加标签的端点只会建人工行，不补这一步的话，撤销一次删除等于顺手"确认"了它。
+ */
 export async function commitTag(
   qc: QueryClient,
   id: number,
   tagName: string,
   add: boolean,
+  { wasAuto = false }: { wasAuto?: boolean } = {},
 ): Promise<void> {
-  await writeTag(qc, id, tagName, add)
+  const restore = async () => {
+    await writeTag(qc, id, tagName, true)
+    if (wasAuto) {
+      await writeTagSource(qc, id, tagName, true)
+    }
+  }
+  const remove = () => writeTag(qc, id, tagName, false)
+  await (add ? restore() : remove())
   record({
     label: add ? t('history.addTag', { tag: tagName }) : t('history.removeTag', { tag: tagName }),
     postIds: [id],
-    apply: () => writeTag(qc, id, tagName, add),
-    revert: () => writeTag(qc, id, tagName, !add),
+    apply: add ? restore : remove,
+    revert: add ? remove : restore,
+  })
+}
+
+/** 把一个自动标签确认为人工（`isAuto = false`），或改回自动。 */
+export async function commitTagSource(
+  qc: QueryClient,
+  id: number,
+  tagName: string,
+  isAuto: boolean,
+): Promise<void> {
+  await writeTagSource(qc, id, tagName, isAuto)
+  record({
+    label: isAuto ? t('history.unconfirmTag', { tag: tagName }) : t('history.confirmTag', { tag: tagName }),
+    postIds: [id],
+    apply: () => writeTagSource(qc, id, tagName, isAuto),
+    revert: () => writeTagSource(qc, id, tagName, !isAuto),
   })
 }
 

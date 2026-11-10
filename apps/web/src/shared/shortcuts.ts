@@ -78,6 +78,11 @@ export const shortcuts = {
     deleteSelected: { keys: ['Delete'], descKey: 'shortcuts.deleteSelected' },
     score: { keys: ['1', '5'], range: true, descKey: 'shortcuts.scorePost' },
   },
+  postTags: {
+    menu: { keys: [], gestureKey: 'shortcuts.click', descKey: 'shortcuts.tagMenu' },
+    confirm: { keys: ['Alt'], gestureKey: 'shortcuts.click', descKey: 'post.panel.tagConfirm' },
+    filter: { keys: ['Mod'], gestureKey: 'shortcuts.click', descKey: 'post.panel.tagFilter' },
+  },
   viewer: {
     close: { keys: ['Escape'], descKey: 'post.closeViewer' },
     prevNext: { keys: ['ArrowLeft', 'ArrowRight'], descKey: 'shortcuts.prevNext' },
@@ -130,6 +135,7 @@ const GROUP_TITLES: Record<ShortcutGroupId, string> = {
   global: 'shortcuts.global',
   gallery: 'shortcuts.grid',
   postPage: 'shortcuts.postPage',
+  postTags: 'shortcuts.postTags',
   viewer: 'shortcuts.viewer',
   folderTree: 'shortcuts.folderTree',
   palette: 'shortcuts.palette',

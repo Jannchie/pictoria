@@ -1,11 +1,12 @@
 <script setup lang="ts">
 import type { PostDetailPublic, PostHasTagPublic } from '@/api'
 import type { ScorerKind } from '@/shared'
+import type { PMenuItem } from '@/ui'
 import { useQueryClient } from '@tanstack/vue-query'
 import { filesize } from 'filesize'
 import { useId } from 'vue'
 import { useI18n } from 'vue-i18n'
-import { useRouter } from 'vue-router'
+import { useRoute, useRouter } from 'vue-router'
 import { useAPIError } from '@/composables/useAPIError'
 import { useInFlight } from '@/composables/useInFlight'
 import { useScoreHotkeys } from '@/composables/useKeyScope'
@@ -13,9 +14,10 @@ import { usePostGroupEvidenceQuery } from '@/composables/usePostGroupEvidenceQue
 import { usePostGroupQuery } from '@/composables/usePostGroupQuery'
 import { UNCATEGORISED, useTopCategoryGrouper } from '@/composables/useTagTree'
 import { formatDateTime } from '@/locale'
-import { announce, commitCaption, commitRating, commitScore, commitSource, computeScore, hideNSFW, makePostCanonical, markPostsDifferent, openTagSelectorWindow, RATING_LEVEL_COLORS, RATING_LEVEL_ICONS, showPostDetail, ungroupPost } from '@/shared'
-import { getPostThumbnailURL, isImageExtension } from '@/utils'
+import { announce, commitCaption, commitRating, commitScore, commitSource, commitTag, commitTagSource, computeScore, hideNSFW, makePostCanonical, markPostsDifferent, openTagSelectorWindow, postFilter, RATING_LEVEL_COLORS, RATING_LEVEL_ICONS, showPostDetail, ungroupPost } from '@/shared'
+import { getPostThumbnailURL, isImageExtension, naturalizeTagName } from '@/utils'
 import { colorNumToHex, labToRgbaString } from '@/utils/color'
+import { isMac } from '@/utils/keyboard'
 
 const props = defineProps<{
   post: PostDetailPublic
@@ -29,6 +31,7 @@ async function onSelectScore(post_id: number, score: number = 0) {
 }
 const post = computed(() => props.post)
 const router = useRouter()
+const route = useRoute()
 
 // Near-duplicate group: the hidden members this (canonical) post collapses.
 const groupQuery = usePostGroupQuery(computed(() => props.post.id))
@@ -105,8 +108,20 @@ function sortByGroup(a: PostHasTagPublic, b: PostHasTagPublic) {
   }
   return a.tagInfo.name.localeCompare(b.tagInfo.name)
 }
+// 同一张图上的顺序在它显示期间钉住：确认（自动 → 人工）会改变 sortByGroup 的结果，
+// 若当场重排，标签就从光标底下跳走，连续 Alt+点击会点到旁边那个。换图时重新排。
+// 中途新加的标签没有座位，排在已有的后面（它们之间仍按 sortByGroup）。
+let seatsFor: number | undefined
+let seats = new Map<string, number>()
+const seat = (tag: PostHasTagPublic) => seats.get(tag.tagInfo.name) ?? Number.POSITIVE_INFINITY
 const tagSorted = computed(() => {
-  return post.value.tags?.toSorted(sortByGroup) ?? []
+  const sorted = post.value.tags?.toSorted(sortByGroup) ?? []
+  if (seatsFor !== post.value.id) {
+    seatsFor = post.value.id
+    seats = new Map(sorted.map((tag, i) => [tag.tagInfo.name, i]))
+    return sorted
+  }
+  return sorted.toSorted((a, b) => seat(a) - seat(b) || sortByGroup(a, b))
 })
 const autoTagCount = computed(() => tagSorted.value.reduce((n, t) => n + (t.isAuto ? 1 : 0), 0))
 
@@ -131,6 +146,87 @@ async function onCopyTags() {
   catch {
     announce(t('post.panel.copyFailed'), 'assertive')
   }
+}
+
+// ---- 单个标签的快捷操作 ----------------------------------------------------
+// 点击（或右键）一个标签弹出它自己的菜单（筛选 / 确认 / 移除 / 编辑），锚在标签下方；
+// 两个最常用的有直通手势：Alt+点击确认、Mod+点击加入筛选。
+// 菜单只有一个（包住整片标签），打开前先记下是哪个标签 —— 右键时标签自己的
+// contextmenu 冒泡在 PMenu 宿主之前，所以菜单打开时 activeTag 已经就位。
+const activeTag = shallowRef<PostHasTagPublic | null>(null)
+const tagMenu = useTemplateRef<{ openFor: (el: HTMLElement) => void }>('tagMenu')
+
+function filterByTag(name: string, only: boolean) {
+  const current = postFilter.value.tags
+  postFilter.value.tags = only ? [name] : current.includes(name) ? current : [...current, name]
+  // 独立详情页上没有画廊可筛：带着筛选回画廊。
+  if (!route.meta.gallery) {
+    router.push('/')
+  }
+}
+
+const confirmTag = (tag: PostHasTagPublic) => commitTagSource(queryClient, post.value.id, tag.tagInfo.name, false)
+
+const tagMenuData = computed<PMenuItem[]>(() => {
+  const tag = activeTag.value
+  if (!tag) {
+    return []
+  }
+  const label = tag.tagInfo.translatedName ?? naturalizeTagName(tag.tagInfo.name)
+  return [
+    { role: 'label', title: label },
+    { title: t('post.panel.tagFilter'), icon: 'i-tabler-filter-plus', value: 'filter' },
+    { title: t('post.panel.tagFilterOnly'), icon: 'i-tabler-filter', value: 'filterOnly' },
+    { role: 'divider' },
+    tag.isAuto
+      ? { title: t('post.panel.tagConfirm'), icon: 'i-tabler-check', value: 'confirm' }
+      : { title: t('post.panel.tagUnconfirm'), icon: 'i-tabler-sparkles', value: 'unconfirm' },
+    { title: t('post.panel.tagRemove'), icon: 'i-tabler-trash', value: 'remove' },
+    { role: 'divider' },
+    { title: t('post.panel.tagEdit'), icon: 'i-tabler-edit', value: 'edit' },
+  ]
+})
+
+async function onTagMenuSelect(value: string | number | symbol) {
+  const tag = activeTag.value
+  if (!tag) {
+    return
+  }
+  const id = post.value.id
+  const name = tag.tagInfo.name
+  try {
+    switch (value) {
+      case 'filter': { filterByTag(name, false); break }
+      case 'filterOnly': { filterByTag(name, true); break }
+      case 'confirm': { await confirmTag(tag); break }
+      case 'unconfirm': { await commitTagSource(queryClient, id, name, true); break }
+      case 'remove': { await commitTag(queryClient, id, name, false, { wasAuto: tag.isAuto }); break }
+      case 'edit': { openTagSelectorWindow(name); break }
+    }
+  }
+  catch (error) {
+    handleAPIError(error)
+  }
+}
+
+async function onTagClick(tag: PostHasTagPublic, e: MouseEvent) {
+  if (isMac ? e.metaKey : e.ctrlKey) {
+    filterByTag(tag.tagInfo.name, false)
+    return
+  }
+  if (e.altKey) {
+    if (tag.isAuto) {
+      try {
+        await confirmTag(tag)
+      }
+      catch (error) {
+        handleAPIError(error)
+      }
+    }
+    return
+  }
+  activeTag.value = tag
+  tagMenu.value?.openFor(e.currentTarget as HTMLElement)
 }
 
 // Ids so each section / control group is named by its visible title.
@@ -538,59 +634,68 @@ const sectionTitleClass
             </PButton>
           </div>
         </div>
-        <div
+        <PMenu
           v-if="tagSorted.length > 0"
-          class="flex flex-col gap-2"
-          role="group"
-          :aria-labelledby="tagsHeadingId"
+          ref="tagMenu"
+          :data="tagMenuData"
+          trigger="contextmenu"
+          :aria-label="activeTag ? $t('post.panel.tagMenu', { tag: activeTag.tagInfo.name }) : undefined"
+          @select="onTagMenuSelect"
         >
           <div
-            v-for="cat of tagGroups"
-            :key="cat.path"
-            class="flex flex-col gap-1"
+            class="flex flex-col gap-2"
+            role="group"
+            :aria-labelledby="tagsHeadingId"
           >
-            <div class="text-2xs text-fg-subtle tracking-wide uppercase">
-              {{ cat.name }}
-            </div>
-            <!-- Tags are a read-only list; clicking one opens the editor as a
-                 mouse shortcut. The keyboard path is the "Add Tag" button
-                 below (one Tab stop instead of one per tag). -->
             <div
-              class="flex flex-wrap gap-1"
-              role="list"
-              :aria-label="cat.name"
+              v-for="cat of tagGroups"
+              :key="cat.path"
+              class="flex flex-col gap-1"
             >
-              <!-- PostTag renders the localised display name itself (no slot). -->
-              <PostTag
-                v-for="tag of cat.items"
-                :key="tag.tagInfo.name"
-                role="listitem"
-                class="cursor-pointer"
-                :data="tag"
-                :auto="tag.isAuto"
-                :color="tag.tagInfo.group?.color"
-                @click="openTagSelectorWindow()"
-              />
+              <div class="text-2xs text-fg-subtle tracking-wide uppercase">
+                {{ cat.name }}
+              </div>
+              <!-- Clicking a tag opens its own menu (filter / confirm / remove /
+                 edit). Tags are not Tab stops; the keyboard path is the
+                 "Add Tag" button below (one Tab stop instead of one per tag). -->
+              <div
+                class="flex flex-wrap gap-1"
+                role="list"
+                :aria-label="cat.name"
+              >
+                <!-- PostTag renders the localised display name itself (no slot). -->
+                <PostTag
+                  v-for="tag of cat.items"
+                  :key="tag.tagInfo.name"
+                  role="listitem"
+                  class="cursor-pointer"
+                  :data="tag"
+                  :auto="tag.isAuto"
+                  :color="tag.tagInfo.group?.color"
+                  @click="onTagClick(tag, $event)"
+                  @contextmenu="activeTag = tag"
+                />
+              </div>
             </div>
-          </div>
-          <button
-            type="button"
-            class="rounded-sm self-start"
-            aria-haspopup="dialog"
-            data-tag-editor-opener
-            @click="openTagSelectorWindow()"
-          >
-            <PTag
-              variant="outline"
-              tone="neutral"
-              size="xs"
-              class="cursor-pointer"
+            <button
+              type="button"
+              class="rounded-sm self-start"
+              aria-haspopup="dialog"
+              data-tag-editor-opener
+              @click="openTagSelectorWindow()"
             >
-              <i class="i-tabler-plus" aria-hidden="true" />
-              {{ $t('post.addTag') }}
-            </PTag>
-          </button>
-        </div>
+              <PTag
+                variant="outline"
+                tone="neutral"
+                size="xs"
+                class="cursor-pointer"
+              >
+                <i class="i-tabler-plus" aria-hidden="true" />
+                {{ $t('post.addTag') }}
+              </PTag>
+            </button>
+          </div>
+        </PMenu>
         <div
           v-else
           class="text-fg-muted flex flex-col gap-2"

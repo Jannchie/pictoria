@@ -169,6 +169,16 @@ function close() {
   open.value = false
 }
 
+/**
+ * 从外部打开，锚在某个元素下方 —— 给"点一下某个子项就弹出它自己的菜单"用
+ * （宿主仍是 contextmenu 触发，右键照常）。
+ */
+function openFor(el: HTMLElement) {
+  openWith(elementAnchor(el))
+}
+
+defineExpose({ openFor, close })
+
 function pick(item: PMenuItem) {
   if (item.disabled || item.role === 'label' || item.role === 'divider') {
     return

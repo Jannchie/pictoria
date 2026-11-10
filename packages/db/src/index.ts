@@ -19,7 +19,7 @@ export { getAestheticScore, getWaifuScore, scorerValuesFor, waifuScoreDistributi
 export type { WaifuBucketCount } from './repositories/scores.js'
 export { addAgg, emptyAgg, folderScoreAggregates } from './repositories/folders.js'
 export type { FolderScoreAgg, ScorerAgg } from './repositories/folders.js'
-export { addTagToPost, createTag, deleteTag, deleteTags, getTag, getTagGroup, listTagGroups, listTagsWithCounts, removeTagFromPost, updateTagGroup } from './repositories/tags.js'
+export { addTagToPost, createTag, deleteTag, deleteTags, getTag, getTagGroup, listTagGroups, listTagsWithCounts, removeTagFromPost, setTagSource, updateTagGroup } from './repositories/tags.js'
 export type { TagGroupRow, TagRow, TagWithCount } from './repositories/tags.js'
 export { aggregateStats, countByColumn, countByScorerBucket, countByTag, countPosts } from './queries/counts.js'
 export type { AggregateStats, BucketCount, TagCount } from './queries/counts.js'

@@ -97,12 +97,17 @@ function toggle() {
   show.value = !show.value
 }
 
+function open() {
+  show.value = true
+}
+
 function close() {
   show.value = false
 }
 
 defineExpose({
   toggle,
+  open,
 })
 
 useLayer(show, {

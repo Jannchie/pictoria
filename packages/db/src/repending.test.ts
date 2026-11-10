@@ -15,7 +15,7 @@ import { notifyRepending, onRepending } from './repending.js'
 import { ensureCanonicalTagGroups, listTaggerPending, listWaifuPending, persistTaggerResults, resetScanFloors } from './repositories/backfill.js'
 import { persistPostsWithTags } from './repositories/import-persist.js'
 import { createPost, insertPostTriples, updateForRotate } from './repositories/posts.js'
-import { addTagToPost, deleteTag, deleteTags, removeTagFromPost } from './repositories/tags.js'
+import { addTagToPost, deleteTag, deleteTags, removeTagFromPost, setTagSource } from './repositories/tags.js'
 import type { BackfillWorker } from './workers.js'
 import { BACKFILL_WORKERS, failureKey } from './workers.js'
 import { createTestDb } from './testing.js'
@@ -139,6 +139,46 @@ describe('摘标签 → tagger', () => {
     expect(removeTagFromPost(sqlite, 1, 'nope')).toBe(false)
     expect(addTagToPost(sqlite, 1, 'manual')).toBe(true)
     expect(heard).toEqual([])
+  })
+})
+
+describe('确认自动标签为人工 → tagger', () => {
+  it('确认掉最后一个自动标签：发，水位线退到那张图', () => {
+    insertPost(1)
+    link(1, 'auto_a', 1)
+    sqlite.prepare('UPDATE posts SET tagger = ?').run(MODEL)
+    expect(listTaggerPending(sqlite, MODEL)).toEqual([])
+
+    expect(setTagSource(sqlite, 1, 'auto_a', false)).toBe(true)
+    expect(heard).toEqual([['tagger']])
+    expect(listTaggerPending(sqlite, MODEL).map(p => p.postId)).toEqual([1])
+  })
+
+  it('还剩别的自动标签、已是人工、改回自动、不在 post 上：不发', () => {
+    insertPost(1)
+    link(1, 'auto_a', 1)
+    link(1, 'auto_b', 1)
+    link(1, 'manual', 0)
+    expect(setTagSource(sqlite, 1, 'auto_a', false)).toBe(true)
+    expect(setTagSource(sqlite, 1, 'manual', false)).toBe(true)
+    expect(setTagSource(sqlite, 1, 'manual', true)).toBe(true)
+    expect(setTagSource(sqlite, 1, 'nope', false)).toBe(false)
+    expect(heard).toEqual([])
+    const rows = sqlite.prepare('SELECT tag_name, is_auto FROM post_has_tag ORDER BY tag_name').all()
+    expect(rows).toEqual([
+      { tag_name: 'auto_a', is_auto: 0 },
+      { tag_name: 'auto_b', is_auto: 1 },
+      { tag_name: 'manual', is_auto: 1 },
+    ])
+  })
+
+  it('确认过的标签挺过重新打标：tagger 只清 is_auto = 1 的行', () => {
+    insertPost(1)
+    persistTaggerResults(sqlite, [taggerRow(1, ['kept', 'dropped'])], ensureCanonicalTagGroups(sqlite), MODEL)
+    setTagSource(sqlite, 1, 'kept', false)
+    persistTaggerResults(sqlite, [taggerRow(1, ['fresh'])], ensureCanonicalTagGroups(sqlite), 'next-model')
+    const rows = sqlite.prepare('SELECT tag_name, is_auto FROM post_has_tag ORDER BY tag_name').all()
+    expect(rows).toEqual([{ tag_name: 'fresh', is_auto: 1 }, { tag_name: 'kept', is_auto: 0 }])
   })
 })
 

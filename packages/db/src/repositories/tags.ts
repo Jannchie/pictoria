@@ -183,11 +183,47 @@ export function removeTagFromPost(
     .get(postId, tagName)
   if (row === undefined)
     return false
-  const lastAuto = row.is_auto === 1 && sqlite
+  if (row.is_auto === 1)
+    notifyIfAutoTagsGone(sqlite, postId)
+  return true
+}
+
+/**
+ * 把 post 上一个已有的 tag 改成人工确认（`isAuto = false`）或改回自动，返回 tag 在不在
+ * post 上。状态本来就是目标值时什么也不写，同样返回 true（幂等）。
+ *
+ * 确认过的标签不再是 tagger 的：重新打标 / 换模型只清 `is_auto = 1` 的行，它会留下来。
+ * 代价和摘标签一样 —— 确认掉的若是这张图最后一个自动标签，它就重新是 tagger 待办，
+ * 这里同样喊一声（见 `../repending.ts`）。
+ */
+export function setTagSource(
+  sqlite: BetterSqlite3.Database,
+  postId: number,
+  tagName: string,
+  isAuto: boolean,
+): boolean {
+  const changed = sqlite
+    .prepare<[number, number, string, number], { post_id: number }>(
+      'UPDATE post_has_tag SET is_auto = ? WHERE post_id = ? AND tag_name = ? AND is_auto <> ? RETURNING post_id',
+    )
+    .get(isAuto ? 1 : 0, postId, tagName, isAuto ? 1 : 0)
+  if (changed === undefined) {
+    return sqlite
+      .prepare<[number, string], number>('SELECT 1 FROM post_has_tag WHERE post_id = ? AND tag_name = ?')
+      .pluck()
+      .get(postId, tagName) !== undefined
+  }
+  if (!isAuto)
+    notifyIfAutoTagsGone(sqlite, postId)
+  return true
+}
+
+/** 这张图刚失去一行 `is_auto = 1`：若那是最后一行，它重新是 tagger 待办。 */
+function notifyIfAutoTagsGone(sqlite: BetterSqlite3.Database, postId: number): void {
+  const anyLeft = sqlite
     .prepare<[number], number>('SELECT 1 FROM post_has_tag WHERE post_id = ? AND is_auto = 1 LIMIT 1')
     .pluck()
-    .get(postId) === undefined
-  if (lastAuto)
+    .get(postId)
+  if (anyLeft === undefined)
     notifyRepending(sqlite, 'tagger', postId)
-  return true
 }

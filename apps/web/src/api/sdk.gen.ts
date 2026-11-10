@@ -2,7 +2,7 @@
 
 import { type Client, type ClientMeta, formDataBodySerializer, type Options as Options2, type RequestResult, type TDataShape } from './client';
 import { client } from './client.gen';
-import type { V2AddTagToPostData, V2AddTagToPostErrors, V2AddTagToPostResponses, V2AnnotationTimelineData, V2AnnotationTimelineErrors, V2AnnotationTimelineResponses, V2AutoCaptionData, V2AutoCaptionErrors, V2AutoCaptionResponses, V2AutoTagsData, V2AutoTagsErrors, V2AutoTagsResponses, V2BulkUpdatePostRatingData, V2BulkUpdatePostRatingErrors, V2BulkUpdatePostRatingResponses, V2BulkUpdatePostScoreData, V2BulkUpdatePostScoreErrors, V2BulkUpdatePostScoreResponses, V2CountPairwiseData, V2CountPairwiseErrors, V2CountPairwiseResponses, V2CreateAbsoluteData, V2CreateAbsoluteErrors, V2CreateAbsoluteResponses, V2CreateDanbooruImportData, V2CreateDanbooruImportErrors, V2CreateDanbooruImportResponses, V2CreateListwiseData, V2CreateListwiseErrors, V2CreateListwiseResponses, V2CreatePairwiseData, V2CreatePairwiseErrors, V2CreatePairwiseResponses, V2CreateTagData, V2CreateTagErrors, V2CreateTagResponses, V2DbSnapshotData, V2DbSnapshotResponses, V2DeleteFolderData, V2DeleteFolderErrors, V2DeleteFolderResponses, V2DeletePostsData, V2DeletePostsErrors, V2DeletePostsResponses, V2DeleteTagData, V2DeleteTagErrors, V2DeleteTagResponses, V2DeleteTagsData, V2DeleteTagsErrors, V2DeleteTagsResponses, V2EditAnnotationData, V2EditAnnotationErrors, V2EditAnnotationResponses, V2ExportListwiseData, V2ExportListwiseErrors, V2ExportListwiseResponses, V2GenerateAbsoluteData, V2GenerateAbsoluteErrors, V2GenerateAbsoluteResponses, V2GenerateListwiseData, V2GenerateListwiseErrors, V2GenerateListwiseResponses, V2GeneratePairwiseData, V2GeneratePairwiseErrors, V2GeneratePairwiseResponses, V2GetDanbooruImportData, V2GetDanbooruImportErrors, V2GetDanbooruImportResponses, V2GetExtensionCountData, V2GetExtensionCountErrors, V2GetExtensionCountResponses, V2GetFoldersData, V2GetFoldersErrors, V2GetFoldersResponses, V2GetOriginalByIdData, V2GetOriginalByIdErrors, V2GetOriginalByIdResponses, V2GetOriginalData, V2GetOriginalErrors, V2GetOriginalResponses, V2GetPostData, V2GetPostErrors, V2GetPostGroupData, V2GetPostGroupErrors, V2GetPostGroupEvidenceData, V2GetPostGroupEvidenceErrors, V2GetPostGroupEvidenceResponses, V2GetPostGroupResponses, V2GetPostResponses, V2GetPostsCountData, V2GetPostsCountErrors, V2GetPostsCountResponses, V2GetPostsStatsData, V2GetPostsStatsErrors, V2GetPostsStatsResponses, V2GetQueuesStatusData, V2GetQueuesStatusResponses, V2GetRatingCountData, V2GetRatingCountErrors, V2GetRatingCountResponses, V2GetScoreCountData, V2GetScoreCountErrors, V2GetScoreCountResponses, V2GetSilvaBucketCountData, V2GetSilvaBucketCountErrors, V2GetSilvaBucketCountResponses, V2GetSilvaLunaBucketCountData, V2GetSilvaLunaBucketCountErrors, V2GetSilvaLunaBucketCountResponses, V2GetSilvaLunaScorerOneData, V2GetSilvaLunaScorerOneErrors, V2GetSilvaLunaScorerOneResponses, V2GetSilvaScorerOneData, V2GetSilvaScorerOneErrors, V2GetSilvaScorerOneResponses, V2GetSimilarPostsData, V2GetSimilarPostsErrors, V2GetSimilarPostsResponses, V2GetTagCountData, V2GetTagCountErrors, V2GetTagCountResponses, V2GetThumbnailByIdData, V2GetThumbnailByIdErrors, V2GetThumbnailByIdResponses, V2GetThumbnailData, V2GetThumbnailErrors, V2GetThumbnailResponses, V2GetWaifuBucketCountData, V2GetWaifuBucketCountErrors, V2GetWaifuBucketCountResponses, V2GetWaifuScorerOneData, V2GetWaifuScorerOneErrors, V2GetWaifuScorerOneResponses, V2GetWaifuScorerStatisticsData, V2GetWaifuScorerStatisticsResponses, V2GroupDuplicatesData, V2GroupDuplicatesErrors, V2GroupDuplicatesResponses, V2GroupPostsTogetherData, V2GroupPostsTogetherErrors, V2GroupPostsTogetherResponses, V2ImportFromUrlEndpointData, V2ImportFromUrlEndpointErrors, V2ImportFromUrlEndpointResponses, V2ImportFromUrlStatusData, V2ImportFromUrlStatusResponses, V2ListDanbooruImportsData, V2ListDanbooruImportsResponses, V2ListPostsData, V2ListPostsErrors, V2ListPostsResponses, V2ListQueuesData, V2ListQueuesResponses, V2ListTagGroupData, V2ListTagGroupResponses, V2ListTagsData, V2ListTagsErrors, V2ListTagsResponses, V2ListTagTreeData, V2ListTagTreeErrors, V2ListTagTreeResponses, V2MakePostCanonicalData, V2MakePostCanonicalErrors, V2MakePostCanonicalResponses, V2MarkPostsDifferentData, V2MarkPostsDifferentErrors, V2MarkPostsDifferentResponses, V2NextAbsoluteData, V2NextAbsoluteErrors, V2NextAbsoluteResponses, V2NextListwiseData, V2NextListwiseErrors, V2NextListwiseResponses, V2NextPairwiseData, V2NextPairwiseErrors, V2NextPairwiseResponses, V2PostHistoryData, V2PostHistoryErrors, V2PostHistoryResponses, V2RemoveTagFromPostData, V2RemoveTagFromPostErrors, V2RemoveTagFromPostResponses, V2RotatePostImageData, V2RotatePostImageErrors, V2RotatePostImageResponses, V2SampleAbsoluteData, V2SampleAbsoluteErrors, V2SampleAbsoluteResponses, V2SampleListwiseData, V2SampleListwiseErrors, V2SampleListwiseResponses, V2SamplePairwiseData, V2SamplePairwiseErrors, V2SamplePairwiseResponses, V2SearchPostsByTextData, V2SearchPostsByTextErrors, V2SearchPostsByTextResponses, V2SearchPostsData, V2SearchPostsErrors, V2SearchPostsResponses, V2SubmitAbsoluteData, V2SubmitAbsoluteErrors, V2SubmitAbsoluteResponses, V2SubmitContentFlagData, V2SubmitContentFlagErrors, V2SubmitContentFlagResponses, V2SubmitListwiseData, V2SubmitListwiseErrors, V2SubmitListwiseResponses, V2SubmitPairwiseData, V2SubmitPairwiseErrors, V2SubmitPairwiseResponses, V2SyncMetadataEndpointData, V2SyncMetadataEndpointErrors, V2SyncMetadataEndpointResponses, V2TouchPostData, V2TouchPostErrors, V2TouchPostResponses, V2UndoAnnotationsData, V2UndoAnnotationsErrors, V2UndoAnnotationsResponses, V2UngroupPostData, V2UngroupPostErrors, V2UngroupPostResponses, V2UnratedArtistPicksData, V2UnratedArtistPicksErrors, V2UnratedArtistPicksResponses, V2UpdatePostCaptionData, V2UpdatePostCaptionErrors, V2UpdatePostCaptionResponses, V2UpdatePostRatingData, V2UpdatePostRatingErrors, V2UpdatePostRatingResponses, V2UpdatePostScoreData, V2UpdatePostScoreErrors, V2UpdatePostScoreResponses, V2UpdatePostSourceData, V2UpdatePostSourceErrors, V2UpdatePostSourceResponses, V2UpdateTagData, V2UpdateTagErrors, V2UpdateTagResponses, V2UploadFileData, V2UploadFileErrors, V2UploadFileResponses } from './types.gen';
+import type { V2AddTagToPostData, V2AddTagToPostErrors, V2AddTagToPostResponses, V2AnnotationTimelineData, V2AnnotationTimelineErrors, V2AnnotationTimelineResponses, V2AutoCaptionData, V2AutoCaptionErrors, V2AutoCaptionResponses, V2AutoTagsData, V2AutoTagsErrors, V2AutoTagsResponses, V2BulkUpdatePostRatingData, V2BulkUpdatePostRatingErrors, V2BulkUpdatePostRatingResponses, V2BulkUpdatePostScoreData, V2BulkUpdatePostScoreErrors, V2BulkUpdatePostScoreResponses, V2CountPairwiseData, V2CountPairwiseErrors, V2CountPairwiseResponses, V2CreateAbsoluteData, V2CreateAbsoluteErrors, V2CreateAbsoluteResponses, V2CreateDanbooruImportData, V2CreateDanbooruImportErrors, V2CreateDanbooruImportResponses, V2CreateListwiseData, V2CreateListwiseErrors, V2CreateListwiseResponses, V2CreatePairwiseData, V2CreatePairwiseErrors, V2CreatePairwiseResponses, V2CreateTagData, V2CreateTagErrors, V2CreateTagResponses, V2DbSnapshotData, V2DbSnapshotResponses, V2DeleteFolderData, V2DeleteFolderErrors, V2DeleteFolderResponses, V2DeletePostsData, V2DeletePostsErrors, V2DeletePostsResponses, V2DeleteQueueData, V2DeleteQueueErrors, V2DeleteQueueResponses, V2DeleteTagData, V2DeleteTagErrors, V2DeleteTagResponses, V2DeleteTagsData, V2DeleteTagsErrors, V2DeleteTagsResponses, V2EditAnnotationData, V2EditAnnotationErrors, V2EditAnnotationResponses, V2ExportListwiseData, V2ExportListwiseErrors, V2ExportListwiseResponses, V2GenerateAbsoluteData, V2GenerateAbsoluteErrors, V2GenerateAbsoluteResponses, V2GenerateListwiseData, V2GenerateListwiseErrors, V2GenerateListwiseResponses, V2GeneratePairwiseData, V2GeneratePairwiseErrors, V2GeneratePairwiseResponses, V2GetDanbooruImportData, V2GetDanbooruImportErrors, V2GetDanbooruImportResponses, V2GetExtensionCountData, V2GetExtensionCountErrors, V2GetExtensionCountResponses, V2GetFoldersData, V2GetFoldersErrors, V2GetFoldersResponses, V2GetOriginalByIdData, V2GetOriginalByIdErrors, V2GetOriginalByIdResponses, V2GetOriginalData, V2GetOriginalErrors, V2GetOriginalResponses, V2GetPostData, V2GetPostErrors, V2GetPostGroupData, V2GetPostGroupErrors, V2GetPostGroupEvidenceData, V2GetPostGroupEvidenceErrors, V2GetPostGroupEvidenceResponses, V2GetPostGroupResponses, V2GetPostResponses, V2GetPostsCountData, V2GetPostsCountErrors, V2GetPostsCountResponses, V2GetPostsStatsData, V2GetPostsStatsErrors, V2GetPostsStatsResponses, V2GetQueuesStatusData, V2GetQueuesStatusResponses, V2GetRatingCountData, V2GetRatingCountErrors, V2GetRatingCountResponses, V2GetScoreCountData, V2GetScoreCountErrors, V2GetScoreCountResponses, V2GetSilvaBucketCountData, V2GetSilvaBucketCountErrors, V2GetSilvaBucketCountResponses, V2GetSilvaLunaBucketCountData, V2GetSilvaLunaBucketCountErrors, V2GetSilvaLunaBucketCountResponses, V2GetSilvaLunaScorerOneData, V2GetSilvaLunaScorerOneErrors, V2GetSilvaLunaScorerOneResponses, V2GetSilvaScorerOneData, V2GetSilvaScorerOneErrors, V2GetSilvaScorerOneResponses, V2GetSimilarPostsData, V2GetSimilarPostsErrors, V2GetSimilarPostsResponses, V2GetTagCountData, V2GetTagCountErrors, V2GetTagCountResponses, V2GetThumbnailByIdData, V2GetThumbnailByIdErrors, V2GetThumbnailByIdResponses, V2GetThumbnailData, V2GetThumbnailErrors, V2GetThumbnailResponses, V2GetWaifuBucketCountData, V2GetWaifuBucketCountErrors, V2GetWaifuBucketCountResponses, V2GetWaifuScorerOneData, V2GetWaifuScorerOneErrors, V2GetWaifuScorerOneResponses, V2GetWaifuScorerStatisticsData, V2GetWaifuScorerStatisticsResponses, V2GroupDuplicatesData, V2GroupDuplicatesErrors, V2GroupDuplicatesResponses, V2GroupPostsTogetherData, V2GroupPostsTogetherErrors, V2GroupPostsTogetherResponses, V2ImportFromUrlEndpointData, V2ImportFromUrlEndpointErrors, V2ImportFromUrlEndpointResponses, V2ImportFromUrlStatusData, V2ImportFromUrlStatusResponses, V2ListDanbooruImportsData, V2ListDanbooruImportsResponses, V2ListPostsData, V2ListPostsErrors, V2ListPostsResponses, V2ListQueuesData, V2ListQueuesResponses, V2ListTagGroupData, V2ListTagGroupResponses, V2ListTagsData, V2ListTagsErrors, V2ListTagsResponses, V2ListTagTreeData, V2ListTagTreeErrors, V2ListTagTreeResponses, V2MakePostCanonicalData, V2MakePostCanonicalErrors, V2MakePostCanonicalResponses, V2MarkPostsDifferentData, V2MarkPostsDifferentErrors, V2MarkPostsDifferentResponses, V2NextAbsoluteData, V2NextAbsoluteErrors, V2NextAbsoluteResponses, V2NextListwiseData, V2NextListwiseErrors, V2NextListwiseResponses, V2NextPairwiseData, V2NextPairwiseErrors, V2NextPairwiseResponses, V2PostHistoryData, V2PostHistoryErrors, V2PostHistoryResponses, V2RemoveTagFromPostData, V2RemoveTagFromPostErrors, V2RemoveTagFromPostResponses, V2RotatePostImageData, V2RotatePostImageErrors, V2RotatePostImageResponses, V2SampleAbsoluteData, V2SampleAbsoluteErrors, V2SampleAbsoluteResponses, V2SampleListwiseData, V2SampleListwiseErrors, V2SampleListwiseResponses, V2SamplePairwiseData, V2SamplePairwiseErrors, V2SamplePairwiseResponses, V2SearchPostsByTextData, V2SearchPostsByTextErrors, V2SearchPostsByTextResponses, V2SearchPostsData, V2SearchPostsErrors, V2SearchPostsResponses, V2SetPostTagSourceData, V2SetPostTagSourceErrors, V2SetPostTagSourceResponses, V2SubmitAbsoluteData, V2SubmitAbsoluteErrors, V2SubmitAbsoluteResponses, V2SubmitContentFlagData, V2SubmitContentFlagErrors, V2SubmitContentFlagResponses, V2SubmitListwiseData, V2SubmitListwiseErrors, V2SubmitListwiseResponses, V2SubmitPairwiseData, V2SubmitPairwiseErrors, V2SubmitPairwiseResponses, V2SyncMetadataEndpointData, V2SyncMetadataEndpointErrors, V2SyncMetadataEndpointResponses, V2TouchPostData, V2TouchPostErrors, V2TouchPostResponses, V2UndoAnnotationsData, V2UndoAnnotationsErrors, V2UndoAnnotationsResponses, V2UngroupPostData, V2UngroupPostErrors, V2UngroupPostResponses, V2UnratedArtistPicksData, V2UnratedArtistPicksErrors, V2UnratedArtistPicksResponses, V2UpdatePostCaptionData, V2UpdatePostCaptionErrors, V2UpdatePostCaptionResponses, V2UpdatePostRatingData, V2UpdatePostRatingErrors, V2UpdatePostRatingResponses, V2UpdatePostScoreData, V2UpdatePostScoreErrors, V2UpdatePostScoreResponses, V2UpdatePostSourceData, V2UpdatePostSourceErrors, V2UpdatePostSourceResponses, V2UpdateTagData, V2UpdateTagErrors, V2UpdateTagResponses, V2UploadFileData, V2UploadFileErrors, V2UploadFileResponses } from './types.gen';
 
 export type Options<TData extends TDataShape = TDataShape, ThrowOnError extends boolean = boolean, TResponse = unknown> = Options2<TData, ThrowOnError, TResponse> & {
     /**
@@ -56,9 +56,8 @@ export const v2GetFolders = <ThrowOnError extends boolean = false>(options?: Opt
  *
  * Refuses the library root and anything resolving outside the library
  * (or into ``.pictoria``). DB rows go through ``deleteManyReturningPaths`` so
- * the FK cascade, the manual vec0 cascade and the per-file unlink all
- * apply; the remaining tree (non-image files, empty dirs) is then removed
- * from disk. If the disk removal partially fails, the next sync re-imports
+ * the FK cascade and the manual vec0 cascade apply; the folder and its
+ * thumbnail tree are then removed from disk recursively. If the disk removal partially fails, the next sync re-imports
  * whatever survived — no orphaned DB rows either way.
  */
 export const v2DeleteFolder = <ThrowOnError extends boolean = false>(options: Options<V2DeleteFolderData, ThrowOnError>): RequestResult<V2DeleteFolderResponses, V2DeleteFolderErrors, ThrowOnError> => (options.client ?? client).delete<V2DeleteFolderResponses, V2DeleteFolderErrors, ThrowOnError>({
@@ -161,6 +160,21 @@ export const v2RemoveTagFromPost = <ThrowOnError extends boolean = false>(option
 });
 
 /**
+ * SetPostTagSource
+ *
+ * Mark a tag already on the post as human-confirmed (isAuto=false) or back to auto. Idempotent.
+ */
+export const v2SetPostTagSource = <ThrowOnError extends boolean = false>(options: Options<V2SetPostTagSourceData, ThrowOnError>): RequestResult<V2SetPostTagSourceResponses, V2SetPostTagSourceErrors, ThrowOnError> => (options.client ?? client).patch<V2SetPostTagSourceResponses, V2SetPostTagSourceErrors, ThrowOnError>({
+    responseType: 'json',
+    url: '/v2/posts/{post_id}/tags/{tag_name}',
+    ...options,
+    headers: {
+        'Content-Type': 'application/json',
+        ...options.headers
+    }
+});
+
+/**
  * AddTagToPost
  */
 export const v2AddTagToPost = <ThrowOnError extends boolean = false>(options: Options<V2AddTagToPostData, ThrowOnError>): RequestResult<V2AddTagToPostResponses, V2AddTagToPostErrors, ThrowOnError> => (options.client ?? client).put<V2AddTagToPostResponses, V2AddTagToPostErrors, ThrowOnError>({
@@ -172,7 +186,7 @@ export const v2AddTagToPost = <ThrowOnError extends boolean = false>(options: Op
 /**
  * SubmitAbsolute
  *
- * Submit a batch of absolute annotation events (one image, several dimensions). Optionally marks a queue item done.
+ * Submit a batch of absolute annotation events (one image, several dimensions). Optionally marks a queue item done. 409 if that queue item was already submitted (nothing is written).
  */
 export const v2SubmitAbsolute = <ThrowOnError extends boolean = false>(options: Options<V2SubmitAbsoluteData, ThrowOnError>): RequestResult<V2SubmitAbsoluteResponses, V2SubmitAbsoluteErrors, ThrowOnError> => (options.client ?? client).post<V2SubmitAbsoluteResponses, V2SubmitAbsoluteErrors, ThrowOnError>({
     responseType: 'json',
@@ -187,7 +201,7 @@ export const v2SubmitAbsolute = <ThrowOnError extends boolean = false>(options: 
 /**
  * SubmitPairwise
  *
- * Submit one pairwise judgement. Optionally marks a queue item done.
+ * Submit one pairwise judgement. Optionally marks a queue item done. 409 if that queue item was already submitted (nothing is written).
  */
 export const v2SubmitPairwise = <ThrowOnError extends boolean = false>(options: Options<V2SubmitPairwiseData, ThrowOnError>): RequestResult<V2SubmitPairwiseResponses, V2SubmitPairwiseErrors, ThrowOnError> => (options.client ?? client).post<V2SubmitPairwiseResponses, V2SubmitPairwiseErrors, ThrowOnError>({
     responseType: 'json',
@@ -202,7 +216,7 @@ export const v2SubmitPairwise = <ThrowOnError extends boolean = false>(options: 
 /**
  * SubmitListwise
  *
- * Submit one group ranking (best first; empty ranking = skip). Optionally marks a queue item done.
+ * Submit one group ranking (best first; empty ranking = skip). Optionally marks a queue item done. 409 if that queue item was already submitted (nothing is written).
  */
 export const v2SubmitListwise = <ThrowOnError extends boolean = false>(options: Options<V2SubmitListwiseData, ThrowOnError>): RequestResult<V2SubmitListwiseResponses, V2SubmitListwiseErrors, ThrowOnError> => (options.client ?? client).post<V2SubmitListwiseResponses, V2SubmitListwiseErrors, ThrowOnError>({
     responseType: 'json',
@@ -247,7 +261,7 @@ export const v2UndoAnnotations = <ThrowOnError extends boolean = false>(options:
 /**
  * EditAnnotation
  *
- * Correct one already-submitted verdict IN PLACE (kind = 'pairwise' | 'absolute'). Not an appended correction: pairwise exports one row per judgement with no latest-wins pass, so a second row would leave the wrong verdict in the training set. Stamps edited_at.
+ * Correct one already-submitted verdict IN PLACE (kind = 'pairwise' | 'absolute'; an absolute value must lie in 1..scale of that row). Not an appended correction: pairwise exports one row per judgement with no latest-wins pass, so a second row would leave the wrong verdict in the training set. Stamps edited_at.
  */
 export const v2EditAnnotation = <ThrowOnError extends boolean = false>(options: Options<V2EditAnnotationData, ThrowOnError>): RequestResult<V2EditAnnotationResponses, V2EditAnnotationErrors, ThrowOnError> => (options.client ?? client).patch<V2EditAnnotationResponses, V2EditAnnotationErrors, ThrowOnError>({
     responseType: 'json',
@@ -393,6 +407,13 @@ export const v2ListQueues = <ThrowOnError extends boolean = false>(options?: Opt
 });
 
 /**
+ * DeleteQueue
+ *
+ * Delete a queue and all of its items. Annotations already submitted from it are kept: events do not reference queues.
+ */
+export const v2DeleteQueue = <ThrowOnError extends boolean = false>(options: Options<V2DeleteQueueData, ThrowOnError>): RequestResult<V2DeleteQueueResponses, V2DeleteQueueErrors, ThrowOnError> => (options.client ?? client).delete<V2DeleteQueueResponses, V2DeleteQueueErrors, ThrowOnError>({ url: '/v2/annotation-queues/{queue_id}', ...options });
+
+/**
  * NextAbsolute
  *
  * Next undone items of an absolute queue, with image info.
@@ -417,7 +438,7 @@ export const v2NextPairwise = <ThrowOnError extends boolean = false>(options: Op
 /**
  * NextListwise
  *
- * Next undone items of a listwise queue, each a group of posts to rank.
+ * Next undone items of a listwise queue, each a group of posts to rank. Items whose surviving members (after deletions) are too few to rank are marked done and skipped.
  */
 export const v2NextListwise = <ThrowOnError extends boolean = false>(options: Options<V2NextListwiseData, ThrowOnError>): RequestResult<V2NextListwiseResponses, V2NextListwiseErrors, ThrowOnError> => (options.client ?? client).get<V2NextListwiseResponses, V2NextListwiseErrors, ThrowOnError>({
     responseType: 'json',

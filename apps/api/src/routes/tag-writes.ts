@@ -14,6 +14,7 @@ import {
   getTagGroup,
   postExists,
   removeTagFromPost,
+  setTagSource,
   updateTagGroup,
 } from '@pictoria/db'
 import { newRoutes } from '../env.js'
@@ -37,6 +38,10 @@ const TagCreate = z
   .openapi('TagCreate')
 
 const TagUpdate = z.object({ groupId: z.int().nullable().optional() }).openapi('TagUpdate')
+
+const PostTagSourceUpdate = z
+  .object({ isAuto: z.boolean() })
+  .openapi('PostTagSourceUpdate')
 
 const TagBatchDelete = z
   .object({ names: z.array(z.string().min(1).max(MAX_TAG_LENGTH)).min(1) })
@@ -199,6 +204,35 @@ tagWritesRoutes.openapi(
     // 摘掉的若是这张图最后一个 `is_auto = 1` 行，它就重新是 tagger 待办了 ——
     // `removeTagFromPost` 自己发重新待办信号。
     if (!removeTagFromPost(sqlite, postId, tagName))
+      return fail(409, 'TagNotOnPostError', `Tag ${tagName} does not exist in post ${postId}.`)
+    return postDetailResponse(c, postId)
+  },
+)
+
+tagWritesRoutes.openapi(
+  createRoute({
+    method: 'patch',
+    path: '/v2/posts/{post_id}/tags/{tag_name}',
+    operationId: 'v2SetPostTagSource',
+    summary: 'SetPostTagSource',
+    description: 'Mark a tag already on the post as human-confirmed (isAuto=false) or back to auto. Idempotent.',
+    request: {
+      params: postTagParams,
+      body: { required: true, content: { 'application/json': { schema: PostTagSourceUpdate } } },
+    },
+    responses: {
+      200: { description: OK, content: { 'application/json': { schema: PostDetailPublic } } },
+      ...errors(400, 404, 409),
+    },
+  }),
+  (c) => {
+    const { post_id: postId, tag_name: tagName } = c.req.valid('param')
+    const { isAuto } = c.req.valid('json')
+    const sqlite = c.var.db
+    if (!postExists(sqlite, postId))
+      return postNotFound(postId)
+    // 确认掉的若是最后一个自动标签，`setTagSource` 自己发 tagger 重新待办信号。
+    if (!setTagSource(sqlite, postId, tagName, isAuto))
       return fail(409, 'TagNotOnPostError', `Tag ${tagName} does not exist in post ${postId}.`)
     return postDetailResponse(c, postId)
   },

@@ -5,7 +5,7 @@ import { computed, inject, nextTick, ref, useId, useTemplateRef, watch } from 'v
 import { useI18n } from 'vue-i18n'
 import { v2ListTagGroup, v2ListTags } from '@/api'
 import { resolvedLocale } from '@/locale'
-import { announce, commitTag } from '@/shared'
+import { announce, commitTag, tagSelectorFocusTag } from '@/shared'
 import { queryKeys } from '@/shared/queryKeys'
 import { useRovingFocus } from '@/ui/useRovingFocus'
 import { naturalizeTagName } from '@/utils'
@@ -250,14 +250,47 @@ watch(options, (list) => {
 })
 
 const listboxRef = useTemplateRef<HTMLElement>('listbox')
-function scrollActiveIntoView() {
+function scrollActiveIntoView(block: ScrollLogicalPosition = 'nearest') {
   nextTick(() => {
     const id = activeOption.value?.id
     if (id) {
-      listboxRef.value?.querySelector(`[id="${id}"]`)?.scrollIntoView({ block: 'nearest' })
+      listboxRef.value?.querySelector(`[id="${id}"]`)?.scrollIntoView({ block })
     }
   })
 }
+
+// 从详情面板的某个标签点"编辑"进来：光标落在那一行上（Enter 即切换它）。
+// 挡住它的分组 / 搜索先清掉。注册在上面那条"新搜索重置光标"的 watch 之后：清搜索
+// 触发的那次重置在同一轮里先跑，这里再把光标放回去。
+watch([tagSelectorFocusTag, options, debouncedSearch], () => {
+  const name = tagSelectorFocusTag.value
+  if (name === null || !postQuery.data.value) {
+    return
+  }
+  const tag = postQuery.data.value.tags?.find(x => x.tagInfo.name === name)
+  if (!tag) {
+    tagSelectorFocusTag.value = null
+    return
+  }
+  if (currentGroupId.value !== undefined && currentGroupId.value !== (tag.tagInfo.group?.id ?? null)) {
+    currentGroupId.value = undefined
+    return
+  }
+  if (search.value !== '') {
+    search.value = ''
+    return
+  }
+  if (debouncedSearch.value !== '') {
+    return
+  }
+  const index = options.value.findIndex(o => o.kind === 'current' && o.tagName === name)
+  if (index === -1) {
+    return
+  }
+  activeIndex.value = index
+  tagSelectorFocusTag.value = null
+  scrollActiveIntoView('center')
+}, { immediate: true })
 
 function activate(option: TagOption | undefined) {
   if (!option) {

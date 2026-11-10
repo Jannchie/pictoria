@@ -98,3 +98,31 @@ describe('DELETE /v2/posts/{post_id}/tags/{tag_name}', () => {
     }
   })
 })
+
+describe('PATCH /v2/posts/{post_id}/tags/{tag_name}', () => {
+  it('自动 → 人工，回读详情；再 PATCH 同值是幂等的；改回自动', async () => {
+    const id = t.insertPost('.', 'a', 'png')
+    addAutoTag(id, 'cat')
+    addAutoTag(id, 'dog')
+    const confirm = await requestJson(t.app, `/v2/posts/${id}/tags/cat`, { method: 'PATCH', body: { isAuto: false } })
+    expect(confirm.status).toBe(200)
+    expect(confirm.body.tags.find((x: any) => x.tagInfo.name === 'cat')).toMatchObject({ isAuto: false })
+
+    const again = await requestJson(t.app, `/v2/posts/${id}/tags/cat`, { method: 'PATCH', body: { isAuto: false } })
+    expect(again.status).toBe(200)
+
+    const back = await requestJson(t.app, `/v2/posts/${id}/tags/cat`, { method: 'PATCH', body: { isAuto: true } })
+    expect(back.body.tags.find((x: any) => x.tagInfo.name === 'cat')).toMatchObject({ isAuto: true })
+  })
+
+  it('不在 post 上 → 409；post 不存在 → 404；缺 isAuto → 400', async () => {
+    const id = t.insertPost('.', 'a', 'png')
+    const notOn = await requestJson(t.app, `/v2/posts/${id}/tags/cat`, { method: 'PATCH', body: { isAuto: false } })
+    expect(notOn.status).toBe(409)
+    expect(notOn.body.error).toBe('TagNotOnPostError')
+    const missing = await requestJson(t.app, '/v2/posts/999/tags/cat', { method: 'PATCH', body: { isAuto: false } })
+    expect(missing.status).toBe(404)
+    const bad = await requestJson(t.app, `/v2/posts/${id}/tags/cat`, { method: 'PATCH', body: {} })
+    expect(bad.status).toBe(400)
+  })
+})
