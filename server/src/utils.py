@@ -34,7 +34,6 @@ Image.MAX_IMAGE_PIXELS = None
 ImageFile.LOAD_TRUNCATED_IMAGES = True
 
 
-
 def calculate_sha256(file: bytes) -> str:
     sha256 = hashlib.sha256()
     sha256.update(file)
@@ -58,17 +57,40 @@ def calculate_arthash(source: Path | Image.Image) -> str | None:
         return None
 
 
+def _thumbnail_size(size: tuple[int, int], max_width: int) -> tuple[int, int] | None:
+    """The thumbnail's size for an image of ``size``, or None when it is narrow enough."""
+    width, height = size
+    if width <= max_width:
+        return None
+    return max_width, int((max_width / width) * height)
+
+
 def create_thumbnail(input_image_path: Path, output_image_path: Path, max_width: int = 400):
+    """The on-demand thumbnail (``handle_thumbnail``), decoding no more than it needs.
+
+    A JPEG is asked for a DCT-scaled decode (``draft``) at no less than twice the
+    target: libjpeg then skips most of the work for a 6000 px original, and the
+    LANCZOS pass still has 2x the pixels to filter from. ``draft`` rounds the
+    scaled size up, so the target is computed from the **original** size first —
+    the output dimensions are exactly what a full decode would have produced.
+
+    basics does not come through here: it decodes once for the arthash and the
+    palette as well, and those want the full image.
+    """
     with Image.open(input_image_path) as img:
-        create_thumbnail_by_image(img, output_image_path, max_width)
+        target = _thumbnail_size(img.size, max_width)
+        if target is not None and img.format == "JPEG":
+            img.draft("RGB", (max_width * 2, max_width * 2))
+        _save_thumbnail(img, output_image_path, target)
 
 
 def create_thumbnail_by_image(img: Image.Image, output_image_path: Path, max_width: int = 400):
-    width, height = img.size
-    if width > max_width:
-        new_width = max_width
-        new_height = int((new_width / width) * height)
-        img = img.resize((new_width, new_height), Image.Resampling.LANCZOS)
+    _save_thumbnail(img, output_image_path, _thumbnail_size(img.size, max_width))
+
+
+def _save_thumbnail(img: Image.Image, output_image_path: Path, target: tuple[int, int] | None) -> None:
+    if target is not None:
+        img = img.resize(target, Image.Resampling.LANCZOS)
     img.save(output_image_path)
 
 

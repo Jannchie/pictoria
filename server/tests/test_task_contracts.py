@@ -34,6 +34,7 @@ from PIL import Image
 from paths import REPO_ROOT
 from worker import handlers, importers
 from worker.handlers import PayloadContractError
+from worker.ladder import SystemicBatchError
 from worker.main import TASKS
 
 if TYPE_CHECKING:
@@ -198,14 +199,11 @@ class _FakeTensor:
         return self._arr
 
 
-def _fails_on(name: str, ok: Callable[[list[Path]], list[Any]]) -> Callable[[list[Path]], list[Any]]:
-    """A batch function that raises like PIL whenever ``name`` is in the batch."""
+def _decode_failing_on(name: str) -> Callable[[list[Path]], list[Any]]:
+    """A decode phase that fails ``name`` like PIL would, per image, and passes the rest."""
 
     def run(paths: list[Path]) -> list[Any]:
-        if any(p.name == name for p in paths):
-            msg = "image file is truncated"
-            raise OSError(msg)
-        return ok(paths)
+        return [OSError("image file is truncated") if p.name == name else p.name for p in paths]
 
     return run
 
@@ -219,8 +217,13 @@ def _setup_silva(monkeypatch: pytest.MonkeyPatch, _root: Path) -> None:
 def _setup_waifu(monkeypatch: pytest.MonkeyPatch, root: Path) -> None:
     _image(root / "art/1.png")
     _image(root / "art/2.png")
-    scorer = _fails_on("2.png", lambda paths: [6.5] * len(paths))
-    _stub(monkeypatch, "ai.waifu_scorer", get_waifu_scorer=lambda: scorer)
+    _stub(
+        monkeypatch,
+        "ai.waifu_scorer",
+        preprocess=_decode_failing_on("2.png"),
+        score_tiles=lambda tiles: [6.5] * len(tiles),
+        warm=lambda: None,
+    )
 
 
 def _setup_tagger(monkeypatch: pytest.MonkeyPatch, root: Path) -> None:
@@ -228,19 +231,26 @@ def _setup_tagger(monkeypatch: pytest.MonkeyPatch, root: Path) -> None:
     _image(root / "art/2.png")
     tags = {"general": ["1girl"], "character": [], "copyright": [], "style": [], "meta": []}
 
-    def tag_batch(paths: list[Path]) -> list[Any]:
+    def tag_tiles(names: list[str]) -> list[Any]:
         # 2.png comes back empty -- the handler's own reject_reason fails it.
-        return [SimpleNamespace(tags=tags if p.name == "1.png" else {}, rating="general") for p in paths]
+        return [SimpleNamespace(tags=tags if n == "1.png" else {}, rating="general") for n in names]
 
-    _stub(monkeypatch, "services.pixai_tagging", MODEL_TAG="pixai-tagger-v1.0", tag_batch=tag_batch, warm=lambda: None)
+    _stub(
+        monkeypatch,
+        "services.pixai_tagging",
+        MODEL_TAG="pixai-tagger-v1.0",
+        preprocess=lambda paths: [p.name for p in paths],
+        tag_tiles=tag_tiles,
+        warm=lambda: None,
+    )
 
 
 def _siglip_stub(monkeypatch: pytest.MonkeyPatch) -> None:
-    features = _fails_on("2.png", lambda paths: _FakeTensor(np.zeros((len(paths), 1152), dtype=np.float32)))  # type: ignore[arg-type,return-value]
     _stub(
         monkeypatch,
         "ai.siglip_embed",
-        calculate_image_features_batch=features,
+        preprocess_images=_decode_failing_on("2.png"),
+        encode_pixel_values=lambda tiles: _FakeTensor(np.zeros((len(tiles), 1152), dtype=np.float32)),
         calculate_text_features=lambda _prompt: _FakeTensor(np.zeros((1, 1152), dtype=np.float32)),
         get_logit_scale_bias=lambda: (117.3, -12.9),
         warm=lambda: None,
@@ -513,6 +523,20 @@ async def test_basics_an_unexpected_per_image_error_is_a_per_item_failure(librar
     result = await handlers.handle_basics({"items": [_basics_item(library)]})
     assert result["rows"] == []
     assert [f["postId"] for f in result["failures"]] == [1]
+
+
+@pytest.mark.parametrize("exc", [PermissionError("denied"), MemoryError()])
+async def test_basics_a_systemic_error_fails_the_task_not_the_item(library: Path, monkeypatch: pytest.MonkeyPatch, exc: Exception) -> None:
+    """A permission or memory error is the process's, not the file's: it must not
+    blacklist the post (fixing the permission would find it already written off)."""
+    _image(library / "art/1.png")
+
+    def broken(*_args: Any) -> dict[str, Any]:
+        raise exc
+
+    monkeypatch.setattr(handlers, "_compute_basics", broken)
+    with pytest.raises(SystemicBatchError, match="systemic error on post 1"):
+        await handlers.handle_basics({"items": [_basics_item(library)]})
 
 
 async def test_basics_writes_the_thumbnail_where_the_payload_says(library: Path) -> None:

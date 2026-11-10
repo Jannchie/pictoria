@@ -19,6 +19,8 @@ from __future__ import annotations
 
 import asyncio
 import logging
+from concurrent.futures import ThreadPoolExecutor
+from functools import cache
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
@@ -26,7 +28,7 @@ import numpy as np
 
 from paths import pictoria_dir
 from worker.codec import decode_vector, encode_vector
-from worker.ladder import run_with_fallback
+from worker.ladder import SystemicBatchError, classify, run_with_fallback
 
 if TYPE_CHECKING:
     from collections.abc import Callable
@@ -250,20 +252,19 @@ async def handle_waifu(payload: dict[str, Any]) -> dict[str, Any]:
     if not items_in:
         return {"scores": [], "failures": []}
 
-    from ai.waifu_scorer import get_waifu_scorer  # noqa: PLC0415  # lazy: defer the ML stack
+    from ai.waifu_scorer import preprocess, score_tiles, warm  # noqa: PLC0415  # lazy: defer the ML stack
 
     items, failures = _resolve_items(items_in)
 
-    # get_waifu_scorer is cached: `prepare` loads it once, off-loop (see the note
-    # in handle_silva about the lease); the batch function only looks it up.
-    def _score(paths: list[Path]) -> Any:
-        return get_waifu_scorer()(paths)
-
+    # Decode on the shared pool, then one fp32 forward over what decoded (see
+    # ``ai.waifu_scorer``). ``warm`` loads CLIP + the MLP off-loop first (see the
+    # note in handle_silva about the lease).
     successes, ladder_failures = await run_with_fallback(
-        _score,
+        preprocess,
+        score_tiles,
         items,
         label="waifu",
-        prepare=get_waifu_scorer,
+        prepare=warm,
     )
     return {
         "scores": [{"postId": pid, "score": float(score)} for pid, score in successes],
@@ -309,14 +310,16 @@ async def handle_tagger(payload: dict[str, Any]) -> dict[str, Any]:
 
     from services.pixai_tagging import (  # noqa: PLC0415  # lazy: defer the ML stack
         MODEL_TAG,
-        tag_batch,
+        preprocess,
+        tag_tiles,
         warm,
     )
 
     items, failures = _resolve_items(items_in)
 
     successes, ladder_failures = await run_with_fallback(
-        tag_batch,
+        preprocess,
+        tag_tiles,
         items,
         label="tagger",
         prepare=warm,
@@ -342,15 +345,14 @@ async def handle_embedding(payload: dict[str, Any]) -> dict[str, Any]:
     if not items_in:
         return {"embeddings": [], "failures": []}
 
-    from ai.siglip_embed import calculate_image_features_batch, warm  # noqa: PLC0415  # lazy: defer the ML stack
+    from ai.siglip_embed import encode_pixel_values, preprocess_images, warm  # noqa: PLC0415  # lazy: defer the ML stack
 
     items, failures = _resolve_items(items_in)
 
-    def _encode(paths: list[Path]) -> list[np.ndarray]:
-        features = calculate_image_features_batch(paths)
-        return list(features.cpu().numpy().astype(np.float32))
+    def _encode(tiles: list[Any]) -> list[np.ndarray]:
+        return list(encode_pixel_values(tiles).cpu().numpy().astype(np.float32))
 
-    successes, ladder_failures = await run_with_fallback(_encode, items, label="embedding", prepare=warm)
+    successes, ladder_failures = await run_with_fallback(preprocess_images, _encode, items, label="embedding", prepare=warm)
     return {
         "embeddings": [{"postId": pid, "embedding": encode_vector(emb)} for pid, emb in successes],
         "failures": failures + [{"postId": pid, "error": err} for pid, err in ladder_failures],
@@ -523,6 +525,50 @@ async def handle_thumbnail(payload: dict[str, Any]) -> dict[str, Any]:
     return {"ok": True}
 
 
+def _save_kwargs(src: Any) -> dict[str, Any]:
+    """What ``Image.save`` needs to write ``src``'s format back without losing anything.
+
+    * ``icc_profile`` / ``exif`` from the source — a rotate must not strip colour
+      management or camera metadata. EXIF keeps everything **except**
+      ``Orientation``: the pixels are rotated for real, and an orientation tag
+      left in place would have viewers rotate them a second time (and disagree
+      with the width / height / thumbnail returned here, all computed from the
+      raw pixels).
+    * PNG text chunks (``tEXt`` / ``zTXt`` / ``iTXt``) through ``pnginfo``. This is
+      where AI-generated images keep their generation parameters.
+    * JPEG at quality 95 with the source's own chroma subsampling. ``"keep"``
+      cannot be passed: PIL only accepts it for a ``JpegImageFile``, and the
+      rotated image is a plain one, so the source's sampling is read up front.
+    """
+    from PIL import JpegImagePlugin, PngImagePlugin  # noqa: PLC0415
+
+    kwargs: dict[str, Any] = {}
+    if icc := src.info.get("icc_profile"):
+        kwargs["icc_profile"] = icc
+    exif = src.getexif()
+    if exif:
+        exif.pop(0x0112, None)  # Orientation
+        kwargs["exif"] = exif.tobytes()
+    if src.format == "PNG":
+        text = getattr(src, "text", None) or {}
+        if text:
+            info = PngImagePlugin.PngInfo()
+            for key, value in text.items():
+                if isinstance(value, PngImagePlugin.iTXt):
+                    info.add_itxt(key, value, value.lang or "", value.tkey or "")
+                else:
+                    info.add_text(key, value)
+            kwargs["pnginfo"] = info
+    elif src.format == "JPEG":
+        kwargs["quality"] = 95
+        sampling = JpegImagePlugin.get_sampling(src)
+        if sampling != -1:
+            kwargs["subsampling"] = sampling
+    elif src.format == "WEBP" and src.info.get("lossless"):
+        kwargs["lossless"] = True
+    return kwargs
+
+
 async def handle_rotate(payload: dict[str, Any]) -> dict[str, Any]:
     """Rotate an image in place and describe the result.
 
@@ -530,7 +576,16 @@ async def handle_rotate(payload: dict[str, Any]) -> dict[str, Any]:
     change with it. ``sha256`` hashes the *encoded bytes on disk* — the same
     domain every other writer uses (``processors/basics.py``) — rather than the
     decoded pixel buffer; mixing the two would quietly break dedup.
+
+    Lossless where the format allows and atomic everywhere: ``transpose`` moves
+    pixels without resampling (``rotate`` interpolates even at 90°), metadata
+    rides along (:func:`_save_kwargs`), and the new file is written next to the
+    original and swapped in with ``os.replace`` — a crash mid-save leaves the
+    original intact, not a half-written file under its name.
     """
+    import os  # noqa: PLC0415
+    import tempfile  # noqa: PLC0415
+
     from PIL import Image  # noqa: PLC0415  # lazy: PIL is not free to import
 
     from utils import calculate_arthash, calculate_sha256, create_thumbnail_by_image  # noqa: PLC0415
@@ -540,18 +595,30 @@ async def handle_rotate(payload: dict[str, Any]) -> dict[str, Any]:
     clockwise = bool(payload["clockwise"])
 
     def _rotate() -> dict[str, Any]:
-        image = Image.open(original)
-        image = image.rotate(-90 if clockwise else 90, expand=True)
-        image.save(original)
+        with Image.open(original) as src:
+            fmt = src.format
+            # PIL's angles are counter-clockwise: ROTATE_270 is a quarter turn
+            # clockwise, the same as the old ``rotate(-90, expand=True)``.
+            rotated = src.transpose(Image.Transpose.ROTATE_270 if clockwise else Image.Transpose.ROTATE_90)
+            kwargs = _save_kwargs(src)
+        fd, tmp_name = tempfile.mkstemp(dir=original.parent, prefix=f".{original.name}.", suffix=".tmp")
+        tmp = Path(tmp_name)
+        try:
+            with os.fdopen(fd, "wb") as out:
+                rotated.save(out, format=fmt, **kwargs)
+            tmp.replace(original)
+        except BaseException:
+            tmp.unlink(missing_ok=True)
+            raise
         thumbnail.parent.mkdir(parents=True, exist_ok=True)
-        create_thumbnail_by_image(image, thumbnail)
+        create_thumbnail_by_image(rotated, thumbnail)
         file_bytes = original.read_bytes()
         return {
             "sha256": calculate_sha256(file_bytes),
             "size": len(file_bytes),
-            "width": image.size[0],
-            "height": image.size[1],
-            "arthash": calculate_arthash(image),
+            "width": rotated.size[0],
+            "height": rotated.size[1],
+            "arthash": calculate_arthash(rotated),
         }
 
     return await asyncio.to_thread(_rotate)
@@ -573,7 +640,7 @@ async def handle_caption(payload: dict[str, Any]) -> dict[str, Any]:
     if not api_key:
         return {"configured": False, "caption": ""}
 
-    from ai.make_captions import OpenAIImageAnnotator  # noqa: PLC0415  # lazy: pulls openai + diffusers
+    from ai.make_captions import OpenAIImageAnnotator  # noqa: PLC0415  # lazy: pulls openai
 
     annotator = OpenAIImageAnnotator(api_key)
     caption = await asyncio.to_thread(annotator.annotate_image, image)
@@ -591,15 +658,23 @@ _BASICS_ITEM: dict[str, FieldTypes] = {
     "hasColor": bool,
 }
 
-#: What counts as a *per-item* failure (one-shot blacklisted by TS) once the
-#: payload has passed the contract check: any ``Exception`` out of one image's
-#: decode/compute. PIL plugins raise a zoo of types on malformed files (OSError,
-#: ValueError, SyntaxError, struct.error, IndexError...), and an exception type
-#: we failed to list would fail the whole task -- and since the pending query is
-#: id-ordered, the next tick selects the same batch and the loop is stuck
-#: forever. Contract bugs (``KeyError`` on a renamed field) are what must fail the
-#: task, and those are caught *before* this point by ``_resolve_basics``.
-_IMAGE_ERRORS: tuple[type[BaseException], ...] = (Exception,)
+#: Threads for basics, apart from asyncio's default executor.
+BASICS_WORKERS = 8
+
+
+@cache
+def _basics_pool() -> ThreadPoolExecutor:
+    """basics' own pool, so a backlog cannot take the default executor.
+
+    Every Worker in ``main.py`` shares one event loop, and with it the default
+    executor that ``asyncio.to_thread`` draws from — the GPU handlers' forwards,
+    on-demand thumbnails, rotate, caption. basics gathers a whole batch at once,
+    and with ``IO_CONCURRENCY`` batches in flight that is over a hundred jobs,
+    enough to queue a thumbnail a user is waiting on behind a library-wide
+    backfill. Eight threads here (decode + hash + palette, mostly in C with the
+    GIL released) and the default pool stays free for the rest.
+    """
+    return ThreadPoolExecutor(max_workers=BASICS_WORKERS, thread_name_prefix="basics")
 
 
 def _compute_basics(item: dict[str, Any], path: Path, thumb_path: Path) -> dict[str, Any]:
@@ -697,8 +772,13 @@ async def handle_basics(payload: dict[str, Any]) -> dict[str, Any]:
     * **Containment** -- a path outside the library root is a per-item failure,
       the same policy as ``_resolve_items``.
     * **The image** -- one unreadable file must not cost the other 31 in the
-      batch, so any ``Exception`` from one image comes back as a per-item
-      failure (see :data:`_IMAGE_ERRORS` for why this is deliberately broad).
+      batch. Every ``Exception`` from one image is sorted by the ladder's
+      :func:`~worker.ladder.classify`: a *systemic* one (``PermissionError``,
+      ``MemoryError``) is the process's problem and raises
+      :class:`~worker.ladder.SystemicBatchError` -- nothing is blacklisted, the
+      loop backs off and retries. Anything else, including types nobody listed
+      (PIL plugins raise a zoo of them), is a per-item failure: failing the
+      task on one would re-select the same id-ordered batch forever.
 
     A successful decode whose palette step failed still returns its row *and* a
     failure — the row carries the other columns, the failure one-shot
@@ -713,13 +793,21 @@ async def handle_basics(payload: dict[str, Any]) -> dict[str, Any]:
     if not resolved:
         return {"rows": rows, "failures": failures}
 
+    loop = asyncio.get_running_loop()
+    pool = _basics_pool()
+
     async def _one(item: dict[str, Any], path: Path, thumb_path: Path) -> dict[str, Any] | BaseException:
         try:
-            return await asyncio.to_thread(_compute_basics, item, path, thumb_path)
-        except _IMAGE_ERRORS as exc:  # the file's fault: reported per item
+            return await loop.run_in_executor(pool, _compute_basics, item, path, thumb_path)
+        except Exception as exc:  # classified below, once every image has finished
             return exc
 
     results = await asyncio.gather(*[_one(*r) for r in resolved])
+
+    for (item, path, _), result in zip(resolved, results, strict=True):
+        if isinstance(result, BaseException) and classify(result) == "systemic":
+            msg = f"[basics] systemic error on post {item['postId']} ({path}): {type(result).__name__}: {result}"
+            raise SystemicBatchError(msg) from result
 
     for (item, _, _), result in zip(resolved, results, strict=True):
         if isinstance(result, BaseException):

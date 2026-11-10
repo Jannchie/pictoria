@@ -22,7 +22,6 @@ config file.
 from __future__ import annotations
 
 import logging
-from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from functools import cache
 from typing import TYPE_CHECKING, Any
@@ -32,7 +31,7 @@ from PIL import Image
 from transformers import AutoImageProcessor, AutoModel
 
 from ai.hf_loader import load_local_first
-from ai.torch_runtime import DEVICE, DTYPE
+from ai.torch_runtime import DEVICE, DTYPE, preprocess_each, preprocess_pool
 
 if TYPE_CHECKING:
     from collections.abc import Sequence
@@ -59,22 +58,6 @@ RATING_LABELS = {
     "rating:e": "explicit",
 }
 
-#: Decode + pad threads. Same *shape* of win as ``siglip_embed`` — the GPU queue
-#: is ``concurrency=1``, so single-threaded decoding leaves the card idle — but
-#: not the same profile, and the difference matters:
-#:
-#: ``siglip_embed``'s processor resizes with PIL and only then builds a tensor, so
-#: a thread costs a 384x384 float32 (1.7 MB). ``RescalePadProcessor`` does it the
-#: other way round: ``to_tensor`` on the **full-resolution** image, then a
-#: torchvision resize. A 38 Mpx library PNG is a 462 MB float32 before it is
-#: touched, and the resize is an ATen op on that.
-#:
-#: Measured on the batch a crashed run died on (16 images, 8-38 Mpx, mostly RGBA):
-#: 8 threads 4.10 s, threaded-decode-with-serial-resize 5.92 s, fully serial
-#: 10.27 s — peak RSS +2.13 GiB, which is not close to a limit on this box. So 8
-#: stays; what had to change is how the 8 are *managed* (``_pool``) and the
-#: intra-op pool they are paired with (``tag_batch``).
-PREPROCESS_WORKERS = 8
 
 @dataclass(frozen=True, slots=True)
 class TagResult:
@@ -125,23 +108,6 @@ def _get_processor() -> Any:
 
 
 @cache
-def _pool() -> ThreadPoolExecutor:
-    """The decode pool, built once for the process — **not** once per batch.
-
-    ⚠️ This is the shape that matters, more than the width. A
-    ``with ThreadPoolExecutor(...)`` inside ``tag_batch`` creates and tears down
-    8 OS threads *per batch*: one batch every ~3 s for 16 h is on the order of
-    100k thread creations, and each fresh caller thread also makes OpenMP build
-    and cache a new team for itself. A run died inside exactly that machinery
-    — a native access violation with no Python traceback — and a pytest run in
-    the same window crashed in ``Thread.start`` itself, under ``transformers``'
-    parallel weight loader, with 304 live threads in the worker process.
-    A pool that is created once churns nothing.
-    """
-    return ThreadPoolExecutor(max_workers=PREPROCESS_WORKERS, thread_name_prefix="pixai-pre")
-
-
-@cache
 def _get_layout() -> tuple[list[str], torch.Tensor, list[tuple[str, int]]]:
     """``(tag names, per-logit threshold, [(category, count)])`` for the loaded head.
 
@@ -150,10 +116,7 @@ def _get_layout() -> tuple[list[str], torch.Tensor, list[tuple[str, int]]]:
     """
     config = _get_model().config
     per_category: dict[str, float] = config.category_best_threshold
-    thresholds = torch.cat([
-        torch.full((count,), per_category[category], dtype=torch.float32)
-        for category, count in config.tags_split
-    ])
+    thresholds = torch.cat([torch.full((count,), per_category[category], dtype=torch.float32) for category, count in config.tags_split])
     return list(config.tags), thresholds, [(c, int(n)) for c, n in config.tags_split]
 
 
@@ -162,7 +125,7 @@ def warm() -> None:
     _get_model()
     _get_processor()
     _get_layout()
-    _pool()
+    preprocess_pool()
 
 
 def _open_padded(path: Path) -> torch.Tensor:
@@ -181,49 +144,26 @@ def _open_padded(path: Path) -> torch.Tensor:
         return _get_processor()(image, return_tensors="pt").pixel_values
 
 
-def tag_batch(paths: Sequence[Path]) -> list[TagResult]:
-    """Tag a batch of images in one GPU forward; one :class:`TagResult` per path.
+def preprocess(paths: Sequence[Path]) -> list[torch.Tensor | Exception]:
+    """The decode half: one 1008x1008 tile **or exception** per path, in order.
 
-    Decode and preprocess run on a thread pool while the GPU queue's single
-    slot would otherwise idle — the same split ``siglip_embed`` documents at
-    length. Raises on an unreadable image and lets ``run_with_fallback`` shrink
-    the batch; it persists nothing.
+    Pool and thread settings: see ``ai.torch_runtime.preprocess_each``. What is
+    this model's own: ``RescalePadProcessor`` runs ``to_tensor`` on the
+    **full-resolution** image, then a torchvision resize — a 38 Mpx library PNG
+    is a 462 MB float32 before it is touched. Measured on the batch a crashed
+    run died on (16 images, 8-38 Mpx, mostly RGBA): 8 threads 4.10 s,
+    threaded-decode-with-serial-resize 5.92 s, fully serial 10.27 s — peak RSS
+    +2.13 GiB, not close to a limit on this box.
     """
-    if not paths:
+    return preprocess_each(_open_padded, paths)
+
+
+def tag_tiles(tiles: Sequence[torch.Tensor]) -> list[TagResult]:
+    """The forward half: one GPU forward over decoded tiles; one result per tile."""
+    if not tiles:
         return []
-
     tags, thresholds, splits = _get_layout()
-    # ⚠️ ``torch.set_num_threads(1)`` around the pool, restored afterwards.
-    #
-    # The preprocess half ends in an ATen op (torchvision's resize), and torch's
-    # intra-op pool is 16 threads on this machine. Eight pool threads each
-    # entering a 16-way parallel region is up to 128 OpenMP workers fighting over
-    # 24 cores, and calling ATen ops concurrently from several Python threads is
-    # the documented-unsafe corner of the OpenMP backend. A run died there once:
-    # a native access violation (0xC0000005) 40 minutes in, no Python traceback,
-    # cairnq's ``running`` row naming a tagger task. Not *proven* to be the cause
-    # — it was not reproducible standalone — but it is the one mechanism that fits
-    # the evidence, and closing it is free.
-    #
-    # Free is measured, not assumed: behind 8 concurrent callers the intra-op pool
-    # buys nothing, because they already saturate the cores between them. Same
-    # batch, best of 3 — 16 threads 3.80 s vs 1 thread 3.48 s (big images), 1.09 s
-    # vs 1.14 s (typical ones). Output is bitwise identical at 16 / 4 / 1 threads
-    # (``torch.equal``), as it has to be: resize splits output rows across threads
-    # and each row's arithmetic is independent.
-    #
-    # It is process-global, hence the ``finally``. The GPU queue is
-    # ``concurrency=1`` so no sibling GPU handler overlaps this; an ``io`` handler
-    # can, and would briefly see one intra-op thread. That is a blip in a
-    # thumbnail, against a crash that costs the whole batch.
-    prev_threads = torch.get_num_threads()
-    torch.set_num_threads(1)
-    try:
-        tiles = list(_pool().map(_open_padded, paths))
-    finally:
-        torch.set_num_threads(prev_threads)
-
-    pixel_values = torch.cat(tiles, dim=0).to(DEVICE, DTYPE)
+    pixel_values = torch.cat(list(tiles), dim=0).to(DEVICE, DTYPE)
     with torch.inference_mode():
         # .float() before sigmoid: the card's recipe is a bf16 forward with an
         # fp32 sigmoid, and the thresholds are tuned against that.
@@ -231,7 +171,7 @@ def tag_batch(paths: Sequence[Path]) -> list[TagResult]:
 
     probs = probs.cpu()
     hits = probs > thresholds
-    return [_decode(probs[i], hits[i], tags, splits) for i in range(len(paths))]
+    return [_decode(probs[i], hits[i], tags, splits) for i in range(len(tiles))]
 
 
 def _decode(

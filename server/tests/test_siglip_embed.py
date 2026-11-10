@@ -15,8 +15,8 @@ def test_module_exposes_public_api() -> None:
     mod = importlib.import_module("ai.siglip_embed")
     assert mod.EMBED_DIM == 1152
     for name in (
-        "calculate_image_features",
-        "calculate_image_features_batch",
+        "preprocess_images",
+        "encode_pixel_values",
         "calculate_text_features",
     ):
         assert callable(getattr(mod, name)), name
@@ -43,10 +43,12 @@ def test_image_features_shape_and_finite() -> None:
     import numpy as np
     from PIL import Image
 
-    from ai.siglip_embed import EMBED_DIM, calculate_image_features_batch
+    from ai.siglip_embed import EMBED_DIM, encode_pixel_values, preprocess_images
 
     imgs = [Image.new("RGB", (64, 64), (i * 40, 80, 200)) for i in range(2)]
-    feats = calculate_image_features_batch(imgs)
+    tiles = preprocess_images(imgs)
+    assert not [t for t in tiles if isinstance(t, Exception)]
+    feats = encode_pixel_values(tiles)  # type: ignore[arg-type]
     assert feats.shape == (2, EMBED_DIM)
     arr = feats.cpu().numpy().astype(np.float32)
     assert np.isfinite(arr).all()

@@ -65,13 +65,18 @@ if TYPE_CHECKING:
 
 log = logging.getLogger("worker")
 
-#: Queue for background backfill. Its poll interval is cairnq's default 500 ms
-#: on purpose — a backfill task that starts half a second late costs nothing,
-#: and a tighter interval just spends queries on an empty table. The
-#: interactive path (SigLIP text encoding on ``/posts/search/text``) is a
-#: *different* queue with a much tighter poll; see §4.6, where the default
-#: turned out to be a 626 ms trap for a synchronous request.
+#: Queue for background backfill. Polled at :data:`GPU_POLL_MS`, not cairnq's
+#: default 500 ms: the backfill loops submit the next batch only after the last
+#: one's result is back, so the worker is idle-polling at exactly the moment the
+#: next batch lands, and every batch paid up to half a second of an idle GPU for
+#: it. A busy worker does not poll at all (it waits on its running task), so the
+#: tighter interval only costs while the queue is empty: one read-only
+#: ``claimable_probe`` per poll, measured at ~0.19 ms through aiosqlite —
+#: 20 a second is under 0.4% of one core. The interactive path (SigLIP text
+#: encoding on ``/posts/search/text``) is a *different* queue; see §4.6, where
+#: the default turned out to be a 626 ms trap for a synchronous request.
 GPU_QUEUE = "gpu"
+GPU_POLL_MS = 50
 
 #: Queue for the interactive path (SigLIP text encoding behind
 #: ``/posts/search/text``). Separate from ``GPU_QUEUE`` and served by its own
@@ -184,7 +189,7 @@ async def main() -> None:
 
     store = SQLiteStore(str(db_path))
     workers: dict[str, Worker] = {
-        GPU_QUEUE: Worker(store, queues=[GPU_QUEUE], concurrency=1),
+        GPU_QUEUE: Worker(store, queues=[GPU_QUEUE], concurrency=1, poll_interval_ms=GPU_POLL_MS),
         # A second Worker rather than a second queue on the same one: with
         # concurrency=1 a single worker would still make a search wait out
         # whatever batch is in flight.
