@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import type { ComponentPublicInstance, Ref } from 'vue'
+import type { SplitpanesResizePayload } from '@/shared/paneLayout'
 import { useResizeObserver } from '@vueuse/core'
 import { Pane, Splitpanes } from 'splitpanes'
 import { computed, nextTick, onBeforeUnmount, ref, useTemplateRef, watchEffect } from 'vue'
@@ -10,13 +11,14 @@ import { useGlobalUndoRedo } from '@/composables/useGlobalUndoRedo'
 import { usePaneSplitters } from '@/composables/usePaneSplitters'
 import { usePostQuery } from '@/composables/usePostQuery'
 import { useWatchRoute } from '@/composables/useWatchRoute'
+import { isLeftCollapsed, isRightPaneShown, preferredSizesFromResize, setLeftCollapsed, setRightCollapsed, toggleLeftPane, toggleRightPane } from '@/shared/paneLayout'
 import { shortcuts } from '@/shared/shortcuts'
 import { hasModalLayer } from '@/ui/layers'
 import { useHotkey } from '@/ui/useHotkey'
 import { formatShortcut } from '@/utils/keyboard'
 import { routeTitle, shouldAnnounceRoute, shouldFocusMain } from '@/utils/routeAnnounce'
 import FolderTree from './components/FolderTree.vue'
-import { announce, commandPaletteOpen, isAnyDialogOpen, leftPaneCollapsed, rightPaneCollapsed, shortcutHelpOpen, useSyncFilterWithUrl } from './shared'
+import { announce, commandPaletteOpen, isAnyDialogOpen, shortcutHelpOpen, useSyncFilterWithUrl } from './shared'
 import 'splitpanes/dist/splitpanes.css'
 
 const { t } = useI18n()
@@ -56,12 +58,10 @@ useHotkey(shortcuts.global.openHelp.keys, () => {
 // Pane toggles. Mod+B / Mod+Shift+B mirror the editor convention; the same
 // state is driven by the bottom bar's buttons, which stay reachable once a
 // pane is gone (the pane's own header would collapse with it).
-useHotkey(shortcuts.global.toggleLeft.keys, () => {
-  leftPaneCollapsed.value = !leftPaneCollapsed.value
-}, { allowInTyping: true, allowInWidgets: true, when: () => !isAnyDialogOpen.value })
-useHotkey(shortcuts.global.toggleRight.keys, () => {
-  rightPaneCollapsed.value = !rightPaneCollapsed.value
-}, { allowInTyping: true, allowInWidgets: true, when: () => !isAnyDialogOpen.value })
+// Toggling goes through paneLayout: below the auto-collapse widths it is a
+// session override, not a change to the persisted preference.
+useHotkey(shortcuts.global.toggleLeft.keys, toggleLeftPane, { allowInTyping: true, allowInWidgets: true, when: () => !isAnyDialogOpen.value })
+useHotkey(shortcuts.global.toggleRight.keys, toggleRightPane, { allowInTyping: true, allowInWidgets: true, when: () => !isAnyDialogOpen.value })
 
 // ── Layout: pane sizes, keyboard splitters, F6 landmark cycling ─────────────
 const LEFT_PANE = { min: 8, max: 36 }
@@ -105,18 +105,14 @@ function clampedSize(pref: Ref<number>, min: Ref<number>, max: number) {
 const leftSize = clampedSize(leftPref, leftMin, LEFT_PANE.max)
 const rightSize = clampedSize(rightPref, rightMin, RIGHT_PANE.max)
 const centerSize = computed(() =>
-  100 - (leftPaneCollapsed.value ? 0 : leftSize.value) - (rightPaneCollapsed.value ? 0 : rightSize.value))
-function onPanesResized({ panes }: { panes: { size: number }[] }) {
-  let i = 0
-  if (!leftPaneCollapsed.value) {
-    if (panes[i]) {
-      leftSize.value = panes[i].size
-    }
-    i++
+  100 - (isLeftCollapsed.value ? 0 : leftSize.value) - (isRightPaneShown.value ? rightSize.value : 0))
+function onPanesResized(payload: SplitpanesResizePayload) {
+  const sizes = preferredSizesFromResize(payload, { left: !isLeftCollapsed.value, right: isRightPaneShown.value })
+  if (sizes.left !== undefined) {
+    leftSize.value = sizes.left
   }
-  i++ // the centre pane
-  if (!rightPaneCollapsed.value && panes[i]) {
-    rightSize.value = panes[i].size
+  if (sizes.right !== undefined) {
+    rightSize.value = sizes.right
   }
 }
 const navEl = useTemplateRef<HTMLElement>('navEl')
@@ -127,10 +123,10 @@ const asideEl = useTemplateRef<HTMLElement>('asideEl')
 // moves to the main area and the way back is announced.
 function collapsePane(side: 'left' | 'right') {
   if (side === 'left') {
-    leftPaneCollapsed.value = true
+    setLeftCollapsed(true)
   }
   else {
-    rightPaneCollapsed.value = true
+    setRightCollapsed(true)
   }
   nextTick(() => mainEl.value?.focus({ preventScroll: true }))
   announce(side === 'left'
@@ -233,7 +229,7 @@ onBeforeUnmount(removeAfterEach)
       @resized="onPanesResized"
     >
       <Pane
-        v-if="!leftPaneCollapsed"
+        v-if="!isLeftCollapsed"
         id="pane-left"
         :min-size="leftMin"
         :size="leftSize"
@@ -291,7 +287,7 @@ onBeforeUnmount(removeAfterEach)
         </main>
       </Pane>
       <Pane
-        v-if="!rightPaneCollapsed"
+        v-if="isRightPaneShown"
         id="pane-right"
         :min-size="rightMin"
         :size="rightSize"

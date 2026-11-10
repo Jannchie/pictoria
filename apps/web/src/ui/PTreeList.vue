@@ -685,8 +685,8 @@ export default defineComponent({
             {Array.from({ length: props.loadingRows }, (_, i) => (
               <li
                 key={i}
-                class="rounded bg-surface-1 h-6 animate-pulse"
-                style={{ width: `${60 + ((i * 17) % 35)}%`, animationDelay: `${i * 60}ms` }}
+                class="rounded h-6 p-skeleton"
+                style={{ 'width': `${60 + ((i * 17) % 35)}%`, '--i': i }}
               />
             ))}
           </ul>

@@ -34,8 +34,20 @@ export const RATING_LEVEL_LABEL_KEYS = ['rating.general', 'rating.sensitive', 'r
 /** Message key for the synthetic "unrated" bucket (rating 0). */
 export const RATING_UNRATED_LABEL_KEY = 'rating.unrated'
 
-/** One-letter abbreviations for rating levels 1..MAX_POST_RATING (G/S/Q/E). */
-export const RATING_LEVEL_SHORT = ['G', 'S', 'Q', 'E']
+/**
+ * i18n keys of the one-glyph abbreviations for rating levels 1..MAX_POST_RATING
+ * (G/S/Q/E in English, 健/敏/色/露 in Chinese) — the footer and the
+ * multi-select legend show these where the full name doesn't fit.
+ */
+export const RATING_LEVEL_SHORT_KEYS = ['rating.short.general', 'rating.short.sensitive', 'rating.short.questionable', 'rating.short.explicit']
+
+/**
+ * One icon per concept, everywhere it appears (filter button, chip, sort
+ * option, panels, footer): the content rating (G/S/Q/E) and the manual 1–5
+ * score must never share a glyph.
+ */
+export const RATING_ICON = 'i-tabler-shield-half'
+export const SCORE_ICON = 'i-tabler-star'
 
 /**
  * Quality ramp for the manual 1..MAX_POST_SCORE score: low = red → high =
@@ -73,4 +85,26 @@ export function waifuLevel(score: number): WaifuLevel {
 /** The "r g b" triple for a waifu-scale (0–10) score's bucket. */
 export function waifuLevelRgb(score: number): string {
   return waifuLevel(score).rgb
+}
+
+type Translate = (key: string) => string
+
+/** A rating's display name: the level's name, "Unrated" for 0, "Unknown" out of range. */
+export function ratingName(rating: number, t: Translate): string {
+  if (rating === 0) {
+    return t(RATING_UNRATED_LABEL_KEY)
+  }
+  const key = RATING_LEVEL_LABEL_KEYS[rating - 1]
+  return t(key ?? 'rating.unknown')
+}
+
+/** The level names 1..MAX_POST_RATING, in order (option labels of the rating controls). */
+export function ratingLevelNames(t: Translate): string[] {
+  return RATING_LEVEL_LABEL_KEYS.map(k => t(k))
+}
+
+/** A rating's icon and colour; unrated (and anything out of range) is the uncoloured unrated icon. */
+export function ratingVisual(rating: number): { icon: string, color?: string } {
+  const icon = RATING_LEVEL_ICONS[rating - 1]
+  return icon ? { icon, color: RATING_LEVEL_COLORS[rating - 1] } : { icon: RATING_UNRATED_ICON }
 }

@@ -37,10 +37,8 @@ export interface ScorerUi {
   readonly dslKey: string
   /** chip 上的前缀。产品名，不进 i18n。 */
   readonly chipPrefix: string
-  /** chip 图标。 */
+  /** 这个打分器在所有地方（筛选按钮、chip、排序项、面板、底栏）共用的唯一图标。 */
   readonly icon: string
-  /** 筛选按钮图标（与 chip 图标历史上不同：waifu 的按钮是皇冠）。 */
-  readonly filterIcon: string
   /** 筛选按钮 / 列表的名字（i18n key）。 */
   readonly filterLabelKey: string
   /** 分档弹层每一档的数值区间文案（按 level）。 */
@@ -61,7 +59,6 @@ export const SCORERS = [
     dslKey: 'waifu',
     chipPrefix: 'Waifu',
     icon: 'i-tabler-heart',
-    filterIcon: 'i-tabler-crown',
     filterLabelKey: 'filter.waifuScore',
     bucketRanges: { A: '8 – 10', B: '6 – 8', C: '4 – 6', D: '2 – 4', E: '0 – 2' },
   },
@@ -73,7 +70,6 @@ export const SCORERS = [
     dslKey: 'silva',
     chipPrefix: 'SILVA',
     icon: 'i-tabler-rosette',
-    filterIcon: 'i-tabler-rosette',
     filterLabelKey: 'filter.silvaScore',
     bucketRanges: UNIT_RANGES,
   },
@@ -85,7 +81,6 @@ export const SCORERS = [
     dslKey: 'luna',
     chipPrefix: 'Luna',
     icon: 'i-tabler-moon',
-    filterIcon: 'i-tabler-moon',
     filterLabelKey: 'filter.silvaLunaScore',
     bucketRanges: UNIT_RANGES,
   },
@@ -98,3 +93,8 @@ export function scorerOrderColumn(spec: ScorerUi): string {
 
 /** A scorer's `countKind` — also the key the detail panel's on-demand scorers use. */
 export type ScorerKind = typeof SCORERS[number]['countKind']
+
+/** A scorer's one icon (filter button, chip, sort option, panels, footer). */
+export function scorerIcon(name: ScorerUi['name']): string {
+  return SCORERS.find(s => s.name === name)!.icon
+}

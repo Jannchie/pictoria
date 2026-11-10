@@ -6,8 +6,8 @@ import { useRoute } from 'vue-router'
 import ArthashPlaceholder from '@/components/ArthashPlaceholder.vue'
 import { galleryGridKey } from '@/composables/useGalleryGrid'
 import { useViewportHiRes } from '@/composables/useViewportHiRes'
-import { addToSelection, collapseSelectionTo, commitPendingSelection, enableArthash, enableFancyPlaceholder, gridCursorId, hideNSFW, isCommittedSelected, isSelected, postSort, RATING_LEVEL_LABEL_KEYS, RATING_UNRATED_LABEL_KEY, selectOnly, setGridCursor, toggle, togglePendingAt } from '@/shared'
-import { viewSortOverride } from '@/shared/galleryView'
+import { addToSelection, collapseSelectionTo, commitPendingSelection, enableArthash, enableFancyPlaceholder, gridCursorId, hideNSFW, isCommittedSelected, isSelected, postSort, ratingName, selectOnly, setGridCursor, toggle, togglePendingAt } from '@/shared'
+import { effectiveSort } from '@/shared/galleryView'
 import { isImageExtension } from '@/utils'
 import { colorNumToHex, labToRgbaString } from '@/utils/color'
 import { fileIconClass } from '@/utils/fileIcon'
@@ -39,10 +39,9 @@ const isCursor = computed(() => gridCursorId.value === post.value.id && (grid?.s
 // nothing to a screen reader, and these are what the grid is triaged by).
 const accessibleName = computed(() => {
   const p = post.value
-  const ratingKey = p.rating >= 1 ? RATING_LEVEL_LABEL_KEYS[p.rating - 1] : undefined
   return t('gallery.optionLabel', {
     name: `${p.fileName}.${p.extension}`,
-    rating: ratingKey ? t('gallery.optionRating', { rating: t(ratingKey) }) : t(RATING_UNRATED_LABEL_KEY),
+    rating: p.rating >= 1 ? t('gallery.optionRating', { rating: ratingName(p.rating, t) }) : ratingName(0, t),
     score: p.score >= 1 ? t('gallery.optionScore', { score: p.score }) : t('common.unscored'),
   })
 })
@@ -124,7 +123,9 @@ function onContextmenu(e: MouseEvent) {
   if (e.shiftKey || e.ctrlKey) {
     addToSelection(post.value.id)
   }
-  else {
+  // Right-clicking inside the selection keeps it (the menu then acts on all of
+  // it, file-manager style); outside it, the menu is about this one post.
+  else if (!isCommittedSelected(post.value.id)) {
     selectOnly(post.value.id)
   }
   setGridCursor(post.value.id)
@@ -139,10 +140,10 @@ function onContextmenu(e: MouseEvent) {
 // badge there — otherwise the `sortValue` that writeScore patches in when the
 // global sort is `score` would make a badge pop up on just-rated tiles.
 const route = useRoute()
-const effectiveSort = computed(() => viewSortOverride(route.meta.view) ?? postSort.value)
+const sortColumn = computed(() => effectiveSort(route.meta.view, postSort.value))
 const sortBadge = computed(() => {
   const v = post.value.sortValue
-  return v == null ? undefined : formatSortValue(effectiveSort.value, v)
+  return v == null ? undefined : formatSortValue(sortColumn.value, v)
 })
 // Tint the badge's dark backing with the level colour too (text colour alone
 // is easy to miss); colour-less badges (dates) keep the plain black chip.

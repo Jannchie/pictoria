@@ -88,7 +88,7 @@ with one or two representative names per group — read the file for the full se
 
 | Group           | Representative tokens                                        |
 | --------------- | ----------------------------------------------------------- |
-| Color           | `--p-primary`, `--p-bg`, `--p-surface-1`, `--p-fg-muted`, `--p-border` |
+| Color           | `--p-primary`, `--p-bg`, `--p-surface-1`, `--p-fg-muted`, `--p-border`, `--p-skeleton` (loading placeholders: the `p-skeleton` shortcut, stagger with `--i`) |
 | Status          | `--p-success`, `--p-warning`, `--p-danger`, `--p-info`      |
 | On-status (fg)  | `--p-on-primary`, `--p-on-success`, `--p-on-danger`         |
 | Border          | `--p-border`, `--p-border-strong`, `--p-border-subtle`     |
@@ -147,12 +147,12 @@ reference in `PSelectArea`.
 | `PCheckbox`        | Checkbox                             | bound value, `label`, `indeterminate` (dash glyph, `aria-checked="mixed"`; caller-owned), `presentational` (visual only inside a row that is itself the checkbox/option), `ariaLabel` / `ariaLabelledby` |
 | `PSwitch`          | Toggle                               | `size` (sm/md/lg)                                            |
 | `PSlider`          | Range slider (`role=slider`, arrows / Home / End / PageUp / PageDown) | `size` (sm/md/lg), `color` (primary/secondary/tertiary/error), `ariaLabel` / `ariaLabelledby`, `ariaValuetext`, `disabled` |
-| `PRating`          | Star-style rating row (radio group, roving focus) | `count`, custom icon set, `ariaLabel`, `mixed` (multi-selection with differing values: no star drawn, group described as mixed), `readonly`, `disabled` |
+| `PRating`          | Star-style rating row (radio group, roving focus) | `count`, custom icon set, `ariaLabel`, `labels` (per-option accessible name + tooltip, e.g. the rating levels), `unselectable` (default true: re-pick / Delete clears to 0), `mixed` (multi-selection with differing values: no star drawn, group described as mixed), `readonly`, `disabled` |
 | `PTag`             | Pill / label                         | `variant` (soft/outline/solid), `tone` (neutral/primary/success/warning/danger/info), `size` (xs/sm/md) |
 | `PColorSwatch`     | Color chip                           | `size`, `rounded` (sm/md/lg/full), `label` (accessible name; decorative without it) |
 | `PListItem`        | Interactive list row                 | `type` (normal/checkbox), `role` (option/menuitem… → focusable), `focusable` (false when the parent owns tabindex), `current` (→ `aria-current`), `as` (div/button/a), `to` (RouterLink row, `aria-current="page"` while active) |
 | `PFacetList`       | Multi-select facet listbox (filter-popover body): `role=listbox` + `aria-multiselectable`, one `role=option` row per item with a decorative checkbox, caller content (default slot `{ item, index, selected }`) and an optional count / share column. Space / Enter / click emit `toggle`; other option keys emit `option-keydown`. Focus movement stays with the caller (attach `useRovingFocus` to the exposed `el`; rows carry `data-typeahead` / `data-autofocus`) | generic `items`, `itemKey` (default: the item), `selected`, `optionLabel`, `typeahead`, `autofocusIndex`, `count`, `share`; `aria-label` / `id` / `class` fall through |
-| `PEmpty`           | Empty state (no border / card)       | `icon`; default slot = text (caller passes `$t`), `action` slot |
+| `PEmpty`           | Empty state (no border / card)       | `icon`; default slot = text (caller passes `$t`), `action` slot; `retry` (+ `retrying`) for load failures = the standard Retry button |
 | `PEdgeNavRail`     | Edge prev/next rail over an image    | `side` (left/right), `shown` (pair with `useEdgeProximity`), `label` (accessible name of the button) |
 | `PMenu`            | Context / click menu (APG menu): right click at the cursor, Shift+F10 / ContextMenu key at the focused element; roving focus, typeahead, label rows → `role=group`; Escape / Tab close and return focus | `data` (label/divider/item roles, `disabled` → `aria-disabled`, still focusable), `trigger` (contextmenu/click), `ariaLabel`; emits `select` |
 | `PPopover`         | Anchored non-modal popover, teleported + floating-ui (flip/shift). Trigger = first focusable in the default slot, wired with `aria-haspopup/expanded/controls`; toggles on `click`; focus moves in on open; Escape / inside close return focus to the trigger; Tab past the end closes and continues after the trigger | `v-model`, `position` (12 floating-ui placements), `zIndex` (default `var(--p-z-popup)`), `offset`, `overlay`, `popupRole` (dialog/menu/listbox), `ariaLabel`; `trigger="hover"` = legacy alias for `PTooltip` |

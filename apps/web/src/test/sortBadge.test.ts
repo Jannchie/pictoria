@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { formatDate } from '@/locale'
+import { formatDate, formatRelativeTime, formatShortDateTime } from '@/locale'
 import { RATING_LEVEL_COLORS, RATING_LEVEL_ICONS, SCORE_LEVEL_COLORS, waifuLevelRgb } from '@/shared/ratings'
 import { formatSortValue } from '@/utils/sortBadge'
 
@@ -26,9 +26,16 @@ describe('formatsortvalue', () => {
 
   it('date columns are formatted, colourless', () => {
     const iso = '2026-01-02T03:04:05Z'
-    for (const sort of ['created_at', 'published_at', 'updated_at', 'last_accessed_at']) {
+    for (const sort of ['created_at', 'published_at', 'updated_at']) {
       expect(formatSortValue(sort, iso)).toEqual({ text: formatDate(iso) })
     }
+  })
+
+  it('last access is relative within a day, else day + time', () => {
+    const iso = '2026-01-02T03:04:05Z'
+    const at = new Date(iso).getTime()
+    expect(formatSortValue('last_accessed_at', iso, at + 2 * 3600 * 1000)).toEqual({ text: formatRelativeTime(at, at + 2 * 3600 * 1000) })
+    expect(formatSortValue('last_accessed_at', iso, at + 3 * 24 * 3600 * 1000)).toEqual({ text: formatShortDateTime(at) })
   })
 
   it('id and file_name get no badge', () => {

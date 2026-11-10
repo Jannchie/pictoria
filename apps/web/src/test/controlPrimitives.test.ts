@@ -137,6 +137,13 @@ describe('prating', () => {
     expect(onSelect.mock.calls).toEqual([[3], [0]])
   })
 
+  it('names each option from labels, and tells the checked one it clears when picked again', async () => {
+    i18n.global.locale.value = 'en'
+    const host = mount(() => h(PRating, { modelValue: 2, count: 3, labels: ['A', 'B', 'C'], unselectable: true }))
+    await nextTick()
+    expect(stars(host).map(s => s.getAttribute('aria-label'))).toEqual(['A', 'B (pick again to clear)', 'C'])
+  })
+
   it('space / enter select without toggling off; delete clears when unselectable', async () => {
     const value = ref(2)
     const onSelect = vi.fn()

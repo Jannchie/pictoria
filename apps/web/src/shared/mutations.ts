@@ -13,6 +13,7 @@ import type {
   V2UndoAnnotationsData,
   V2UploadFileData,
 } from '@/api'
+import { isAxiosError } from 'axios'
 import {
   v2AddTagToPost,
   v2AutoCaption,
@@ -215,11 +216,7 @@ async function writeSource(qc: QueryClient, id: number, source: string): Promise
 
 async function writeTag(qc: QueryClient, id: number, tagName: string, add: boolean): Promise<void> {
   await (add ? v2AddTagToPost({ path: { post_id: id, tag_name: tagName } }) : v2RemoveTagFromPost({ path: { post_id: id, tag_name: tagName } }))
-  qc.invalidateQueries({ queryKey: queryKeys.postRoot(id) })
-  qc.invalidateQueries({ queryKey: queryKeys.tagsRoot })
-  // The tag-filter facet counts (per-tag post totals) shift when a post gains or
-  // loses a tag, so refresh every tag-count query.
-  qc.invalidateQueries({ queryKey: queryKeys.countRoot('tags') })
+  invalidateTagWrite(qc, [id], tagName)
 }
 
 /** 标签来源（人工 / 自动）只影响这张图的详情；计数和标签目录都不变。 */
@@ -502,6 +499,125 @@ export async function commitTag(
     apply: add ? restore : remove,
     revert: add ? remove : restore,
   })
+}
+
+/** The tag endpoints answer 409 when the post is already in that state (has / lacks the tag). */
+function isTagConflict(error: unknown): boolean {
+  return isAxiosError(error) && error.response?.status === 409
+}
+
+/** Requests in flight at once for a batch tag write. */
+const TAG_WRITE_CONCURRENCY = 4
+
+/**
+ * Run `task` over `items` with at most `limit` in flight. Stops starting new
+ * ones after the first failure, lets the in-flight ones settle, and reports
+ * that failure instead of throwing (the caller still needs what succeeded).
+ */
+async function runPool<T>(items: readonly T[], limit: number, task: (item: T) => Promise<void>): Promise<{ error?: unknown }> {
+  let next = 0
+  let failure: { error: unknown } | undefined
+  async function worker() {
+    while (!failure && next < items.length) {
+      const item = items[next++]
+      try {
+        await task(item)
+      }
+      catch (error) {
+        failure ??= { error }
+      }
+    }
+  }
+  await Promise.all(Array.from({ length: Math.min(limit, items.length) }, worker))
+  return failure ?? {}
+}
+
+/** Whether every cached tag catalogue already lists `tagName` (no catalogue cached counts as yes). */
+function catalogueHasTag(qc: QueryClient, tagName: string): boolean {
+  return qc.getQueriesData<{ name: string }[]>({ queryKey: queryKeys.tagsRoot })
+    .every(([, tags]) => !tags || tags.some(tag => tag.name === tagName))
+}
+
+/**
+ * After posts gained / lost a tag: their details and the tag-filter facet
+ * counts are stale (one predicate pass). The tag catalogue is refetched only
+ * when the tag is new to it; otherwise only its per-tag counts moved, so it is
+ * just marked stale (re-read by the next page that mounts it) — refetching the
+ * whole multi-MB catalogue after every tag click was the expensive part.
+ */
+function invalidateTagWrite(qc: QueryClient, ids: readonly number[], tagName: string): void {
+  const idSet = new Set(ids)
+  const { match } = queryKeys
+  qc.invalidateQueries({ predicate: ({ queryKey: k }) => match.post(k, idSet) || match.count(k, 'tags') })
+  qc.invalidateQueries({ queryKey: queryKeys.tagsRoot, refetchType: catalogueHasTag(qc, tagName) ? 'none' : 'active' })
+}
+
+/**
+ * Add (or remove) one tag on many posts through the single-post endpoint,
+ * `TAG_WRITE_CONCURRENCY` at a time, invalidating once at the end. A 409 means
+ * the post is already in the target state — it lands in `conflicted`, not in
+ * `done`, and does not stop the batch. Any other failure stops it; what was
+ * done so far is still returned (with the error) so it can be undone.
+ */
+async function applyTagMany(
+  qc: QueryClient,
+  ids: readonly number[],
+  tagName: string,
+  add: boolean,
+): Promise<{ done: number[], conflicted: number[], error?: unknown }> {
+  const done = new Set<number>()
+  const conflicted = new Set<number>()
+  const { error } = await runPool(ids, TAG_WRITE_CONCURRENCY, async (id) => {
+    try {
+      await (add
+        ? v2AddTagToPost({ path: { post_id: id, tag_name: tagName } })
+        : v2RemoveTagFromPost({ path: { post_id: id, tag_name: tagName } }))
+      done.add(id)
+    }
+    catch (error) {
+      if (!isTagConflict(error)) {
+        throw error
+      }
+      conflicted.add(id)
+    }
+  })
+  invalidateTagWrite(qc, ids, tagName)
+  // Input order, whatever order the requests finished in.
+  return { done: ids.filter(id => done.has(id)), conflicted: ids.filter(id => conflicted.has(id)), error }
+}
+
+/** applyTagMany for undo / redo: a 409 there just means it is already so. */
+async function replayTagMany(qc: QueryClient, ids: readonly number[], tagName: string, add: boolean): Promise<void> {
+  const { error } = await applyTagMany(qc, ids, tagName, add)
+  if (error) {
+    throw error
+  }
+}
+
+/**
+ * 给多选里的每一张加同一个标签（多选面板的"添加标签…"）。已经有这个标签的图
+ * （端点回 409）不算这次操作的一部分：记进撤销栈的只有真正加上的那些，撤销只摘
+ * 它们 —— 否则撤销会顺手摘掉原本就有的标签。中途失败时，已经加上的照样入栈
+ * （可撤销），错误再抛给调用方。
+ */
+export async function commitTagMany(
+  qc: QueryClient,
+  ids: readonly number[],
+  tagName: string,
+): Promise<{ done: number[], conflicted: number[] }> {
+  const { done, conflicted, error } = await applyTagMany(qc, ids, tagName, true)
+  if (done.length > 0) {
+    record({
+      label: done.length === 1 ? t('history.addTag', { tag: tagName }) : t('history.addTagMany', { tag: tagName, n: done.length }),
+      postIds: done,
+      apply: () => replayTagMany(qc, done, tagName, true),
+      revert: () => replayTagMany(qc, done, tagName, false),
+    })
+  }
+  if (error) {
+    throw error
+  }
+  return { done, conflicted }
 }
 
 /** 把一个自动标签确认为人工（`isAuto = false`），或改回自动。 */

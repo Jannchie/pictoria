@@ -8,3 +8,12 @@
 export function naturalizeTagName(name: string): string {
   return name.replaceAll('_', ' ')
 }
+
+/**
+ * 标签列表里一行的文本：自然英文名为主（去下划线兜底），有翻译时附在后面 ——
+ * 标签编辑器与批量加标签共用这一种写法。搜索 / 提交仍用原始下划线名。
+ */
+export function tagLabel(name: string, translated: string | null | undefined): string {
+  const natural = naturalizeTagName(name)
+  return translated ? `${natural}（${translated}）` : natural
+}

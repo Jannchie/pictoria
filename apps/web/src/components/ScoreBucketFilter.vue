@@ -39,7 +39,7 @@ type BucketDef = ReturnType<typeof bucketRows>[number]
 
 // 行序、level、labelKey 全部来自 @/shared 的分档表；数值区间来自打分器表。
 const buckets = computed<BucketDef[]>(() => bucketRows({ ...props.scorer.bucketRanges }))
-const icon = computed(() => props.scorer.filterIcon)
+const icon = computed(() => props.scorer.icon)
 
 // Shared A–E ramp (WAIFU_LEVEL_RGB) plus a muted dot for the unscored bucket.
 const LEVEL_DOT_RGB: Record<string, string> = {

@@ -54,6 +54,23 @@ watchEffect(() => {
 onUnmounted(() => {
   similarPostList.value = []
 })
+
+// The gallery's context menu ("Find similar") lands here with #similar: bring
+// the similar grid to the top of the scroller — once while it is still loading
+// (the loader is as far as the page reaches), and once more when the results
+// make the page tall enough, then leave the scroll to the user.
+let similarScrolledFor: number | null = null
+watch([() => route.hash, similarPostsRef, postId, () => similarPosts.value.length], ([hash, similar, id, n]) => {
+  if (hash !== '#similar' || !similar || similarScrolledFor === id) {
+    return
+  }
+  if (n > 0) {
+    similarScrolledFor = id
+  }
+  requestAnimationFrame(() => {
+    document.querySelector('#similar-posts')?.scrollIntoView({ block: 'start' })
+  })
+}, { flush: 'post' })
 const imgRef = ref<HTMLImageElement>()
 // Was a bare `imageLoaded` flag: a failed load kept the <img> at opacity 0 over
 // the placeholder for good, which reads as "still loading" forever.
@@ -429,6 +446,9 @@ async function confirmDelete() {
           </p>
         </div>
       </div>
+      <!-- Scroll target for /post/:id#similar (zero-height: SimilarPosts has
+           several roots, so it can't carry the id itself). -->
+      <div id="similar-posts" class="scroll-mt-2" aria-hidden="true" />
       <SimilarPosts
         v-if="scrollAreaRef"
         ref="similarPostsRef"

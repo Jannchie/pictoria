@@ -6,7 +6,7 @@ import { keepPreviousData, useQuery } from '@tanstack/vue-query'
 import { refDebounced, useDebounceFn, useEventListener } from '@vueuse/core'
 import { computed, nextTick, ref, useId, useTemplateRef, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
-import { useRouter } from 'vue-router'
+import { useRoute, useRouter } from 'vue-router'
 import { v2GetTagCount } from '@/api'
 import { useActiveFilters } from '@/composables/useActiveFilters'
 import { formatNumber, resolvedLocale } from '@/locale'
@@ -15,15 +15,18 @@ import {
   closeCommandPalette,
   commandPaletteOpen,
   hideNSFW,
-  leftPaneCollapsed,
   postFilter,
   postSort,
   postSortOrder,
   queryKeys,
-  rightPaneCollapsed,
+  RATING_ICON,
+  SCORE_ICON,
+  scorerIcon,
   shortcutHelpOpen,
   textSearchQuery,
 } from '@/shared'
+import { sortLock } from '@/shared/galleryView'
+import { routeHasRightPane, toggleLeftPane, toggleRightPane } from '@/shared/paneLayout'
 import { applyParsedFilter, hasFilterTerms, parseFilterQuery, stringifyFilterQuery } from '@/shared/postFilter'
 import { shortcuts } from '@/shared/shortcuts'
 import { POverlay } from '@/ui'
@@ -74,6 +77,7 @@ import {
  */
 const { t } = useI18n()
 const router = useRouter()
+const route = useRoute()
 const { isFiltered, clearAll, resetAll } = useActiveFilters()
 
 const query = ref('')
@@ -137,6 +141,20 @@ function sortBy(id: typeof postSort.value) {
   }
 }
 
+// Sorting commands, unless the sort is locked here (text search, /recently,
+// /unrated-artists — see sortLock): they would change nothing visible.
+const sortCommands = computed<CommandDef[]>(() => sortLock(route.meta.view, textSearchQuery.value.trim().length > 0)
+  ? []
+  : [
+      { id: 'sort-score', section: 'sort', label: t('command.sortBy', { label: t('sort.score') }), icon: SCORE_ICON, run: sortBy('score') },
+      { id: 'sort-rating', section: 'sort', label: t('command.sortBy', { label: t('sort.rating') }), icon: RATING_ICON, run: sortBy('rating') },
+      { id: 'sort-silva', section: 'sort', label: t('command.sortBy', { label: t('sort.silvaScore') }), icon: scorerIcon('silva'), run: sortBy('silva_score') },
+      { id: 'sort-silva-luna', section: 'sort', label: t('command.sortBy', { label: t('sort.silvaLunaScore') }), icon: scorerIcon('silva_luna'), run: sortBy('silva_luna_score') },
+      { id: 'sort-waifu', section: 'sort', label: t('command.sortBy', { label: t('sort.waifuScore') }), icon: scorerIcon('waifu'), run: sortBy('waifu_score') },
+      { id: 'sort-discrepancy', section: 'sort', label: t('command.sortBy', { label: t('sort.discrepancy') }), icon: 'i-tabler-git-compare', keywords: 'model vs me disagree', run: sortBy('discrepancy') },
+      { id: 'sort-created', section: 'sort', label: t('command.sortBy', { label: t('sort.created') }), icon: 'i-tabler-calendar-event', run: sortBy('created_at') },
+    ])
+
 const commands = computed<CommandDef[]>(() => {
   const list: CommandDef[] = [
     { id: 'nav-all', section: 'navigate', label: t('nav.all'), icon: 'i-tabler-photo', keywords: 'gallery home', run: go('/all') },
@@ -147,13 +165,7 @@ const commands = computed<CommandDef[]>(() => {
     { id: 'nav-annotate', section: 'navigate', label: t('nav.annotate'), icon: 'i-tabler-checklist', run: go('/annotate') },
     { id: 'nav-settings', section: 'navigate', label: t('common.settings'), icon: 'i-tabler-settings', run: go('/settings') },
 
-    { id: 'sort-score', section: 'sort', label: t('command.sortBy', { label: t('sort.score') }), icon: 'i-tabler-star', run: sortBy('score') },
-    { id: 'sort-rating', section: 'sort', label: t('command.sortBy', { label: t('sort.rating') }), icon: 'i-tabler-thumb-up', run: sortBy('rating') },
-    { id: 'sort-silva', section: 'sort', label: t('command.sortBy', { label: t('sort.silvaScore') }), icon: 'i-tabler-rosette', run: sortBy('silva_score') },
-    { id: 'sort-silva-luna', section: 'sort', label: t('command.sortBy', { label: t('sort.silvaLunaScore') }), icon: 'i-tabler-moon', run: sortBy('silva_luna_score') },
-    { id: 'sort-waifu', section: 'sort', label: t('command.sortBy', { label: t('sort.waifuScore') }), icon: 'i-tabler-heart', run: sortBy('waifu_score') },
-    { id: 'sort-discrepancy', section: 'sort', label: t('command.sortBy', { label: t('sort.discrepancy') }), icon: 'i-tabler-git-compare', keywords: 'model vs me disagree', run: sortBy('discrepancy') },
-    { id: 'sort-created', section: 'sort', label: t('command.sortBy', { label: t('sort.created') }), icon: 'i-tabler-calendar-event', run: sortBy('created_at') },
+    ...sortCommands.value,
 
     {
       id: 'view-left',
@@ -161,20 +173,20 @@ const commands = computed<CommandDef[]>(() => {
       label: t('pane.toggleLeft'),
       shortcut: shortcuts.global.toggleLeft.keys[0],
       icon: 'i-tabler-layout-sidebar-left-collapse',
-      run: () => {
-        leftPaneCollapsed.value = !leftPaneCollapsed.value
-      },
+      run: toggleLeftPane,
     },
-    {
-      id: 'view-right',
-      section: 'view',
-      label: t('pane.toggleRight'),
-      shortcut: shortcuts.global.toggleRight.keys[0],
-      icon: 'i-tabler-layout-sidebar-right-collapse',
-      run: () => {
-        rightPaneCollapsed.value = !rightPaneCollapsed.value
-      },
-    },
+    // Pages without a detail pane (Settings, Tags) don't offer it: toggling
+    // there would silently flip the preference with nothing visible changing.
+    ...(routeHasRightPane.value
+      ? [{
+        id: 'view-right',
+        section: 'view',
+        label: t('pane.toggleRight'),
+        shortcut: shortcuts.global.toggleRight.keys[0],
+        icon: 'i-tabler-layout-sidebar-right-collapse',
+        run: toggleRightPane,
+      } satisfies CommandDef]
+      : []),
     {
       id: 'view-nsfw',
       section: 'view',

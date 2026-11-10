@@ -68,7 +68,7 @@ const spoken = computed(() => {
     <span
       v-for="m in metrics"
       :key="m.key"
-      class="flex gap-0.5 items-center"
+      class="flex shrink-0 gap-0.5 whitespace-nowrap items-center"
       aria-hidden="true"
     >
       <i v-if="m.icon" class="text-fg-subtle h-3 w-3" :class="m.icon" aria-hidden="true" />

@@ -45,7 +45,7 @@ describe('locale catalogues', () => {
   // for Taiwanese vocabulary, so an untouched entry is expected -- but one that
   // still reads as mainland wording is a conversion that was never reviewed.
   it('zh-hant carries no mainland-only vocabulary', () => {
-    const mainlandOnly = ['加載', '設置', '默認', '文件', '保存', '搜索', '刷新', '創建', '撤銷', '信息', '視頻', '網絡', '用戶', '屏幕', '菜單', '緩存', '鏈接', '分辨率', '服務器', '縮略圖']
+    const mainlandOnly = ['加載', '設置', '默認', '文件', '保存', '搜索', '刷新', '創建', '撤銷', '信息', '視頻', '網絡', '用戶', '屏幕', '菜單', '緩存', '鏈接', '分辨率', '服務器', '縮略圖', '添加', '列表']
     for (const [key, message] of zhHantFlat) {
       for (const word of mainlandOnly) {
         expect(message, `"${key}" still uses mainland wording ${word}`).not.toContain(word)

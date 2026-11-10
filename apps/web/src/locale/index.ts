@@ -144,6 +144,14 @@ export function formatDate(input: string | number | Date): string {
   return dateFormat.value.format(new Date(input))
 }
 
+// Day + time without the year or seconds ("11/9 14:32", "11月9日 14:32"): for
+// recency stamps where the date alone hides that two visits were hours apart.
+const shortDateTimeFormat = computed(() => new Intl.DateTimeFormat(resolvedLocale.value, { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' }))
+
+export function formatShortDateTime(input: string | number | Date): string {
+  return shortDateTimeFormat.value.format(new Date(input))
+}
+
 const relativeFormat = computed(() => new Intl.RelativeTimeFormat(resolvedLocale.value, { numeric: 'auto' }))
 
 // Largest unit first: pick the coarsest one the gap fills, so 90 minutes reads

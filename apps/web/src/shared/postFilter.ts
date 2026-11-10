@@ -17,7 +17,7 @@ import type { PostFilterWithOrder } from '@/api'
 import { expandRange, RATING_ALIASES, splitOp, tokenize } from '@/utils/filterDsl'
 import { naturalizeTagName } from '@/utils/tagName'
 import { bucketLabelKey, toBucketAlias, toBucketLevel } from './buckets'
-import { MAX_POST_RATING, MAX_POST_SCORE, RATING_LEVEL_LABEL_KEYS, RATING_UNRATED_LABEL_KEY } from './ratings'
+import { MAX_POST_RATING, MAX_POST_SCORE, RATING_ICON, ratingName, SCORE_ICON } from './ratings'
 import { SCORERS } from './scorers'
 
 // ---------------------------------------------------------------------------
@@ -92,10 +92,6 @@ function facet<V extends FacetValue>(spec: FacetSpec<V>): FacetSpec<FacetValue> 
 /** rating 0..4 在 DSL 输出里的名字。 */
 const RATING_DSL_NAMES = ['unrated', 'general', 'sensitive', 'questionable', 'explicit']
 
-function ratingLabel(r: number, t: Translate): string {
-  return r === 0 ? t(RATING_UNRATED_LABEL_KEY) : t(RATING_LEVEL_LABEL_KEYS[r - 1] ?? 'rating.unknown')
-}
-
 function bucketLabel(level: string, t: Translate): string {
   const key = bucketLabelKey(level)
   return key ? t(key) : level
@@ -118,8 +114,8 @@ export const FILTER_FACETS: readonly FacetSpec<FacetValue>[] = [
     },
     formatDsl: r => `rating:${RATING_DSL_NAMES[r] ?? r}`,
     sorted: true,
-    chipIcon: 'i-tabler-thumb-up',
-    chipLabel: ratingLabel,
+    chipIcon: RATING_ICON,
+    chipLabel: (r, t) => ratingName(r, t),
   }),
   facet<number>({
     field: 'score',
@@ -131,7 +127,7 @@ export const FILTER_FACETS: readonly FacetSpec<FacetValue>[] = [
     },
     formatDsl: s => `score:${s}`,
     sorted: true,
-    chipIcon: 'i-tabler-star',
+    chipIcon: SCORE_ICON,
     chipLabel: (s, t) => t('filter.star', { n: s }, s),
   }),
   facet<string>({

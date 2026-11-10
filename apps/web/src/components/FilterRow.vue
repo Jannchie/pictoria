@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import type { FilterChip } from '@/composables/useActiveFilters'
-import { nextTick, useTemplateRef } from 'vue'
+import { useElementSize } from '@vueuse/core'
+import { computed, nextTick, useTemplateRef } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useActiveFilters } from '@/composables/useActiveFilters'
 import { announce, openCommandPalette, SCORERS, textSearchQuery, waterfallRowCount } from '@/shared'
@@ -20,6 +21,14 @@ const paletteShortcut = formatShortcut(shortcuts.global.openPalette.keys[0])
 const paletteAriaShortcut = isMac ? '/ Meta+K' : '/ Control+K'
 
 const chipList = useTemplateRef<HTMLElement>('chipList')
+const root = useTemplateRef<HTMLElement>('root')
+
+// A narrow main area (both side panes open on a small window) can't fit the
+// search label: below this width the search button is just its icon (the
+// label stays its accessible name) so the right cluster never spills over.
+const COMPACT_BELOW_PX = 480
+const { width: rowWidth } = useElementSize(root)
+const compact = computed(() => rowWidth.value > 0 && rowWidth.value < COMPACT_BELOW_PX)
 const searchButton = useTemplateRef<HTMLElement>('searchButton')
 
 // Removing a chip unmounts the focused button; keep focus in the chip row
@@ -45,7 +54,9 @@ async function onClearAll() {
 </script>
 
 <template>
-  <div class="px-3 py-2 border-b border-border-subtle flex flex-col gap-1.5 w-full">
+  <!-- overflow-hidden: whatever still doesn't fit is clipped here instead of
+       painting over the neighbouring pane (popovers are teleported). -->
+  <div ref="root" class="px-3 py-2 border-b border-border-subtle flex flex-col gap-1.5 w-full overflow-hidden">
     <div class="flex flex-wrap gap-x-4 gap-y-1.5 w-full items-center justify-between">
       <!-- Facets are ghost buttons at rest and tint only when they hold a
            selection: the row should read as a line of labels, not a row of
@@ -74,16 +85,18 @@ async function onClearAll() {
         <button
           ref="searchButton"
           type="button"
-          class="text-sm text-fg-muted px-2 rounded-md flex flex-shrink gap-2 h-7 min-w-32 w-60 transition-colors items-center hover:text-fg hover:bg-surface-1"
+          class="text-sm text-fg-muted px-2 rounded-md flex flex-shrink gap-2 h-7 transition-colors items-center hover:text-fg hover:bg-surface-1"
+          :class="compact ? 'shrink-0' : 'min-w-32 w-60'"
+          :title="compact ? $t('command.title') : undefined"
           :aria-label="$t('command.title')"
           :aria-keyshortcuts="paletteAriaShortcut"
           @click="openCommandPalette()"
         >
           <i class="i-tabler-search text-fg-subtle shrink-0" aria-hidden="true" />
-          <span class="text-left flex-grow truncate" :class="{ 'text-fg': textSearchQuery }">
+          <span v-if="!compact" class="text-left flex-grow truncate" :class="{ 'text-fg': textSearchQuery }">
             {{ textSearchQuery || $t('filter.semanticPlaceholder') }}
           </span>
-          <kbd class="text-2xs text-fg-subtle leading-none font-mono px-1 py-0.5 border border-border-subtle rounded-xs shrink-0" aria-hidden="true">{{ paletteShortcut }}</kbd>
+          <kbd v-if="!compact" class="text-2xs text-fg-subtle leading-none font-mono px-1 py-0.5 border border-border-subtle rounded-xs shrink-0" aria-hidden="true">{{ paletteShortcut }}</kbd>
         </button>
         <PostSorter />
         <div

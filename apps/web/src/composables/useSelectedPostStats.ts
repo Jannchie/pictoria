@@ -24,6 +24,21 @@ function positiveRange<T>(items: readonly T[], read: (item: T) => number): { min
  * of `PostMultiSelectPanel` so the ~80 lines of reductions can be unit-tested
  * and the component keeps only its presentation.
  */
+/**
+ * The value every post in `posts` shares (a missing value counts as 0), or
+ * null when `posts` is empty or the values differ. Only rows the caller has
+ * can be compared: a caller whose selection reaches past its loaded rows must
+ * decide what that means itself (the gallery menu treats it as "unknown" and
+ * passes no rows).
+ */
+export function commonValue<T>(posts: readonly T[], read: (post: T) => number | null | undefined): number | null {
+  if (posts.length === 0) {
+    return null
+  }
+  const first = read(posts[0]) ?? 0
+  return posts.every(p => (read(p) ?? 0) === first) ? first : null
+}
+
 export function useSelectedPostStats(selectedPosts: Ref<PostSimplePublic[]>) {
   const totalSize = computed(() => selectedPosts.value.reduce((sum, p) => sum + (p.size ?? 0), 0))
 
@@ -84,20 +99,8 @@ export function useSelectedPostStats(selectedPosts: Ref<PostSimplePublic[]>) {
     return out.join('/')
   })
 
-  const commonRating = computed<number | null>(() => {
-    if (selectedPosts.value.length === 0) {
-      return null
-    }
-    const first = selectedPosts.value[0].rating ?? 0
-    return selectedPosts.value.every(p => (p.rating ?? 0) === first) ? first : null
-  })
-  const commonScore = computed<number | null>(() => {
-    if (selectedPosts.value.length === 0) {
-      return null
-    }
-    const first = selectedPosts.value[0].score ?? 0
-    return selectedPosts.value.every(p => (p.score ?? 0) === first) ? first : null
-  })
+  const commonRating = computed(() => commonValue(selectedPosts.value, p => p.rating))
+  const commonScore = computed(() => commonValue(selectedPosts.value, p => p.score))
 
   return {
     totalSize,

@@ -4,7 +4,6 @@ import { useQueryClient } from '@tanstack/vue-query'
 import { filesize } from 'filesize'
 import { computed, ref, useId } from 'vue'
 import { useI18n } from 'vue-i18n'
-import { useRoute } from 'vue-router'
 import { useAPIError } from '@/composables/useAPIError'
 import { useConfirmAction } from '@/composables/useConfirmAction'
 import { focusGalleryGrid } from '@/composables/useGalleryGrid'
@@ -16,15 +15,14 @@ import {
   clear,
   commitRating,
   commitScore,
-  currentPostList,
   deletePosts,
   groupPostsTogether,
   isCommittedSelected,
   RATING_LEVEL_COLORS,
   RATING_LEVEL_ICONS,
-  RATING_LEVEL_LABEL_KEYS,
-  RATING_LEVEL_SHORT,
-  RATING_UNRATED_LABEL_KEY,
+  RATING_LEVEL_SHORT_KEYS,
+  ratingLevelNames,
+  ratingName,
   SCORE_LEVEL_COLORS,
   selectAll,
   selectedCount,
@@ -32,30 +30,22 @@ import {
   selectOnly,
   setGridCursor,
   showPostDetail,
-  similarPostList,
 } from '@/shared'
+import { copyPostPaths } from '@/shared/postPaths'
 import { useToast } from '@/shared/toast'
+import { visiblePostList } from '@/shared/visiblePosts'
 import { getPostThumbnailURL } from '@/utils'
 
 const { t } = useI18n()
 const queryClient = useQueryClient()
-const route = useRoute()
 const { pushToast } = useToast()
 const { handle: handleAPIError } = useAPIError()
-
-// The ordered list currently in view: the similar-posts grid on a post detail
-// page, otherwise the gallery list. Keeping these separate (rather than reusing
-// currentPostList everywhere) lets the detail page's prev/next arrow nav stay
-// on the gallery while the panel here reflects the similar grid the user sees.
-const visibleList = computed(() =>
-  route.name === 'post' ? similarPostList.value : currentPostList.value,
-)
 
 // Intersect the selected ids with whatever ordered list is currently in view.
 // If the user is on a non-gallery route the list may be empty, in which case
 // aggregations show zeros — UI degrades gracefully rather than mass-fetching.
 const selectedPosts = computed(() => {
-  return visibleList.value.filter(p => isCommittedSelected(p.id))
+  return visiblePostList.value.filter(p => isCommittedSelected(p.id))
 })
 
 const count = selectedCount
@@ -74,11 +64,14 @@ const {
   commonScore,
 } = useSelectedPostStats(selectedPosts)
 
-const RATING_LABELS = computed(() => [t(RATING_UNRATED_LABEL_KEY), ...RATING_LEVEL_SHORT])
-// Full names for the screen-reader rendering of the distribution bars.
-const RATING_FULL_LABELS = computed(() => [t(RATING_UNRATED_LABEL_KEY), ...RATING_LEVEL_LABEL_KEYS.map(k => t(k))])
+const RATING_SHORT = computed(() => RATING_LEVEL_SHORT_KEYS.map(k => t(k)))
+const RATING_LABELS = computed(() => [ratingName(0, t), ...RATING_SHORT.value])
+// Full names: the rating control's option names, and the screen-reader
+// rendering of the distribution bars.
+const RATING_LEVEL_NAMES = computed(() => ratingLevelNames(t))
+const RATING_FULL_LABELS = computed(() => [ratingName(0, t), ...RATING_LEVEL_NAMES.value])
 // Visual legend under the bar heading: "—" stands for the unrated/unscored bucket.
-const RATING_LEGEND = ['—', ...RATING_LEVEL_SHORT].join(' · ')
+const RATING_LEGEND = computed(() => ['—', ...RATING_SHORT.value].join(' · '))
 const SCORE_LEGEND = ['—', '1', '2', '3', '4', '5'].join(' · ')
 const RATING_COLORS = ['var(--p-fg-subtle)', ...RATING_LEVEL_COLORS]
 const SCORE_LABELS = computed(() => [t('common.unscored'), '1', '2', '3', '4', '5'])
@@ -96,6 +89,7 @@ function hash01(seed: number): number {
   return x - Math.floor(x)
 }
 const THUMB_LONG_EDGE = 88
+const GOLDEN_ANGLE = Math.PI * (3 - Math.sqrt(5))
 const Z_LEVELS = 13
 function thumbZ(idx: number): number {
   return (idx * 7) % Z_LEVELS // 0 = bottom layer, 12 = top layer ("background")
@@ -105,9 +99,14 @@ function thumbStyle(p: PostSimplePublic, idx: number) {
   const ratio = p.aspectRatio || (p.width && p.height ? p.width / p.height : 1)
   const width = ratio >= 1 ? THUMB_LONG_EDGE : THUMB_LONG_EDGE * ratio
   const height = ratio >= 1 ? THUMB_LONG_EDGE / ratio : THUMB_LONG_EDGE
-  const rot = (hash01(p.id + idx * 7) - 0.5) * 28
-  const dx = (hash01(p.id * 13 + idx) - 0.5) * 60
-  const dy = (hash01(p.id * 29 + idx * 3) - 0.5) * 40
+  // Placement by pile position (a golden-angle spiral: every index gets its own
+  // spot) plus a little id-seeded jitter. Purely random offsets could land two
+  // cards on the same spot — with three selected, one was hidden outright.
+  const radius = idx === 0 ? 0 : 22 + 7 * Math.sqrt(idx)
+  const angle = idx * GOLDEN_ANGLE
+  const rot = (hash01(p.id + idx * 7) - 0.5) * 24
+  const dx = radius * Math.cos(angle) * 1.4 + (hash01(p.id * 13 + idx) - 0.5) * 8
+  const dy = radius * Math.sin(angle) + (hash01(p.id * 29 + idx * 3) - 0.5) * 6
   return {
     width: `${width.toFixed(1)}px`,
     height: `${height.toFixed(1)}px`,
@@ -142,7 +141,7 @@ function clearSelection() {
 }
 
 function selectAllInList() {
-  selectAll(visibleList.value.map(p => p.id))
+  selectAll(visiblePostList.value.map(p => p.id))
 }
 
 function focusOne(id: number) {
@@ -160,18 +159,8 @@ async function applyScore(score: number) {
   await commitScore(queryClient, selectedPosts.value, selectedIdList.value, score)
 }
 
-async function copyPaths() {
-  const paths = selectedPosts.value.map(p => `${p.filePath}/${p.fileName}.${p.extension}`)
-  if (paths.length === 0) {
-    return
-  }
-  try {
-    await navigator.clipboard.writeText(paths.join('\n'))
-    announce(t('multiSelect.pathsCopied', { n: formatNumber(paths.length) }, paths.length))
-  }
-  catch {
-    announce(t('multiSelect.copyFailed'), 'assertive')
-  }
+function copyPaths() {
+  return copyPostPaths(selectedPosts.value)
 }
 
 // Merge the whole selection into one near-duplicate group. The selection can
@@ -242,11 +231,6 @@ function pct(n: number) {
   }
   return (n / distributionTotal.value) * 100
 }
-
-// Section heading style, kept in sync with PostDetailPanel.vue so both side
-// panels share one editorial rhythm: small uppercase label with a leading icon.
-const sectionTitleClass
-  = 'flex items-center gap-1.5 text-fg-subtle text-[11px] font-semibold uppercase tracking-wider'
 </script>
 
 <template>
@@ -348,8 +332,7 @@ const sectionTitleClass
 
       <section class="py-3 p-divider">
         <h3
-          :class="sectionTitleClass"
-          class="mb-2"
+          class="p-section-title mb-2"
         >
           <i class="i-tabler-edit" aria-hidden="true" />
           <span>{{ $t('multiSelect.batch') }}</span>
@@ -366,6 +349,7 @@ const sectionTitleClass
             :count="4"
             :colors="RATING_LEVEL_COLORS"
             :icons="RATING_LEVEL_ICONS"
+            :labels="RATING_LEVEL_NAMES"
             @select="applyRating"
           />
           <span
@@ -373,7 +357,11 @@ const sectionTitleClass
             class="text-[10px] text-fg-subtle tracking-wide uppercase"
             aria-hidden="true"
           >{{ $t('common.mixed') }}</span>
-          <span v-else />
+          <span
+            v-else
+            class="text-fg-subtle text-right truncate"
+            aria-hidden="true"
+          >{{ commonRating ? RATING_LEVEL_NAMES[commonRating - 1] : '' }}</span>
 
           <div :id="scoreLabelId">
             {{ $t('post.scoreLabel') }}
@@ -393,6 +381,7 @@ const sectionTitleClass
           <span v-else />
         </div>
         <div class="mt-3 flex flex-col gap-2">
+          <BatchTagPicker :ids="selectedIdList" />
           <PButton
             size="sm"
             variant="subtle"
@@ -422,8 +411,7 @@ const sectionTitleClass
         class="py-3 p-divider"
       >
         <h3
-          :class="sectionTitleClass"
-          class="mb-2"
+          class="p-section-title mb-2"
         >
           <i class="i-tabler-chart-bar" aria-hidden="true" />
           <span>{{ $t('multiSelect.distribution') }}</span>
@@ -476,8 +464,7 @@ const sectionTitleClass
         class="py-3"
       >
         <h3
-          :class="sectionTitleClass"
-          class="mb-2"
+          class="p-section-title mb-2"
         >
           <i class="i-tabler-files" aria-hidden="true" />
           <span>{{ $t('multiSelect.files') }}</span>

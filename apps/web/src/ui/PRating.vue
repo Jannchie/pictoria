@@ -1,12 +1,18 @@
 <script setup lang="ts">
 import { computed, ref, useId } from 'vue'
+import { useI18n } from 'vue-i18n'
+import PTooltip from './PTooltip.vue'
 
-const props = defineProps<{
+const props = withDefaults(defineProps<{
   count?: number
   icons?: IconType
   colors?: string[]
   highlightSelectedOnly?: boolean
-  /** Clicking the selected star again, or Delete / Backspace, clears to 0. */
+  /**
+   * Clicking the selected star again, or Delete / Backspace, clears to 0 (and
+   * the selected star's name says so). On by default — every rating control in
+   * the app is clearable; pass `false` for one that must always hold a value.
+   */
   unselectable?: boolean
   ariaLabel?: string
   /** No interaction; out of the Tab order (like a disabled native radio group). */
@@ -19,7 +25,15 @@ const props = defineProps<{
    * model currently holds) selects it.
    */
   mixed?: boolean
-}>()
+  /**
+   * A name per option (e.g. the rating levels "General" … "Explicit"). Used as
+   * each option's accessible name and shown in a tooltip on hover / focus;
+   * without it the options are announced as "n of count".
+   */
+  labels?: readonly string[]
+}>(), {
+  unselectable: true,
+})
 const emit = defineEmits<{
   select: [number]
 }>()
@@ -30,9 +44,7 @@ const model = defineModel<number>({
 const highlightSelectedOnly = computed(() => {
   return props.highlightSelectedOnly ?? false
 })
-const unselectable = computed(() => {
-  return props.unselectable ?? false
-})
+const unselectable = computed(() => props.unselectable)
 const hoverIndex = ref(-1)
 // What the stars draw: nothing while the value is mixed.
 const shown = computed(() => props.mixed ? 0 : model.value)
@@ -269,6 +281,13 @@ function tabStop(index: number) {
 }
 
 const mixedId = useId()
+
+const { t } = useI18n()
+// The checked option of a clearable group says what picking it again does.
+function optionLabel(i: number): string {
+  const name = props.labels?.[i] ?? t('rating.option', { n: i + 1, count: count.value })
+  return unselectable.value && isChecked(i) && interactive.value ? t('rating.pickAgainToClear', { name }) : name
+}
 </script>
 
 <template>
@@ -283,26 +302,33 @@ const mixedId = useId()
     :class="{ 'op-50': disabled }"
   >
     <span v-if="mixed" :id="mixedId" class="sr-only">{{ $t('rating.mixed') }}</span>
-    <div
+    <PTooltip
       v-for="_, i in count"
       :key="i"
-      role="radio"
-      :aria-checked="isChecked(i)"
-      :aria-disabled="disabled || undefined"
-      :aria-label="$t('rating.option', { n: i + 1, count })"
-      :tabindex="tabStop(i)"
-      class="pr-1 rounded"
-      :class="interactive ? 'cursor-pointer' : disabled ? 'cursor-not-allowed' : 'cursor-default'"
-      @mouseover="interactive && (hoverIndex = i + 1)"
-      @mouseleave="hoverIndex = -1"
-      @click="onClick(i)"
-      @keydown="onKeyDown($event, i)"
+      :content="labels?.[i] ? optionLabel(i) : undefined"
+      :disabled="!labels?.[i]"
+      position="bottom"
+      class="inline-flex"
     >
-      <i
-        aria-hidden="true"
-        :class="getCls(i)"
-        :style="getStyle(i)"
-      />
-    </div>
+      <div
+        role="radio"
+        :aria-checked="isChecked(i)"
+        :aria-disabled="disabled || undefined"
+        :aria-label="optionLabel(i)"
+        :tabindex="tabStop(i)"
+        class="pr-1 rounded"
+        :class="interactive ? 'cursor-pointer' : disabled ? 'cursor-not-allowed' : 'cursor-default'"
+        @mouseover="interactive && (hoverIndex = i + 1)"
+        @mouseleave="hoverIndex = -1"
+        @click="onClick(i)"
+        @keydown="onKeyDown($event, i)"
+      >
+        <i
+          aria-hidden="true"
+          :class="getCls(i)"
+          :style="getStyle(i)"
+        />
+      </div>
+    </PTooltip>
   </div>
 </template>

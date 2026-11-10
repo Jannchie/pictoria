@@ -3,7 +3,7 @@ import { computed, useTemplateRef } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { v2GetRatingCount } from '@/api'
 import { facetOptionLabel, facetTriggerLabel, initialOptionIndex, useFacetFilter, useFacetListbox } from '@/composables/useFacetFilter'
-import { RATING_LEVEL_COLORS, RATING_LEVEL_ICONS, RATING_LEVEL_LABEL_KEYS, RATING_UNRATED_ICON, RATING_UNRATED_LABEL_KEY } from '@/shared/ratings'
+import { RATING_ICON, ratingName, ratingVisual } from '@/shared/ratings'
 
 const { t } = useI18n()
 
@@ -51,17 +51,14 @@ function ratingCount(rating: number): number | undefined {
 }
 
 function ratingIcon(rating: number) {
-  return rating === 0 ? RATING_UNRATED_ICON : RATING_LEVEL_ICONS[rating - 1]
+  return ratingVisual(rating).icon
 }
 function ratingIconStyle(rating: number) {
-  return rating === 0 ? undefined : { color: RATING_LEVEL_COLORS[rating - 1] }
+  const { color } = ratingVisual(rating)
+  return color ? { color } : undefined
 }
 function getRatingName(rating: number) {
-  if (rating === 0) {
-    return t(RATING_UNRATED_LABEL_KEY)
-  }
-  const key = RATING_LEVEL_LABEL_KEYS[rating - 1]
-  return key ? t(key) : t('rating.unknown')
+  return ratingName(rating, t)
 }
 </script>
 
@@ -83,7 +80,7 @@ function getRatingName(rating: number) {
             aria-hidden="true"
           />
         </template>
-        <i v-else class="i-tabler-star" aria-hidden="true" />
+        <i v-else :class="RATING_ICON" aria-hidden="true" />
         <span>
           {{ btnText }}
         </span>

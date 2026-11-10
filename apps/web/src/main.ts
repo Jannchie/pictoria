@@ -1,13 +1,12 @@
-import type { RouteRecordRaw } from 'vue-router'
 import { VueQueryPlugin } from '@tanstack/vue-query'
 import { createApp } from 'vue'
-import { createRouter, createWebHistory } from 'vue-router'
 import App from '@/App.vue'
 import { i18n, localeReady } from '@/locale'
 import { baseURL } from '@/shared'
 import { highlightDirective } from '@/utils'
 import { prewarmArthash } from '@/utils/arthash'
 import { client } from './api/client.gen'
+import { router } from './router'
 import '@unocss/reset/tailwind-compat.css'
 import 'virtual:uno.css'
 import '@/styles/tokens.css'
@@ -59,51 +58,6 @@ const resolvedScheme = storedScheme === 'auto'
   : storedScheme
 document.documentElement.dataset.scheme = resolvedScheme
 
-// Cross-cutting route attributes read back via `route.meta` — declared here,
-// on the route table, so the classification has a single source of truth.
-declare module 'vue-router' {
-  interface RouteMeta {
-    /**
-     * Renders the filtered waterfall: filter/sort state is projected into the
-     * URL query on these routes (see useSyncFilterWithUrl in shared/state.ts).
-     */
-    gallery?: boolean
-    /**
-     * Sidebar entry this page lives under when it has no entry of its own
-     * (e.g. /unrated-artists is reached from the annotate page); SpecialPathList
-     * lights that entry up.
-     */
-    navParent?: string
-    /**
-     * Which gallery list a `gallery` route shows. The one place a page asks
-     * "am I /random?" — instead of matching `route.path` / `route.name` at every
-     * call site (`/` has no name, so those checks kept disagreeing about it).
-     * `/` is the same view as `/all`.
-     */
-    view?: 'all' | 'dir' | 'random' | 'recently' | 'unratedArtists'
-  }
-}
-
-const routes: RouteRecordRaw[] = [
-  { path: '/', component: () => import('./views/Home.vue'), meta: { gallery: true, view: 'all' } },
-  { path: '/all', component: () => import('./views/Home.vue'), name: 'all', meta: { gallery: true, view: 'all' } },
-  { path: '/dir/:folder*', component: () => import('./views/Home.vue'), name: 'dir', meta: { gallery: true, view: 'dir' } },
-  { path: '/random', component: () => import('./views/Home.vue'), meta: { gallery: true, view: 'random' } },
-  { path: '/recently', component: () => import('./views/Home.vue'), name: 'recently', meta: { gallery: true, view: 'recently' } },
-  { path: '/unrated-artists', component: () => import('./views/Home.vue'), name: 'unratedArtists', meta: { gallery: true, view: 'unratedArtists', navParent: '/annotate' } },
-  { path: '/tags', component: () => import('./views/Tags.vue'), name: 'tags' },
-  // Component playground: dev server only, so the view never ships.
-  ...(import.meta.env.DEV ? [{ path: '/test', component: () => import('./views/Test.vue'), name: 'test' }] : []),
-  { path: '/post/:postId', component: () => import('./views/Post.vue'), name: 'post' },
-  { path: '/annotate', component: () => import('./views/Annotate.vue'), name: 'annotate' },
-  { path: '/settings', component: () => import('./views/Settings.vue'), name: 'settings' },
-  { path: '/:pathMatch(.*)*', component: () => import('./views/NotFound.vue'), name: 'notFound' },
-]
-
-const router = createRouter({
-  history: createWebHistory(),
-  routes,
-})
 const app = createApp(App)
 app.directive('highlight', highlightDirective)
 app.use(i18n)

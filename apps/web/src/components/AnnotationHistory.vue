@@ -13,14 +13,11 @@ const hasAny = computed(() =>
   || (data.value?.pairwise?.length ?? 0) > 0
   || Boolean(data.value?.contentFlag),
 )
-
-const sectionTitleClass
-  = 'flex items-center gap-1.5 text-fg-subtle text-[11px] font-semibold uppercase tracking-wider'
 </script>
 
 <template>
   <section v-if="hasAny" class="py-4">
-    <h3 :class="sectionTitleClass" class="mb-2">
+    <h3 class="p-section-title mb-2">
       <i class="i-tabler-tags" aria-hidden="true" />
       <span>{{ $t('post.annotationHistory') }}</span>
     </h3>

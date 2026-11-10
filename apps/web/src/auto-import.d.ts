@@ -22,6 +22,7 @@ declare global {
   const autoResetRef: typeof import('@vueuse/core').autoResetRef
   const buildTagTree: typeof import('./composables/useTagTree').buildTagTree
   const choiceBindings: typeof import('./composables/useAnnotationKeymap').choiceBindings
+  const commonValue: typeof import('./composables/useSelectedPostStats').commonValue
   const computed: typeof import('vue').computed
   const computedAsync: typeof import('@vueuse/core').computedAsync
   const computedEager: typeof import('@vueuse/core').computedEager
@@ -54,11 +55,13 @@ declare global {
   const filterTagTree: typeof import('./composables/useTagTree').filterTagTree
   const firstRovingIndex: typeof import('./composables/useRovingIndex').firstRovingIndex
   const focusGalleryGrid: typeof import('./composables/useGalleryGrid').focusGalleryGrid
+  const formatAverage: typeof import('./composables/usePostsStatsQuery').formatAverage
   const formatDate: typeof import('./locale/index').formatDate
   const formatDateTime: typeof import('./locale/index').formatDateTime
   const formatNumber: typeof import('./locale/index').formatNumber
   const formatPct: typeof import('./composables/useFacetFilter').formatPct
   const formatRelativeTime: typeof import('./locale/index').formatRelativeTime
+  const formatShortDateTime: typeof import('./locale/index').formatShortDateTime
   const galleryGridKey: typeof import('./composables/useGalleryGrid').galleryGridKey
   const gateOnSubmit: typeof import('./composables/useAnnotationKeymap').gateOnSubmit
   const gatedCountOptions: typeof import('./composables/useFacetFilter').gatedCountOptions
@@ -302,6 +305,7 @@ declare global {
   const usePostNavAnnounce: typeof import('./composables/usePostNavigation').usePostNavAnnounce
   const usePostNavigation: typeof import('./composables/usePostNavigation').usePostNavigation
   const usePostQuery: typeof import('./composables/usePostQuery').usePostQuery
+  const usePostsStatsQuery: typeof import('./composables/usePostsStatsQuery').usePostsStatsQuery
   const usePreferredColorScheme: typeof import('@vueuse/core').usePreferredColorScheme
   const usePreferredContrast: typeof import('@vueuse/core').usePreferredContrast
   const usePreferredDark: typeof import('@vueuse/core').usePreferredDark
@@ -336,6 +340,8 @@ declare global {
   const useStyleTag: typeof import('@vueuse/core').useStyleTag
   const useSupported: typeof import('@vueuse/core').useSupported
   const useSwipe: typeof import('@vueuse/core').useSwipe
+  const useTagCatalogueQuery: typeof import('./composables/useTagCatalogueQuery').useTagCatalogueQuery
+  const useTagSearchIndex: typeof import('./composables/useTagSearchIndex').useTagSearchIndex
   const useTagTreeQuery: typeof import('./composables/useTagTree').useTagTreeQuery
   const useTemplateRef: typeof import('vue').useTemplateRef
   const useTemplateRefsList: typeof import('@vueuse/core').useTemplateRefsList
@@ -446,6 +452,9 @@ declare global {
   // @ts-ignore
   export type { PrefetchOptions } from './composables/usePostPrefetch'
   import('./composables/usePostPrefetch')
+  // @ts-ignore
+  export type { TagSearchIndex } from './composables/useTagSearchIndex'
+  import('./composables/useTagSearchIndex')
   // @ts-ignore
   export type { TagTreeNode, TopCategoryGroup } from './composables/useTagTree'
   import('./composables/useTagTree')

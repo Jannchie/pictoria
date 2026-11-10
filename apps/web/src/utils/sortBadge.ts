@@ -1,4 +1,4 @@
-import { formatDate } from '@/locale'
+import { formatDate, formatRelativeTime, formatShortDateTime } from '@/locale'
 import { RATING_LEVEL_COLORS, RATING_LEVEL_ICONS, SCORE_LEVEL_COLORS, waifuLevelRgb } from '@/shared/ratings'
 
 /** The top-right value badge on a gallery tile: text or an icon, optionally in a level colour. */
@@ -8,11 +8,23 @@ export interface SortBadge {
   color?: string
 }
 
+const DAY_MS = 24 * 3600 * 1000
+
+/**
+ * A "last viewed" stamp: relative within the last day ("3 hours ago"), else
+ * day + time. The plain date the other columns use made a whole /recently
+ * page read "today" on every tile.
+ */
+function formatAccessTime(v: number | string, now: number = Date.now()): string {
+  const t = new Date(v).getTime()
+  return now - t < DAY_MS && now >= t ? formatRelativeTime(t, now) : formatShortDateTime(t)
+}
+
 /**
  * Badge for a tile's `sortValue` under the gallery's effective sort column
  * (`sort`), or undefined when that column gets no badge.
  */
-export function formatSortValue(sort: string, v: number | string): SortBadge | undefined {
+export function formatSortValue(sort: string, v: number | string, now: number = Date.now()): SortBadge | undefined {
   switch (sort) {
     case 'score': {
       const n = Number(v)
@@ -43,9 +55,11 @@ export function formatSortValue(sort: string, v: number | string): SortBadge | u
     }
     case 'created_at':
     case 'published_at':
-    case 'updated_at':
-    case 'last_accessed_at': {
+    case 'updated_at': {
       return { text: formatDate(v) }
+    }
+    case 'last_accessed_at': {
+      return { text: formatAccessTime(v, now) }
     }
     // file_name is not worth a badge (the grid is pictures, not a listing);
     // id is the "no particular sort" default — no badge for either.

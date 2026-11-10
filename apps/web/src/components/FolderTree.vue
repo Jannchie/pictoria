@@ -9,7 +9,7 @@ import { useRoute, useRouter } from 'vue-router'
 import { useAPIError } from '@/composables/useAPIError'
 import { useFolderTree } from '@/composables/useFolderTree'
 import { formatNumber } from '@/locale'
-import { announce, deleteFolder } from '@/shared'
+import { announce, deleteFolder, RATING_ICON, SCORE_ICON, scorerIcon } from '@/shared'
 import PTreeList, { CHEVRON_SLOT, LEVEL_INDENT } from '@/ui/PTreeList.vue'
 import { findFolderNode, folderTreeItemHeight, parentFolder, ROOT_FOLDER } from '@/utils/folderTree'
 import ConfirmActionDialog from './ConfirmActionDialog.vue'
@@ -47,10 +47,10 @@ const folderSortShow = ref(false)
 const sortOptions: { key: FolderSortKey, labelKey: string, icon: string }[] = [
   { key: 'name', labelKey: 'sidebar.sortName', icon: 'i-tabler-abc' },
   { key: 'count', labelKey: 'sidebar.sortCount', icon: 'i-tabler-files' },
-  { key: 'silva', labelKey: 'sidebar.sortSilva', icon: 'i-tabler-rosette' },
-  { key: 'luna', labelKey: 'sidebar.sortSilvaLuna', icon: 'i-tabler-moon' },
-  { key: 'score', labelKey: 'sidebar.sortScore', icon: 'i-tabler-star' },
-  { key: 'rating', labelKey: 'sidebar.sortRating', icon: 'i-tabler-thumb-up' },
+  { key: 'silva', labelKey: 'sidebar.sortSilva', icon: scorerIcon('silva') },
+  { key: 'luna', labelKey: 'sidebar.sortSilvaLuna', icon: scorerIcon('silva_luna') },
+  { key: 'score', labelKey: 'sidebar.sortScore', icon: SCORE_ICON },
+  { key: 'rating', labelKey: 'sidebar.sortRating', icon: RATING_ICON },
 ]
 const orderOptions: { id: FolderSortOrder, labelKey: string, icon: string }[] = [
   { id: 'asc', labelKey: 'sidebar.ascending', icon: 'i-tabler-arrow-up' },
@@ -259,7 +259,20 @@ function clearFilter() {
         @contextmenu="onTreeContextMenu"
         @keydown.capture="onTreeKeydownCapture"
       >
+        <!-- The tree failed to load (and no cached copy): say so, with a way
+             to retry — "no matching folders" would read as an empty library. -->
+        <PEmpty
+          v-if="foldersQuery.isError.value && folderTree.length === 0"
+          icon="i-tabler-alert-circle"
+          role="alert"
+          class="text-xs"
+          :retry="foldersQuery.refetch"
+          :retrying="foldersQuery.isFetching.value"
+        >
+          {{ $t('sidebar.loadFailed') }}
+        </PEmpty>
         <PTreeList
+          v-else
           ref="tree"
           :aria-label="$t('sidebar.folderTree')"
           :model-value="currentFolder"

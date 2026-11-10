@@ -87,12 +87,7 @@ export function useSyncFilterWithUrl() {
 export const waterfallRowCount = useStorage('pictoria.waterfallRowCount', 4)
 export const hideNSFW = useStorage('pictoria.hideNSFW', false)
 
-// Side-pane visibility. Both panes are secondary to the grid — the folder tree
-// only matters while browsing by location, and the detail panel is empty with
-// no selection — so together they can hand ~24% of the viewport back to the
-// gallery. Persisted, toggled from the bottom bar or Ctrl+B / Ctrl+Shift+B.
-export const leftPaneCollapsed = useStorage('pictoria.pane.leftCollapsed', false)
-export const rightPaneCollapsed = useStorage('pictoria.pane.rightCollapsed', false)
+// Side-pane visibility lives in ./paneLayout (preference + auto-collapse).
 // When off, image placeholders fall back to a plain opacity fade-in instead
 // of the per-shape arthash dissolve. Useful on low-end GPUs or when the
 // animation feels distracting.
@@ -104,6 +99,12 @@ export const enableFancyPlaceholder = useStorage('pictoria.enableFancyPlaceholde
 export const enableArthash = useStorage('pictoria.enableArthash', true)
 
 export const bottomBarInfo = ref<string>('')
+/**
+ * The gallery list's first page failed to load (MainSection publishes it), so
+ * the footer can say so instead of reporting "0 shown" as if the view were
+ * simply empty.
+ */
+export const galleryListFailed = ref(false)
 
 export const tagSelectorWindowRef = ref()
 /** 编辑器打开后要把光标放到的标签；TagSelector 消费后清空。 */

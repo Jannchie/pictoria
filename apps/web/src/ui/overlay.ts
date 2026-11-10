@@ -48,7 +48,7 @@ export function isKeyboardContextMenu(e: { clientX: number, clientY: number }, l
 }
 
 export interface MenuItemLike {
-  role?: 'label' | 'divider' | 'item'
+  role?: 'label' | 'divider' | 'item' | 'row'
   title?: string
 }
 

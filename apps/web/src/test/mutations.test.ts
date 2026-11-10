@@ -3,7 +3,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import * as api from '@/api'
 import { localeSetting } from '@/locale'
 import { canUndo, clearHistory, redo, undo } from '@/shared/history'
-import { captureOldValues, commitRating, commitScore, commitTag, computeScore, deleteFolder, deletePosts, groupIdsByValue, invalidateAggregates, removePostsFromCacheEntry, submitPairwise, undoAnnotations } from '@/shared/mutations'
+import { captureOldValues, commitRating, commitScore, commitTag, commitTagMany, computeScore, deleteFolder, deletePosts, groupIdsByValue, invalidateAggregates, removePostsFromCacheEntry, submitPairwise, undoAnnotations } from '@/shared/mutations'
 import { COUNT_KINDS, queryKeys } from '@/shared/queryKeys'
 
 vi.mock('@/api', () => ({
@@ -49,7 +49,7 @@ describe('captureoldvalues', () => {
   })
 })
 
-const qc = { invalidateQueries: vi.fn(), setQueriesData: vi.fn() } as any
+const qc = { invalidateQueries: vi.fn(), setQueriesData: vi.fn(), getQueriesData: vi.fn(() => []) } as any
 
 describe('commit factories', () => {
   beforeEach(() => {
@@ -111,6 +111,68 @@ describe('commit factories', () => {
     vi.clearAllMocks()
     await redo()
     expect(api.v2AddTagToPost).toHaveBeenCalledWith({ path: { post_id: 7, tag_name: 'cat' } })
+  })
+
+  it('committagmany skips posts that already have the tag and undoes only the rest', async () => {
+    vi.mocked(api.v2AddTagToPost).mockImplementation((async ({ path }: { path: { post_id: number } }) => {
+      if (path.post_id === 2) {
+        throw Object.assign(new Error('conflict'), { isAxiosError: true, response: { status: 409 } })
+      }
+      return {}
+    }) as any)
+    const result = await commitTagMany(qc, [1, 2, 3], 'cat')
+    expect(result).toEqual({ done: [1, 3], conflicted: [2] })
+    expect(canUndo.value).toBe(true)
+
+    vi.clearAllMocks()
+    await undo()
+    expect(vi.mocked(api.v2RemoveTagFromPost).mock.calls.map(([o]) => o.path.post_id)).toEqual([1, 3])
+    vi.mocked(api.v2AddTagToPost).mockImplementation((async () => ({})) as any)
+  })
+
+  it('committagmany undo carries on past a post whose tag was already removed by hand', async () => {
+    await commitTagMany(qc, [1, 2, 3], 'cat')
+    vi.clearAllMocks()
+    vi.mocked(api.v2RemoveTagFromPost).mockImplementation((async ({ path }: { path: { post_id: number } }) => {
+      if (path.post_id === 2) {
+        throw Object.assign(new Error('conflict'), { isAxiosError: true, response: { status: 409 } })
+      }
+      return {}
+    }) as any)
+    await undo()
+    expect(vi.mocked(api.v2RemoveTagFromPost).mock.calls.map(([o]) => o.path.post_id)).toEqual([1, 2, 3])
+    expect(canUndo.value).toBe(false)
+    vi.mocked(api.v2RemoveTagFromPost).mockImplementation((async () => ({})) as any)
+  })
+
+  it('committagmany refetches the tag catalogue only for a tag new to it', async () => {
+    const cached = { invalidateQueries: vi.fn(), setQueriesData: vi.fn(), getQueriesData: vi.fn(() => [[['tags', 'en'], [{ name: 'cat' }]]]) } as any
+    await commitTagMany(cached, [1], 'cat')
+    expect(cached.invalidateQueries).toHaveBeenCalledWith({ queryKey: ['tags'], refetchType: 'none' })
+    await commitTagMany(cached, [1], 'brand_new')
+    expect(cached.invalidateQueries).toHaveBeenCalledWith({ queryKey: ['tags'], refetchType: 'active' })
+  })
+
+  it('committagmany keeps going past a failure in flight and records what was done', async () => {
+    vi.mocked(api.v2AddTagToPost).mockImplementation((async ({ path }: { path: { post_id: number } }) => {
+      if (path.post_id === 2) {
+        throw new Error('boom')
+      }
+      return {}
+    }) as any)
+    await expect(commitTagMany(qc, [1, 2], 'cat')).rejects.toThrow('boom')
+    expect(canUndo.value).toBe(true)
+    vi.mocked(api.v2AddTagToPost).mockImplementation((async () => ({})) as any)
+  })
+
+  it('committagmany records nothing when every post already had the tag', async () => {
+    vi.mocked(api.v2AddTagToPost).mockImplementation((async () => {
+      throw Object.assign(new Error('conflict'), { isAxiosError: true, response: { status: 409 } })
+    }) as any)
+    const result = await commitTagMany(qc, [4, 5], 'cat')
+    expect(result).toEqual({ done: [], conflicted: [4, 5] })
+    expect(canUndo.value).toBe(false)
+    vi.mocked(api.v2AddTagToPost).mockImplementation((async () => ({})) as any)
   })
 })
 

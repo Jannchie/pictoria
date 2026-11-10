@@ -48,8 +48,8 @@ const columns = computed(() => {
       <div
         v-for="(ratio, ri) in column"
         :key="ri"
-        class="rounded-md bg-surface-1 w-full animate-pulse"
-        :style="{ aspectRatio: String(ratio) }"
+        class="rounded-md w-full p-skeleton"
+        :style="{ 'aspectRatio': String(ratio), '--i': ci + ri }"
       />
     </div>
   </div>

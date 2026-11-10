@@ -29,17 +29,37 @@ export function galleryViewNameKey(view: GalleryView | undefined): string {
   return VIEW_NAME_KEYS[view ?? 'all']
 }
 
-const VIEW_SORT_OVERRIDES: Partial<Record<GalleryView, PostOrderColumn>> = {
+const VIEW_SORT_OVERRIDES: Partial<Record<GalleryView, { column: PostOrderColumn, labelKey: string }>> = {
   // Forced by the list request (`searchPostsBody`'s `recently` mode).
-  recently: 'last_accessed_at',
+  recently: { column: 'last_accessed_at', labelKey: 'sort.lastAccessed' },
   // A fixed server-side order with no sort column — `id` carries no badge.
-  unratedArtists: 'id',
+  unratedArtists: { column: 'id', labelKey: 'sort.fixedOrder' },
 }
 
 /**
- * The sort column a view imposes regardless of the user's `postSort`, or
- * undefined when the user's choice applies.
+ * The sort column the grid is actually in: the one a view imposes, else the
+ * user's `postSort`. What the tile badges format their `sortValue` by.
  */
-export function viewSortOverride(view: GalleryView | undefined): PostOrderColumn | undefined {
-  return view ? VIEW_SORT_OVERRIDES[view] : undefined
+export function effectiveSort(view: GalleryView | undefined, userSort: PostOrderColumn): PostOrderColumn {
+  return (view && VIEW_SORT_OVERRIDES[view]?.column) || userSort
+}
+
+/** Why the sort controls don't apply right now: the order in force, and the reason. */
+export interface SortLock {
+  labelKey: string
+  reasonKey: string
+}
+
+/**
+ * The lock on the user's sort, or undefined when it applies: a text search
+ * orders by relevance, /recently and /unrated-artists by their own order. The
+ * sort picker shows it as its disabled state; the command palette then offers
+ * no sort commands.
+ */
+export function sortLock(view: GalleryView | undefined, textSearchActive: boolean): SortLock | undefined {
+  if (textSearchActive) {
+    return { labelKey: 'sort.relevance', reasonKey: 'sort.searchOverride' }
+  }
+  const forced = view ? VIEW_SORT_OVERRIDES[view] : undefined
+  return forced ? { labelKey: forced.labelKey, reasonKey: 'sort.viewOverride' } : undefined
 }

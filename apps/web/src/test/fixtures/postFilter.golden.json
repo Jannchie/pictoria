@@ -3989,12 +3989,12 @@
       "out": [
         {
           "id": "rating:4",
-          "icon": "i-tabler-thumb-up",
+          "icon": "i-tabler-shield-half",
           "label": "rating.explicit|null|"
         },
         {
           "id": "rating:1",
-          "icon": "i-tabler-thumb-up",
+          "icon": "i-tabler-shield-half",
           "label": "rating.general|null|"
         },
         {
@@ -4035,12 +4035,12 @@
         },
         {
           "id": "rating:4",
-          "icon": "i-tabler-thumb-up",
+          "icon": "i-tabler-shield-half",
           "label": "rating.explicit|null|"
         },
         {
           "id": "rating:1",
-          "icon": "i-tabler-thumb-up",
+          "icon": "i-tabler-shield-half",
           "label": "rating.general|null|"
         },
         {
@@ -4276,7 +4276,7 @@
       "out": [
         {
           "id": "rating:0",
-          "icon": "i-tabler-thumb-up",
+          "icon": "i-tabler-shield-half",
           "label": "rating.unrated|null|"
         },
         {
@@ -4312,7 +4312,7 @@
         },
         {
           "id": "rating:0",
-          "icon": "i-tabler-thumb-up",
+          "icon": "i-tabler-shield-half",
           "label": "rating.unrated|null|"
         },
         {
@@ -4344,7 +4344,7 @@
       "out": [
         {
           "id": "rating:3",
-          "icon": "i-tabler-thumb-up",
+          "icon": "i-tabler-shield-half",
           "label": "rating.questionable|null|"
         }
       ]
@@ -4372,7 +4372,7 @@
         },
         {
           "id": "rating:3",
-          "icon": "i-tabler-thumb-up",
+          "icon": "i-tabler-shield-half",
           "label": "rating.questionable|null|"
         },
         {

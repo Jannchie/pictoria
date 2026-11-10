@@ -1,11 +1,10 @@
 <script setup lang="ts">
 import type { TagWithCountPublic } from '@/api'
 import type { TagTreeNode } from '@/composables/useTagTree'
-import { useQuery } from '@tanstack/vue-query'
 import { useDebounce, useElementSize } from '@vueuse/core'
 import { computed, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
-import { v2ListTags } from '@/api'
+import { useTagCatalogueQuery } from '@/composables/useTagCatalogueQuery'
 import {
   buildTagTree,
   filterTagTree,
@@ -13,8 +12,7 @@ import {
   useTagTreeQuery,
   visibleNodes,
 } from '@/composables/useTagTree'
-import { formatNumber, resolvedLocale } from '@/locale'
-import { queryKeys } from '@/shared/queryKeys'
+import { formatNumber } from '@/locale'
 
 /**
  * 一个虚拟滚动项：要么是分类行，要么是该分类直属 tag 的一行。
@@ -35,25 +33,7 @@ const INDENT = 16
 
 const { t } = useI18n()
 
-const tagQuery = useQuery({
-  // Locale lives in the key (folded into queryKeys.tags) so a language switch
-  // refetches the server-side translated names. invalidateQueries(
-  // queryKeys.tagsRoot) still matches by prefix.
-  queryKey: queryKeys.tags(),
-  queryFn: async () => {
-    const resp = await v2ListTags({ query: { lang: resolvedLocale.value } })
-    if (resp.error) {
-      throw resp.error
-    }
-    return resp.data
-  },
-  // 五万多行的结构化共享（逐字段深比较后复用旧引用）比响应本身的解析还贵，
-  // 而这里每次拿到的都是全新数组，比较不出任何可复用的东西。
-  structuralSharing: false,
-  // 五万多行只读数据：浅响应，避免 vue-query 默认把每个元素包成 reactive 代理
-  // （否则下面每一趟遍历的每次属性读取都是一次 WeakMap 查找）。
-  shallow: true,
-})
+const tagQuery = useTagCatalogueQuery()
 const treeQuery = useTagTreeQuery()
 
 const isLoading = computed(() => tagQuery.isLoading.value || treeQuery.isLoading.value)

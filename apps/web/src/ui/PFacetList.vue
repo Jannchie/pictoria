@@ -1,5 +1,6 @@
 <script setup lang="ts" generic="T">
 import { useTemplateRef } from 'vue'
+import { formatNumber } from '@/locale'
 import { activateOptionOnKey } from './listboxKeys'
 import PCheckbox from './PCheckbox.vue'
 
@@ -88,7 +89,7 @@ function onKeydown(e: KeyboardEvent, item: T, index: number) {
         v-if="count && (count(item) || selected(item))"
         class="inline-flex flex-shrink-0 tabular-nums"
       >
-        <span class="text-right flex-shrink-0 w-10" :class="count(item) ? 'text-fg-muted' : 'text-fg-subtle'">{{ count(item) || 0 }}</span>
+        <span class="text-right flex-shrink-0 min-w-10 whitespace-nowrap" :class="count(item) ? 'text-fg-muted' : 'text-fg-subtle'">{{ formatNumber(count(item) || 0) }}</span>
         <span v-if="share && count(item)" class="text-fg-subtle text-right flex-shrink-0 w-14">{{ share(count(item)!) }}%</span>
       </div>
     </div>

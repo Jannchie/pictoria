@@ -14,7 +14,8 @@ import { usePostGroupEvidenceQuery } from '@/composables/usePostGroupEvidenceQue
 import { usePostGroupQuery } from '@/composables/usePostGroupQuery'
 import { UNCATEGORISED, useTopCategoryGrouper } from '@/composables/useTagTree'
 import { formatDateTime } from '@/locale'
-import { announce, commitCaption, commitRating, commitScore, commitSource, commitTag, commitTagSource, computeScore, hideNSFW, makePostCanonical, markPostsDifferent, openTagSelectorWindow, postFilter, RATING_LEVEL_COLORS, RATING_LEVEL_ICONS, showPostDetail, ungroupPost } from '@/shared'
+import { announce, commitCaption, commitRating, commitScore, commitSource, commitTag, commitTagSource, computeScore, hideNSFW, makePostCanonical, markPostsDifferent, openTagSelectorWindow, postFilter, RATING_LEVEL_COLORS, RATING_LEVEL_ICONS, ratingLevelNames, ratingName, ungroupPost } from '@/shared'
+import { revealPost } from '@/shared/postPaths'
 import { getPostThumbnailURL, isImageExtension, naturalizeTagName } from '@/utils'
 import { colorNumToHex, labToRgbaString } from '@/utils/color'
 import { isMac } from '@/utils/keyboard'
@@ -24,6 +25,10 @@ const props = defineProps<{
 }>()
 
 const { t } = useI18n()
+// The rating icons alone (sprout / heart / eye-off…) don't say which level is
+// which: name each option, and spell the current one out next to the control.
+const ratingLabels = computed(() => ratingLevelNames(t))
+const ratingValueLabel = computed(() => ratingName(props.post.rating, t))
 const queryClient = useQueryClient()
 const { handle: handleAPIError } = useAPIError()
 async function onSelectScore(post_id: number, score: number = 0) {
@@ -267,11 +272,6 @@ function onComputeScore(kind: ScorerKind) {
     }
   })
 }
-
-// Shared section-heading style: a small uppercase label with a leading icon,
-// applied to every panel section for a consistent editorial rhythm.
-const sectionTitleClass
-  = 'flex items-center gap-1.5 text-fg-subtle text-[11px] font-semibold uppercase tracking-wider'
 </script>
 
 <template>
@@ -332,8 +332,7 @@ const sectionTitleClass
            and collapses. -->
       <section class="pb-3 pt-3 p-divider">
         <h3
-          :class="sectionTitleClass"
-          class="mb-2"
+          class="p-section-title mb-2"
         >
           <i class="i-tabler-star" aria-hidden="true" />
           <span>{{ $t('post.ratings') }}</span>
@@ -344,7 +343,7 @@ const sectionTitleClass
           <div :id="ratingLabelId">
             {{ $t('post.ratingLabel') }}
           </div>
-          <div>
+          <div class="flex gap-2 items-center">
             <PRating
               :aria-labelledby="ratingLabelId"
               :model-value="post.rating"
@@ -352,8 +351,10 @@ const sectionTitleClass
               :count="4"
               :colors="RATING_LEVEL_COLORS"
               :icons="RATING_LEVEL_ICONS"
+              :labels="ratingLabels"
               @select="(d) => commitRating(queryClient, [post], [post.id], d)"
             />
+            <span class="text-fg-subtle truncate" aria-hidden="true">{{ ratingValueLabel }}</span>
           </div>
           <div :id="scoreLabelId">
             {{ $t('post.scoreLabel') }}
@@ -423,8 +424,7 @@ const sectionTitleClass
         class="py-3 p-divider"
       >
         <h3
-          :class="sectionTitleClass"
-          class="mb-2"
+          class="p-section-title mb-2"
         >
           <i class="i-tabler-stack-2" aria-hidden="true" />
           <span>{{ $t('post.sameGroup') }}</span>
@@ -593,7 +593,7 @@ const sectionTitleClass
             v-for="folder in folders"
             :key="folder.path"
             size="sm"
-            @click="$router.push(`/dir/${folder.path}?post_id=${post.id}`); showPostDetail = null"
+            @click="revealPost(post, folder.path)"
           >
             {{ folder.name }}
           </PButton>
@@ -603,7 +603,7 @@ const sectionTitleClass
       <!-- Tags: stays a plain always-open section — tagging is high-frequency. -->
       <section class="py-3 p-divider">
         <div class="mb-2 flex items-center justify-between">
-          <h3 :id="tagsHeadingId" :class="sectionTitleClass">
+          <h3 :id="tagsHeadingId" class="p-section-title">
             <i class="i-tabler-tag" aria-hidden="true" />
             <span>{{ $t('post.tags') }}</span>
           </h3>

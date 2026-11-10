@@ -3,14 +3,16 @@ import { useQuery, useQueryClient } from '@tanstack/vue-query'
 import { controlledComputed, useDebounce } from '@vueuse/core'
 import { computed, inject, nextTick, ref, useId, useTemplateRef, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
-import { v2ListTagGroup, v2ListTags } from '@/api'
-import { resolvedLocale } from '@/locale'
+import { v2ListTagGroup } from '@/api'
+import { useTagCatalogueQuery } from '@/composables/useTagCatalogueQuery'
+import { useTagSearchIndex } from '@/composables/useTagSearchIndex'
 import { announce, commitTag, tagSelectorFocusTag } from '@/shared'
 import { queryKeys } from '@/shared/queryKeys'
 import { useRovingFocus } from '@/ui/useRovingFocus'
 import { naturalizeTagName } from '@/utils'
 import { matchesShortcut, shortcutKeys } from '@/utils/keyboard'
 import { idFragment, listboxKeyIndex } from '@/utils/listboxNav'
+import { tagLabel } from '@/utils/tagName'
 import { usePostQuery } from '../composables/usePostQuery'
 
 /**
@@ -51,16 +53,8 @@ const tagGroups = computed(() => {
   return tagGroupsQuery.data.value
 })
 
-const tagsQuery = useQuery({
-  // Shares the Tags page cache; locale folded into queryKeys.tags so a
-  // language switch refetches the server-side translated names.
-  queryKey: queryKeys.tags(),
-  queryFn: async () => {
-    const resp = await v2ListTags({ query: { lang: resolvedLocale.value } })
-    return resp.data ?? []
-  },
-  staleTime: Infinity,
-})
+// Shares the Tags page cache (see useTagCatalogueQuery).
+const tagsQuery = useTagCatalogueQuery({ staleTime: Infinity })
 
 const tags = computed(() => {
   return tagsQuery.data.value ?? []
@@ -103,14 +97,7 @@ const initCurrentTagNames = computed(() => new Set(initCurrentTags.value.map(tag
 const currentTagNames = computed(() => new Set(currentTags.value.map(tag => tag.tagInfo.name)))
 
 /** 只在 tag 表变化时算一次的小写检索串：每次按键重新 toLowerCase 全库太贵。 */
-const searchHaystack = computed(() => {
-  const map = new Map<string, string>()
-  for (const tag of tags.value) {
-    // `|` 只是防止跨字段误匹配的分隔符：tag 名是下划线英文，译名是中日文，都不含它。
-    map.set(tag.name, `${tag.name}|${tag.translatedName ?? ''}`.toLowerCase())
-  }
-  return map
-})
+const searchHaystack = useTagSearchIndex(tags)
 
 // 输入即时回显，过滤走防抖：连打时中间态不值得各跑一遍全库扫描。
 const debouncedSearch = useDebounce(search, 120)
@@ -126,18 +113,17 @@ const DISPLAY_LIMIT = 100
 const groupMatches = computed(() => {
   const q = debouncedSearch.value.toLowerCase()
   const excluded = initCurrentTagNames.value
-  const haystack = searchHaystack.value
   const gid = currentGroupId.value
   const list: typeof tags.value = []
   let total = 0
-  for (const tag of tags.value) {
+  for (const [tag, hay] of searchHaystack.value.entries) {
     if (gid !== undefined && tag.group?.id !== gid) {
       continue
     }
     if (excluded.has(tag.name)) {
       continue
     }
-    if (q && !haystack.get(tag.name)?.includes(q)) {
+    if (q && !hay.includes(q)) {
       continue
     }
     total++
@@ -177,16 +163,11 @@ async function addTag(tagName: string) {
   announce(t('tagSelector.tagAdded', { name: naturalizeTagName(tagName) }))
 }
 
+// 新建用去掉首尾空白的名字；纯空白不提供新建。
+const newTagName = computed(() => search.value.trim())
 const showAddTag = computed(() => {
-  return search.value !== '' && !searchHaystack.value.has(search.value)
+  return newTagName.value !== '' && !searchHaystack.value.names.has(newTagName.value)
 })
-
-// 行文本：自然英文名为主（去下划线兜底），有翻译时附在后面。
-// 搜索 / 提交仍用原始下划线名。
-function tagLabel(name: string, translated: string | null | undefined): string {
-  const natural = naturalizeTagName(name)
-  return translated ? `${natural}（${translated}）` : natural
-}
 
 const searchingInitCurrentTags = computed(() => {
   return initCurrentTags.value.filter(tag => isSearchMatch(tag.tagInfo))
@@ -219,7 +200,7 @@ interface TagOption {
 const options = computed<TagOption[]>(() => {
   const out: TagOption[] = []
   if (showAddTag.value) {
-    out.push({ id: `${uid}-add`, kind: 'add', tagName: search.value, label: t('tagSelector.addNew', { name: search.value }) })
+    out.push({ id: `${uid}-add`, kind: 'add', tagName: newTagName.value, label: t('tagSelector.addNew', { name: newTagName.value }) })
   }
   for (const tag of searchingInitCurrentTags.value) {
     out.push({ id: `${uid}-t-${idFragment(tag.tagInfo.name)}`, kind: 'current', tagName: tag.tagInfo.name, label: tagLabel(tag.tagInfo.name, tag.tagInfo.translatedName) })

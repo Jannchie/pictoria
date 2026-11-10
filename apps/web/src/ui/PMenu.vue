@@ -27,12 +27,33 @@ import { useRovingFocus } from './useRovingFocus'
 //   and returns focus likewise; an outside pointerdown closes.
 // - Label rows start a role=group (aria-labelledby = the label) that holds
 //   the items up to the next divider / label.
+// - `checked` (true / false) makes an item a `menuitemradio` — one choice of a
+//   labelled group, e.g. the current score; leave it undefined for a plain item.
+// - `shortcut` is display text for the key that does the same thing outside the
+//   menu (format it with `formatShortcut`); it is drawn right-aligned and is
+//   not a binding.
+// - `role: 'row'` packs a small radio set onto one line (`title` = its visible
+//   name, `items` = the choices): e.g. score 1–5. Each choice is still a
+//   `menuitemradio` in the roving order (↑↓ walk through them like any item,
+//   ←→ too), named by its `title`, drawn as its `icon` and/or `short` text.
+//   With `clearValue`, the checked choice is a toggle: picking it again emits
+//   `clearValue` instead of its own value, and its name says so.
 export interface PMenuItem {
-  role?: 'label' | 'divider' | 'item'
+  role?: 'label' | 'divider' | 'item' | 'row'
   title?: string
   icon?: string
+  /** Icon colour (a CSS colour / token) — for row choices such as rating levels. */
+  iconColor?: string
+  /** Compact visible text of a row choice (e.g. "3"); `title` stays its name. */
+  short?: string
   value?: string | number | symbol
   disabled?: boolean
+  checked?: boolean
+  shortcut?: string
+  /** The choices of a `row`. */
+  items?: PMenuItem[]
+  /** A `row`'s value for "clear": emitted when its checked choice is picked again. */
+  clearValue?: string | number | symbol
 }
 
 const props = withDefaults(defineProps<{
@@ -45,6 +66,8 @@ const props = withDefaults(defineProps<{
 })
 
 const emit = defineEmits<{
+  /** The menu is opening — the moment to build its items (see MainSection). */
+  (e: 'open'): void
   (e: 'select', value: string | number | symbol): void
 }>()
 
@@ -112,6 +135,7 @@ function openWith(anchor: VirtualElement) {
   const active = document.activeElement as HTMLElement | null
   invoker = active && active !== document.body ? active : null
   reference.value = anchor
+  emit('open')
   open.value = true
 }
 
@@ -179,6 +203,12 @@ function openFor(el: HTMLElement) {
 
 defineExpose({ openFor, close })
 
+/** A row choice's name; a clearable row's checked choice says it clears. */
+function choiceName(row: PMenuItem, choice: PMenuItem, t: (key: string, named: Record<string, unknown>) => string): string {
+  const name = choice.title ?? ''
+  return choice.checked && row.clearValue !== undefined ? t('rating.pickAgainToClear', { name }) : name
+}
+
 function pick(item: PMenuItem) {
   if (item.disabled || item.role === 'label' || item.role === 'divider') {
     return
@@ -205,10 +235,13 @@ useFocusReturn(open, {
 })
 
 // ---- items ------------------------------------------------------------------
+const ITEM_SELECTOR = '[role="menuitem"], [role="menuitemradio"]'
 const roving = useRovingFocus({
   container: menuRef,
-  itemSelector: '[role="menuitem"]',
-  orientation: 'vertical',
+  itemSelector: ITEM_SELECTOR,
+  // Both axes: ↑↓ walk the list, ←→ also step along an inline row; there are
+  // no submenus for ←→ to mean anything else.
+  orientation: 'both',
   typeahead: true,
   skipDisabled: false,
   pageSize: false,
@@ -220,7 +253,7 @@ watch(isPositioned, async (placed) => {
   }
   await nextTick()
   roving.sync()
-  const items = [...(menuRef.value?.querySelectorAll<HTMLElement>('[role="menuitem"]') ?? [])]
+  const items = [...(menuRef.value?.querySelectorAll<HTMLElement>(ITEM_SELECTOR) ?? [])]
   const first = items.findIndex(el => el.getAttribute('aria-disabled') !== 'true')
   roving.focusItem(first === -1 ? 0 : first)
 })
@@ -307,20 +340,49 @@ watch(open, () => nextTick(syncButtonAria))
               >
                 {{ section.label.title }}
               </div>
-              <button
-                v-for="{ item, index } in section.items"
-                :key="index"
-                type="button"
-                class="p-menu__item"
-                :class="{ 'p-menu__item--disabled': item.disabled }"
-                :aria-disabled="item.disabled ? 'true' : undefined"
-                role="menuitem"
-                @click="pick(item)"
-                @pointermove="onItemPointerMove"
-              >
-                <i v-if="item.icon" :class="item.icon" class="p-menu__icon" aria-hidden="true" />
-                <span>{{ item.title }}</span>
-              </button>
+              <template v-for="{ item, index } in section.items" :key="index">
+                <div
+                  v-if="item.role === 'row'"
+                  class="p-menu__row"
+                  role="group"
+                  :aria-label="item.title"
+                >
+                  <span class="p-menu__row-label" aria-hidden="true">{{ item.title }}</span>
+                  <button
+                    v-for="(choice, ci) in item.items ?? []"
+                    :key="ci"
+                    type="button"
+                    class="p-menu__choice"
+                    :class="{ 'p-menu__choice--checked': choice.checked, 'p-menu__item--disabled': choice.disabled }"
+                    :aria-disabled="choice.disabled ? 'true' : undefined"
+                    role="menuitemradio"
+                    :aria-checked="!!choice.checked"
+                    :aria-label="choiceName(item, choice, $t)"
+                    :title="choice.shortcut ? `${choiceName(item, choice, $t)} (${choice.shortcut})` : choiceName(item, choice, $t)"
+                    @click="pick(choice.checked && item.clearValue !== undefined ? { ...choice, value: item.clearValue } : choice)"
+                    @pointermove="onItemPointerMove"
+                  >
+                    <i v-if="choice.icon" :class="choice.icon" :style="choice.iconColor ? { color: choice.iconColor } : undefined" aria-hidden="true" />
+                    <span v-if="choice.short" aria-hidden="true">{{ choice.short }}</span>
+                  </button>
+                </div>
+                <button
+                  v-else
+                  type="button"
+                  class="p-menu__item"
+                  :class="{ 'p-menu__item--disabled': item.disabled }"
+                  :aria-disabled="item.disabled ? 'true' : undefined"
+                  :role="item.checked === undefined ? 'menuitem' : 'menuitemradio'"
+                  :aria-checked="item.checked"
+                  @click="pick(item)"
+                  @pointermove="onItemPointerMove"
+                >
+                  <i v-if="item.icon" :class="item.icon" class="p-menu__icon" aria-hidden="true" />
+                  <span class="p-menu__title">{{ item.title }}</span>
+                  <i v-if="item.checked" class="i-tabler-check p-menu__check" aria-hidden="true" />
+                  <kbd v-if="item.shortcut" class="p-menu__shortcut" aria-hidden="true">{{ item.shortcut }}</kbd>
+                </button>
+              </template>
             </div>
           </template>
         </div>
@@ -337,6 +399,10 @@ watch(open, () => nextTick(syncButtonAria))
 .p-menu {
   z-index: var(--p-z-popover);
   min-width: 180px;
+  /* Never taller than the viewport: a long menu scrolls instead of pushing
+     its last items (Delete) off-screen. */
+  max-height: calc(100vh - 8px);
+  overflow-y: auto;
   padding: 4px;
   background: var(--p-surface);
   border: 1px solid var(--p-border);
@@ -370,6 +436,56 @@ watch(open, () => nextTick(syncButtonAria))
 .p-menu__item--disabled {
   opacity: 0.5;
   cursor: not-allowed;
+}
+.p-menu__row {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  padding: 2px 4px 2px 10px;
+}
+.p-menu__row-label {
+  flex-grow: 1;
+  margin-right: 8px;
+  color: var(--p-fg-muted);
+}
+.p-menu__choice {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 2px;
+  min-width: 26px;
+  height: 26px;
+  padding: 0 4px;
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: var(--p-radius-sm);
+  color: var(--p-fg-muted);
+  font: inherit;
+  font-variant-numeric: tabular-nums;
+  cursor: pointer;
+}
+.p-menu__choice:hover:not(.p-menu__item--disabled),
+.p-menu__choice:focus-visible:not(.p-menu__item--disabled) {
+  background: var(--p-surface-2);
+  color: var(--p-fg);
+}
+.p-menu__choice--checked {
+  border-color: var(--p-primary);
+  color: var(--p-fg);
+}
+.p-menu__title {
+  flex-grow: 1;
+}
+.p-menu__check {
+  flex-shrink: 0;
+  color: var(--p-primary);
+}
+.p-menu__shortcut {
+  flex-shrink: 0;
+  margin-left: 16px;
+  color: var(--p-fg-subtle);
+  font-family: var(--p-font-mono);
+  font-size: var(--p-text-xs);
 }
 .p-menu__icon {
   flex-shrink: 0;

@@ -12,14 +12,19 @@ import { useConfirmAction } from '@/composables/useConfirmAction'
 import { GRID_OUTSIDE_SHORTCUTS, useGalleryGrid } from '@/composables/useGalleryGrid'
 import { useKeyScope, useScoreHotkeys } from '@/composables/useKeyScope'
 import { prefetchPost } from '@/composables/usePostPrefetch'
+import { commonValue } from '@/composables/useSelectedPostStats'
 import { provideGalleryTiles } from '@/composables/useViewportHiRes'
-import { announce, clear as clearSelection, commitRotate, commitScore, currentPostList, deletePosts, galleryScrollPositions, gridCursorId, lastViewedPostId, postFilter, queryKeys, selectedCount, selectedIdList, selectOnly, setGridCursor, soleSelectedId, textSearchQuery, useInfinityPostsQuery, waterfallRowCount } from '@/shared'
+import { formatNumber } from '@/locale'
+import { announce, clear as clearSelection, commitRating, commitRotate, commitScore, currentPostList, deletePosts, galleryListFailed, galleryScrollPositions, gridCursorId, lastViewedPostId, MAX_POST_RATING, MAX_POST_SCORE, postFilter, queryKeys, ratingName, ratingVisual, selectedCount, selectedIdList, selectOnly, setGridCursor, soleSelectedId, textSearchQuery, useInfinityPostsQuery, waterfallRowCount } from '@/shared'
 import { galleryViewNameKey } from '@/shared/galleryView'
 import { GRID_GAP, GRID_PAD } from '@/shared/gridLayout'
+import { copyPostPaths, revealPost } from '@/shared/postPaths'
+import { shortcuts } from '@/shared/shortcuts'
 import { useToast } from '@/shared/toast'
 import { useHotkey } from '@/ui/useHotkey'
 import { isImageExtension } from '@/utils'
 import { nextCursorAfterRemoval } from '@/utils/gridSelection'
+import { formatShortcut } from '@/utils/keyboard'
 
 const { t } = useI18n()
 const route = useRoute()
@@ -92,18 +97,27 @@ watchEffect(() => {
   items.value = next
 })
 
+const mainSectionRef = ref<HTMLElement>()
+// PScrollArea exposes its inner scroller as `$el`; both the scroll-position
+// cache below and the infinite-scroll observer need it as their root.
+const galleryScrollEl = computed<HTMLElement | undefined>(() => (mainSectionRef.value as unknown as { $el?: HTMLElement } | undefined)?.$el)
+// vue-wf mounts the tiles within this many px above / below the viewport, so
+// thumbnails half a screen ahead are already loading when they scroll in.
+// (Originals still wait for real visibility — see provideGalleryTiles.)
+const { height: galleryScrollHeight, width: galleryScrollWidth } = useElementSize(galleryScrollEl)
+// The grid's width is the scroller's, not the waterfall wrapper's: vue-wf sizes
+// the wrapper from columns × item width, i.e. from the very number derived here,
+// so measuring it could only ever grow — a narrower main area (a side pane
+// opened) kept the old column width and slid under the pane.
 const waterfallRef = ref<InstanceType<typeof Waterfall> | null>(null)
 const waterfallWrapperDom = computed(() => waterfallRef.value?.wrapper)
-// Only the width is read: a ResizeObserver, not useElementBounding's extra
-// scroll / resize listeners and per-frame getBoundingClientRect.
-const { width: waterfallWrapperWidth } = useElementSize(waterfallWrapperDom, undefined, { box: 'border-box' })
-// Column width from the wrapper: N columns share the width minus the outer
+// Column width from the scroller: N columns share the width minus the outer
 // padding and the N-1 gaps. `cols` re-derives the count from that width so the
 // skeleton and the Waterfall agree even while the wrapper is still 0 wide.
 const waterfallItemWidth = computed(() => {
-  return Math.floor((waterfallWrapperWidth.value - GRID_PAD * 2 - GRID_GAP * (waterfallRowCount.value - 1)) / waterfallRowCount.value)
+  return Math.floor((galleryScrollWidth.value - GRID_PAD * 2 - GRID_GAP * (waterfallRowCount.value - 1)) / waterfallRowCount.value)
 })
-const cols = computed(() => Math.floor((waterfallWrapperWidth.value - GRID_PAD * 2 + GRID_GAP) / (waterfallItemWidth.value + GRID_GAP)))
+const cols = computed(() => Math.floor((galleryScrollWidth.value - GRID_PAD * 2 + GRID_GAP) / (waterfallItemWidth.value + GRID_GAP)))
 // Every tile is one column wide: hand that width (and the DPR, and one shared
 // IntersectionObserver) to all PostItems at once instead of three observers each.
 provideGalleryTiles(waterfallItemWidth)
@@ -130,14 +144,19 @@ watchEffect(() => {
   currentPostList.value = posts.value
 })
 
-const mainSectionRef = ref<HTMLElement>()
-// PScrollArea exposes its inner scroller as `$el`; both the scroll-position
-// cache below and the infinite-scroll observer need it as their root.
-const galleryScrollEl = computed<HTMLElement | undefined>(() => (mainSectionRef.value as unknown as { $el?: HTMLElement } | undefined)?.$el)
-// vue-wf mounts the tiles within this many px above / below the viewport, so
-// thumbnails half a screen ahead are already loading when they scroll in.
-// (Originals still wait for real visibility — see provideGalleryTiles.)
-const { height: galleryScrollHeight } = useElementSize(galleryScrollEl)
+// The first page failed (nothing to show): an error, not an empty library.
+// keepPreviousData only bridges a *pending* request — once it errors the
+// query holds no data — so a failed new view never shows the old one's tiles.
+// A failed *next* page keeps the loaded posts and the load-more button.
+const listFailed = computed(() =>
+  !isTextSearchActive.value && infinityPostsQuery.isError.value && posts.value.length === 0)
+watchEffect(() => {
+  galleryListFailed.value = listFailed.value
+})
+onBeforeUnmount(() => {
+  galleryListFailed.value = false
+})
+
 const waterfallRangeExpand = computed(() => Math.round(galleryScrollHeight.value / 2))
 
 // Grid hotkeys stand down while a confirm dialog is open (Enter would
@@ -295,40 +314,85 @@ watchEffect(async () => {
 //   }
 // })
 
-// Titles resolved through t() inside the computed so a locale switch rebuilds
-// the menu — PMenu takes plain strings, not message keys.
-const menuData = computed<PMenuItem[]>(() => {
-  if (selectedCount.value > 0) {
-    return [
-      {
-        role: 'label',
-        title: t('gallery.menuActions'),
-      },
-      {
-        value: 'rotate-clockwise',
-        title: t('gallery.menuRotateCw'),
-        icon: 'i-fluent-arrow-rotate-clockwise-24-regular',
-      },
-      {
-        value: 'rotate-counterclockwise',
-        title: t('gallery.menuRotateCcw'),
-        icon: 'i-fluent-arrow-rotate-counterclockwise-24-regular',
-      },
-      { role: 'divider' },
-      {
-        value: 'delete',
-        title: t('gallery.menuDelete'),
-        icon: 'i-tabler-trash',
-      },
-    ]
+// Rows by id, rebuilt only when the list changes (not per selection change):
+// the menu, its shared values and "copy paths" all resolve ids through it.
+const postsById = computed(() => new Map(posts.value.map(p => [p.id, p])))
+
+// Keys the grid itself binds (shortcuts.ts), shown as hints only.
+const scoreKeyRange = shortcuts.gallery.score.keys.map(Number)
+function scoreShortcut(n: number): string | undefined {
+  return n >= scoreKeyRange[0] && n <= scoreKeyRange[1] ? formatShortcut(String(n)) : undefined
+}
+
+/**
+ * The selection's shared value of a field, for the checked radio: undefined
+ * (nothing checked) when the values differ — or when a selected post is not
+ * in the loaded list, since its value is then unknown.
+ */
+function selectionCommon(ids: readonly number[], read: (p: PostSimplePublic) => number): number | undefined {
+  const rows = ids.map(id => postsById.value.get(id))
+  return rows.every(p => p !== undefined) ? (commonValue(rows, read) ?? undefined) : undefined
+}
+
+/** A clearable 1..count radio row (score / rating): PMenu turns re-picking the checked one into `<prefix>-0`. */
+function radioRow(title: string, prefix: string, count: number, current: number | undefined, choice: (v: number) => PMenuItem): PMenuItem {
+  return {
+    role: 'row',
+    title,
+    clearValue: `${prefix}-0`,
+    items: Array.from({ length: count }, (_, i) => i + 1).map(v => ({ value: `${prefix}-${v}`, checked: v === current, ...choice(v) })),
   }
-  return [
-    {
-      role: 'label',
-      title: t('gallery.menuNoSelection'),
-    },
+}
+
+/**
+ * The menu's items, built when it opens (PMenu `@open`) rather than kept as a
+ * computed: that would rebuild the whole menu on every selection change, i.e.
+ * on every click and arrow key in the grid, for a menu that is rarely open.
+ * Order: what to do with the picture (open / find similar / reveal / copy) ‖
+ * judge it (score, rating) ‖ transform ‖ destroy. Single-picture actions are
+ * left out of a multi-selection rather than silently acting on one of them.
+ */
+function buildMenu(): PMenuItem[] {
+  const ids = selectedIdList.value
+  const n = ids.length
+  if (n === 0) {
+    return [{ role: 'label', title: t('gallery.menuNoSelection') }]
+  }
+  const items: PMenuItem[] = [
+    { role: 'label', title: n === 1 ? t('gallery.menuActions') : t('gallery.menuSelectedN', { n: formatNumber(n) }, n) },
   ]
-})
+  if (n === 1) {
+    items.push(
+      { value: 'open', title: t('gallery.menuOpen'), icon: 'i-tabler-photo', shortcut: formatShortcut(shortcuts.gallery.openPost.keys[0]) },
+      { value: 'similar', title: t('gallery.menuSimilar'), icon: 'i-tabler-photo-search' },
+      // Needs the row (its folder): a selection outside the loaded list can't.
+      { value: 'reveal', title: t('gallery.menuReveal'), icon: 'i-tabler-folder-open', disabled: !postsById.value.has(ids[0]) },
+    )
+  }
+  items.push(
+    { value: 'copy-path', title: n === 1 ? t('gallery.menuCopyPath') : t('gallery.menuCopyPaths'), icon: 'i-tabler-copy' },
+    { role: 'divider' },
+    radioRow(t('post.scoreLabel'), 'score', MAX_POST_SCORE, selectionCommon(ids, p => p.score), v => ({
+      title: t('filter.star', { n: v }, v),
+      short: String(v),
+      shortcut: scoreShortcut(v),
+    })),
+    radioRow(t('post.ratingLabel'), 'rating', MAX_POST_RATING, selectionCommon(ids, p => p.rating), (v) => {
+      const { icon, color } = ratingVisual(v)
+      return { title: ratingName(v, t), icon, iconColor: color }
+    }),
+    { role: 'divider' },
+    { value: 'rotate-clockwise', title: t('gallery.menuRotateCw'), icon: 'i-fluent-arrow-rotate-clockwise-24-regular' },
+    { value: 'rotate-counterclockwise', title: t('gallery.menuRotateCcw'), icon: 'i-fluent-arrow-rotate-counterclockwise-24-regular' },
+    { role: 'divider' },
+    { value: 'delete', title: t('gallery.menuDelete'), icon: 'i-tabler-trash', shortcut: formatShortcut(shortcuts.gallery.deleteSelected.keys[0]) },
+  )
+  return items
+}
+const menuData = shallowRef<PMenuItem[]>([])
+function onMenuOpen() {
+  menuData.value = buildMenu()
+}
 
 // Snapshot the ids when the dialog opens (instead of re-reading the live
 // selection on confirm) so the count shown is exactly what gets deleted, even
@@ -384,9 +448,51 @@ function settleFocusAfterDelete(next: number | null) {
   })
 }
 
+function copySelectedPaths(ids: number[]) {
+  return copyPostPaths(ids.flatMap(id => postsById.value.get(id) ?? []))
+}
+
 async function onMenuSelect(value: string | number | symbol) {
   const ids = selectedIdList.value
+  if (typeof value !== 'string' || ids.length === 0) {
+    return
+  }
+  const sole = ids.length === 1 ? ids[0] : undefined
+  const scoreMatch = /^score-(\d)$/.exec(value)
+  if (scoreMatch) {
+    await commitScore(queryClient, posts.value, ids, Number(scoreMatch[1]))
+    return
+  }
+  const ratingMatch = /^rating-(\d)$/.exec(value)
+  if (ratingMatch) {
+    await commitRating(queryClient, posts.value, ids, Number(ratingMatch[1]))
+    return
+  }
   switch (value) {
+    case 'open': {
+      if (sole !== undefined) {
+        await router.push(`/post/${sole}`)
+      }
+      break
+    }
+    case 'similar': {
+      // Post.vue scrolls its similar-posts grid into view for this hash.
+      if (sole !== undefined) {
+        await router.push({ path: `/post/${sole}`, hash: '#similar' })
+      }
+      break
+    }
+    case 'reveal': {
+      const post = sole === undefined ? undefined : postsById.value.get(sole)
+      if (post) {
+        await revealPost(post)
+      }
+      break
+    }
+    case 'copy-path': {
+      await copySelectedPaths(ids)
+      break
+    }
     case 'rotate-clockwise': {
       await commitRotate(queryClient, ids, true)
       break
@@ -542,6 +648,7 @@ onMounted(() => {
       trigger="contextmenu"
       :aria-label="$t('gallery.menuActions')"
       class="shrink-0 grow-1 basis-0 h-full w-full"
+      @open="onMenuOpen"
       @select="onMenuSelect"
     >
       <FolderSection />
@@ -579,6 +686,16 @@ onMounted(() => {
           :cols="cols"
           :item-width="waterfallItemWidth"
         />
+        <PEmpty
+          v-else-if="listFailed"
+          icon="i-tabler-alert-circle"
+          class="p-16"
+          role="alert"
+          :retry="infinityPostsQuery.refetch"
+          :retrying="infinityPostsQuery.isFetching.value"
+        >
+          {{ $t('gallery.loadFailed') }}
+        </PEmpty>
         <PEmpty
           v-else-if="posts.length === 0"
           icon="i-tabler-photo-off"

@@ -16,6 +16,8 @@ export default defineConfig({
         'src/shared/ratings.ts',
         // File-type icon class names for non-image gallery tiles.
         'src/utils/fileIcon.ts',
+        // Each scorer's one icon (scorerIcon), used by sort / filter / panels.
+        'src/shared/scorers.ts',
       ],
     },
   },
@@ -41,6 +43,8 @@ export default defineConfig({
       'surface-1': color('surface-1'),
       'surface-2': color('surface-2'),
       'surface-3': color('surface-3'),
+      // Loading-placeholder fill (its own token: light needs more contrast).
+      'skeleton': color('skeleton'),
 
       // Foreground / text
       'fg': color('fg'),
@@ -120,6 +124,11 @@ export default defineConfig({
     // shrink and break anywhere, so a long path can't squeeze the key column.
     // Key colour stays on the caller.
     'p-kv-grid': 'grid grid-cols-[auto_minmax(0,1fr)] gap-x-3 children:[overflow-wrap:anywhere] odd:children:whitespace-nowrap',
+    // Loading placeholder block (gallery, folder tree, detail placeholder).
+    // Stagger a group by setting `--i` (the row index) on each block.
+    'p-skeleton': 'bg-skeleton animate-pulse [animation-delay:calc(var(--i,0)*60ms)]',
+    // Small uppercase section heading with a leading icon (side panels).
+    'p-section-title': 'flex items-center gap-1.5 text-fg-subtle text-[11px] font-semibold uppercase tracking-wider',
     'p-thumb-badge': 'text-2xs text-white tracking-wide font-bold px-1.5 py-0.5 rounded pointer-events-none tabular-nums',
   },
 })
