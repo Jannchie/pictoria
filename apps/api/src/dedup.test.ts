@@ -10,7 +10,7 @@ import process from 'node:process'
 import { DEDUP_THRESHOLD, LPIPS_SAME_THRESHOLD } from '@pictoria/contracts'
 import { createTestDb } from '@pictoria/db'
 import { describe, expect, it } from 'vitest'
-import { buildEdges, classifyPairs, isRebuilding, rebuilderFor } from './dedup.js'
+import { buildEdges, classifyPairs, rebuilderFor } from './dedup.js'
 import { dedupMatrixPath, pictoriaDir } from './paths.js'
 import { createTestApp } from './testing/app.js'
 
@@ -122,7 +122,6 @@ describe('DedupRebuilder', () => {
       expect(rebuilderFor(t.sqlite)).toBe(r)
       expect(rebuilderFor(other)).not.toBe(r)
       expect(r.isRebuilding()).toBe(false)
-      expect(isRebuilding()).toBe(false)
     }
     finally {
       other.close()

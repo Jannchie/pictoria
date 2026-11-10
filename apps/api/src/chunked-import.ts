@@ -12,12 +12,16 @@
  *   （记成失败条数）由 `onError` 决定。
  */
 
+import type { Logger } from './log.js'
+
 /** 一块多少项。按 ~1 req/s 约一分钟落一次库。两个导入器共用。 */
 export const IMPORT_CHUNK_SIZE = 50
 
 export interface ChunkedRunOptions<T> {
-  /** 日志前缀，例如 `[url-import] https://…`。 */
+  /** 日志里这次导入的名字，例如 URL 或 tag 串。 */
   label: string
+  /** 调用方 scope 的 logger（`url-import` / `danbooru-import`）。 */
+  log: Pick<Logger, 'warn'>
   /** 下载并落库一块。抛错 = 这块失败。 */
   run: (chunk: T[]) => Promise<void>
   /** 这块失败了：调用方记账（通常是 `failed += chunk.length`）。 */
@@ -36,7 +40,7 @@ export interface ChunkedRunResult {
 export async function runInChunks<T>(
   items: readonly T[],
   chunkSize: number,
-  { label, run, onError, after }: ChunkedRunOptions<T>,
+  { label, log, run, onError, after }: ChunkedRunOptions<T>,
 ): Promise<ChunkedRunResult> {
   const size = Math.max(1, chunkSize)
   let failedChunks = 0
@@ -50,7 +54,7 @@ export async function runInChunks<T>(
       failedChunks += 1
       lastError = err
       onError?.(chunk, err)
-      console.warn(`${label} 第 ${i / size + 1} 块失败：${String(err)}`)
+      log.warn(`${label} 第 ${i / size + 1} 块失败：${String(err)}`)
     }
     after?.(chunk)
   }

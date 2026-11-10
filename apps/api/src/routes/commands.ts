@@ -28,8 +28,9 @@ import {
 } from '@pictoria/db'
 import path from 'node:path'
 import { IMPORT_CHUNK_SIZE, runInChunks } from '../chunked-import.js'
-import { DEDUP_THRESHOLD, isRebuilding, rebuildGroups } from '../dedup.js'
+import { DEDUP_THRESHOLD } from '../dedup.js'
 import { type AppEnv, newRoutes, type TaskSource } from '../env.js'
+import { createLogger } from '../log.js'
 import { boolQuery, CREATED, OK, errors, fail, postNotFound } from '../openapi.js'
 import { postDetailResponse, postIdParam } from './post-shared.js'
 import { PostDetailPublic, Result } from '../schemas.js'
@@ -38,6 +39,10 @@ import { startSync } from '../sync.js'
 import { embeddingSpec, runOneShot, silvaSpecs, taggerSpec, waifuSpec } from '../workers.js'
 
 export const commandsRoutes = newRoutes()
+
+const dedupLog = createLogger('dedup')
+const syncLog = createLogger('sync')
+const urlImportLog = createLogger('url-import')
 
 /**
  * 即时命令共用的两道守卫：post 不存在 → 404，不是图片 → 400。
@@ -110,7 +115,7 @@ commandsRoutes.openapi(
     const tasks = await c.var.tasks.get()
 
     // 忙就报忙，不排队。
-    if (isRebuilding())
+    if (c.var.dedup.isRebuilding())
       return c.json({ msg: 'Near-duplicate grouping already running' }, 201)
 
     // 直接传，不逐个 `...(x == null ? {} : { x })`：`RebuildOptions` 的每一项都收
@@ -126,8 +131,8 @@ commandsRoutes.openapi(
     }
     // fire-and-forget：请求立刻返回，结果打进日志。失败在这里吞掉并记下 ——
     // 没有人在等这个 promise，未处理的 rejection 会让整个进程退出。
-    void rebuildGroups(c.var.db, tasks, opts)
-      .catch((err: unknown) => console.warn(`[dedup] 重建失败：${String(err)}`))
+    void c.var.dedup.rebuild(c.var.db, tasks, opts)
+      .catch((err: unknown) => dedupLog.error(`重建失败：${String(err)}`))
 
     const thr = threshold ?? DEDUP_THRESHOLD
     return c.json({
@@ -348,7 +353,7 @@ commandsRoutes.openapi(
     const { allow_mass_delete: allowMassDelete } = c.req.valid('query')
     // 新行的空列由 backfill 循环去填：建行的 repository 函数自己叫醒它们。
     const started = startSync(c.var.db, (r) => {
-      console.warn(`[sync] 完成：新增 ${r.added}，删除 ${r.removed}`)
+      syncLog.info(`完成：新增 ${r.added}，删除 ${r.removed}`)
     }, { allowMassDelete })
     return c.json({ msg: started === 'started' ? 'Sync started' : 'Sync already running' }, 201)
   },
@@ -417,8 +422,7 @@ function urlImportBody(s: UrlImport): z.infer<typeof UrlImportStatus> {
  * URL 导入的状态机：同一时刻最多一次导入。每个 app 一个实例（纯内存）。
  *
  * 原来是模块级的一个 `let`，于是同一进程里的所有 app（测试里每个用例一个）共享一份
- * 状态。理想的做法是像 `DanbooruImports` 那样由 `createApp` 注入成 `c.var.urlImports`；
- * 在那之前，`urlImportsFor` 按库连接取实例 —— 一个 app 恰好一条连接，效果相同。
+ * 状态。现在和 `DanbooruImports` 一样由 `createApp` 注入成 `c.var.urlImports`。
  */
 export class UrlImports {
   private state: UrlImport = { kind: 'idle' }
@@ -460,7 +464,7 @@ export class UrlImports {
     }
     catch (err) {
       this.state = { ...run, kind: 'failed', finishedAt: new Date().toISOString(), error: String(err) }
-      console.warn(`[url-import] ${url} 失败：${String(err)}`)
+      urlImportLog.error(`${url} 失败：${String(err)}`)
       return
     }
     this.state = { ...run, kind: 'done', finishedAt: new Date().toISOString() }
@@ -468,18 +472,6 @@ export class UrlImports {
     // backfill 流程。已经有一轮在跑时 `startSync` 排一次补跑，新文件同样会被扫到。
     startSync(this.db)
   }
-}
-
-const urlImportsByDb = new WeakMap<SqliteHandle, UrlImports>()
-
-/** 这个 app（= 这条库连接）的 URL 导入实例。 */
-function urlImportsFor(c: Context<AppEnv, any, any>): UrlImports {
-  let inst = urlImportsByDb.get(c.var.db)
-  if (!inst) {
-    inst = new UrlImports(c.var.db, c.var.tasks)
-    urlImportsByDb.set(c.var.db, inst)
-  }
-  return inst
 }
 
 /** 一块的下载超时。worker 16 线程并发、单张 60 s 超时，50 张一块 10 分钟绰绰有余。 */
@@ -521,7 +513,8 @@ async function importOnce(sqlite: SqliteHandle, source: TaskSource, run: Running
   // 串行分块、每块落库、块失败继续 —— 与 Danbooru 导入同一个循环（`chunked-import.ts`）。
   // 失败那一块的文件会在下一次导入里被重新认作"新"（上面的判据）补全。
   const { lastError } = await runInChunks(fresh, IMPORT_CHUNK_SIZE, {
-    label: `[url-import] ${url}`,
+    label: url,
+    log: urlImportLog,
     run: async (chunk) => {
       const result = await tasks.call(urlDownloadTask, {
         items: chunk,
@@ -570,7 +563,7 @@ commandsRoutes.openapi(
   }),
   (c) => {
     const { url } = c.req.valid('query')
-    if (!urlImportsFor(c).start(url))
+    if (!c.var.urlImports.start(url))
       return c.json({ msg: 'Import already running' }, 201)
     return c.json({ msg: 'Import started' }, 201)
   },
@@ -587,5 +580,5 @@ commandsRoutes.openapi(
       200: { description: OK, content: { 'application/json': { schema: UrlImportStatus } } },
     },
   }),
-  c => c.json(urlImportsFor(c).status(), 200),
+  c => c.json(c.var.urlImports.status(), 200),
 )

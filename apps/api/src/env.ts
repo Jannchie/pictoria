@@ -15,6 +15,7 @@ import type { SqliteHandle } from '@pictoria/db'
 import type { DanbooruImports } from './danbooru-imports.js'
 import type { DedupRebuilder } from './dedup.js'
 import type { AppReads } from './read-cache.js'
+import type { UrlImports } from './routes/commands.js'
 import type { FolderTree } from './routes/folders.js'
 import { OpenAPIHono } from '@hono/zod-openapi'
 import { zodErrorHook } from './openapi.js'
@@ -37,6 +38,8 @@ export interface AppVariables {
   tasks: TaskSource
   /** Danbooru 导入的后台作业队列。每个 app 一个（纯内存），见 `danbooru-imports.ts`。 */
   danbooruImports: DanbooruImports
+  /** URL（gallery-dl）导入的状态机，同一时刻最多一次。每个 app 一个（纯内存），见 `routes/commands.ts`。 */
+  urlImports: UrlImports
   /**
    * 整库向量 KNN（相似图、文搜图）与重计数。生产是读线程池，别在主线程上跑它们 —— 一次
    * 1.5–3 秒，期间整个事件循环停摆。见 `read-pool.ts`。每个请求拿到的这一份挂着

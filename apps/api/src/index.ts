@@ -4,6 +4,7 @@ import { serve } from '@hono/node-server'
 import { createApp } from './app.js'
 import { getDb, migrate } from './db.js'
 import { rebuilderFor } from './dedup.js'
+import { createLogger } from './log.js'
 import { OPTIMIZE_INTERVAL_MS, optimizeDb } from './optimize.js'
 import { BACKFILL_LOOP_KEYS, setSchedulerState } from './queue-status.js'
 import { dbPath, targetDir } from './paths.js'
@@ -12,6 +13,9 @@ import { FolderTree } from './routes/folders.js'
 import { startBackfills } from './scheduler.js'
 import { startAutoSync } from './sync.js'
 import { getTasks, peekTasks } from './tasks.js'
+
+const log = createLogger('api')
+const schedulerLog = createLogger('scheduler')
 
 /**
  * Pictoria API 的进程入口 —— **只做启动副作用**：跑迁移、`serve()`、起 backfill 调度器和
@@ -44,7 +48,7 @@ setInterval(() => {
     optimizeDb(getDb().sqlite)
   }
   catch (err) {
-    console.error('[pictoria-api] PRAGMA optimize 失败（不影响服务）：', err)
+    log.warn('PRAGMA optimize 失败（不影响服务）：', err)
   }
 }, OPTIMIZE_INTERVAL_MS).unref()
 
@@ -69,7 +73,7 @@ void rebuilderFor(getDb().sqlite).sweepStale()
 
 serve({ fetch: app.fetch, port: PORT, hostname: HOST }, (info) => {
   const shown = info.family === 'IPv6' ? `[${info.address}]` : info.address
-  console.warn(`[pictoria-api] listening on http://${shown}:${info.port}`)
+  log.info(`listening on http://${shown}:${info.port}`)
 })
 
 // ---- backfill 调度（§D2：挑活在 TS，干活在 Python worker） ----
@@ -93,7 +97,7 @@ async function tasksForScheduler(): Promise<CairnQ> {
     }
     catch (err) {
       // 带上整个 err（堆栈 + code）：只打 String(err) 时分不清是哪一步失败的。
-      console.error(`[pictoria-api] 后台调度开库失败，${delay / 1000}s 后重试（HTTP 服务不受影响）：`, err)
+      schedulerLog.error(`后台调度开库失败，${delay / 1000}s 后重试（HTTP 服务不受影响）：`, err)
       setSchedulerState({ kind: 'retrying', error: String(err) })
       await new Promise(resolve => setTimeout(resolve, delay))
     }
@@ -111,15 +115,15 @@ if (process.env.PICTORIA_SCHEDULER !== '0') {
     // 磁盘变化和定时轮询都会触发一次对账 —— 形状承自已删除的 app.py 里的 watchdog +
     // 10 分钟 poller。建出新行时 `insertPostTriples` 自己叫醒 backfill 循环。
     startAutoSync(sqlite)
-    console.warn(`[pictoria-api] backfill 调度已启动：${BACKFILL_LOOP_KEYS.join(', ')}`)
-    console.warn('[pictoria-api] 文件监视 + 10 分钟轮询已启动')
+    schedulerLog.info(`backfill 调度已启动：${BACKFILL_LOOP_KEYS.join(', ')}`)
+    createLogger('sync').info('文件监视 + 10 分钟轮询已启动')
     setSchedulerState({ kind: 'running' })
   })().catch((err: unknown) => {
     // ⚠️ 这个 catch 不能省。上面整段是 fire-and-forget，开库之后的启动步骤抛出的
     // 异常会一路冒到这里 —— Node 默认 `--unhandled-rejections=throw`，于是一个**已经
     // 绑好端口、70 个端点都能正常服务**的进程会被一个后台初始化失败直接干掉。退役掉的
     // app.py 每条后台循环都包了 try/except，就是这个原因。
-    console.error('[pictoria-api] 后台调度启动失败，HTTP 服务继续：', err)
+    schedulerLog.error('后台调度启动失败，HTTP 服务继续：', err)
     // 也报给前端的同步状态区：只有一行终端日志的话，调度停了很久都没人发现。
     setSchedulerState({ kind: 'failed', error: String(err) })
   })

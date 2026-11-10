@@ -13,10 +13,11 @@ import fs from 'node:fs'
 import path from 'node:path'
 import process from 'node:process'
 import { coalesceWithCooldown, yieldToEventLoop } from './event-loop.js'
+import { createLogger, type Log } from './log.js'
 import { pictoriaDir, postAbsPath, targetDir } from './paths.js'
 import { deletePostFiles } from './post-files.js'
 
-type Log = Pick<Console, 'info' | 'warn'>
+const defaultLog = createLogger('sync')
 
 /** `(相对目录, 文件名主干, 扩展名)`，和 posts 表的三元组一一对应。 */
 export type FileTriple = PostTriple
@@ -59,7 +60,7 @@ export interface ScanResult {
   failedDirs: string[]
 }
 
-export async function scanLibrary(root: string, { log = console }: { log?: Log } = {}): Promise<ScanResult> {
+export async function scanLibrary(root: string, { log = defaultLog }: { log?: Log } = {}): Promise<ScanResult> {
   const out: FileTriple[] = []
   const failedDirs: string[] = []
   // 边走边建新表，走完整体替换。缓存只按 mtime 判新旧，自己发现不了"这个目录没了"；
@@ -72,7 +73,7 @@ export async function scanLibrary(root: string, { log = console }: { log?: Log }
   // 记路径同样是重点：删除判定按子树跳过它们，只记个数的话保护范围只能是全库。
   const fail = (dirPath: string, relDir: string, what: string, err: unknown): void => {
     failedDirs.push(relDir)
-    log.warn(`[sync] 跳过 ${dirPath}（${what} 失败）：${String(err)}`)
+    log.warn(`跳过 ${dirPath}（${what} 失败）：${String(err)}`)
     const cached = scanCache.get(dirPath)
     if (cached) {
       out.push(...cached.files)
@@ -182,7 +183,7 @@ const YIELD_EVERY = 10_000
  */
 export async function syncMetadata(
   sqlite: SqliteHandle,
-  { log = console, allowMassDelete = false, scan = scanLibrary, yieldEvery = YIELD_EVERY }: {
+  { log = defaultLog, allowMassDelete = false, scan = scanLibrary, yieldEvery = YIELD_EVERY }: {
     log?: Log
     allowMassDelete?: boolean
     /** 测试缝：在扫描前后插入并发写入。 */
@@ -219,7 +220,7 @@ export async function syncMetadata(
   }
   const t0 = Date.now()
   const { files: onDisk, failedDirs } = await scan(root, { log })
-  log.info(`[sync] 扫描 ${onDisk.length} 个文件，${((Date.now() - t0) / 1000).toFixed(2)}s`)
+  log.info(`扫描 ${onDisk.length} 个文件，${((Date.now() - t0) / 1000).toFixed(2)}s`)
   // 一趟走完 22.3 万个文件：key 只拼一次，两个产物同时出来。分成 `map` + `filter`
   // 会多留一个和 `onDisk` 靠下标对齐的平行数组 —— 以后谁给 `onDisk` 加一次
   // filter/sort 就会静默错位。
@@ -233,7 +234,7 @@ export async function syncMetadata(
     if (due())
       await yieldToEventLoop()
   }
-  log.info(`[sync] 库里 ${dbByKey.size} 个文件，磁盘上 ${diskKeys.size} 个`)
+  log.info(`库里 ${dbByKey.size} 个文件，磁盘上 ${diskKeys.size} 个`)
 
   const deleted: Array<{ id: number, dir: string }> = []
   for (const [k, row] of dbByKey) {
@@ -263,7 +264,7 @@ export async function syncMetadata(
   if (shielded.length) {
     skippedDeletes += shielded.length
     log.warn(
-      `[sync] ${failedDirs.length} 个目录读不动，其下 ${shielded.length} 个删除判定跳过`
+      `${failedDirs.length} 个目录读不动，其下 ${shielded.length} 个删除判定跳过`
       + '（扫描不到的子树里"没看见"不等于"已删除"，删了会连原图一起抹掉）',
     )
   }
@@ -272,13 +273,13 @@ export async function syncMetadata(
     if (massDelete) {
       skippedDeletes += deletable.length
       log.warn(
-        `[sync] ${deletable.length}/${dbByKey.size} 行被判为已删除，超过 ${MASS_DELETE_RATIO * 100}% —— 跳过。`
+        `${deletable.length}/${dbByKey.size} 行被判为已删除，超过 ${MASS_DELETE_RATIO * 100}% —— 跳过。`
         + '确认是真的删了这么多，就带 allow_mass_delete=1 重新触发 POST /v2/cmd/sync-metadata'
         + '（或设 PICTORIA_SYNC_ALLOW_MASS_DELETE=1，进程级）。',
       )
     }
     else {
-      log.info(`[sync] 检测到 ${deletable.length} 个文件已被删除`)
+      log.info(`检测到 ${deletable.length} 个文件已被删除`)
       // 分块、块间让出事件循环（见 `post-files.ts`）：一次删几万行不该让 API 停摆。
       await deletePostFiles(sqlite, deletable.map(d => d.id))
       removed = deletable.length
@@ -286,7 +287,7 @@ export async function syncMetadata(
   }
 
   if (newTriples.length) {
-    log.info(`[sync] 检测到 ${newTriples.length} 个新文件`)
+    log.info(`检测到 ${newTriples.length} 个新文件`)
     insertPostTriples(sqlite, newTriples)
   }
 
@@ -307,7 +308,7 @@ export async function syncMetadata(
  * 循环退水位重新捡起它们（`clearMissingFiles` 发重新待办信号）。行数是这类异常的量级，
  * 逐个 access 一次不贵。文件真的没了的那些，上面的删除判定会连行带黑名单一起删掉。
  */
-export async function restoreReturnedFiles(sqlite: SqliteHandle, log: Log = console): Promise<number> {
+export async function restoreReturnedFiles(sqlite: SqliteHandle, log: Log = defaultLog): Promise<number> {
   const missing = listMissingFilePosts(sqlite)
   if (!missing.length)
     return 0
@@ -323,7 +324,7 @@ export async function restoreReturnedFiles(sqlite: SqliteHandle, log: Log = cons
   if (!back.length)
     return 0
   clearMissingFiles(sqlite, back)
-  log.info(`[sync] ${back.length} 个之前不在盘上的文件回来了，重新排进 backfill`)
+  log.info(`${back.length} 个之前不在盘上的文件回来了，重新排进 backfill`)
   return back.length
 }
 
@@ -367,7 +368,7 @@ export type SyncStart = 'started' | 'queued'
 export function startSync(
   sqlite: SqliteHandle,
   onDone?: (r: SyncResult) => void,
-  { log = console, allowMassDelete = false }: { log?: Log, allowMassDelete?: boolean } = {},
+  { log = defaultLog, allowMassDelete = false }: { log?: Log, allowMassDelete?: boolean } = {},
 ): SyncStart {
   if (syncState.kind === 'running') {
     syncState.rerun = true
@@ -383,7 +384,7 @@ export function startSync(
       onDone?.(result)
     }
     catch (err) {
-      log.warn(`[sync] 失败：${String(err)}`)
+      log.warn(`失败：${String(err)}`)
     }
     finally {
       syncState = { kind: 'idle' }
@@ -392,7 +393,7 @@ export function startSync(
     // "在跑"又记一笔，平白多扫一遍全库。新一轮从 `syncMetadata` 的第一个 await 起
     // 就交出控制权，所以这里不是递归加深。
     if (state.rerun) {
-      log.info('[sync] 上一轮跑的时候还有变化进来，补一次')
+      log.info('上一轮跑的时候还有变化进来，补一次')
       startSync(sqlite, onDone, { log })
     }
   })()
@@ -424,7 +425,7 @@ export interface AutoSyncHandle {
 
 export function startAutoSync(
   sqlite: SqliteHandle,
-  { log = console }: { log?: Log } = {},
+  { log = defaultLog }: { log?: Log } = {},
 ): AutoSyncHandle {
   const root = targetDir()
   // 同步进行中又来了事件时的补跑由 `startSync` 自己负责（见那边的 `SyncState`），
@@ -432,9 +433,9 @@ export function startAutoSync(
   const fire = (label: string) => {
     startSync(sqlite, (r) => {
       if (r.added || r.removed)
-        log.info(`[sync/${label}] 新增 ${r.added}，删除 ${r.removed}`)
+        log.info(`${label}：新增 ${r.added}，删除 ${r.removed}`)
       if (r.skippedDeletes)
-        log.warn(`[sync/${label}] 有 ${r.skippedDeletes} 个删除判定被跳过`)
+        log.warn(`${label}：有 ${r.skippedDeletes} 个删除判定被跳过`)
     }, { log })
   }
 
@@ -459,7 +460,7 @@ export function startAutoSync(
     })
   }
   catch (err) {
-    log.warn(`[sync] 文件监视启动失败，只靠轮询：${String(err)}`)
+    log.warn(`文件监视启动失败，只靠轮询：${String(err)}`)
   }
 
   // 启动时先对一次账：服务没在跑的时候进来的文件，只有这一下能发现它们

@@ -34,7 +34,10 @@ import {
 } from '@pictoria/contracts'
 import { ensureCanonicalTagGroups, listImportedDanbooruIds, persistPostsWithTags } from '@pictoria/db'
 import { IMPORT_CHUNK_SIZE, runInChunks } from './chunked-import.js'
+import { createLogger } from './log.js'
 import { targetDir } from './paths.js'
+
+const log = createLogger('danbooru-import')
 
 /**
  * 一个导入作业，也是 API 回的 JSON —— 形状只在这里定义一次，类型由它推导，路由直接
@@ -216,14 +219,14 @@ export class DanbooruImports {
     try {
       await this.execute(job)
       job.state = 'done'
-      console.warn(
-        `[danbooru-import] ${job.tags} 完成：下载 ${job.downloaded}，跳过 ${job.skipped}，失败 ${job.failed}`,
+      log.info(
+        `${job.tags} 完成：下载 ${job.downloaded}，跳过 ${job.skipped}，失败 ${job.failed}`,
       )
     }
     catch (err) {
       job.state = 'failed'
       job.error = String(err)
-      console.warn(`[danbooru-import] ${job.tags} 失败：${String(err)}`)
+      log.error(`${job.tags} 失败：${String(err)}`)
     }
     finally {
       job.phase = null
@@ -267,7 +270,8 @@ export class DanbooruImports {
     job.phase = 'downloading'
     // 串行分块、每块落库、块失败继续 —— 规矩见 `chunked-import.ts`。
     await runInChunks<DanbooruItem>(items, this.chunkSize, {
-      label: `[danbooru-import] ${job.tags}`,
+      label: job.tags,
+      log,
       run: async (chunk) => {
         // 行留在这边，不跟着下载走：worker 只要知道下什么、存成什么名字。
         const downloadItems = chunk.map(i => ({

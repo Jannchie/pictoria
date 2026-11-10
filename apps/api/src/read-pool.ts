@@ -26,6 +26,9 @@ import process from 'node:process'
 import { pathToFileURL } from 'node:url'
 import { Worker } from 'node:worker_threads'
 import { DEDUPED_READS, READ_FN_NAMES, READ_FNS, SLOW_READS, withAbortCheck } from './read-fns.js'
+import { createLogger } from './log.js'
+
+const log = createLogger('read-pool')
 
 /** 每个登记的读函数一个异步方法（去掉连接参数）。由 `READ_FNS` 生成。 */
 export type ReadMethods = { [K in ReadFnName]: (...args: ReadArgs<K>) => Promise<ReadResult<K>> }
@@ -109,7 +112,7 @@ export function readThreadsFromEnv(): number {
     return DEFAULT_READ_THREADS
   const n = Number(raw)
   if (!Number.isInteger(n) || n < 0) {
-    console.warn(`[pictoria-api] PICTORIA_READ_THREADS=${raw} 不是非负整数，用默认的 ${DEFAULT_READ_THREADS}`)
+    log.warn(`PICTORIA_READ_THREADS=${raw} 不是非负整数，用默认的 ${DEFAULT_READ_THREADS}`)
     return DEFAULT_READ_THREADS
   }
   return n
@@ -225,7 +228,7 @@ export function createReadPool({ dbPath, size, slowSize = 1, entry = workerEntry
 
     // 线程里没接住的异常（含启动时开库失败）：先来 'error'，紧接着 'exit'。
     worker.on('error', (err) => {
-      console.error('[pictoria-api] 读线程崩溃：', err)
+      log.error('读线程崩溃：', err)
       failJob(slot, err)
     })
 

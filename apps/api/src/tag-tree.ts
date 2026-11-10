@@ -14,7 +14,10 @@
  */
 import fs from 'node:fs'
 import path from 'node:path'
+import { createLogger } from './log.js'
 import { repoRoot } from './paths.js'
+
+const log = createLogger('tag-tree')
 
 const TABLE_PATH = 'server/data/tag-tree.json'
 
@@ -48,7 +51,7 @@ function table(): RawTable {
   }
   catch (err) {
     // 缺表不是致命的：分类只是展示层的组织方式，没有它前端回落到不分组。
-    console.warn(`[tag-tree] 读不到 ${TABLE_PATH}，标签分类不可用：${String(err)}`)
+    log.warn(`读不到 ${TABLE_PATH}，标签分类不可用：${String(err)}`)
     cached = EMPTY
   }
   return cached

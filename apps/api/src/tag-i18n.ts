@@ -8,7 +8,10 @@
  */
 import fs from 'node:fs'
 import path from 'node:path'
+import { createLogger } from './log.js'
 import { repoRoot } from './paths.js'
+
+const log = createLogger('tag-i18n')
 
 const DATA_DIR = 'server/data'
 /** `tag.<lang>.json`。`lang` 只收字母和连字符 —— 这一条同时就是路径安全边界。 */
@@ -50,7 +53,7 @@ const supportedLangs = (() => {
       }
     }
     catch (err) {
-      console.warn(`[tag-i18n] 读不到 ${DATA_DIR}，所有 tag 都不翻译：${String(err)}`)
+      log.warn(`读不到 ${DATA_DIR}，所有 tag 都不翻译：${String(err)}`)
     }
     return cached
   }
@@ -74,7 +77,7 @@ function table(lang: string): Record<string, string> {
     loaded = JSON.parse(fs.readFileSync(file, 'utf8')) as Record<string, string>
   }
   catch {
-    console.warn(`[tag-i18n] 没有 ${lang} 的翻译表: ${file}`)
+    log.warn(`没有 ${lang} 的翻译表: ${file}`)
   }
   cache.set(lang, loaded)
   return loaded

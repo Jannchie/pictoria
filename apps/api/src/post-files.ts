@@ -10,7 +10,10 @@
 import fs from 'node:fs'
 import { DELETE_CHUNK, deleteManyReturningPaths, type SqliteHandle } from '@pictoria/db'
 import { yieldToEventLoop } from './event-loop.js'
+import { createLogger } from './log.js'
 import { postAbsPath, thumbnailPathFor } from './paths.js'
+
+const log = createLogger('post-files')
 
 /**
  * 删掉这些 post 的行、原图和缩略图，返回被删的相对路径。
@@ -46,7 +49,7 @@ export async function deletePostFiles(
     const results = await Promise.allSettled(paths.map(p => fs.promises.rm(p, { force: true })))
     const failed = results.flatMap((r, j) => (r.status === 'rejected' ? [`${paths[j]}: ${String(r.reason)}`] : []))
     if (failed.length)
-      console.warn(`[pictoria-api] ${failed.length} 个文件没删掉（行已删除；留下的原图下次 sync 会重新导入）：\n${failed.slice(0, 5).join('\n')}`)
+      log.warn(`${failed.length} 个文件没删掉（行已删除；留下的原图下次 sync 会重新导入）：\n${failed.slice(0, 5).join('\n')}`)
   }
   return removed
 }

@@ -21,6 +21,7 @@ import fs from 'node:fs'
 import { queueOf } from '@pictoria/contracts'
 import { onRepending, recordFailures, recordMissingFiles, scanIncomplete, type SqliteHandle } from '@pictoria/db'
 import { coalesceWithCooldown, createYieldQueue } from './event-loop.js'
+import { createLogger, type Log } from './log.js'
 import { registerLoop } from './queue-status.js'
 import { BACKFILL_SPECS, type WorkerSpec } from './workers.js'
 
@@ -69,7 +70,7 @@ export interface BackfillHandle {
   stop: () => void
 }
 
-type Log = Pick<Console, 'info' | 'warn'>
+const defaultLog = createLogger('scheduler')
 
 /**
  * 可被 abort 或 `waker` 提前打断的 sleep。
@@ -147,7 +148,7 @@ export async function runBatch(
   sqlite: SqliteHandle,
   tasks: Pick<CairnQ, 'call'>,
   spec: WorkerSpec<any, any, any>,
-  { log = console }: { log?: Log } = {},
+  { log = defaultLog }: { log?: Log } = {},
 ): Promise<BatchOutcome | null> {
   let pending = spec.listPending(sqlite, spec.batch)
   // 扫空了一个窗口但没到表尾（进程刚启动、水位线还在 0 时就是这样，见 packages/db 的
@@ -283,7 +284,7 @@ export function startBackfill(
   sqlite: SqliteHandle,
   tasks: Pick<CairnQ, 'call'>,
   spec: WorkerSpec<any, any, any>,
-  { log = console }: { log?: Log } = {},
+  { log = defaultLog }: { log?: Log } = {},
 ): BackfillHandle {
   let writtenSinceIdle = 0
   const onDrained = spec.onDrained

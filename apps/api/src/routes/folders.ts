@@ -7,10 +7,13 @@ import path from 'node:path'
 import { createRoute, z } from '@hono/zod-openapi'
 import { addAgg, emptyAgg, listIdsInFolder, SCORERS, type AestheticScorer, type AestheticScorerKey, type FolderScoreAgg } from '@pictoria/db'
 import { newRoutes, openapiCatchAll } from '../env.js'
+import { createLogger } from '../log.js'
 import { isInside, pictoriaDir, realPathOrResolved, targetDir, thumbnailPathFor } from '../paths.js'
 import { deletePostFiles } from '../post-files.js'
 import { OK, errors, fail } from '../openapi.js'
 import { Result } from '../schemas.js'
+
+const log = createLogger('folders')
 
 /** 每个打分器一个 `<key>Avg` 字段（`silvaAvg`、`silvaLunaAvg`），由 `SCORERS` 生成。 */
 type ScorerAvgFields = { [K in AestheticScorerKey as `${K}Avg`]: number | null }
@@ -128,7 +131,7 @@ export class FolderTree {
 
   /** 启动后先在后台走一遍，第一次点开侧边栏时就不必等冷遍历。 */
   warm(base: string): void {
-    void this.current(base).catch((err: unknown) => console.warn(`[folders] 预热目录树失败：${String(err)}`))
+    void this.current(base).catch((err: unknown) => log.warn(`预热目录树失败：${String(err)}`))
   }
 
   close(): void {
@@ -153,7 +156,7 @@ export class FolderTree {
       })
       // 监视器坏了（缓冲区溢出、目录被删）：关掉，下一次请求全量校验并重新挂上。
       watcher.on('error', (err) => {
-        console.warn(`[folders] 目录监视出错，退回全量校验：${String(err)}`)
+        log.warn(`目录监视出错，退回全量校验：${String(err)}`)
         if (this.watcher === watcher)
           this.close()
         this.lastFull = 0
@@ -164,7 +167,7 @@ export class FolderTree {
       this.lastFull = 0
     }
     catch (err) {
-      console.warn(`[folders] 目录监视启动失败，每次请求全量校验：${String(err)}`)
+      log.warn(`目录监视启动失败，每次请求全量校验：${String(err)}`)
     }
   }
 
@@ -213,7 +216,7 @@ export class FolderTree {
         this.building = null
       }
     })()
-      .catch((err: unknown) => console.warn(`[folders] 后台全量校验失败：${String(err)}`))
+      .catch((err: unknown) => log.warn(`后台全量校验失败：${String(err)}`))
       .finally(() => {
         this.backgroundFull = null
       })

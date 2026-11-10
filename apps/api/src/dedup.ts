@@ -57,9 +57,10 @@ import {
 } from '@pictoria/db'
 import process from 'node:process'
 import { yieldToEventLoop } from './event-loop.js'
+import { createLogger, type Log } from './log.js'
 import { dedupMatrixPath, isDedupMatrix, pictoriaDir, thumbnailPathFor } from './paths.js'
 
-type Log = Pick<Console, 'info' | 'warn'>
+const defaultLog = createLogger('dedup')
 
 export { DEDUP_THRESHOLD }
 
@@ -196,13 +197,11 @@ export class DedupRebuilder {
     }
     const run = doRebuild(sqlite, tasks, options, this.activeFiles)
     this.inFlight = run
-    busyRebuilders.add(this)
     try {
       return await run
     }
     finally {
       this.inFlight = null
-      busyRebuilders.delete(this)
     }
   }
 
@@ -210,13 +209,12 @@ export class DedupRebuilder {
    * 回收 `.pictoria/` 下的残留矩阵（进程被杀 / 超时留下的，一个 1–2 GB），跳过本实例
    * 正在用的。启动时调一次（`index.ts`），每轮重建开始前也会调。
    */
-  async sweepStale(log: Log = console): Promise<void> {
+  async sweepStale(log: Log = defaultLog): Promise<void> {
     await sweepStaleMatrices(pictoriaDir(), log, this.activeFiles)
   }
 }
 
 const rebuilders = new WeakMap<SqliteHandle, DedupRebuilder>()
-const busyRebuilders = new Set<DedupRebuilder>()
 
 /** 这个库的重建器（每个连接一个，懒建）。 */
 export function rebuilderFor(sqlite: SqliteHandle): DedupRebuilder {
@@ -226,23 +224,6 @@ export function rebuilderFor(sqlite: SqliteHandle): DedupRebuilder {
     rebuilders.set(sqlite, r)
   }
   return r
-}
-
-/**
- * 兼容入口：`routes/commands.ts` 还在用（应改成 `c.var.dedup.isRebuilding()`）。
- * 不带库时回答"这个进程里有没有重建在跑"。
- */
-export function isRebuilding(sqlite?: SqliteHandle): boolean {
-  return sqlite ? rebuilderFor(sqlite).isRebuilding() : busyRebuilders.size > 0
-}
-
-/** 兼容入口：等价于 `rebuilderFor(sqlite).rebuild(...)`。 */
-export function rebuildGroups(
-  sqlite: SqliteHandle,
-  tasks: Pick<CairnQ, 'call'>,
-  options: RebuildOptions = {},
-): Promise<number> {
-  return rebuilderFor(sqlite).rebuild(sqlite, tasks, options)
 }
 
 /**
@@ -381,7 +362,7 @@ async function arbitrate(
     upsertAutoEdges(sqlite, rows)
     verified += rows.length
     if (result.failures.length)
-      opts.log.warn(`[dedup] 仲裁失败 ${result.failures.length} 对（首个：${result.failures[0]?.error ?? ''}）`)
+      opts.log.warn(`仲裁失败 ${result.failures.length} 对（首个：${result.failures[0]?.error ?? ''}）`)
   }
 
   // 每隔一段报一次进度。全量第一轮是 15 万对、近两小时，中间一行不打就等于静默 ——
@@ -403,7 +384,7 @@ async function arbitrate(
         const rate = done / elapsed
         const same = [...distances.values()].filter(d => d <= LPIPS_SAME_THRESHOLD).length
         opts.log.info(
-          `[dedup] 仲裁进度 ${done}/${picked.length}（${(done / picked.length * 100).toFixed(1)}%，`
+          `仲裁进度 ${done}/${picked.length}（${(done / picked.length * 100).toFixed(1)}%，`
           + `${rate.toFixed(1)} 对/秒，剩约 ${((picked.length - done) / rate / 60).toFixed(0)} 分钟）；`
           + `累计判同 ${same}/${distances.size}`,
         )
@@ -499,7 +480,7 @@ async function doRebuild(
   const maxArbitrations = options.maxArbitrations ?? MAX_ARBITRATIONS_PER_REBUILD
   const arbitrationSampling = options.arbitrationSampling ?? 'nearest'
   const dryRun = options.dryRun ?? false
-  const log = options.log ?? console
+  const log = options.log ?? defaultLog
   // 每次一个新文件名，不复用固定路径。超时的那一轮**不会**停掉 worker（cairnq 的
   // `pollWait` 明说了 timeoutMs 只是不再等），它还 mmap 着这个文件 —— 固定路径
   // 下一轮的 `openSync(file, 'w')` 在 Windows 上会撞 EBUSY 撞到重建根本起不来。
@@ -524,7 +505,7 @@ async function doRebuild(
       return 0
     }
 
-    log.info(`[dedup] 导出 ${count} 条向量（${dim} 维，${(count * dim * 4 / 1e9).toFixed(2)} GB），提交 GPU`)
+    log.info(`导出 ${count} 条向量（${dim} 维，${(count * dim * 4 / 1e9).toFixed(2)} GB），提交 GPU`)
     // 召回按**灰带**上限发，判同的那一档在 TS 侧用 `threshold` 切出来 —— worker
     // 一次矩阵乘就够，没必要为两个阈值跑两遍。
     // 不设 key：`conflict: 'reuse'` 会把上一次的结果原样还回来，而矩阵文件的
@@ -542,13 +523,13 @@ async function doRebuild(
     // 分不了档就没法仲裁，整轮停下来比悄悄按缺省值分组好。
     if (pairs.length > 0 && pairs[0]!.length < 3) {
       throw new Error(
-        '[dedup] worker 回传的对不带距离 —— 几乎可以肯定是它还跑着改动前的代码：重启它再试。',
+        'worker 回传的对不带距离 —— 几乎可以肯定是它还跑着改动前的代码：重启它再试。',
       )
     }
     const { accepted, grey } = classifyPairs(ids, pairs, threshold)
     const overrides = listGroupOverrides(sqlite)
     log.info(
-      `[dedup] 召回 ${pairs.length} 对：直接判同 ${accepted.length}，灰带 ${grey.length}`
+      `召回 ${pairs.length} 对：直接判同 ${accepted.length}，灰带 ${grey.length}`
       + `（${threshold}–${greyThreshold}，每行最多 ${DEDUP_GREY_MAX_PER_ROW} 个邻居）`,
     )
 
@@ -562,7 +543,7 @@ async function doRebuild(
     if (pending > 0) {
       const same = [...distances.values()].filter(d => d <= lpipsThreshold).length
       log.info(
-        `[dedup] 仲裁：待算 ${pending}，本轮算了 ${verified}`
+        `仲裁：待算 ${pending}，本轮算了 ${verified}`
         + `（${((Date.now() - arbitrationStarted) / 1000).toFixed(1)}s）；`
         + `灰带里判同 ${same}/${distances.size}（lpips ≤ ${lpipsThreshold}）`
         + (pending > verified ? `，还剩 ${pending - verified} 对留给下一轮` : ''),
@@ -597,16 +578,16 @@ async function doRebuild(
     const sizes = new Map<number, number>() // canonical -> 成员数（含 canonical 自己）
     for (const [, c] of assignments) sizes.set(c, (sizes.get(c) ?? 1) + 1)
     log.info(
-      `[dedup] ${dryRun ? '（dry run，未落库）' : ''}${assignments.length} 个成员归入 ${sizes.size} 个 canonical`
+      `${dryRun ? '（dry run，未落库）' : ''}${assignments.length} 个成员归入 ${sizes.size} 个 canonical`
       + `（threshold=${threshold}，${((Date.now() - started) / 1000).toFixed(1)}s）`
-      + `\n[dedup] 组大小分布 ${formatSizeHistogram(sizes)}`,
+      + `\n  组大小分布 ${formatSizeHistogram(sizes)}`,
     )
     // 传递闭包会把链连起来，代价是一条错边能串起两坨。大组是唯一的征兆，
     // 所以直接把它们的 canonical 打出来 —— 抽查一眼就知道是差分集还是串味了。
     const big = [...sizes.entries()].filter(([, n]) => n > BIG_GROUP).sort((x, y) => y[1] - x[1])
     if (big.length) {
       log.info(
-        `[dedup] size>${BIG_GROUP} 的 ${big.length} 个组（canonical:size）：`
+        `size>${BIG_GROUP} 的 ${big.length} 个组（canonical:size）：`
         + big.map(([c, n]) => `${c}:${n}`).join(' '),
       )
     }
@@ -619,7 +600,7 @@ async function doRebuild(
     // 得到 EBUSY（`force: true` 只吞 ENOENT），抛出去就把真正的 `TaskTimeout` 换成
     // 一个看不懂的文件错误。留给下一轮的 `sweepStaleMatrices` 收。
     await fs.rm(file, { force: true }).catch((err: unknown) =>
-      log.warn(`[dedup] 临时矩阵删不掉，留给下一轮回收：${file}（${String(err)}）`))
+      log.warn(`临时矩阵删不掉，留给下一轮回收：${file}（${String(err)}）`))
     activeFiles.delete(file)
   }
 }
@@ -701,7 +682,7 @@ async function sweepStaleMatrices(dir: string, log: Log, keep: ReadonlySet<strin
     if (!isDedupMatrix(name) || keep.has(path.join(dir, name)) || ownedByAnotherLiveProcess(name))
       continue
     await fs.rm(path.join(dir, name), { force: true })
-      .then(() => log.info(`[dedup] 回收了残留的临时矩阵 ${name}`))
+      .then(() => log.info(`回收了残留的临时矩阵 ${name}`))
       .catch(() => {})
   }
 }

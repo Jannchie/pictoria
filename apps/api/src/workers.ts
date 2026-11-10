@@ -75,9 +75,10 @@ import {
 } from '@pictoria/db'
 import { Buffer } from 'node:buffer'
 import { rebuilderFor } from './dedup.js'
+import { createLogger, type Log } from './log.js'
 import { postAbsPath, thumbnailPathFor } from './paths.js'
 
-type Log = Pick<Console, 'info' | 'warn'>
+const dedupLog = createLogger('dedup')
 
 /** 落库那一步怎么被调用的。 */
 export interface PersistCtx {
@@ -277,9 +278,10 @@ export const embeddingSpec: WorkerSpec<PendingImage, EmbeddingPayload, Embedding
       note: written < result.embeddings.length ? `（${result.embeddings.length - written} 条的 post 已被删除）` : undefined,
     }
   },
-  // 失败只记一行：重组是尽力而为的，下一次清空还会再来。
-  onDrained: async ({ sqlite, tasks, log }) => {
-    await rebuilderFor(sqlite).rebuild(sqlite, tasks, { log }).catch((err: unknown) => log.warn(`[dedup] 重建失败：${String(err)}`))
+  // 失败只记一行：重组是尽力而为的，下一次清空还会再来。日志走 dedup 自己的 scope，
+  // 不用调度器传进来的那个。
+  onDrained: async ({ sqlite, tasks }) => {
+    await rebuilderFor(sqlite).rebuild(sqlite, tasks).catch((err: unknown) => dedupLog.error(`重建失败：${String(err)}`))
   },
   // 一次重建是全库的：31 万条向量导出 + GPU 矩阵乘 + 换组，主线程上就是 10 s 以上的 CPU。
   // 上传 / 导入时 embedding 每几十秒清空一次，不合并的话实测 10 分钟跑约 20 轮。新图晚

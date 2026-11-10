@@ -6,6 +6,7 @@
  * 连接是因为它把同步调用扔进了线程池）。
  */
 import { createDb, MIGRATIONS_DIR, runMigrations } from '@pictoria/db'
+import { createLogger } from './log.js'
 import { dbPath } from './paths.js'
 
 let handle: ReturnType<typeof createDb> | null = null
@@ -35,5 +36,5 @@ export function getDb() {
 export function migrate(): void {
   const applied = runMigrations(getDb().sqlite, MIGRATIONS_DIR)
   if (applied)
-    console.warn(`[pictoria-api] 应用了 ${applied} 个迁移`)
+    createLogger('db').info(`应用了 ${applied} 个迁移`)
 }

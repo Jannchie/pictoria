@@ -21,9 +21,12 @@ import path from 'node:path'
 import { Readable } from 'node:stream'
 import { newRoutes, openapiCatchAll, type TaskSource } from '../env.js'
 import { postIdParam } from './post-shared.js'
+import { createLogger } from '../log.js'
 import { errors, fail } from '../openapi.js'
 import { presignGetObject } from '../s3.js'
 import { isPublicLibraryPath, postAbsPath, resolveLibraryPath, targetDir, thumbnailPathFor } from '../paths.js'
+
+const log = createLogger('images')
 
 export const imagesRoutes = newRoutes()
 
@@ -126,7 +129,7 @@ async function ensureThumbnail(tasks: TaskSource, originalPath: string, thumbPat
     maxAttempts: 1,
   })
   if (!result.ok) {
-    console.warn(`[images] 无法为 ${originalPath} 生成缩略图：${result.error}`)
+    log.warn(`无法为 ${originalPath} 生成缩略图：${result.error}`)
     return notFound('Image cannot be decoded for thumbnail')
   }
   return null
@@ -184,7 +187,7 @@ imagesRoutes.openapi(
       return notFound(`Original image for post ${postId} not found`)
     const upstream = await fetch(link)
     if (!upstream.ok) {
-      console.warn(`[images] post ${postId} 的 S3 兜底返回 ${upstream.status}`)
+      log.warn(`post ${postId} 的 S3 兜底返回 ${upstream.status}`)
       return notFound(`Failed to download original image for post ${postId}`)
     }
     const headers = new Headers({ 'cache-control': IMAGE_CACHE })

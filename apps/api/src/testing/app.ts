@@ -38,6 +38,7 @@ import { afterAll } from 'vitest'
 import { createApp } from '../app.js'
 import { DanbooruImports, type DanbooruImportsOptions } from '../danbooru-imports.js'
 import { targetDir, thumbnailPathFor } from '../paths.js'
+import { UrlImports } from '../routes/commands.js'
 
 let libraryRoot: string | undefined
 
@@ -105,7 +106,9 @@ export function createTestApp(options: { tasks?: TaskSource, danbooruImports?: D
   const tasks = options.tasks ?? fakeTasks()
   // 每个用例一个全新的作业队列；测试拿着它好 `await danbooruImports.idle()`。
   const danbooruImports = new DanbooruImports(sqlite, tasks, options.danbooruImports)
-  const app = createApp({ db: sqlite, tasks, danbooruImports })
+  // URL 导入同样每个用例一个，拿着句柄可以直接看 `status()`。
+  const urlImports = new UrlImports(sqlite, tasks)
+  const app = createApp({ db: sqlite, tasks, danbooruImports, urlImports })
 
   /** 插一行 post，返回 id；`filePath` 是相对图库根的目录（根是 `'.'`）。 */
   function insertPost(filePath: string, fileName: string, extension: string, opts: InsertPostOptions = {}): number {
@@ -135,7 +138,7 @@ export function createTestApp(options: { tasks?: TaskSource, danbooruImports?: D
       fs.rmSync(path.join(root, name), { recursive: true, force: true })
   }
 
-  return { app, sqlite, tasks, danbooruImports, root, insertPost, writeFile, close }
+  return { app, sqlite, tasks, danbooruImports, urlImports, root, insertPost, writeFile, close }
 }
 
 export type TestApp = ReturnType<typeof createTestApp>

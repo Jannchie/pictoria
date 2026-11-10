@@ -15,13 +15,14 @@ import { compress } from 'hono/compress'
 import { cors } from 'hono/cors'
 import { DanbooruImports } from './danbooru-imports.js'
 import { type DedupRebuilder, rebuilderFor } from './dedup.js'
+import { createLogger } from './log.js'
 import { fail } from './openapi.js'
 import { createAppReads, ReadCache } from './read-cache.js'
 import { inProcessReads, type Reads } from './read-pool.js'
 import { originGuard, originPolicyFromEnv } from './security.js'
 import { annotationQueuesRoutes } from './routes/annotation-queues.js'
 import { annotationsRoutes } from './routes/annotations.js'
-import { commandsRoutes } from './routes/commands.js'
+import { commandsRoutes, UrlImports } from './routes/commands.js'
 import { danbooruImportsRoutes } from './routes/danbooru-imports.js'
 import { FolderTree, foldersRoutes } from './routes/folders.js'
 import { imagesRoutes } from './routes/images.js'
@@ -44,6 +45,8 @@ export interface AppDeps {
    * 它的句柄等后台作业跑完（`idle()`）、或调小块大小和并发。
    */
   danbooruImports?: DanbooruImports
+  /** URL 导入状态机。省略时每个 app 新建一个；测试可以传自己的实例拿着句柄。 */
+  urlImports?: UrlImports
   /**
    * 重读查询（向量 KNN）。省略时在主线程上同步跑 `db` —— 测试要的就是这个；生产在
    * `index.ts` 传读线程池。
@@ -61,6 +64,7 @@ export function createApp({
   db,
   tasks,
   danbooruImports = new DanbooruImports(db, tasks),
+  urlImports = new UrlImports(db, tasks),
   reads = inProcessReads(db),
   readCache = new ReadCache(db),
   folderTree = new FolderTree(),
@@ -97,6 +101,7 @@ export function createApp({
     c.set('db', db)
     c.set('tasks', tasks)
     c.set('danbooruImports', danbooruImports)
+    c.set('urlImports', urlImports)
     c.set('reads', appReads.withSignal(c.req.raw.signal))
     c.set('folderTree', folderTree)
     c.set('dedup', dedup)
@@ -147,7 +152,7 @@ export function createApp({
     // 客户端已经走了（`c.var.reads` 的读因为 abort 被放弃）：没人收响应，也不是错误。
     if (err.name === 'AbortError' && c.req.raw.signal.aborted)
       return new Response(null, { status: 499 })
-    console.error(`[pictoria-api] 未处理的异常：${err.stack ?? String(err)}`)
+    createLogger('api').error(`未处理的异常：${c.req.method} ${c.req.path}\n${err.stack ?? String(err)}`)
     return fail(500, 'InternalServerError', 'Internal Server Error')
   })
 

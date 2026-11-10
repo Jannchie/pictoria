@@ -21,6 +21,8 @@ export { addAgg, emptyAgg, folderScoreAggregates } from './repositories/folders.
 export type { FolderScoreAgg, ScorerAgg } from './repositories/folders.js'
 export { addTagToPost, addTagToPosts, createTag, deleteTag, deleteTags, getTag, getTagGroup, listTagGroups, listTagsWithCounts, MAX_BULK_TAG_POSTS, missingPostIds, removeTagFromPost, removeTagFromPosts, setTagSource, updateTagGroup } from './repositories/tags.js'
 export type { TagGroupRow, TagRow, TagWithCount } from './repositories/tags.js'
+export { recountTagPostCounts, tagPostCountDrift } from './repositories/tag-counts.js'
+export type { TagCountDrift } from './repositories/tag-counts.js'
 export { aggregateStats, countAllTags, countByColumn, countByScorerBucket, countByTag, countByTagFast, countPosts, isTagCountFastPath, selectTagCounts } from './queries/counts.js'
 export type { AbortCheck, AggregateStats, BucketCount, TagCount, TagCountEntry, TagNameMatch } from './queries/counts.js'
 export { decodeDominantColor, fetchAestheticByIds, fetchColorsByIds, fetchTagsByIds, fetchWaifuByIds, getDetail, getGroupMembers, memberCounts, POST_COLUMNS, SIMPLE_BASE_COLUMNS, SIMPLE_POST_COLUMNS } from './queries/post-detail.js'
