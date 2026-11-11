@@ -13,6 +13,7 @@ const items: { path: string, icon: string, labelKey: string, keepQuery: boolean 
   { path: '/recently', icon: 'i-tabler-clock', labelKey: 'nav.recently', keepQuery: true },
   { path: '/random', icon: 'i-tabler-arrows-cross', labelKey: 'nav.random', keepQuery: true },
   { path: '/annotate', icon: 'i-tabler-checklist', labelKey: 'nav.annotate', keepQuery: false },
+  { path: '/grade', icon: 'i-tabler-star', labelKey: 'nav.grade', keepQuery: false },
 ]
 
 const { data: allCount } = useQuery({

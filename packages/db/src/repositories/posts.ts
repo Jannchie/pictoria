@@ -24,6 +24,8 @@ export function updateField(
   postId: number,
   field: string,
   value: unknown,
+  /** 只对 score 有意义：这一分的打分情境，原样进 `post_score_events.source`。 */
+  source: string | null = null,
 ): boolean {
   if (!UPDATABLE_FIELDS.has(field))
     throw new Error(`Field is not whitelisted for update: ${field}`)
@@ -46,8 +48,14 @@ export function updateField(
     + `WHERE id = (SELECT COALESCE(canonical_post_id, id) FROM posts WHERE id = ?) `
     + `   OR canonical_post_id = (SELECT COALESCE(canonical_post_id, id) FROM posts WHERE id = ?)`,
   )
+  // 事件先于 UPDATE 写：`previous` 要读到动作之前的分。只记被操作的这一张 ——
+  // 镜像带着改的成员不是独立判断（见 0025_post_score_events.sql）。
+  const record = sqlite.prepare(
+    'INSERT INTO post_score_events (post_id, score, previous, source) SELECT id, ?, score, ? FROM posts WHERE id = ?',
+  )
   let matched = false
   sqlite.transaction(() => {
+    record.run(value, source, postId)
     matched = stmt.run(value, postId).changes > 0
     if (matched)
       mirror.run(value, postId, postId)
@@ -79,7 +87,12 @@ export function bulkUpdateField(
     `UPDATE posts SET score = ?, updated_at = CURRENT_TIMESTAMP `
     + `WHERE id IN (${heads}) OR canonical_post_id IN (${heads})`,
   )
+  const record = sqlite.prepare(
+    'INSERT INTO post_score_events (post_id, score, previous, bulk) '
+    + `SELECT id, ?, score, 1 FROM posts WHERE id IN (${placeholders(ids.length)}) ORDER BY id`,
+  )
   sqlite.transaction(() => {
+    record.run(value, ...ids)
     stmt.run(value, ...ids)
     mirror.run(value, ...ids, ...ids)
   })()

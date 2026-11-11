@@ -7,7 +7,7 @@ import fs from 'node:fs'
 import path from 'node:path'
 import { IO_QUEUE, rotateTask } from '@pictoria/contracts'
 import { Buffer } from 'node:buffer'
-import { bulkUpdateField, clearCanonical, createPost, getPostPath, groupHeadOf, groupTogether, isImagePath, makeCanonical, markDifferent, postExists, touchAccessed, updateField, updateForRotate } from '@pictoria/db'
+import { bulkUpdateField, clearCanonical, GRADING_SOURCES, createPost, getPostPath, groupHeadOf, groupTogether, isImagePath, makeCanonical, markDifferent, postExists, touchAccessed, updateField, updateForRotate } from '@pictoria/db'
 import { type AppEnv, newRoutes } from '../env.js'
 import type { Context } from 'hono'
 import { boolQuery, CREATED, OK, errors, fail, postNotFound, validationError } from '../openapi.js'
@@ -37,14 +37,20 @@ const UploadFormData = z
   .openapi('UploadFormData')
 
 const ScoreUpdate = z
-  .object({ score: z.int().min(0).max(MAX_POST_SCORE).describe('Score from 0 to 5.') })
+  .object({
+    score: z.int().min(0).max(MAX_POST_SCORE).describe('Score from 0 to 5.'),
+    // 写进 post_score_events.source。形状收死：这一列是给训练侧按情境切数据用的，
+    // 放任自由文本进来，日后就没人说得清某个值是什么意思。
+    source: z.enum(GRADING_SOURCES).optional()
+      .describe('Where the grade was given. Omit for ordinary gallery scoring; `grade:<reason>` for the blind grading page.'),
+  })
   .openapi('ScoreUpdate')
 
 export const postWritesRoutes = newRoutes()
 
 /** 更新一个标量列后回读详情。 */
-function updateAndReturnDetail(c: Context<AppEnv, any, any>, postId: number, field: string, value: unknown) {
-  if (!updateField(c.var.db, postId, field, value))
+function updateAndReturnDetail(c: Context<AppEnv, any, any>, postId: number, field: string, value: unknown, source: string | null = null) {
+  if (!updateField(c.var.db, postId, field, value, source))
     return postNotFound(postId)
   return postDetailResponse(c, postId)
 }
@@ -107,7 +113,10 @@ postWritesRoutes.openapi(
     },
     responses: detailResponse,
   }),
-  c => updateAndReturnDetail(c, c.req.valid('param').post_id, 'score', c.req.valid('json').score),
+  (c) => {
+    const { score, source } = c.req.valid('json')
+    return updateAndReturnDetail(c, c.req.valid('param').post_id, 'score', score, source ?? null)
+  },
 )
 
 /** rating / caption / source 三个都把值放在 query 上，形状一致。 */

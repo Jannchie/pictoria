@@ -11,6 +11,7 @@ import type {
   V2SubmitListwiseData,
   V2SubmitPairwiseData,
   V2UndoAnnotationsData,
+  V2UpdatePostScoreData,
   V2UploadFileData,
 } from '@/api'
 import {
@@ -152,7 +153,7 @@ function refetchTruth(qc: QueryClient, ids: number[]): void {
   }
 }
 
-async function writeScore(qc: QueryClient, ids: number[], score: number): Promise<void> {
+async function writeScore(qc: QueryClient, ids: number[], score: number, source?: GradeSource): Promise<void> {
   if (ids.length === 0) {
     return
   }
@@ -162,7 +163,7 @@ async function writeScore(qc: QueryClient, ids: number[], score: number): Promis
   patchPostDetailCaches(qc, ids, { score })
   try {
     await (ids.length === 1
-      ? v2UpdatePostScore({ path: { post_id: ids[0] }, body: { score } })
+      ? v2UpdatePostScore({ path: { post_id: ids[0] }, body: { score, source } })
       : inBatches(ids, chunk => v2BulkUpdatePostScore({ query: { ids: chunk, score } })))
   }
   catch (error) {
@@ -435,6 +436,20 @@ export async function commitScore(
     note: buildNote(missingIds),
   })
   return { missingIds }
+}
+
+/** Where a grade was given: the blind grading page tags its writes, the gallery does not. */
+export type GradeSource = NonNullable<V2UpdatePostScoreData['body']['source']>
+
+/**
+ * One grade from the quick-grade page. Not on the undo stack: the page keeps
+ * its own deck, and going back to a card and grading it again is the undo.
+ * `source` marks a blind judgement (see `gradeSource` in gradingDeck.ts); the
+ * live agreement figures are refreshed either way.
+ */
+export async function gradePost(qc: QueryClient, postId: number, score: number, source?: GradeSource): Promise<void> {
+  await writeScore(qc, [postId], score, source)
+  void qc.invalidateQueries({ queryKey: queryKeys.gradingStats })
 }
 
 export async function commitRating(

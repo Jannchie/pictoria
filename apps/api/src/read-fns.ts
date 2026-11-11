@@ -20,6 +20,7 @@ import {
   FILTERABLE_SCORERS,
   folderScoreAggregates,
   knn,
+  sampleGradingDeck,
   searchByTextVector,
   unratedArtistPickIds,
 } from '@pictoria/db'
@@ -62,7 +63,8 @@ function countAllTagsCancellable(db: SqliteHandle, f: PostFilter) {
  * 除了整库 KNN（`knn` / `searchByTextVector`，1.5–3 s），这里还有 facet 计数与聚合：
  * 带过滤的 tag facet（`countAllTags`）要对过滤集的全部标签行 GROUP BY（真库 0.3–8 s），
  * `countByColumn` / `countByScorerBucket` / `aggregateStats` 扫整个过滤集（50–300 ms），
- * `unratedArtistPickIds` 约 0.2–1.3 s。放在主线程上，它们每一次都让所有请求一起排队。
+ * `unratedArtistPickIds` 约 0.2–1.3 s，快速打分的抽牌（`sampleGradingDeck`，整库读进内存再抽）
+ * 0.6–1.6 s。放在主线程上，它们每一次都让所有请求一起排队。
  */
 export const READ_FNS = {
   knn,
@@ -75,6 +77,8 @@ export const READ_FNS = {
   aggregateStats,
   folderScoreAggregates,
   unratedArtistPickIds,
+  // 只传张数：rng 是函数，过不了结构化克隆，线程里用默认的 Math.random
+  sampleGradingDeck: (db: SqliteHandle, count: number) => sampleGradingDeck(db, count),
 } satisfies Record<string, (db: SqliteHandle, ...args: any[]) => unknown>
 
 export type ReadFnName = keyof typeof READ_FNS

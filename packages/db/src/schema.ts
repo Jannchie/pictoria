@@ -251,6 +251,28 @@ export const contentFlagEvents = sqliteTable('content_flag_events', {
   sessionId: text('session_id').notNull(),
 })
 
+/** 打分事件流（append-only）：用户每写一次 `posts.score` 追加一行，镜像写入不记。 */
+export const postScoreEvents = sqliteTable('post_score_events', {
+  id: integer('id').primaryKey(),
+  createdAt: text('created_at').notNull().default(sql`(datetime('now'))`),
+  postId: integer('post_id').notNull(),
+  /** 写入的新分，0 = 清空。 */
+  score: integer('score').notNull(),
+  /** 这张图动作之前的分。 */
+  previous: integer('previous').notNull(),
+  /** 1 = 来自批量打分。 */
+  bulk: integer('bulk').notNull().default(0),
+  /** 打分情境：NULL = 图库；`grade:<reason>` = 快速打分页的盲打。 */
+  source: text('source'),
+})
+
+/** 快速打分页的参照图：每档固定几张典型图（见 0026_grading_anchors.sql）。 */
+export const gradingAnchors = sqliteTable('grading_anchors', {
+  grade: integer('grade').notNull(),
+  position: integer('position').notNull(),
+  postId: integer('post_id').notNull(),
+}, t => [primaryKey({ columns: [t.grade, t.position] })])
+
 // ---------------------------------------------------------------- 内部 / 虚表
 
 export const schemaVersions = sqliteTable('_schema_versions', {

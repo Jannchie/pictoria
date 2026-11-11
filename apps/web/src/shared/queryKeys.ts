@@ -136,6 +136,10 @@ export const queryKeys = {
 
   /** Annotation queue list (Annotate view). */
   annotationQueues: ['annotation-queues'] as const,
+  /** The quick-grade page's live agreement figures. */
+  gradingStats: ['grading', 'stats'] as const,
+  /** The quick-grade page's fixed reference pictures. */
+  gradingAnchors: ['grading', 'anchors'] as const,
   /** Per-post annotation history (ref-keyed for reactive per-post caching). */
   annotations: (postId: MaybeRef<number | undefined>) => ['annotations', postId] as const,
   /** Prefix matching every per-post annotation history. */

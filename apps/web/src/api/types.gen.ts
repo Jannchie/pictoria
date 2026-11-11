@@ -629,6 +629,62 @@ export type GenerateListwiseIn = {
 };
 
 /**
+ * GradingCardPublic
+ */
+export type GradingCardPublic = {
+    post: QueueItemPostPublic;
+    /**
+     * Why this picture was drawn. Goes back as `source: grade:<reason>` when scoring it.
+     */
+    reason: 'new' | 'random' | 'suspect';
+    /**
+     * The human grade when drawn; 0 = never graded. The page hides it until the new grade is in.
+     */
+    previous: number;
+    /**
+     * The SILVA score as a 1-5 grade; null when unscored.
+     */
+    model: number | null;
+};
+
+/**
+ * GradingStatsPublic
+ */
+export type GradingStatsPublic = {
+    /**
+     * Grades given on this page in the last 24 hours.
+     */
+    gradedToday: number;
+    self: AgreementPublic;
+    model: AgreementPublic & unknown;
+};
+
+/**
+ * AgreementPublic
+ *
+ * You vs. your earlier grade, on uniformly drawn re-grades only.
+ */
+export type AgreementPublic = {
+    n: number;
+    /**
+     * Share of grades that landed on the same level; null when n = 0.
+     */
+    exact: number | null;
+    /**
+     * Share that landed two or more levels apart; null when n = 0.
+     */
+    far: number | null;
+};
+
+/**
+ * GradingAnchorRowPublic
+ */
+export type GradingAnchorRowPublic = {
+    grade: number;
+    posts: Array<QueueItemPostPublic>;
+};
+
+/**
  * UrlImportStatus
  */
 export type UrlImportStatus = {
@@ -915,6 +971,10 @@ export type ScoreUpdate = {
      * Score from 0 to 5.
      */
     score: number;
+    /**
+     * Where the grade was given. Omit for ordinary gallery scoring; `grade:<reason>` for the blind grading page.
+     */
+    source?: 'grade:new' | 'grade:random' | 'grade:suspect';
 };
 
 /**
@@ -2226,6 +2286,65 @@ export type V2GenerateListwiseResponses = {
 };
 
 export type V2GenerateListwiseResponse = V2GenerateListwiseResponses[keyof V2GenerateListwiseResponses];
+
+export type V2GradingDeckData = {
+    body?: never;
+    path?: never;
+    query?: {
+        limit?: number;
+    };
+    url: '/v2/grading/deck';
+};
+
+export type V2GradingDeckErrors = {
+    /**
+     * Bad Request
+     */
+    400: ErrorBody;
+};
+
+export type V2GradingDeckError = V2GradingDeckErrors[keyof V2GradingDeckErrors];
+
+export type V2GradingDeckResponses = {
+    /**
+     * OK
+     */
+    200: Array<GradingCardPublic>;
+};
+
+export type V2GradingDeckResponse = V2GradingDeckResponses[keyof V2GradingDeckResponses];
+
+export type V2GradingStatsData = {
+    body?: never;
+    path?: never;
+    query?: never;
+    url: '/v2/grading/stats';
+};
+
+export type V2GradingStatsResponses = {
+    /**
+     * OK
+     */
+    200: GradingStatsPublic;
+};
+
+export type V2GradingStatsResponse = V2GradingStatsResponses[keyof V2GradingStatsResponses];
+
+export type V2GradingAnchorsData = {
+    body?: never;
+    path?: never;
+    query?: never;
+    url: '/v2/grading/anchors';
+};
+
+export type V2GradingAnchorsResponses = {
+    /**
+     * OK
+     */
+    200: Array<GradingAnchorRowPublic>;
+};
+
+export type V2GradingAnchorsResponse = V2GradingAnchorsResponses[keyof V2GradingAnchorsResponses];
 
 export type V2GroupDuplicatesData = {
     body?: never;

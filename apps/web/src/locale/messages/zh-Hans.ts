@@ -29,6 +29,7 @@ const zhHans: MessageSchema = {
     unratedArtists: '未评分画师',
     random: '随机',
     annotate: '标注',
+    grade: '快速打分',
     aria: '图库导航',
   },
   sidebar: {
@@ -732,6 +733,41 @@ const zhHans: MessageSchema = {
     done: '标签 {tag}：新增 {added} 张，{already} 张原本就有',
     failed: '添加标签失败',
   },
+  grade: {
+    title: '快速打分',
+    gradeGroup: '评分',
+    progress: '本次已打 {done} 张',
+    empty: '暂时没有可打分的图了',
+    emptyHint: '一周内打过分的图不会再出现，过几天再来。',
+    retry: '重试',
+    stats: {
+      self: '自洽度',
+      selfHint: '随机抽到的重打里，你这次与上次给出同一档的比例。近 30 天。',
+      model: '模型一致度',
+      modelHint: '没打过分的新图上，SILVA 的档位与你打的分相同的比例。近 30 天。',
+      today: '近 24 小时',
+      count: '（{n}）',
+    },
+    anchors: {
+      title: '参照',
+      hint: '每一档的固定样例。和它们比，不要和上一张比。',
+      row: '{grade} 分的样例',
+    },
+    reveal: {
+      blind: '打完分才显示上次的分和模型分',
+      previous: '上次',
+      model: '模型',
+    },
+    keys: {
+      grade: '打分',
+      previous: '上一张',
+      next: '下一张 / 跳过',
+    },
+    error: {
+      load: '加载待打分图片失败',
+      save: '保存评分失败',
+    },
+  },
   history: {
     addTagMany: '为 {n} 张图添加标签 {tag}',
     setScore: '评分 → {score}',
@@ -853,6 +889,7 @@ const zhHans: MessageSchema = {
     test: '测试',
     post: '图片 #{id}',
     annotate: '标注',
+    grade: '快速打分',
     settings: '设置',
   },
 }

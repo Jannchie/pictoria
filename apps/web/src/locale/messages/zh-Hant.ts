@@ -29,6 +29,7 @@ const zhHant: MessageSchema = {
     unratedArtists: '未評分畫師',
     random: '隨機',
     annotate: '標註',
+    grade: '快速評分',
     aria: '圖庫導覽',
   },
   sidebar: {
@@ -732,6 +733,41 @@ const zhHant: MessageSchema = {
     done: '標籤 {tag}：新增 {added} 張，{already} 張原本就有',
     failed: '新增標籤失敗',
   },
+  grade: {
+    title: '快速評分',
+    gradeGroup: '評分',
+    progress: '本次已評 {done} 張',
+    empty: '暫時沒有可評分的圖了',
+    emptyHint: '一週內評過分的圖不會再出現，過幾天再來。',
+    retry: '重試',
+    stats: {
+      self: '自洽度',
+      selfHint: '隨機抽到的重評裡，你這次與上次給出同一檔的比例。近 30 天。',
+      model: '模型一致度',
+      modelHint: '沒評過分的新圖上，SILVA 的檔位與你評的分相同的比例。近 30 天。',
+      today: '近 24 小時',
+      count: '（{n}）',
+    },
+    anchors: {
+      title: '參照',
+      hint: '每一檔的固定樣例。和它們比，不要和上一張比。',
+      row: '{grade} 分的樣例',
+    },
+    reveal: {
+      blind: '評完分才顯示上次的分和模型分',
+      previous: '上次',
+      model: '模型',
+    },
+    keys: {
+      grade: '評分',
+      previous: '上一張',
+      next: '下一張 / 跳過',
+    },
+    error: {
+      load: '載入待評分圖片失敗',
+      save: '儲存評分失敗',
+    },
+  },
   history: {
     addTagMany: '為 {n} 張圖新增標籤 {tag}',
     setScore: '評分 → {score}',
@@ -853,6 +889,7 @@ const zhHant: MessageSchema = {
     test: '測試',
     post: '圖片 #{id}',
     annotate: '標註',
+    grade: '快速評分',
     settings: '設定',
   },
 }

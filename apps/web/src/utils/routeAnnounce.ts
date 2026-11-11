@@ -55,6 +55,7 @@ const PAGE_TITLE_KEYS: Partial<Record<string, string>> = {
   tags: 'route.tags',
   test: 'route.test',
   annotate: 'route.annotate',
+  grade: 'route.grade',
   settings: 'route.settings',
   notFound: 'route.notFound',
 }

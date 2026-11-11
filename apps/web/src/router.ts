@@ -40,6 +40,7 @@ const routes: RouteRecordRaw[] = [
   ...(import.meta.env.DEV ? [{ path: '/test', component: () => import('./views/Test.vue'), name: 'test', meta: { rightPanel: false } }] : []),
   { path: '/post/:postId', component: () => import('./views/Post.vue'), name: 'post' },
   { path: '/annotate', component: () => import('./views/Annotate.vue'), name: 'annotate' },
+  { path: '/grade', component: () => import('./views/Grade.vue'), name: 'grade', meta: { rightPanel: false } },
   { path: '/settings', component: () => import('./views/Settings.vue'), name: 'settings', meta: { rightPanel: false } },
   { path: '/:pathMatch(.*)*', component: () => import('./views/NotFound.vue'), name: 'notFound', meta: { rightPanel: false } },
 ]

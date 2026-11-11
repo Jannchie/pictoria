@@ -32,6 +32,7 @@ const en = {
     unratedArtists: 'Unrated artists',
     random: 'Random',
     annotate: 'Annotate',
+    grade: 'Quick grade',
     aria: 'Library navigation',
   },
   sidebar: {
@@ -735,6 +736,41 @@ const en = {
     done: 'Tag {tag}: added to {added}, {already} already had it',
     failed: 'Adding the tag failed',
   },
+  grade: {
+    title: 'Quick grade',
+    gradeGroup: 'Grade',
+    progress: '{done} graded this session',
+    empty: 'Nothing left to grade right now',
+    emptyHint: 'Pictures graded within the last week are held back; come back later.',
+    retry: 'Retry',
+    stats: {
+      self: 'Self-agreement',
+      selfHint: 'Re-grades drawn at random: how often you gave the same grade as before. Last 30 days.',
+      model: 'Model agreement',
+      modelHint: 'Never-graded pictures: how often SILVA\'s grade matched yours. Last 30 days.',
+      today: 'Last 24 h',
+      count: '({n})',
+    },
+    anchors: {
+      title: 'Reference',
+      hint: 'Fixed examples of each grade. Compare with these, not with the previous picture.',
+      row: 'Grade {grade} examples',
+    },
+    reveal: {
+      blind: 'Earlier grade and model grade show after you grade',
+      previous: 'Before',
+      model: 'Model',
+    },
+    keys: {
+      grade: 'grade',
+      previous: 'previous',
+      next: 'next / skip',
+    },
+    error: {
+      load: 'Could not load pictures to grade',
+      save: 'Could not save the grade',
+    },
+  },
   history: {
     addTagMany: 'Add tag {tag} to {n} posts',
     setScore: 'Score → {score}',
@@ -856,6 +892,7 @@ const en = {
     test: 'Test',
     post: 'Post #{id}',
     annotate: 'Annotate',
+    grade: 'Quick grade',
     settings: 'Settings',
   },
 }

@@ -25,6 +25,7 @@ import { annotationsRoutes } from './routes/annotations.js'
 import { commandsRoutes, UrlImports } from './routes/commands.js'
 import { danbooruImportsRoutes } from './routes/danbooru-imports.js'
 import { FolderTree, foldersRoutes } from './routes/folders.js'
+import { gradingRoutes } from './routes/grading.js'
 import { imagesRoutes } from './routes/images.js'
 import { postCountsRoutes } from './routes/post-counts.js'
 import { postListRoutes } from './routes/post-list.js'
@@ -116,6 +117,7 @@ export function createApp({
   app.route('/', tagWritesRoutes)
   app.route('/', annotationsRoutes)
   app.route('/', annotationQueuesRoutes)
+  app.route('/', gradingRoutes)
   app.route('/', commandsRoutes)
   app.route('/', danbooruImportsRoutes)
   app.route('/', imagesRoutes)
