@@ -3,9 +3,9 @@ import type { PostFilterValue } from '@/composables/useFacetFilter'
 import type { ScorerUi } from '@/shared/scorers'
 import { computed, useTemplateRef } from 'vue'
 import { useI18n } from 'vue-i18n'
-import { v2GetSilvaBucketCount, v2GetSilvaLunaBucketCount, v2GetWaifuBucketCount } from '@/api'
+import { v2GetSilvaBucketCount } from '@/api'
 import { facetOptionLabel, facetTriggerLabel, initialOptionIndex, useFacetFilter, useFacetListbox } from '@/composables/useFacetFilter'
-import { bucketRows, WAIFU_LEVEL_RGB } from '@/shared'
+import { bucketRows, MODEL_LEVEL_RGB } from '@/shared'
 
 /**
  * One scorer's A–E bucket filter. Everything scorer-specific comes from its
@@ -20,16 +20,8 @@ const props = defineProps<{
 type BucketCounts = { bucket: string, count: number }[] | undefined
 
 const FETCH_COUNTS: Record<ScorerUi['name'], (filter: PostFilterValue) => Promise<BucketCounts>> = {
-  waifu: async (filter) => {
-    const resp = await v2GetWaifuBucketCount({ body: filter })
-    return resp.data
-  },
   silva: async (filter) => {
     const resp = await v2GetSilvaBucketCount({ body: filter })
-    return resp.data
-  },
-  silva_luna: async (filter) => {
-    const resp = await v2GetSilvaLunaBucketCount({ body: filter })
     return resp.data
   },
 }
@@ -41,9 +33,9 @@ type BucketDef = ReturnType<typeof bucketRows>[number]
 const buckets = computed<BucketDef[]>(() => bucketRows({ ...props.scorer.bucketRanges }))
 const icon = computed(() => props.scorer.icon)
 
-// Shared A–E ramp (WAIFU_LEVEL_RGB) plus a muted dot for the unscored bucket.
+// Shared A–E ramp (MODEL_LEVEL_RGB) plus a muted dot for the unscored bucket.
 const LEVEL_DOT_RGB: Record<string, string> = {
-  ...Object.fromEntries(WAIFU_LEVEL_RGB.map(b => [b.level, b.rgb])),
+  ...Object.fromEntries(MODEL_LEVEL_RGB.map(b => [b.level, b.rgb])),
   UNSCORED: 'var(--p-fg-muted-rgb)',
 }
 

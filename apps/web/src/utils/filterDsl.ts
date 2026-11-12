@@ -10,9 +10,7 @@
  *   score:4          score:>=4      score:<3      score:0     (0 = unscored)
  *   tag:1girl        tag:"long hair"
  *   ext:png
- *   waifu:best|good|normal|bad|worst|unscored   also the A..E letters
- *   silva:best|good|normal|bad|worst
- *   luna:best|good|normal|bad|worst
+ *   silva:best|good|normal|bad|worst|unscored   also the A..E letters
  *
  * Everything is additive within a facet (`rating:g rating:s` = both), matching
  * how the popovers behave. There is deliberately no negation syntax: the

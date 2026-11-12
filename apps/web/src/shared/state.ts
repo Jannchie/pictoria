@@ -4,7 +4,7 @@ import { useActiveElement, useLocalStorage, useStorage } from '@vueuse/core'
 import { computed, ref, shallowRef, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { isGalleryRoute } from './galleryView'
-import { emptyFacets, filterFromQuery, filterQuerySignature, filterToQuery } from './postFilter'
+import { emptyFacets, filterFromQuery, filterQuerySignature, filterToQuery, isPostSortColumn } from './postFilter'
 
 export const baseURL = 'http://localhost:4777'
 
@@ -13,6 +13,11 @@ export const postFilter = ref<PostFilterState>(emptyFacets())
 export const textSearchQuery = ref('')
 
 export const postSort = useLocalStorage<PostSortColumn>('pictoria.posts.sort', 'id')
+// The stored value outlives the sort columns: one that has since been removed
+// would be sent as `orderBy` and fail every list request. Fall back to the default.
+if (!isPostSortColumn(postSort.value)) {
+  postSort.value = 'id'
+}
 export const postSortColor = useLocalStorage<string | undefined>('pictoria.posts.color', undefined)
 export const postSortOrder = useLocalStorage<PostSortOrder>('pictoria.posts.sortOrder', 'desc')
 

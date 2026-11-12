@@ -22,9 +22,7 @@ const sortOptions: {
   { id: 'score', labelKey: 'sort.score', icon: SCORE_ICON },
   { id: 'rating', labelKey: 'sort.rating', icon: RATING_ICON },
   { id: 'file_name', labelKey: 'sort.fileName', icon: 'i-tabler-file' },
-  { id: 'waifu_score', labelKey: 'sort.waifuScore', icon: scorerIcon('waifu') },
   { id: 'silva_score', labelKey: 'sort.silvaScore', icon: scorerIcon('silva') },
-  { id: 'silva_luna_score', labelKey: 'sort.silvaLunaScore', icon: scorerIcon('silva_luna') },
   { id: 'discrepancy', labelKey: 'sort.discrepancy', icon: 'i-tabler-git-compare' },
 ]
 

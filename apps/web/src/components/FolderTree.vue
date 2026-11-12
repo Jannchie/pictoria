@@ -48,7 +48,6 @@ const sortOptions: { key: FolderSortKey, labelKey: string, icon: string }[] = [
   { key: 'name', labelKey: 'sidebar.sortName', icon: 'i-tabler-abc' },
   { key: 'count', labelKey: 'sidebar.sortCount', icon: 'i-tabler-files' },
   { key: 'silva', labelKey: 'sidebar.sortSilva', icon: scorerIcon('silva') },
-  { key: 'luna', labelKey: 'sidebar.sortSilvaLuna', icon: scorerIcon('silva_luna') },
   { key: 'score', labelKey: 'sidebar.sortScore', icon: SCORE_ICON },
   { key: 'rating', labelKey: 'sidebar.sortRating', icon: RATING_ICON },
 ]

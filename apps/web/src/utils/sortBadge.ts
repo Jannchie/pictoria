@@ -1,5 +1,5 @@
 import { formatDate, formatRelativeTime, formatShortDateTime } from '@/locale'
-import { RATING_LEVEL_COLORS, RATING_LEVEL_ICONS, SCORE_LEVEL_COLORS, waifuLevelRgb } from '@/shared/ratings'
+import { modelLevelRgb, RATING_LEVEL_COLORS, RATING_LEVEL_ICONS, SCORE_LEVEL_COLORS } from '@/shared/ratings'
 
 /** The top-right value badge on a gallery tile: text or an icon, optionally in a level colour. */
 export interface SortBadge {
@@ -37,16 +37,11 @@ export function formatSortValue(sort: string, v: number | string, now: number = 
         ? { icon: RATING_LEVEL_ICONS[n - 1], color: RATING_LEVEL_COLORS[n - 1] }
         : { text: '—' }
     }
-    case 'waifu_score': {
-      const n = Number(v)
-      return { text: n.toFixed(2), color: `rgb(${waifuLevelRgb(n)})` }
-    }
-    // The SILVA heads store 0–1; surface them on the same 0–10 scale (and
-    // bucket colour ramp) as the detail panel's WaifuScoreLevel chip.
-    case 'silva_score':
-    case 'silva_luna_score': {
+    // SILVA stores 0–1; surface it on the same 0–10 scale (and bucket colour
+    // ramp) as the detail panel's ModelScoreLevel chip.
+    case 'silva_score': {
       const n = Number(v) * 10
-      return { text: n.toFixed(2), color: `rgb(${waifuLevelRgb(n)})` }
+      return { text: n.toFixed(2), color: `rgb(${modelLevelRgb(n)})` }
     }
     // |silva − manual| on the 1-5 scale: bigger means model & human disagree
     // more. Flagged in the danger colour so the worst offenders pop in the grid.

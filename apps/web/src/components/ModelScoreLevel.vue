@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { waifuLevel } from '@/shared'
+import { modelLevel } from '@/shared'
 
 interface Props {
   score: number
@@ -7,7 +7,7 @@ interface Props {
 
 const props = defineProps<Props>()
 
-// Colour ramp shared via WAIFU_LEVEL_RGB (also the filter dots and the
+// Colour ramp shared via MODEL_LEVEL_RGB (also the filter dots and the
 // gallery sort badge); only the bucket label keys are local to this chip.
 const LABEL_KEYS: Record<string, string> = {
   A: 'filter.bucketBest',
@@ -18,7 +18,7 @@ const LABEL_KEYS: Record<string, string> = {
 }
 
 const currentLevel = computed(() => {
-  const bucket = waifuLevel(props.score)
+  const bucket = modelLevel(props.score)
   return { ...bucket, labelKey: LABEL_KEYS[bucket.level] }
 })
 

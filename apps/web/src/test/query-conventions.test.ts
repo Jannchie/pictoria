@@ -129,12 +129,10 @@ describe('write endpoints are called only from shared/mutations.ts', () => {
     'v2GetScoreCount',
     'v2GetExtensionCount',
     'v2GetTagCount',
-    'v2GetWaifuBucketCount',
     'v2GetSilvaBucketCount',
-    'v2GetSilvaLunaBucketCount',
   ])
   /** GET endpoints that compute and persist (the per-post scorers). */
-  const WRITING_GETS = new Set(['v2GetWaifuScorerOne', 'v2GetSilvaScorerOne', 'v2GetSilvaLunaScorerOne'])
+  const WRITING_GETS = new Set(['v2GetSilvaScorerOne'])
 
   const writes = new Set([...methods].filter(([name, method]) =>
     method === 'get' ? WRITING_GETS.has(name) : !READ_ONLY_POSTS.has(name)).map(([name]) => name))

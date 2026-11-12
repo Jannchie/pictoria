@@ -11,7 +11,7 @@ import { useRovingFocus } from '@/ui/useRovingFocus'
 
 /**
  * Shared behaviour behind the gallery's faceted filters (rating / score /
- * extension / waifu bucket). Each filter used to repeat the same ~25 lines:
+ * extension / scorer bucket). Each filter used to repeat the same ~25 lines:
  * a get/set computed bound to its `postFilter` field, add/remove toggling, a
  * "filter without myself" projection, and a count query keyed off it. That
  * logic lives here once; the four components keep only their own option list
@@ -49,7 +49,7 @@ export function useFacetFilter<T extends string | number, TRow extends { count: 
   countKind: CountKind
   fetchCounts: (filter: PostFilterValue) => Promise<TRow[] | undefined>
 }) {
-  // postFilter mixes array facets with scalar ones (folder, waifuScoreRange),
+  // postFilter mixes array facets with a scalar one (folder),
   // so narrow to "the array facets" before indexing by the chosen field. Read
   // through postFilter.value each time to track reactivity exactly as before.
   const selected = computed<T[]>({

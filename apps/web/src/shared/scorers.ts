@@ -20,20 +20,20 @@
  */
 export interface ScorerUi {
   /** 后端的打分器名，也是字段名的词根。 */
-  readonly name: 'waifu' | 'silva' | 'silva_luna'
+  readonly name: 'silva'
   /** `postFilter` 上的分档字段。 */
-  readonly levelsField: 'waifuScoreLevels' | 'silvaScoreLevels' | 'silvaLunaScoreLevels'
+  readonly levelsField: 'silvaScoreLevels'
   /**
    * 计数 query 的 kind（`CountKind` 的一员 —— `COUNT_KINDS` 从这里派生，所以这里
    * 不能反过来引用 `CountKind`），也是单帖重算（`computeScore`）的 key。
    */
-  readonly countKind: 'waifu' | 'silva' | 'silvaLuna'
+  readonly countKind: 'silva'
   /**
    * 这个打分器的分数是否进侧栏文件夹树的每文件夹聚合（`/v2/folders`）。重算一张
    * 图之后据此决定要不要把文件夹树标脏。
    */
   readonly feedsFolderAggregates: boolean
-  /** 过滤 DSL 里的键 —— 是短名，`silva_luna` 在 DSL 里写作 `luna`。 */
+  /** 过滤 DSL 里的键 —— 是短名，不一定等于 `name`。 */
   readonly dslKey: string
   /** chip 上的前缀。产品名，不进 i18n。 */
   readonly chipPrefix: string
@@ -52,17 +52,6 @@ const UNIT_RANGES = { A: '0.8 – 1.0', B: '0.6 – 0.8', C: '0.4 – 0.6', D: '
 // 才能从 `typeof SCORERS` 读出"表里实际有哪些打分器"，而不是接口声明的全集。
 export const SCORERS = [
   {
-    name: 'waifu',
-    levelsField: 'waifuScoreLevels',
-    countKind: 'waifu',
-    feedsFolderAggregates: false,
-    dslKey: 'waifu',
-    chipPrefix: 'Waifu',
-    icon: 'i-tabler-heart',
-    filterLabelKey: 'filter.waifuScore',
-    bucketRanges: { A: '8 – 10', B: '6 – 8', C: '4 – 6', D: '2 – 4', E: '0 – 2' },
-  },
-  {
     name: 'silva',
     levelsField: 'silvaScoreLevels',
     countKind: 'silva',
@@ -73,20 +62,9 @@ export const SCORERS = [
     filterLabelKey: 'filter.silvaScore',
     bucketRanges: UNIT_RANGES,
   },
-  {
-    name: 'silva_luna',
-    levelsField: 'silvaLunaScoreLevels',
-    countKind: 'silvaLuna',
-    feedsFolderAggregates: true,
-    dslKey: 'luna',
-    chipPrefix: 'Luna',
-    icon: 'i-tabler-moon',
-    filterLabelKey: 'filter.silvaLunaScore',
-    bucketRanges: UNIT_RANGES,
-  },
 ] as const satisfies readonly ScorerUi[]
 
-/** 排序列名，例如 `silva_luna_score`。 */
+/** 排序列名，例如 `silva_score`。 */
 export function scorerOrderColumn(spec: ScorerUi): string {
   return `${spec.name}_score`
 }

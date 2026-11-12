@@ -29,9 +29,7 @@ import {
   v2GenerateAbsolute,
   v2GenerateListwise,
   v2GeneratePairwise,
-  v2GetSilvaLunaScorerOne,
   v2GetSilvaScorerOne,
-  v2GetWaifuScorerOne,
   v2GroupPostsTogether,
   v2ImportFromUrlEndpoint,
   v2MakePostCanonical,
@@ -267,7 +265,7 @@ async function writeRotate(qc: QueryClient, ids: number[], clockwise: boolean): 
 /**
  * Invalidate every aggregate that summarises "which posts exist": each facet
  * count kind (driven off `COUNT_KINDS`, so a new kind can't be forgotten here
- * the way waifu / silva / silvaLuna were), TagFilter's `tags-total`
+ * the way the scorer kinds once were), TagFilter's `tags-total`
  * denominator, the footer stats and the special-path post counts. Count
  * queries are popover-gated, so this mostly marks them stale rather than
  * refetching. `folders` also refreshes the sidebar tree's per-folder numbers.
@@ -656,16 +654,13 @@ export async function commitRotate(
 // ---- 单帖的服务端计算：打分器 / 自动标签 / 自动描述 ----
 
 const SCORE_ONE: Record<ScorerKind, (postId: number) => Promise<unknown>> = {
-  waifu: postId => v2GetWaifuScorerOne({ path: { post_id: postId } }),
   silva: postId => v2GetSilvaScorerOne({ path: { post_id: postId } }),
-  silvaLuna: postId => v2GetSilvaLunaScorerOne({ path: { post_id: postId } }),
 }
 
 /**
  * Run one scorer on one post (the endpoint is a GET, but it computes and
  * persists the score). Refreshes the post detail and that scorer's facet
- * counts; waifu also refreshes the footer stats (the only scorer they carry an
- * average for). A scorer that feeds the sidebar folders' per-folder averages
+ * counts. A scorer that feeds the sidebar folders' per-folder averages
  * marks the folder tree stale without refetching it — `/v2/folders` takes
  * seconds server-side, too much for one score click; it picks the new average
  * up on its next natural fetch.
@@ -674,9 +669,6 @@ export async function computeScore(qc: QueryClient, kind: ScorerKind, postId: nu
   await SCORE_ONE[kind](postId)
   qc.invalidateQueries({ queryKey: queryKeys.postRoot(postId) })
   qc.invalidateQueries({ queryKey: queryKeys.countRoot(kind) })
-  if (kind === 'waifu') {
-    qc.invalidateQueries({ queryKey: queryKeys.postsStatsRoot })
-  }
   if (SCORERS.find(s => s.countKind === kind)?.feedsFolderAggregates) {
     qc.invalidateQueries({ queryKey: queryKeys.folders, refetchType: 'none' })
   }

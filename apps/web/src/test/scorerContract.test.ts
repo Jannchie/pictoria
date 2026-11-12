@@ -31,7 +31,7 @@ export type _LevelsMatchApi = Expect<Equal<TableScorer['levelsField'], ApiLevels
 // 接口声明的联合也不能比表宽（否则 Record<ScorerUi['name'], …> 会要求不存在的项）。
 export type _InterfaceMatchesTable = Expect<Equal<ScorerUi['name'], TableScorer['name']>>
 export type _InterfaceLevelsMatchTable = Expect<Equal<ScorerUi['levelsField'], TableScorer['levelsField']>>
-// 每个后端文件夹聚合的 <key>Avg 都对应表里的一个打分器（waifu 不进文件夹聚合，所以是子集）。
+// 每个后端文件夹聚合的 <key>Avg 都对应表里的一个打分器（打分器可以不进文件夹聚合，所以是子集）。
 export type _AvgKeysAreScorers = Expect<ApiAvgKey extends KeyOf<TableScorer['levelsField']> ? true : false>
 // countKind 就是 camelCase key。
 export type _CountKindIsKey = Expect<Equal<TableScorer['countKind'], KeyOf<TableScorer['levelsField']>>>

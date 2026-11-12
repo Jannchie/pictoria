@@ -8,7 +8,8 @@ import type { TreeListItemData, TreeListLeafData } from '@/ui/treeListModel'
  * is plain data in, plain data out.
  */
 
-export type FolderSortKey = 'name' | 'count' | 'silva' | 'luna' | 'score' | 'rating'
+export const FOLDER_SORT_KEYS = ['name', 'count', 'silva', 'score', 'rating'] as const
+export type FolderSortKey = typeof FOLDER_SORT_KEYS[number]
 export type FolderSortOrder = 'asc' | 'desc'
 
 /** The tree's own value for the library root row (it routes to `/dir/@`). */
@@ -40,8 +41,6 @@ function sortValue(d: DirectorySummary, key: FolderSortKey): number | string {
     case 'count': { return d.fileCount ?? 0
     }
     case 'silva': { return d.silvaAvg ?? -1
-    }
-    case 'luna': { return d.silvaLunaAvg ?? -1
     }
     case 'score': { return d.scoreAvg ?? -1
     }

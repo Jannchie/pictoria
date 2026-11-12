@@ -42,7 +42,7 @@ const textSearchQueryResult = useQuery({
     }
     const resp = await v2SearchPostsByText({
       // Combine the prompt with the gallery's active filters so text search
-      // respects rating / score / tags / extension / folder / waifu just like
+      // respects rating / score / tags / extension / folder / silva just like
       // the regular list. lab isn't included (backend ignores it for text).
       body: { query: textSearchPrompt.value, ...postFilter.value },
       query: { limit: 200 },

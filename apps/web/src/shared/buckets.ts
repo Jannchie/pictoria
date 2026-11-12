@@ -72,7 +72,7 @@ export function bucketLabelKey(token: string): string | undefined {
 /**
  * popover 的行 = 共享的分档定义 + 这个打分器自己的数值区间文案。
  *
- * 只有区间是各家不同的（waifu 是 0–10，两个 SILVA 是 0–1），level / labelKey /
+ * 只有区间是各家不同的（SILVA 是 0–1），level / labelKey /
  * 行序都来自上面那张表。按 level 取而不是按下标取：加一档时下标会整体错位，而
  * 错位是静默的。
  */

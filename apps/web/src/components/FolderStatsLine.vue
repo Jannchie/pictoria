@@ -2,7 +2,7 @@
 import { computed } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { formatNumber } from '@/locale'
-import { waifuLevelRgb } from '@/shared'
+import { modelLevelRgb } from '@/shared'
 
 // Per-directory aggregate stats, shown as the second line of a folder tree row:
 // the recursive file count first, then the score averages. SILVA stores raw
@@ -19,11 +19,11 @@ const props = defineProps<{
 const { t } = useI18n()
 
 // Colour each score by its own high→low value (green→amber→red) via the shared
-// WAIFU_LEVEL_RGB ramp (ratio ×10 = waifu scale). Each metric is normalised by
+// MODEL_LEVEL_RGB ramp (ratio ×10 = its 0–10 scale). Each metric is normalised by
 // its own max (SILVA 0-1, Score 0-5, Rating 0-4). `scored` is a coverage
 // ratio, not a score, so it stays neutral grey.
 function gradeColor(ratio: number): string {
-  return waifuLevelRgb(ratio * 10)
+  return modelLevelRgb(ratio * 10)
 }
 
 const metrics = computed<{ key: string, label: string, icon?: string, value: string, color: string | null }[]>(() =>

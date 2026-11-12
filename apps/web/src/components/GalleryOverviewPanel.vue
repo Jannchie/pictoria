@@ -12,7 +12,6 @@ import {
   ratingName,
   ratingVisual,
   SCORE_ICON,
-  scorerIcon,
   useCurrentFolder,
 } from '@/shared'
 import { galleryViewNameKey, isGalleryRoute, isLibraryView } from '@/shared/galleryView'
@@ -59,8 +58,6 @@ const headingIcon = computed(() => {
 })
 
 const { stats, failed: statsFailed } = usePostsStatsQuery({ enabled: inLibraryView })
-
-const WAIFU_ICON = scorerIcon('waifu')
 
 // Rating rows, widest bar = the largest bucket (not the total), so the shape
 // stays readable when one rating dominates.
@@ -196,12 +193,6 @@ function toggleRating(rating: number): void {
           <span class="tabular-nums">
             {{ fmtAvg(stats.avgScore) }}
             <span class="text-fg-subtle">· {{ formatNumber(stats.scoredCount) }}</span>
-          </span>
-          <i :class="WAIFU_ICON" class="text-fg-subtle" aria-hidden="true" />
-          <span class="text-fg-muted">{{ $t('post.waifuLabel') }}</span>
-          <span class="tabular-nums">
-            {{ fmtAvg(stats.avgWaifuScore) }}
-            <span class="text-fg-subtle">· {{ formatNumber(stats.waifuCount) }}</span>
           </span>
         </div>
       </section>

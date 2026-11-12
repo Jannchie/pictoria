@@ -5,7 +5,7 @@ import type { ScorerUi } from './scorers'
  * 同一个概念过去有五份手写的编解码：URL 同步（state.ts）、过滤 DSL
  * （utils/filterDsl.ts）、chip 列表（useActiveFilters）、请求体（queries.ts）、
  * 命令面板写回（CommandPalette.vue）。每加一个字段要改五处，漏一处就静默丢失 ——
- * 命令面板把三个打分器字段写死，加第四个打分器时它就会被"应用"丢掉。
+ * 命令面板曾把打分器字段写死，再加一个打分器时它就会被"应用"丢掉。
  *
  * 现在每个数组型筛选字段（facet）在 {@link FILTER_FACETS} 里**只描述一次**：
  * URL 怎么编码、DSL 认哪些键怎么解析/输出、chip 长什么样。上面五处全部遍历这张
@@ -33,6 +33,34 @@ export type PostOrderColumn = NonNullable<PostFilterWithOrder['orderBy']>
 export type PostSortColumn = Exclude<PostOrderColumn, 'last_accessed_at'>
 export type PostSortOrder = 'asc' | 'desc'
 
+/**
+ * 运行时的排序列白名单。`Record<PostSortColumn, true>` 让它与生成的 `orderBy`
+ * 联合保持穷尽：后端加/删一列而这里没跟上，`vue-tsc` 直接失败。
+ */
+const POST_SORT_COLUMNS: Record<PostSortColumn, true> = {
+  id: true,
+  score: true,
+  rating: true,
+  created_at: true,
+  published_at: true,
+  updated_at: true,
+  file_name: true,
+  silva_score: true,
+  discrepancy: true,
+}
+
+/**
+ * 一个来自外部（URL、localStorage）的值是不是当前仍然存在的排序列。旧书签和旧
+ * 的本地存储里可能还留着已下线的列，原样发给后端会被整个请求拒掉。
+ */
+export function isPostSortColumn(value: unknown): value is PostSortColumn {
+  return typeof value === 'string' && Object.hasOwn(POST_SORT_COLUMNS, value)
+}
+
+export function isPostSortOrder(value: unknown): value is PostSortOrder {
+  return value === 'asc' || value === 'desc'
+}
+
 /** 数组型筛选字段。分档字段由打分器表的 `levelsField` 联合派生。 */
 export interface PostFilterFacets extends Record<ScorerUi['levelsField'], string[]> {
   rating: number[]
@@ -47,7 +75,6 @@ export type FacetValue = PostFilterFacets[FacetField][number]
 export interface PostFilterState extends PostFilterFacets {
   /** 由路由（useWatchRoute）驱动，不进 URL query、不被"清除全部"清掉。 */
   folder?: string
-  waifuScoreRange?: [number, number]
 }
 
 /** DSL 解析结果。 */
@@ -199,9 +226,9 @@ export function pickFacets(source: PostFilterFacets): PostFilterFacets {
   return Object.fromEntries(FILTER_FACETS.map(f => [f.field, [...values(source, f.field)]])) as unknown as PostFilterFacets
 }
 
-/** "清除全部"：清空每个 facet 和 waifu 区间；`folder` 由路由决定，保留。 */
+/** "清除全部"：清空每个 facet；`folder` 由路由决定，保留。 */
 export function clearFilter(current: PostFilterState): PostFilterState {
-  return { ...current, ...emptyFacets(), waifuScoreRange: undefined }
+  return { ...current, ...emptyFacets() }
 }
 
 /** 去掉某个 facet 里的一个值，其余不动。 */
@@ -307,9 +334,12 @@ export interface FilterUrlState {
 type QueryValue = string | null | (string | null)[] | undefined
 type QueryLike = Record<string, QueryValue>
 
-/** `fromQuery` 的结果：只含 URL 里**出现了**的键（缺席的键不覆盖现有状态）。 */
+/**
+ * `fromQuery` 的结果：只含 URL 里**出现了且认识**的键（缺席的键不覆盖现有状态；
+ * 不认识的参数、不存在的排序列/方向一律忽略，现有状态保持不变）。
+ */
 export interface FilterQueryPatch {
-  filter: Partial<Pick<PostFilterState, FacetField | 'waifuScoreRange'>>
+  filter: Partial<Pick<PostFilterState, FacetField>>
   sort?: PostSortColumn
   order?: PostSortOrder
   sortColor?: string
@@ -341,17 +371,15 @@ export function filterFromQuery(query: QueryLike): FilterQueryPatch {
       ;(patch.filter as Record<string, unknown>)[spec.field] = spec.url.numeric ? decoded.map(Number) : decoded
     }
   }
-  const range = queryParamString(query.waifuScoreRange)
-  if (range !== undefined) {
-    patch.filter.waifuScoreRange = range.split(',').map(Number) as [number, number]
-  }
+  // 排序列/方向会原样进请求体的 `orderBy` / `order`，所以只接受仍然存在的值：
+  // 旧书签里已下线的排序列被忽略，而不是发出一个后端会拒掉的请求。
   const sort = queryParamString(query.sort)
-  if (sort !== undefined) {
-    patch.sort = sort as PostSortColumn
+  if (isPostSortColumn(sort)) {
+    patch.sort = sort
   }
   const order = queryParamString(query.order)
-  if (order !== undefined) {
-    patch.order = order as PostSortOrder
+  if (isPostSortOrder(order)) {
+    patch.order = order
   }
   const sortColor = queryParamString(query.sort_color)
   if (sortColor !== undefined) {
@@ -374,12 +402,6 @@ export function filterToQuery<Q extends Record<string, unknown>>(state: FilterUr
     else {
       delete query[spec.field]
     }
-  }
-  if (state.filter.waifuScoreRange) {
-    query.waifuScoreRange = state.filter.waifuScoreRange.join(',')
-  }
-  else {
-    delete query.waifuScoreRange
   }
   if (state.sort === 'id') {
     delete query.sort
@@ -409,7 +431,6 @@ export function filterToQuery<Q extends Record<string, unknown>>(state: FilterUr
 export function filterQuerySignature(state: FilterUrlState): string[] {
   return [
     ...FILTER_FACETS.map(spec => encodeFacet(spec, values(state.filter, spec.field))),
-    state.filter.waifuScoreRange?.join(',') ?? '',
     state.sort,
     state.order,
     state.sortColor ?? '',
@@ -425,7 +446,6 @@ export function filterToBody(filter: PostFilterState): PostFilterState {
   return {
     ...pickFacets(filter),
     ...('folder' in filter ? { folder: filter.folder } : {}),
-    ...('waifuScoreRange' in filter ? { waifuScoreRange: filter.waifuScoreRange } : {}),
   }
 }
 
@@ -471,7 +491,6 @@ export function searchPostsBody(opts: {
 export type FilterChipTarget
   = | { kind: 'text' }
     | { kind: 'facet', field: FacetField, value: FacetValue }
-    | { kind: 'waifuScoreRange' }
     | { kind: 'sortColor' }
 
 export interface FilterChipDescriptor {
@@ -485,7 +504,7 @@ export interface FilterChipDescriptor {
 /**
  * 当前生效的一切收窄条件，拍平成可渲染的 chip 列表（纯数据；移除动作由
  * `useActiveFilters` 按 `target` 绑定）。顺序：语义搜索、各 facet（表序）、
- * waifu 区间、颜色排序。
+ * 颜色排序。
  */
 export function filterChips(
   input: { filter: PostFilterState, text: string, sortColor: string | undefined },
@@ -505,10 +524,6 @@ export function filterChips(
         target: { kind: 'facet', field: spec.field, value: v },
       })
     }
-  }
-  if (input.filter.waifuScoreRange) {
-    const [lo, hi] = input.filter.waifuScoreRange
-    out.push({ id: 'waifu-range', icon: 'i-tabler-heart', label: `${lo}–${hi}`, target: { kind: 'waifuScoreRange' } })
   }
   if (input.sortColor) {
     out.push({ id: 'sort-color', icon: 'i-tabler-palette', label: input.sortColor.toUpperCase(), target: { kind: 'sortColor' } })

@@ -54,8 +54,6 @@ const overallEta = computed(() => {
 const LABEL_KEY: Record<string, string> = {
   'basics': 'syncStatus.loop.basics',
   'silva': 'syncStatus.loop.silva',
-  'silva_luna': 'syncStatus.loop.silvaLuna',
-  'waifu': 'syncStatus.loop.waifu',
   'tagger': 'syncStatus.loop.tagger',
   'embedding': 'syncStatus.loop.embedding',
   'gpu': 'syncStatus.queue.gpu',

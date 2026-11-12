@@ -150,8 +150,6 @@ const sortCommands = computed<CommandDef[]>(() => !isGalleryRoute(route) || sort
       { id: 'sort-score', section: 'sort', label: t('command.sortBy', { label: t('sort.score') }), icon: SCORE_ICON, run: sortBy('score') },
       { id: 'sort-rating', section: 'sort', label: t('command.sortBy', { label: t('sort.rating') }), icon: RATING_ICON, run: sortBy('rating') },
       { id: 'sort-silva', section: 'sort', label: t('command.sortBy', { label: t('sort.silvaScore') }), icon: scorerIcon('silva'), run: sortBy('silva_score') },
-      { id: 'sort-silva-luna', section: 'sort', label: t('command.sortBy', { label: t('sort.silvaLunaScore') }), icon: scorerIcon('silva_luna'), run: sortBy('silva_luna_score') },
-      { id: 'sort-waifu', section: 'sort', label: t('command.sortBy', { label: t('sort.waifuScore') }), icon: scorerIcon('waifu'), run: sortBy('waifu_score') },
       { id: 'sort-discrepancy', section: 'sort', label: t('command.sortBy', { label: t('sort.discrepancy') }), icon: 'i-tabler-git-compare', keywords: 'model vs me disagree', run: sortBy('discrepancy') },
       { id: 'sort-created', section: 'sort', label: t('command.sortBy', { label: t('sort.created') }), icon: 'i-tabler-calendar-event', run: sortBy('created_at') },
     ])

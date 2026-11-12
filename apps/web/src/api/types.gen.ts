@@ -5,14 +5,6 @@ export type ClientOptions = {
 };
 
 /**
- * WaifuScoreResult
- */
-export type WaifuScoreResult = {
-    bucket: string;
-    count: number;
-};
-
-/**
  * QueuesStatus
  */
 export type QueuesStatus = {
@@ -38,7 +30,7 @@ export type QueuesStatus = {
  */
 export type QueueLoopStatus = {
     /**
-     * 循环名：`basics` / `silva` / `silva_luna` / `waifu` / `tagger` / `embedding`。
+     * 循环名：`basics` / `silva` / `tagger` / `embedding`。
      */
     key: string;
     queue: string;
@@ -90,7 +82,6 @@ export type DirectorySummary = {
     fileCount: number;
     postCount: number;
     silvaAvg: number | null;
-    silvaLunaAvg: number | null;
     scoreAvg: number | null;
     ratingAvg: number | null;
     scoredRatio: number | null;
@@ -248,7 +239,6 @@ export type PostDetailPublic = {
     arthash?: string | null;
     canonicalPostId?: number | null;
     groupMemberCount?: number;
-    waifuScore?: WaifuScorePublic | null;
     aestheticScores?: Array<AestheticScorePublic>;
     tags: Array<PostHasTagPublic>;
 };
@@ -259,13 +249,6 @@ export type PostDetailPublic = {
 export type PostHasColorPublic = {
     order: number;
     color: number;
-};
-
-/**
- * WaifuScorePublic
- */
-export type WaifuScorePublic = {
-    score: number;
 };
 
 /**
@@ -804,24 +787,9 @@ export type PostFilter = {
         number
     ] | null;
     /**
-     * Waifu score range filter.
-     */
-    waifuScoreRange?: [
-        number,
-        number
-    ] | null;
-    /**
-     * Waifu-score bucket filter. Each value is one of 'A' (8-10), 'B' (6-8), 'C' (4-6), 'D' (2-4), 'E' (0-2), or 'UNSCORED' (no waifu score yet). Multiple values OR together.
-     */
-    waifuScoreLevels?: Array<string> | null;
-    /**
      * SILVA aesthetic bucket filter. Each value is one of 'A' (0.8-1.0), 'B' (0.6-0.8), 'C' (0.4-0.6), 'D' (0.2-0.4), 'E' (0-0.2), or 'UNSCORED' (no SILVA score yet). OR together.
      */
     silvaScoreLevels?: Array<string> | null;
-    /**
-     * SILVA-Luna aesthetic bucket filter. Same A-E edges over the [0, 1] domain as ``silvaScoreLevels`` (a second distilled judge, not a second tier), or 'UNSCORED'. OR together.
-     */
-    silvaLunaScoreLevels?: Array<string> | null;
     /**
      * When true (default), hide near-duplicate group *members* and return only canonical (representative) posts — those with canonical_post_id NULL. Set false to include members.
      */
@@ -853,25 +821,9 @@ export type ExtensionCountItem = {
 };
 
 /**
- * WaifuBucketCountItem
- */
-export type WaifuBucketCountItem = {
-    bucket: string;
-    count: number;
-};
-
-/**
  * SilvaBucketCountItem
  */
 export type SilvaBucketCountItem = {
-    bucket: string;
-    count: number;
-};
-
-/**
- * SilvaLunaBucketCountItem
- */
-export type SilvaLunaBucketCountItem = {
     bucket: string;
     count: number;
 };
@@ -883,8 +835,6 @@ export type PostStatsResponse = {
     total: number;
     avgScore?: number | null;
     scoredCount: number;
-    avgWaifuScore?: number | null;
-    waifuCount: number;
     ratingDistribution: Array<RatingCountItem>;
 };
 
@@ -927,24 +877,9 @@ export type TagCountRequest = {
         number
     ] | null;
     /**
-     * Waifu score range filter.
-     */
-    waifuScoreRange?: [
-        number,
-        number
-    ] | null;
-    /**
-     * Waifu-score bucket filter. Each value is one of 'A' (8-10), 'B' (6-8), 'C' (4-6), 'D' (2-4), 'E' (0-2), or 'UNSCORED' (no waifu score yet). Multiple values OR together.
-     */
-    waifuScoreLevels?: Array<string> | null;
-    /**
      * SILVA aesthetic bucket filter. Each value is one of 'A' (0.8-1.0), 'B' (0.6-0.8), 'C' (0.4-0.6), 'D' (0.2-0.4), 'E' (0-0.2), or 'UNSCORED' (no SILVA score yet). OR together.
      */
     silvaScoreLevels?: Array<string> | null;
-    /**
-     * SILVA-Luna aesthetic bucket filter. Same A-E edges over the [0, 1] domain as ``silvaScoreLevels`` (a second distilled judge, not a second tier), or 'UNSCORED'. OR together.
-     */
-    silvaLunaScoreLevels?: Array<string> | null;
     /**
      * When true (default), hide near-duplicate group *members* and return only canonical (representative) posts — those with canonical_post_id NULL. Set false to include members.
      */
@@ -1063,24 +998,9 @@ export type PostFilterWithOrder = {
         number
     ] | null;
     /**
-     * Waifu score range filter.
-     */
-    waifuScoreRange?: [
-        number,
-        number
-    ] | null;
-    /**
-     * Waifu-score bucket filter. Each value is one of 'A' (8-10), 'B' (6-8), 'C' (4-6), 'D' (2-4), 'E' (0-2), or 'UNSCORED' (no waifu score yet). Multiple values OR together.
-     */
-    waifuScoreLevels?: Array<string> | null;
-    /**
      * SILVA aesthetic bucket filter. Each value is one of 'A' (0.8-1.0), 'B' (0.6-0.8), 'C' (0.4-0.6), 'D' (0.2-0.4), 'E' (0-0.2), or 'UNSCORED' (no SILVA score yet). OR together.
      */
     silvaScoreLevels?: Array<string> | null;
-    /**
-     * SILVA-Luna aesthetic bucket filter. Same A-E edges over the [0, 1] domain as ``silvaScoreLevels`` (a second distilled judge, not a second tier), or 'UNSCORED'. OR together.
-     */
-    silvaLunaScoreLevels?: Array<string> | null;
     /**
      * When true (default), hide near-duplicate group *members* and return only canonical (representative) posts — those with canonical_post_id NULL. Set false to include members.
      */
@@ -1088,7 +1008,7 @@ export type PostFilterWithOrder = {
     /**
      * Order column.
      */
-    orderBy?: 'id' | 'score' | 'rating' | 'created_at' | 'published_at' | 'file_name' | 'last_accessed_at' | 'updated_at' | 'waifu_score' | 'silva_score' | 'silva_luna_score' | 'discrepancy' | null;
+    orderBy?: 'id' | 'score' | 'rating' | 'created_at' | 'published_at' | 'file_name' | 'last_accessed_at' | 'updated_at' | 'silva_score' | 'discrepancy' | null;
     /**
      * Order direction.
      */
@@ -1133,24 +1053,9 @@ export type TextSearchRequest = {
         number
     ] | null;
     /**
-     * Waifu score range filter.
-     */
-    waifuScoreRange?: [
-        number,
-        number
-    ] | null;
-    /**
-     * Waifu-score bucket filter. Each value is one of 'A' (8-10), 'B' (6-8), 'C' (4-6), 'D' (2-4), 'E' (0-2), or 'UNSCORED' (no waifu score yet). Multiple values OR together.
-     */
-    waifuScoreLevels?: Array<string> | null;
-    /**
      * SILVA aesthetic bucket filter. Each value is one of 'A' (0.8-1.0), 'B' (0.6-0.8), 'C' (0.4-0.6), 'D' (0.2-0.4), 'E' (0-0.2), or 'UNSCORED' (no SILVA score yet). OR together.
      */
     silvaScoreLevels?: Array<string> | null;
-    /**
-     * SILVA-Luna aesthetic bucket filter. Same A-E edges over the [0, 1] domain as ``silvaScoreLevels`` (a second distilled judge, not a second tier), or 'UNSCORED'. OR together.
-     */
-    silvaLunaScoreLevels?: Array<string> | null;
     /**
      * When true (default), hide near-duplicate group *members* and return only canonical (representative) posts — those with canonical_post_id NULL. Set false to include members.
      */
@@ -1170,22 +1075,6 @@ export type GroupEvidenceItem = {
     lpipsDist: number | null;
     userVerdict: 'same' | 'different' | null;
 };
-
-export type V2GetWaifuScorerStatisticsData = {
-    body?: never;
-    path?: never;
-    query?: never;
-    url: '/v2/statistics';
-};
-
-export type V2GetWaifuScorerStatisticsResponses = {
-    /**
-     * OK
-     */
-    200: Array<WaifuScoreResult>;
-};
-
-export type V2GetWaifuScorerStatisticsResponse = V2GetWaifuScorerStatisticsResponses[keyof V2GetWaifuScorerStatisticsResponses];
 
 export type V2GetQueuesStatusData = {
     body?: never;
@@ -2379,37 +2268,6 @@ export type V2GroupDuplicatesResponses = {
 
 export type V2GroupDuplicatesResponse = V2GroupDuplicatesResponses[keyof V2GroupDuplicatesResponses];
 
-export type V2GetWaifuScorerOneData = {
-    body?: never;
-    path: {
-        post_id: number;
-    };
-    query?: never;
-    url: '/v2/cmd/waifu-scorer/{post_id}';
-};
-
-export type V2GetWaifuScorerOneErrors = {
-    /**
-     * Bad Request
-     */
-    400: ErrorBody;
-    /**
-     * Not Found
-     */
-    404: ErrorBody;
-};
-
-export type V2GetWaifuScorerOneError = V2GetWaifuScorerOneErrors[keyof V2GetWaifuScorerOneErrors];
-
-export type V2GetWaifuScorerOneResponses = {
-    /**
-     * OK
-     */
-    200: number;
-};
-
-export type V2GetWaifuScorerOneResponse = V2GetWaifuScorerOneResponses[keyof V2GetWaifuScorerOneResponses];
-
 export type V2GetSilvaScorerOneData = {
     body?: never;
     path: {
@@ -2440,37 +2298,6 @@ export type V2GetSilvaScorerOneResponses = {
 };
 
 export type V2GetSilvaScorerOneResponse = V2GetSilvaScorerOneResponses[keyof V2GetSilvaScorerOneResponses];
-
-export type V2GetSilvaLunaScorerOneData = {
-    body?: never;
-    path: {
-        post_id: number;
-    };
-    query?: never;
-    url: '/v2/cmd/silva-luna-scorer/{post_id}';
-};
-
-export type V2GetSilvaLunaScorerOneErrors = {
-    /**
-     * Bad Request
-     */
-    400: ErrorBody;
-    /**
-     * Not Found
-     */
-    404: ErrorBody;
-};
-
-export type V2GetSilvaLunaScorerOneError = V2GetSilvaLunaScorerOneErrors[keyof V2GetSilvaLunaScorerOneErrors];
-
-export type V2GetSilvaLunaScorerOneResponses = {
-    /**
-     * OK
-     */
-    200: number;
-};
-
-export type V2GetSilvaLunaScorerOneResponse = V2GetSilvaLunaScorerOneResponses[keyof V2GetSilvaLunaScorerOneResponses];
 
 export type V2AutoTagsData = {
     body?: never;
@@ -2900,31 +2727,6 @@ export type V2GetExtensionCountResponses = {
 
 export type V2GetExtensionCountResponse = V2GetExtensionCountResponses[keyof V2GetExtensionCountResponses];
 
-export type V2GetWaifuBucketCountData = {
-    body: PostFilter;
-    path?: never;
-    query?: never;
-    url: '/v2/posts/count/waifu';
-};
-
-export type V2GetWaifuBucketCountErrors = {
-    /**
-     * Bad Request
-     */
-    400: ErrorBody;
-};
-
-export type V2GetWaifuBucketCountError = V2GetWaifuBucketCountErrors[keyof V2GetWaifuBucketCountErrors];
-
-export type V2GetWaifuBucketCountResponses = {
-    /**
-     * OK
-     */
-    200: Array<WaifuBucketCountItem>;
-};
-
-export type V2GetWaifuBucketCountResponse = V2GetWaifuBucketCountResponses[keyof V2GetWaifuBucketCountResponses];
-
 export type V2GetSilvaBucketCountData = {
     body: PostFilter;
     path?: never;
@@ -2949,31 +2751,6 @@ export type V2GetSilvaBucketCountResponses = {
 };
 
 export type V2GetSilvaBucketCountResponse = V2GetSilvaBucketCountResponses[keyof V2GetSilvaBucketCountResponses];
-
-export type V2GetSilvaLunaBucketCountData = {
-    body: PostFilter;
-    path?: never;
-    query?: never;
-    url: '/v2/posts/count/silva-luna';
-};
-
-export type V2GetSilvaLunaBucketCountErrors = {
-    /**
-     * Bad Request
-     */
-    400: ErrorBody;
-};
-
-export type V2GetSilvaLunaBucketCountError = V2GetSilvaLunaBucketCountErrors[keyof V2GetSilvaLunaBucketCountErrors];
-
-export type V2GetSilvaLunaBucketCountResponses = {
-    /**
-     * OK
-     */
-    200: Array<SilvaLunaBucketCountItem>;
-};
-
-export type V2GetSilvaLunaBucketCountResponse = V2GetSilvaLunaBucketCountResponses[keyof V2GetSilvaLunaBucketCountResponses];
 
 export type V2GetPostsStatsData = {
     body: PostFilter;

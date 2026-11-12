@@ -8,7 +8,7 @@ import { useI18n } from 'vue-i18n'
 import { focusedTreeFolder, isAnyDialogOpen, useCurrentFolder, useFoldersQuery } from '@/shared'
 import { shortcuts } from '@/shared/shortcuts'
 import { useHotkey } from '@/ui/useHotkey'
-import { ancestorPaths, buildFolderTree, findFolderNode, ROOT_FOLDER } from '@/utils/folderTree'
+import { ancestorPaths, buildFolderTree, findFolderNode, FOLDER_SORT_KEYS, ROOT_FOLDER } from '@/utils/folderTree'
 import { useConfirmAction } from './useConfirmAction'
 
 /** The folder a delete confirmation is about (snapshotted when it opens). */
@@ -57,6 +57,10 @@ export function provideFolderTree(): FolderTreeState {
   const folderFilter = ref('')
   // Persisted to localStorage so the chosen folder-tree sort survives reloads.
   const folderSortKey = useLocalStorage<FolderSortKey>('pictoria.folderSort.key', 'name')
+  // A stored key can outlive its sort option; fall back rather than sort by nothing.
+  if (!FOLDER_SORT_KEYS.includes(folderSortKey.value)) {
+    folderSortKey.value = 'name'
+  }
   const folderSortOrder = useLocalStorage<FolderSortOrder>('pictoria.folderSort.order', 'asc')
 
   const folderTree = computed<TreeListItemData[]>(() => buildFolderTree(foldersQuery.data.value, {

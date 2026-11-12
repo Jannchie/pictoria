@@ -46,10 +46,6 @@ function removeTarget(target: FilterChipTarget) {
       postFilter.value[target.field] = withoutFacetValue(postFilter.value, target.field, target.value)[target.field] as never
       break
     }
-    case 'waifuScoreRange': {
-      postFilter.value.waifuScoreRange = undefined
-      break
-    }
     case 'sortColor': {
       postSortColor.value = undefined
       break

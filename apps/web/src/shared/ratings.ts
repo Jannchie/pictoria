@@ -57,34 +57,34 @@ export const SCORE_ICON = 'i-tabler-star'
 export const SCORE_LEVEL_COLORS = ['#ef4444', '#f97316', '#eab308', '#84cc16', '#22c55e']
 
 /**
- * Waifu-scale (0–10) A–E bucket colour ramp: A/B green, C amber, D orange,
- * E red. Values are "r g b" channel triples (CSS var or literal) for use
- * inside `rgb(${...})` / `rgb(${...} / alpha)`. SILVA shares the ramp after
- * ×10 onto the same scale; folder stats feed it normalised ratios ×10.
+ * Model-score A–E bucket colour ramp on a 0–10 scale: A/B green, C amber,
+ * D orange, E red. Values are "r g b" channel triples (CSS var or literal)
+ * for use inside `rgb(${...})` / `rgb(${...} / alpha)`. SILVA stores 0–1 and
+ * is fed in ×10; folder stats feed it normalised ratios ×10.
  */
-interface WaifuLevel {
+interface ModelLevel {
   level: string
   min: number
   rgb: string
 }
 // The E bucket doubles as the find() floor for out-of-range inputs.
-const WAIFU_LEVEL_FLOOR: WaifuLevel = { level: 'E', min: 0, rgb: 'var(--p-danger-rgb)' }
-export const WAIFU_LEVEL_RGB: WaifuLevel[] = [
+const MODEL_LEVEL_FLOOR: ModelLevel = { level: 'E', min: 0, rgb: 'var(--p-danger-rgb)' }
+export const MODEL_LEVEL_RGB: ModelLevel[] = [
   { level: 'A', min: 8, rgb: 'var(--p-success-rgb)' },
   { level: 'B', min: 6, rgb: '90 190 90' },
   { level: 'C', min: 4, rgb: 'var(--p-warning-rgb)' },
   { level: 'D', min: 2, rgb: '235 125 45' },
-  WAIFU_LEVEL_FLOOR,
+  MODEL_LEVEL_FLOOR,
 ]
 
-/** The bucket entry for a waifu-scale (0–10) score. */
-export function waifuLevel(score: number): WaifuLevel {
-  return WAIFU_LEVEL_RGB.find(b => score >= b.min) ?? WAIFU_LEVEL_FLOOR
+/** The bucket entry for a model score on the 0–10 scale. */
+export function modelLevel(score: number): ModelLevel {
+  return MODEL_LEVEL_RGB.find(b => score >= b.min) ?? MODEL_LEVEL_FLOOR
 }
 
-/** The "r g b" triple for a waifu-scale (0–10) score's bucket. */
-export function waifuLevelRgb(score: number): string {
-  return waifuLevel(score).rgb
+/** The "r g b" triple for the bucket of a model score on the 0–10 scale. */
+export function modelLevelRgb(score: number): string {
+  return modelLevel(score).rgb
 }
 
 type Translate = (key: string) => string

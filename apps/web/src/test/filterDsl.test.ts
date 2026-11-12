@@ -84,18 +84,25 @@ describe('parsefilterquery — tags, extensions, buckets', () => {
   // 解析归一到后端认的 A–E，而不是 DSL 的别名：`bucketLevelFilter` 是拿收到的
   // 字符串直接查分档表的，别名查不到就 continue，筛选会被静默丢掉。
   it('normalises known quality buckets onto the backend letters', () => {
-    const parsed = parseFilterQuery('waifu:best silva:worst luna:good')
-    expect(parsed.waifuScoreLevels).toEqual(['A'])
-    expect(parsed.silvaScoreLevels).toEqual(['E'])
-    expect(parsed.silvaLunaScoreLevels).toEqual(['B'])
+    expect(parseFilterQuery('silva:best silva:worst silva:good').silvaScoreLevels).toEqual(['A', 'E', 'B'])
   })
 
   // chip 上显示的是字母，所以照着 chip 敲进命令面板也得能用。
   it('accepts the letter form too', () => {
-    const parsed = parseFilterQuery('silva:A luna:c waifu:UNSCORED')
+    expect(parseFilterQuery('silva:A silva:c silva:UNSCORED').silvaScoreLevels).toEqual(['A', 'C', 'UNSCORED'])
+  })
+
+  it('matches the key and the bucket case-insensitively', () => {
+    expect(parseFilterQuery('Silva:Good').silvaScoreLevels).toEqual(['B'])
+  })
+
+  // The keys of scorers that no longer exist are ordinary unknown keys now:
+  // reported, and kept as searchable text — not silently swallowed.
+  it('treats a retired scorer key like any unknown key', () => {
+    const parsed = parseFilterQuery('waifu:best luna:good silva:best')
     expect(parsed.silvaScoreLevels).toEqual(['A'])
-    expect(parsed.silvaLunaScoreLevels).toEqual(['C'])
-    expect(parsed.waifuScoreLevels).toEqual(['UNSCORED'])
+    expect(parsed.unknown).toEqual(['waifu:best', 'luna:good'])
+    expect(parsed.text).toBe('waifu:best luna:good')
   })
 
   it('rejects an unknown bucket', () => {
@@ -144,9 +151,7 @@ describe('stringifyfilterquery', () => {
     score: [],
     tags: [],
     extension: [],
-    waifuScoreLevels: [],
     silvaScoreLevels: [],
-    silvaLunaScoreLevels: [],
   }
 
   it('renders an empty filter as an empty string', () => {
@@ -161,6 +166,10 @@ describe('stringifyfilterquery', () => {
     expect(stringifyFilterQuery({ ...empty, tags: ['long hair'] })).toBe('tag:"long hair"')
   })
 
+  it('writes scorer buckets as their aliases', () => {
+    expect(stringifyFilterQuery({ ...empty, silvaScoreLevels: ['A', 'UNSCORED', 'E'] })).toBe('silva:best silva:unscored silva:worst')
+  })
+
   it('appends the free-text prompt last', () => {
     expect(stringifyFilterQuery({ ...empty, score: [5] }, 'sunset')).toBe('score:5 sunset')
   })
@@ -172,18 +181,14 @@ describe('stringifyfilterquery', () => {
       score: [5],
       tags: ['long_hair'],
       extension: ['png'],
-      waifuScoreLevels: ['A'],
-      silvaScoreLevels: ['B'],
-      silvaLunaScoreLevels: ['UNSCORED'],
+      silvaScoreLevels: ['A', 'B', 'UNSCORED'],
     }
     const parsed = parseFilterQuery(stringifyFilterQuery(source, 'sunset'))
     expect(parsed.rating).toEqual(source.rating)
     expect(parsed.score).toEqual(source.score)
     expect(parsed.tags).toEqual(source.tags)
     expect(parsed.extension).toEqual(source.extension)
-    expect(parsed.waifuScoreLevels).toEqual(source.waifuScoreLevels)
     expect(parsed.silvaScoreLevels).toEqual(source.silvaScoreLevels)
-    expect(parsed.silvaLunaScoreLevels).toEqual(source.silvaLunaScoreLevels)
     expect(parsed.text).toBe('sunset')
   })
 })

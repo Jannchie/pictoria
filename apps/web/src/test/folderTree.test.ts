@@ -10,7 +10,6 @@ function dir(name: string, over: Partial<DirectorySummary> = {}): DirectorySumma
     fileCount: 0,
     postCount: 0,
     silvaAvg: null,
-    silvaLunaAvg: null,
     scoreAvg: null,
     ratingAvg: null,
     scoredRatio: null,

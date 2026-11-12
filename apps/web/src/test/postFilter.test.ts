@@ -11,6 +11,7 @@ import {
   filterQuerySignature,
   filterToBody,
   filterToQuery,
+  isPostSortColumn,
   parseFilterQuery,
   searchPostsBody,
   stringifyFilterQuery,
@@ -24,6 +25,12 @@ import golden from './fixtures/postFilter.golden.json'
  * implementations this module replaced (state.ts URL sync, filterDsl,
  * useActiveFilters chips, queries.ts request body), with a recording `t` that
  * prints its arguments. Frozen: it pins the old behaviour, so don't regenerate it.
+ *
+ * When the waifu and silva_luna scorers were retired the recording was projected
+ * (mechanically, not re-recorded) onto what still exists: their fields, DSL
+ * terms and chips were dropped, and the one non-default sort column it used
+ * (the waifu one) became `silva_score`. The `fromQuery` inputs still carry the
+ * retired params on purpose — they pin that a stale URL is ignored.
  */
 
 const fakeT = (k: string, a?: unknown, b?: unknown) => `${k}|${JSON.stringify(a ?? null)}|${b ?? ''}`
@@ -86,18 +93,15 @@ const SAMPLE: State = {
   score: [0, 5],
   tags: ['long_hair', 'a,b', 'with space', '100%'],
   extension: ['png', ''],
-  waifuScoreLevels: ['A', 'UNSCORED'],
-  silvaScoreLevels: ['B'],
-  silvaLunaScoreLevels: ['E'],
-  waifuScoreRange: [2, 8],
+  silvaScoreLevels: ['B', 'UNSCORED'],
 }
 
 describe('url round-trip', () => {
-  it('fromquery(toquery(x)) restores every facet, the range and the sort', () => {
-    const state = { filter: SAMPLE, sort: 'silva_luna_score' as const, order: 'asc' as const, sortColor: '#123456' }
+  it('fromquery(toquery(x)) restores every facet and the sort', () => {
+    const state = { filter: SAMPLE, sort: 'silva_score' as const, order: 'asc' as const, sortColor: '#123456' }
     const patch = filterFromQuery(filterToQuery(state, {}) as Record<string, string>)
     expect({ ...emptyFacets(), ...patch.filter }).toEqual(SAMPLE)
-    expect(patch.sort).toBe('silva_luna_score')
+    expect(patch.sort).toBe('silva_score')
     expect(patch.order).toBe('asc')
     expect(patch.sortColor).toBe('#123456')
   })
@@ -119,6 +123,54 @@ describe('url round-trip', () => {
 
   it('tolerates hand-edited query shapes', () => {
     expect(filterFromQuery({ rating: ['1,2', '3'], score: null }).filter).toEqual({ rating: [1, 2] })
+  })
+})
+
+// Bookmarks made before the waifu / silva_luna scorers were retired.
+describe('stale urls', () => {
+  const STALE = {
+    rating: '1',
+    waifuScoreLevels: 'A,UNSCORED',
+    silvaLunaScoreLevels: 'C',
+    waifuScoreRange: '2,8',
+  }
+
+  it('ignores the params of filters that no longer exist', () => {
+    expect(filterFromQuery(STALE)).toEqual({ filter: { rating: [1] } })
+  })
+
+  it('ignores a sort column that no longer exists instead of adopting it', () => {
+    for (const sort of ['waifu_score', 'silva_luna_score', 'nonsense', '', 'toString']) {
+      expect(filterFromQuery({ sort, order: 'asc' }), sort).toEqual({ filter: {}, order: 'asc' })
+    }
+    // /recently's forced column is not a user choice either.
+    expect(filterFromQuery({ sort: 'last_accessed_at' }).sort).toBeUndefined()
+    expect(filterFromQuery({ sort: 'silva_score' }).sort).toBe('silva_score')
+  })
+
+  it('ignores an order that is neither asc nor desc', () => {
+    expect(filterFromQuery({ sort: 'score', order: 'sideways' })).toEqual({ filter: {}, sort: 'score' })
+  })
+
+  it('a stale url never reaches the request body', () => {
+    // What `useSyncFilterWithUrl` does with the patch, from the default state.
+    const patch = filterFromQuery({ ...STALE, sort: 'waifu_score' })
+    const body = searchPostsBody({
+      filter: { ...emptyFacets(), ...patch.filter },
+      mode: 'default',
+      sort: patch.sort ?? 'id',
+      sortOrder: patch.order ?? 'desc',
+      seed: 1,
+    })
+    expect(body).toEqual({ ...emptyFacets(), rating: [1], order: 'desc', orderBy: 'id' })
+  })
+
+  it('knows which stored sort columns are still valid', () => {
+    expect(isPostSortColumn('silva_score')).toBe(true)
+    expect(isPostSortColumn('id')).toBe(true)
+    for (const stale of ['waifu_score', 'silva_luna_score', 'last_accessed_at', undefined, null, 3]) {
+      expect(isPostSortColumn(stale), String(stale)).toBe(false)
+    }
   })
 })
 
@@ -150,7 +202,7 @@ describe('dsl round-trip', () => {
 })
 
 describe('apply / clear / body', () => {
-  const parsed: ParsedFilter = { ...emptyFacets(), rating: [2], silvaLunaScoreLevels: ['C'], text: 'x', unknown: [] }
+  const parsed: ParsedFilter = { ...emptyFacets(), rating: [2], silvaScoreLevels: ['C'], text: 'x', unknown: [] }
 
   it('applying a parsed query writes every facet (regression: scorer fields were hard-coded)', () => {
     const current: State = { ...SAMPLE, folder: 'a/b' }
@@ -159,14 +211,13 @@ describe('apply / clear / body', () => {
       expect(next[spec.field], spec.field).toEqual(parsed[spec.field])
     }
     expect(next.folder).toBe('a/b')
-    expect(next.waifuScoreRange).toEqual([2, 8])
     expect(next).not.toHaveProperty('text')
     expect(next).not.toHaveProperty('unknown')
   })
 
-  it('clear empties every facet and the range but keeps the folder', () => {
+  it('clear empties every facet but keeps the folder', () => {
     const next = clearFilter({ ...SAMPLE, folder: 'a' })
-    expect(next).toEqual({ ...emptyFacets(), folder: 'a', waifuScoreRange: undefined })
+    expect(next).toEqual({ ...emptyFacets(), folder: 'a' })
   })
 
   it('withoutfacetvalue drops one value only', () => {

@@ -16,8 +16,8 @@ import { SCORERS } from './scorers'
 /**
  * Every per-bucket facet count kind. The array is the source of truth (the type
  * is derived from it) so aggregate invalidation can iterate it — a hand-copied
- * list at each delete site had already drifted (it missed waifu / silva /
- * silvaLuna, so deleting posts left those facet counts stale). The scorer kinds
+ * list at each delete site had already drifted (it missed the scorer kinds,
+ * so deleting posts left those facet counts stale). The scorer kinds
  * come from the scorer table, so adding a scorer adds its count kind.
  */
 export const COUNT_KINDS = ['rating', 'score', 'extension', ...SCORERS.map(s => s.countKind), 'tags'] as const
@@ -90,7 +90,7 @@ export const queryKeys = {
    */
   postGroupEvidence: (id: MaybeRef<number | undefined>) => ['postGroup', id, 'evidence'] as const,
 
-  /** Per-bucket counts (rating/score/extension/waifu) for a filter. */
+  /** Per-bucket counts (rating/score/extension/silva) for a filter. */
   count: (kind: CountKind, filter: unknown) => ['count', kind, filter] as const,
   /** Prefix matching every count query of one kind, for invalidation. */
   countRoot: (kind: CountKind) => ['count', kind] as const,

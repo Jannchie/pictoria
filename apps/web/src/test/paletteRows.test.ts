@@ -80,11 +80,11 @@ describe('termchips', () => {
     expect(termChips(q, q.length, []).map(c => c.label)).toEqual(['rating: g'])
   })
   it('flags unknown keys and parser-rejected values', () => {
-    const q = 'colour:blue rating:purple waifu:best '
+    const q = 'colour:blue rating:purple silva:best '
     expect(termChips(q, q.length, ['rating:purple']).map(c => [c.label, c.unknown])).toEqual([
       ['colour: blue', true],
       ['rating: purple', true],
-      ['waifu: best', false],
+      ['silva: best', false],
     ])
   })
   it('matches quoted unknown terms with their quotes stripped', () => {

@@ -5,6 +5,7 @@ import { localeSetting } from '@/locale'
 import { canUndo, clearHistory, redo, undo } from '@/shared/history'
 import { captureOldValues, commitRating, commitScore, commitTag, commitTagMany, computeScore, deleteFolder, deletePosts, groupIdsByValue, invalidateAggregates, removePostsFromCacheEntry, submitPairwise, TAG_BULK_LIMIT, undoAnnotations } from '@/shared/mutations'
 import { COUNT_KINDS, queryKeys } from '@/shared/queryKeys'
+import { SCORERS } from '@/shared/scorers'
 
 vi.mock('@/api', () => ({
   v2UpdatePostScore: vi.fn(async () => ({})),
@@ -21,9 +22,7 @@ vi.mock('@/api', () => ({
   v2RotatePostImage: vi.fn(async () => ({})),
   v2DeletePosts: vi.fn(async () => ({})),
   v2DeleteFolder: vi.fn(async () => ({})),
-  v2GetWaifuScorerOne: vi.fn(async () => ({})),
   v2GetSilvaScorerOne: vi.fn(async () => ({})),
-  v2GetSilvaLunaScorerOne: vi.fn(async () => ({})),
   v2SubmitPairwise: vi.fn(async () => ({ data: { ids: [41] } })),
   v2UndoAnnotations: vi.fn(async () => ({})),
   v2GetFolders: vi.fn(async () => ({})),
@@ -280,9 +279,9 @@ describe('invalidateaggregates', () => {
   })
 
   // The bug this replaced: the hand-copied lists at the delete sites missed the
-  // waifu / silva / silvaLuna facet counts.
+  // scorer facet counts.
   it('deleteposts and deletefolder refresh the scorer facet counts too', async () => {
-    const scorerKeys = (['waifu', 'silva', 'silvaLuna'] as const).map(kind => queryKeys.count(kind, {}))
+    const scorerKeys = SCORERS.map(s => queryKeys.count(s.countKind, {}))
     expect(await invalidatedAfter(scorerKeys, qc => deletePosts(qc, [1]))).toEqual(scorerKeys)
     expect(await invalidatedAfter(scorerKeys, qc => deleteFolder(qc, 'a/b'))).toEqual(scorerKeys)
   })
@@ -292,7 +291,7 @@ describe('computescore', () => {
   beforeEach(() => vi.clearAllMocks())
 
   it('calls the endpoint of that scorer and refreshes the post and that facet; marks folders stale without refetching', async () => {
-    const keys = [queryKeys.post(3), queryKeys.count('silva', {}), queryKeys.count('waifu', {}), queryKeys.postsStats({}), queryKeys.folders]
+    const keys = [queryKeys.post(3), queryKeys.count('silva', {}), queryKeys.count('score', {}), queryKeys.postsStats({}), queryKeys.folders]
     const qc = new QueryClient()
     const fetchFolders = vi.fn(async () => [])
     for (const key of keys) {
@@ -304,15 +303,9 @@ describe('computescore', () => {
     await computeScore(qc, 'silva', 3)
     stop()
     expect(api.v2GetSilvaScorerOne).toHaveBeenCalledWith({ path: { post_id: 3 } })
-    // The footer stats carry only the waifu average.
+    // Other facets are left alone, and so are the footer stats: they carry no model average.
     expect(keys.filter(key => qc.getQueryState(key)?.isInvalidated)).toEqual([queryKeys.post(3), queryKeys.count('silva', {}), queryKeys.folders])
     expect(fetchFolders).not.toHaveBeenCalled()
-  })
-
-  it('waifu refreshes the stats but does not touch the folder tree (it carries no waifu average)', async () => {
-    const hit = await invalidatedAfter([queryKeys.count('waifu', {}), queryKeys.postsStats({}), queryKeys.folders], qc => computeScore(qc, 'waifu', 3))
-    expect(api.v2GetWaifuScorerOne).toHaveBeenCalledWith({ path: { post_id: 3 } })
-    expect(hit).toEqual([queryKeys.count('waifu', {}), queryKeys.postsStats({})])
   })
 })
 

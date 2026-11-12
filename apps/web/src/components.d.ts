@@ -39,6 +39,7 @@ declare module 'vue' {
     ListwiseAnnotationSession: typeof import('./components/annotate/ListwiseAnnotationSession.vue')['default']
     LocaleSwitch: typeof import('./components/LocaleSwitch.vue')['default']
     MainSection: typeof import('./components/MainSection.vue')['default']
+    ModelScoreLevel: typeof import('./components/ModelScoreLevel.vue')['default']
     PairwiseAnnotationSession: typeof import('./components/annotate/PairwiseAnnotationSession.vue')['default']
     PAspectRatio: typeof import('./ui/PAspectRatio.vue')['default']
     PButton: typeof import('./ui/PButton.vue')['default']
@@ -91,7 +92,6 @@ declare module 'vue' {
     TagSelectorWindow: typeof import('./components/TagSelectorWindow.vue')['default']
     ToastSystem: typeof import('./components/ToastSystem.vue')['default']
     UndoSnackbar: typeof import('./components/UndoSnackbar.vue')['default']
-    WaifuScoreLevel: typeof import('./components/WaifuScoreLevel.vue')['default']
   }
 }
 
@@ -124,6 +124,7 @@ declare global {
   const ListwiseAnnotationSession: typeof import('./components/annotate/ListwiseAnnotationSession.vue')['default']
   const LocaleSwitch: typeof import('./components/LocaleSwitch.vue')['default']
   const MainSection: typeof import('./components/MainSection.vue')['default']
+  const ModelScoreLevel: typeof import('./components/ModelScoreLevel.vue')['default']
   const PairwiseAnnotationSession: typeof import('./components/annotate/PairwiseAnnotationSession.vue')['default']
   const PAspectRatio: typeof import('./ui/PAspectRatio.vue')['default']
   const PButton: typeof import('./ui/PButton.vue')['default']
@@ -176,5 +177,4 @@ declare global {
   const TagSelectorWindow: typeof import('./components/TagSelectorWindow.vue')['default']
   const ToastSystem: typeof import('./components/ToastSystem.vue')['default']
   const UndoSnackbar: typeof import('./components/UndoSnackbar.vue')['default']
-  const WaifuScoreLevel: typeof import('./components/WaifuScoreLevel.vue')['default']
 }

@@ -4,7 +4,7 @@ import { useI18n } from 'vue-i18n'
 import { useRoute } from 'vue-router'
 import { formatAverage as fmtAvg, usePostsStatsQuery } from '@/composables/usePostsStatsQuery'
 import { formatNumber } from '@/locale'
-import { bottomBarInfo, currentPostList, galleryListFailed, RATING_LEVEL_SHORT_KEYS, ratingName, SCORE_ICON, scorerIcon, selectedCount } from '@/shared'
+import { bottomBarInfo, currentPostList, galleryListFailed, RATING_LEVEL_SHORT_KEYS, ratingName, SCORE_ICON, selectedCount } from '@/shared'
 import { isLibraryView } from '@/shared/galleryView'
 import { isLeftCollapsed, isRightCollapsed, routeHasRightPane, toggleLeftPane, toggleRightPane } from '@/shared/paneLayout'
 import { shortcuts } from '@/shared/shortcuts'
@@ -15,7 +15,6 @@ const route = useRoute()
 
 const inLibraryView = computed(() => isLibraryView(route.meta.view))
 
-const WAIFU_ICON = scorerIcon('waifu')
 const leftShortcut = formatShortcut(shortcuts.global.toggleLeft.keys[0])
 const rightShortcut = formatShortcut(shortcuts.global.toggleRight.keys[0])
 
@@ -99,15 +98,6 @@ const ratingCounts = computed(() => {
           <span class="tabular-nums">{{ fmtAvg(stats.avgScore) }}</span>
           <span class="text-fg-subtle" aria-hidden="true">·</span>
           <span class="text-fg-subtle tabular-nums">{{ formatNumber(stats.scoredCount) }}</span>
-        </span>
-        <span
-          class="flex shrink-0 gap-1 items-center"
-          :aria-label="$t('bottomBar.avgWaifuAria', { n: stats.waifuCount })"
-        >
-          <i :class="WAIFU_ICON" class="text-fg-subtle" aria-hidden="true" />
-          <span class="tabular-nums">{{ fmtAvg(stats.avgWaifuScore) }}</span>
-          <span class="text-fg-subtle" aria-hidden="true">·</span>
-          <span class="text-fg-subtle tabular-nums">{{ formatNumber(stats.waifuCount) }}</span>
         </span>
         <template v-if="ratingCounts.length > 0">
           <span class="bg-border-subtle shrink-0 h-3 w-px" aria-hidden="true" />

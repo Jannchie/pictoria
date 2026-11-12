@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { formatDate, formatRelativeTime, formatShortDateTime } from '@/locale'
-import { RATING_LEVEL_COLORS, RATING_LEVEL_ICONS, SCORE_LEVEL_COLORS, waifuLevelRgb } from '@/shared/ratings'
+import { modelLevelRgb, RATING_LEVEL_COLORS, RATING_LEVEL_ICONS, SCORE_LEVEL_COLORS } from '@/shared/ratings'
 import { formatSortValue } from '@/utils/sortBadge'
 
 describe('formatsortvalue', () => {
@@ -14,10 +14,13 @@ describe('formatsortvalue', () => {
     expect(formatSortValue('rating', RATING_LEVEL_ICONS.length + 1)).toEqual({ text: '—' })
   })
 
-  it('waifu is 0–10, silva heads are scaled from 0–1', () => {
-    expect(formatSortValue('waifu_score', 7.256)).toEqual({ text: '7.26', color: `rgb(${waifuLevelRgb(7.256)})` })
-    expect(formatSortValue('silva_score', 0.5)).toEqual({ text: '5.00', color: `rgb(${waifuLevelRgb(5)})` })
-    expect(formatSortValue('silva_luna_score', '0.25')).toEqual({ text: '2.50', color: `rgb(${waifuLevelRgb(2.5)})` })
+  it('silva is scaled from 0–1 onto the 0–10 ramp', () => {
+    expect(formatSortValue('silva_score', 0.5)).toEqual({ text: '5.00', color: `rgb(${modelLevelRgb(5)})` })
+    expect(formatSortValue('silva_score', '0.7256')).toEqual({ text: '7.26', color: `rgb(${modelLevelRgb(7.256)})` })
+  })
+
+  it('a column that no longer exists gets no badge', () => {
+    expect(formatSortValue('waifu_score', 7.256)).toBeUndefined()
   })
 
   it('discrepancy uses the danger token', () => {

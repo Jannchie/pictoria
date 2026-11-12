@@ -355,24 +355,18 @@ const scoreLabelId = `${uid}-score`
 const captionHintId = `${uid}-caption-hint`
 
 const SILVA_SCORER = 'silva'
-const SILVA_LUNA_SCORER = 'silva_luna'
 const silvaScore = computed(
   () => detail.value?.aestheticScores?.find(s => s.scorer === SILVA_SCORER)?.score,
 )
-const silvaLunaScore = computed(
-  () => detail.value?.aestheticScores?.find(s => s.scorer === SILVA_LUNA_SCORER)?.score,
-)
 
-// In-flight computes keyed by scorer AND post: the three buttons spin
+// In-flight computes keyed by scorer AND post: each scorer's button spins
 // independently, and since the panel is reused when it shows another post, a
 // compute still running for the previous one must not spin (or block) here.
 const computing = useInFlight<string>('computeScore')
 const computeKey = (kind: ScorerKind, postId: number) => `${kind}:${postId}`
 const isComputing = (kind: ScorerKind) => computing.has(computeKey(kind, post.value.id))
 const COMPUTE_FAILED_KEYS: Record<ScorerKind, string> = {
-  waifu: 'error.waifuComputeFailed',
   silva: 'error.silvaComputeFailed',
-  silvaLuna: 'error.silvaLunaComputeFailed',
 }
 
 function onComputeScore(kind: ScorerKind) {
@@ -442,7 +436,7 @@ function onComputeScore(kind: ScorerKind) {
       </PDisclosure>
 
       <!-- Ratings next, always expanded: scoring is the core loop (manual 1–5
-           vs the model's SILVA/waifu), so it stays reachable with minimal
+           vs the model's SILVA), so it stays reachable with minimal
            scrolling and zero clicks. Everything below is reference material
            and collapses. -->
       <section class="pb-3 pt-3 p-divider">
@@ -482,28 +476,11 @@ function onComputeScore(kind: ScorerKind) {
               @select="(d) => onSelectScore(post.id, d)"
             />
           </div>
-          <div>{{ $t('post.waifuLabel') }}</div>
-          <div>
-            <span v-if="!detail" class="rounded-sm h-5 w-16 block p-skeleton" />
-            <template v-else-if="detail.waifuScore">
-              <WaifuScoreLevel :score="detail.waifuScore.score" />
-            </template>
-            <template v-else>
-              <PButton
-                size="sm"
-                variant="subtle"
-                :loading="isComputing('waifu')"
-                @click="onComputeScore('waifu')"
-              >
-                {{ isComputing('waifu') ? $t('common.computing') : $t('common.compute') }}
-              </PButton>
-            </template>
-          </div>
           <div>{{ $t('post.silvaLabel') }}</div>
           <div>
-            <span v-if="!detail" class="rounded-sm h-5 w-16 block p-skeleton" style="--i: 1" />
+            <span v-if="!detail" class="rounded-sm h-5 w-16 block p-skeleton" />
             <template v-else-if="silvaScore !== undefined">
-              <WaifuScoreLevel :score="silvaScore * 10" />
+              <ModelScoreLevel :score="silvaScore * 10" />
             </template>
             <template v-else>
               <PButton
@@ -513,23 +490,6 @@ function onComputeScore(kind: ScorerKind) {
                 @click="onComputeScore('silva')"
               >
                 {{ isComputing('silva') ? $t('common.computing') : $t('common.compute') }}
-              </PButton>
-            </template>
-          </div>
-          <div>{{ $t('post.silvaLunaLabel') }}</div>
-          <div>
-            <span v-if="!detail" class="rounded-sm h-5 w-16 block p-skeleton" style="--i: 2" />
-            <template v-else-if="silvaLunaScore !== undefined">
-              <WaifuScoreLevel :score="silvaLunaScore * 10" />
-            </template>
-            <template v-else>
-              <PButton
-                size="sm"
-                variant="subtle"
-                :loading="isComputing('silvaLuna')"
-                @click="onComputeScore('silvaLuna')"
-              >
-                {{ isComputing('silvaLuna') ? $t('common.computing') : $t('common.compute') }}
               </PButton>
             </template>
           </div>
