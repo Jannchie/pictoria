@@ -33,7 +33,7 @@ export interface ScoreItem {
 }
 
 /**
- * 两个蒸馏头的名字。**跨进程契约的一部分** —— TS 排活、Python worker 按这个名字
+ * 蒸馏头的名字（现在只有 `silva` 一个；`silva_luna` 已退役）。**跨进程契约的一部分** —— TS 排活、Python worker 按这个名字
  * 加载权重，两侧对不上的表现是任务提交成功后被 worker 以 `unknown scorer` 拒掉。
  *
  * 放在 contracts 而不是 `packages/db`，是因为需要它的不止数据层：调度循环要遍历，
@@ -41,12 +41,12 @@ export interface ScoreItem {
  * `REPO_IDS`（名字 → 权重仓库），那是这条缝在另一侧的唯一定义；两者由
  * `fixtures/silva-scorers.json` 在两侧测试里各对一次。
  */
-export const SILVA_SCORERS = ['silva', 'silva_luna'] as const
+export const SILVA_SCORERS = ['silva'] as const
 
 export type SilvaScorer = typeof SILVA_SCORERS[number]
 
 export interface SilvaPayload {
-  /** 哪一个蒸馏头。两个头共用一条代码路径，只有权重不同。 */
+  /** 哪一个蒸馏头。各头共用一条代码路径，只有权重不同。 */
   scorer: SilvaScorer
   items: ScoreItem[]
 }
@@ -56,7 +56,7 @@ export interface SilvaResult {
 }
 
 /**
- * SILVA / SILVA-Luna 打分：输入已存的向量，输出 [0,1] 的标量。
+ * SILVA 打分：输入已存的向量，输出 [0,1] 的标量。
  *
  * 第一个接进 cairnq 的 worker，因为它是最简单的一个 —— 不解码图片、不跑 backbone、
  * 不碰文件系统，就是一次 head forward。整条 submit → lease → 结果落库的链路先用它
@@ -86,32 +86,6 @@ export interface WorkerFailure {
   postId: number
   error: string
 }
-
-export interface WaifuPayload {
-  items: ImageItem[]
-}
-
-export interface WaifuResult {
-  scores: Array<{ postId: number, score: number }>
-  failures: WorkerFailure[]
-}
-
-/**
- * waifu 质量分：CLIP ViT-L/14 backbone + 一个回归头，输入是图片本身。
- *
- * 与 silva 的关键差别在于失败**是**一种正常结果：一张读不出来的图会让整批崩掉，
- * worker 内部的降级阶梯（整批 → 4 张 → 单张）把它隔离出来，作为 `failures` 回传。
- * TS 侧把它写进 `post_process_failures` 一次性拉黑，否则待办查询会永远重选它。
- */
-export const waifuTask = defineTask<WaifuPayload, WaifuResult>('waifu')
-
-/**
- * 一批的大小。批大小只在这一侧定义 —— worker 收到多少算多少。
- *
- * 这里不像 silva 那样需要缩小 —— payload 里只有路径，32 条也就几 KB。它的上限
- * 是显存，不是队列。
- */
-export const WAIFU_TASK_BATCH = 32
 
 /**
  * PixAI Tagger 的五个标签类别。
@@ -177,10 +151,10 @@ export const taggerTask = defineTask<TaggerPayload, TaggerBatchResult>('tagger')
 /**
  * 一批 16 张。
  *
- * 比 waifu / silva 的 32 小一半，因为这个模型贵得多：1008x1008 输入、486M 参数。
+ * 比其它图片任务的 32 小一半，因为这个模型贵得多：1008x1008 输入、486M 参数。
  * 3090 / bf16 上实测（48 张库里随机抽的真图，跳过预热）：batch 16 是 5.21 img/s、
  * 峰值 3.40 GiB。吞吐在 batch 8 以上就基本平了（8 是 4.4 img/s，32 是 4.7），显存却
- * 接着线性涨 —— 16 落在平台上，同时给同一张卡上的 SigLIP 2 / silva / waifu 留出余量。
+ * 接着线性涨 —— 16 落在平台上，同时给同一张卡上的 SigLIP 2 / silva 留出余量。
  *
  * 按这个速度，30.3 万张的全库重标约 16 小时。
  */
@@ -729,7 +703,6 @@ export type Queue = typeof GPU_QUEUE | typeof INTERACTIVE_QUEUE | typeof IO_QUEU
  */
 export const TASK_QUEUES = {
   'silva': GPU_QUEUE,
-  'waifu': GPU_QUEUE,
   'tagger': GPU_QUEUE,
   'embedding': GPU_QUEUE,
   'dedup': GPU_QUEUE,

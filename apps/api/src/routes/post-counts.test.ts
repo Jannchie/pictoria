@@ -46,8 +46,11 @@ beforeEach(() => {
   tag(a, 'red')
   tag(b, 'red')
   tag(c, 'blue')
-  t.sqlite.prepare('INSERT INTO post_waifu_scores (post_id, score) VALUES (?, 8.5)').run(a)
   t.sqlite.prepare("INSERT INTO post_aesthetic_scores (post_id, scorer, score) VALUES (?, 'silva', 0.9)").run(a)
+  // 已退役打分器（silva_luna、waifu）的行，真实库里还留着：b 只有 silva_luna 的分，在 silva
+  // 眼里仍然是未打分；waifu 的分不该出现在任何计数 / 聚合里。
+  t.sqlite.prepare("INSERT INTO post_aesthetic_scores (post_id, scorer, score) VALUES (?, 'silva_luna', 0.9)").run(b)
+  t.sqlite.prepare('INSERT INTO post_waifu_scores (post_id, score) VALUES (?, 8.5)').run(a)
 })
 
 afterEach(() => t.close())
@@ -64,20 +67,26 @@ describe('计数端点走读线程', () => {
   })
 
   it('分档计数按打分器名字过线程（spec 本身过不了结构化克隆）', async () => {
-    const waifu = await post('/v2/posts/count/waifu', {})
-    expect(waifu.status).toBe(200)
-    expect(waifu.body.reduce((s: number, r: { count: number }) => s + r.count, 0)).toBe(3)
     const silva = await post('/v2/posts/count/silva', {})
     expect(silva.status).toBe(200)
-    expect(silva.body).toContainEqual({ bucket: 'UNSCORED', count: 2 })
-    const luna = await post('/v2/posts/count/silva-luna', {})
-    expect(luna.body).toEqual([{ bucket: 'UNSCORED', count: 3 }])
-    expect(calls).toEqual(['countByScorerBucket', 'countByScorerBucket', 'countByScorerBucket'])
+    // 同表里 `silva_luna` 的 0.9 没有混进来：A 档只有 a 一张，b 仍是未打分
+    expect([...silva.body].sort((x: { bucket: string }, y: { bucket: string }) => x.bucket.localeCompare(y.bucket)))
+      .toEqual([{ bucket: 'A', count: 1 }, { bucket: 'UNSCORED', count: 2 }])
+    expect(calls).toEqual(['countByScorerBucket'])
+  })
+
+  // 端点由 `FILTERABLE_SCORERS` 生成；waifu / silva_luna 退役（2026-11）后它们的路由就不存在了，
+  // 库里留着的分数行不该让端点"复活"。
+  it.each(['/v2/posts/count/waifu', '/v2/posts/count/silva-luna'])('已退役打分器的分档端点 %s → 404，不进读线程', async (url) => {
+    const res = await app.request(url, { method: 'POST', headers: { 'content-type': 'application/json' }, body: '{}' })
+    expect(res.status).toBe(404)
+    expect(calls).toEqual([])
   })
 
   it('stats 与 tag facet', async () => {
     const stats = await post('/v2/posts/stats', {})
-    expect(stats.body).toMatchObject({ total: 3, scoredCount: 1, avgScore: 3, waifuCount: 1, avgWaifuScore: 8.5 })
+    expect(stats.body).toMatchObject({ total: 3, scoredCount: 1, avgScore: 3 })
+    expect(Object.keys(stats.body).sort()).toEqual(['avgScore', 'ratingDistribution', 'scoredCount', 'total'])
     const tags = await post('/v2/posts/count/tags', { rating: [1], lang: 'en' })
     expect(tags.body).toEqual([expect.objectContaining({ tagName: 'red', count: 2 })])
     // 带过滤的 tag facet 在线程里取全量（慢通道），名字筛选 / 取前 N 在主线程上做。

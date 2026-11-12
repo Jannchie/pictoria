@@ -11,7 +11,6 @@ import {
   FILTERABLE_SCORERS,
   pascalKey,
   urlSlug,
-  WAIFU,
   type PostFilter as DbPostFilter,
 } from '@pictoria/db'
 import { newRoutes } from '../env.js'
@@ -36,8 +35,6 @@ const PostStatsResponse = z
     total: z.int(),
     avgScore: z.number().nullable().optional(),
     scoredCount: z.int(),
-    avgWaifuScore: z.number().nullable().optional(),
-    waifuCount: z.int(),
     ratingDistribution: z.array(RatingCountItem),
   })
   .openapi('PostStatsResponse')
@@ -91,16 +88,13 @@ for (const facet of columnFacets) {
 }
 
 /**
- * 分档 facet：waifu 走独立表（描述措辞不同，单列），`SCORERS` 里每个打分器走
- * post_aesthetic_scores，路径 / operationId / 组件名都由注册项派生。
+ * 分档 facet：每个可筛打分器一条，路径 / operationId / 组件名都由注册项派生。
  */
 const bucketFacets = FILTERABLE_SCORERS.map(scorer => ({
   path: `/v2/posts/count/${urlSlug(scorer)}`,
   id: `v2Get${pascalKey(scorer)}BucketCount`,
   scorer,
-  desc: scorer === WAIFU
-    ? 'Count posts by waifu-score bucket (A/B/C/D/E/UNSCORED).'
-    : `Count posts by ${scorer.label} aesthetic bucket (A/B/C/D/E/UNSCORED).`,
+  desc: `Count posts by ${scorer.label} aesthetic bucket (A/B/C/D/E/UNSCORED).`,
   schema: bucketCountItem(pascalKey(scorer)),
 }))
 
@@ -125,7 +119,7 @@ postCountsRoutes.openapi(
     path: '/v2/posts/stats',
     operationId: 'v2GetPostsStats',
     summary: 'GetPostsStats',
-    description: 'Aggregate quality stats (avg score, avg waifu, rating distribution) for posts matching filter.',
+    description: 'Aggregate quality stats (avg score, rating distribution) for posts matching filter.',
     request: { body: filterBody() },
     responses: jsonOk(PostStatsResponse),
   }),
@@ -135,8 +129,6 @@ postCountsRoutes.openapi(
       total: s.total,
       avgScore: s.avg_score,
       scoredCount: s.scored_count,
-      avgWaifuScore: s.avg_waifu_score,
-      waifuCount: s.waifu_count,
       ratingDistribution: s.rating_distribution,
     }, 200)
   },

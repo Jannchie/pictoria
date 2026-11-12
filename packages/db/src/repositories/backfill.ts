@@ -37,7 +37,7 @@ function notFailedClause(alias = 'p'): string {
  * 五个 `list*Pending` 的形状都是"按 `p.id` 升序、扫到够数为止"，而待办**总是在库尾**
  * （新 post 的 id 最大，老 post 早就算完了）。没有下界的话，每一批都要从 id=1 开始
  * 把整张 `posts` 逐行探一遍才碰到第一个候选：真实库（`posts` 232,240 行、
- * `post_has_tag` 12,373,331 行）实测一批的代价是 basics 214 ms、waifu 287 ms、
+ * `post_has_tag` 12,373,331 行）实测一批的代价是 basics 214 ms、
  * embedding 531 ms、silva ×2 各 ~440 ms、tagger 1,811 ms —— 六条循环一轮**约 3.7 秒**
  * 的同步阻塞。better-sqlite3 是同步的，所以那 3.7 秒里事件循环上的一切都停着。
  *
@@ -46,7 +46,7 @@ function notFailedClause(alias = 'p'): string {
  * 请求会卡住的原因。
  *
  * 水位线把它变成主键上的一次范围定位：查询加一条 `p.id >= ?`，同一批实测
- * tagger 2.1 ms、waifu 0.4 ms、basics 0.2 ms。
+ * tagger 2.1 ms、basics 0.2 ms。
  *
  * 推进规则只有两条，两条都是"扫描本身已经证明了的事"：
  *
@@ -126,10 +126,10 @@ function floorParams(scan: FloorScan, floor: number, below = Number.MAX_SAFE_INT
 }
 
 /**
- * 带水位线的待办扫描 —— `listWaifuPending` / `listTaggerPending` / `listBasicsPending`
+ * 带水位线的待办扫描 —— `listTaggerPending` / `listBasicsPending`
  * 共用的那一半。
  *
- * 三条循环差的只有"什么算待办"（`where`，外加 waifu 需要的那条 LEFT JOIN）和要取哪几列；
+ * 三条循环差的只有"什么算待办"（`where`，外加可选的一条 LEFT JOIN）和要取哪几列；
  * 水位线的读写、`p.id >= ?` 的下界、扩展名与黑名单过滤、`ORDER BY p.id` 加可选 `LIMIT`、
  * 以及参数的拼装顺序在三处逐字相同。收在这里的**主要**理由不是省那 40 行，而是
  * `scanFloor` 那段注释里的两条推进规则和一条读取顺序（`maxPostId` 必须在查询之前读，
@@ -281,7 +281,7 @@ export function listSilvaPending(
 
 /**
  * silva 的"算待办"条件，`listSilvaPending` 和 `countSilvaPending` 共用。一个 scorer 一条
- * 水位线（`key`）：silva 打完了不该把还在跑的 silva_luna 一起推过头。
+ * 水位线（`key`）：一个打分器打完了不该把还在跑的另一个一起推过头。
  *
  * `withVector` 区分候选和 pending：还没有向量的候选算不了，但仍是待办（水位线要停在它们
  * 前面，见 `listSilvaPending`）。
@@ -348,49 +348,6 @@ const IMAGE_EXT_WHERE = `LOWER(p.extension) IN (${IMAGE_EXTS.map(e => `'${e}'`).
 export interface PendingImage {
   postId: number
   relPath: string
-}
-
-/**
- * 还没有 waifu 分、且没被拉黑的图片，按 id 升序。
- *
- * 带水位线（见 `scanFloor`）：没有下界的一批实测 287 ms，`p.id >= ?` 之后 0.4 ms。
- */
-export function listWaifuPending(
-  sqlite: BetterSqlite3.Database,
-  limit?: number,
-): PendingImage[] {
-  const rows = scanByFloor<{ id: number, full_path: string }>(sqlite, WAIFU_SCAN, {
-    columns: 'p.id, p.full_path',
-    limit,
-  })
-  return rows.map(r => ({ postId: r.id, relPath: r.full_path }))
-}
-
-const WAIFU_SCAN: FloorScan = {
-  key: 'waifu',
-  join: 'LEFT JOIN post_waifu_scores pws ON pws.post_id = p.id ',
-  where: 'pws.post_id IS NULL',
-}
-
-/** `listWaifuPending` 不限量时会返回的条数，分块给出。见 `countByFloor`。 */
-export function countWaifuPending(sqlite: BetterSqlite3.Database, chunkRows?: number): Generator<number, void, undefined> {
-  return countByFloor(sqlite, WAIFU_SCAN, chunkRows)
-}
-
-/** 批量写入 waifu 分数。一个事务里的多条 upsert。 */
-export function upsertWaifuScores(
-  sqlite: BetterSqlite3.Database,
-  rows: Array<{ postId: number, score: number }>,
-): void {
-  if (!rows.length)
-    return
-  const stmt = sqlite.prepare(
-    'INSERT INTO post_waifu_scores(post_id, score) VALUES (?, ?) '
-    + 'ON CONFLICT (post_id) DO UPDATE SET score = excluded.score',
-  )
-  sqlite.transaction(() => {
-    for (const r of livePosts(sqlite, rows)) stmt.run(r.postId, r.score)
-  })()
 }
 
 /**
@@ -736,7 +693,7 @@ const SHADOWED_ERROR = 'all auto tags shadowed by manual tags'
 /**
  * 还没有 SigLIP2 向量、且没被拉黑的图片，按 id 升序。
  *
- * 和 waifu / tagger / basics 走同一个 `scanByFloor`："有没有向量"是影子表上的主键点查
+ * 和 tagger / basics 走同一个 `scanByFloor`："有没有向量"是影子表上的主键点查
  * （`HAS_VECTOR`），反连接和 `LIMIT` 都能推进 SQL。原来是把水位线以上的 vec0 `post_id`
  * 全扫进 JS 求差：vec0 是虚表，`post_id >= ?` 不走索引，每批一次全表扫。
  */

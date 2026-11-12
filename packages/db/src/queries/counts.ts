@@ -5,7 +5,7 @@ import { placeholders, whereSql } from '../sql.js'
 import type BetterSqlite3 from 'better-sqlite3'
 import { Buffer } from 'node:buffer'
 import { buildWhere, GROUPABLE_COLUMNS, hasActiveFilters, type PostFilter } from '../filters.js'
-import { bucketCaseSql, WAIFU, type ScorerSpec } from '../scorers.js'
+import { bucketCaseSql, type ScorerSpec } from '../scorers.js'
 import { COUNT_DRIVE_MAX_POSTS, pickDrivingTag } from './tag-drive.js'
 
 /**
@@ -58,9 +58,6 @@ export interface BucketCount {
 /**
  * 按分档计数（A–E，以及全部未评分时的 UNSCORED）。
  *
- * `scorer` 为 null 时统计 waifu（独立的 post_waifu_scores 表），否则统计
- * post_aesthetic_scores 里的对应打分器。
- *
  * ⚠️ **原样返回 GROUP BY 的结果，不零填充也不重排** —— 与 Python 侧一致。没有
  * 任何一条落在某档时，那一档就是不出现（实测 UNSCORED 在全量过滤下就不出现）。
  * 加零填充会多出前端没预期的档位。
@@ -68,15 +65,12 @@ export interface BucketCount {
 export function countByScorerBucket(
   sqlite: BetterSqlite3.Database,
   f: PostFilter,
-  // 以前这里是 `ScorerSpec | null`，null 的意思是"waifu"。waifu 现在也是一条
-  // `ScorerSpec`（见 scorers.ts 的 `WAIFU`），于是那个哨兵值和它带来的 if/else
-  // 一起没了 —— 调用方直接传 spec。
   scorer: ScorerSpec,
 ): BucketCount[] {
   const { where, params, joins } = countWhere(sqlite, f)
   const localJoins = [...joins]
 
-  // 整词匹配，别名共享前缀时（pas_silva ⊂ pas_silva_luna）不能误判
+  // 整词匹配，别名共享前缀时不能误判
   if (!scorer.isJoined(localJoins))
     localJoins.push(scorer.joinSql())
 
@@ -95,56 +89,41 @@ export interface AggregateStats {
   total: number
   avg_score: number | null
   scored_count: number
-  avg_waifu_score: number | null
-  waifu_count: number
   rating_distribution: Array<{ rating: number, count: number }>
 }
 
 /**
  * 底栏用的整体质量统计。
  *
- * 只扫一遍过滤集：按 rating 的 GROUP BY 顺带把 score / waifu 的和带出来，再在
- * 这里重组成整体加权均值（total_sum / total_count —— 和分开写 AVG 的结果一致）。
- * `post_waifu_scores` 按主键 1:1 join，LEFT JOIN 不会让行数翻倍。
+ * 只扫一遍过滤集：按 rating 的 GROUP BY 顺带把 score 的和带出来，再在这里重组成
+ * 整体加权均值（total_sum / total_count —— 和分开写 AVG 的结果一致）。
  */
 export function aggregateStats(sqlite: BetterSqlite3.Database, f: PostFilter): AggregateStats {
   const { where, params, joins } = countWhere(sqlite, f)
-  const localJoins = [...joins]
-  if (!WAIFU.isJoined(localJoins))
-    localJoins.push(WAIFU.joinSql())
-
   const rows = sqlite
     .prepare<unknown[], {
       rating: number | null
       count: number
       score_sum: number | null
       scored_count: number
-      waifu_sum: number | null
-      waifu_count: number
     }>(
       `SELECT
          p.rating AS rating,
          count(*) AS count,
          SUM(CASE WHEN p.score > 0 THEN p.score END) AS score_sum,
-         count(CASE WHEN p.score > 0 THEN 1 END) AS scored_count,
-         SUM(pws.score) AS waifu_sum,
-         count(pws.post_id) AS waifu_count
-       FROM posts p ${localJoins.join('\n')} ${whereSql(where)}
+         count(CASE WHEN p.score > 0 THEN 1 END) AS scored_count
+       FROM posts p ${joins.join('\n')} ${whereSql(where)}
        GROUP BY p.rating`,
     )
     .all(...params)
 
   const scoredCount = rows.reduce((a, r) => a + Number(r.scored_count), 0)
   const scoreSum = rows.reduce((a, r) => a + (r.score_sum === null ? 0 : Number(r.score_sum)), 0)
-  const waifuCount = rows.reduce((a, r) => a + Number(r.waifu_count), 0)
-  const waifuSum = rows.reduce((a, r) => a + (r.waifu_sum === null ? 0 : Number(r.waifu_sum)), 0)
 
   return {
     total: rows.reduce((a, r) => a + Number(r.count), 0),
     avg_score: scoredCount ? scoreSum / scoredCount : null,
     scored_count: scoredCount,
-    avg_waifu_score: waifuCount ? waifuSum / waifuCount : null,
-    waifu_count: waifuCount,
     rating_distribution: rows.map(r => ({ rating: Number(r.rating ?? 0), count: Number(r.count) })),
   }
 }

@@ -18,7 +18,6 @@ import {
   ensureCanonicalTagGroups,
   getAestheticScore,
   getPostPath,
-  getWaifuScore,
   isImagePath,
   listImportedFileNamesInDir,
   persistPostsWithTags,
@@ -36,7 +35,7 @@ import { postDetailResponse, postIdParam } from './post-shared.js'
 import { PostDetailPublic, Result } from '../schemas.js'
 import { postAbsPath, targetDir } from '../paths.js'
 import { startSync } from '../sync.js'
-import { embeddingSpec, runOneShot, silvaSpecs, taggerSpec, waifuSpec } from '../workers.js'
+import { embeddingSpec, runOneShot, silvaSpecs, taggerSpec } from '../workers.js'
 
 export const commandsRoutes = newRoutes()
 
@@ -62,7 +61,7 @@ function notAnImage(postId: number) {
   return fail(400, 'NotAnImageError', `Post ${postId} is not an image.`)
 }
 
-// 一张图的即时任务（waifu / silva / 自动标签）走 `workers.ts` 的 `runOneShot`：与 backfill
+// 一张图的即时任务（silva / 自动标签）走 `workers.ts` 的 `runOneShot`：与 backfill
 // 同一份 payload 组装和落库，key 是 `<worker>:one:<id>`、conflict 用默认 `'reuse'`、
 // 失败不拉黑。为什么是这套参数见那边的注释。
 
@@ -142,47 +141,9 @@ commandsRoutes.openapi(
 )
 
 /**
- * waifu 质量分：算一张、存一张、返回它。
+ * SILVA：`SCORERS` 里每个蒸馏头共用这一段，只有 scorer 名不同。
  *
  * 已经有分就直接返回存的，不重算 —— 用户点这个按钮是想看分数，不是想烧 GPU。
- * 算完仍然没有分意味着 worker 没能把它当成图片读进来，报 400。
- */
-commandsRoutes.openapi(
-  createRoute({
-    method: 'get',
-    path: '/v2/cmd/waifu-scorer/{post_id}',
-    operationId: 'v2GetWaifuScorerOne',
-    summary: 'GetWaifuScorerOne',
-    description: 'Compute (and persist) the waifu score for a single post. Missing post -> 404, non-image -> 400, already scored -> the stored score without recomputing.',
-    request: { params: z.object({ post_id: postIdParam }) },
-    responses: {
-      200: { description: OK, content: { 'application/json': { schema: z.number() } } },
-      ...errors(400, 404),
-    },
-  }),
-  async (c) => {
-    const { post_id: postId } = c.req.valid('param')
-    const guard = requireImage(c.var.db, postId)
-    if (!guard.ok)
-      return guard.response
-
-    const sqlite = c.var.db
-    const existing = getWaifuScore(sqlite, postId)
-    if (existing !== null)
-      return c.json(existing, 200)
-
-    const tasks: CairnQ = await c.var.tasks.get()
-    await runOneShot(sqlite, tasks, waifuSpec, [guard.item])
-
-    const score = getWaifuScore(sqlite, postId)
-    if (score === null)
-      return notAnImage(postId)
-    return c.json(score, 200)
-  },
-)
-
-/**
- * SILVA / SILVA-Luna：两个蒸馏头共用这一段，只有 scorer 名不同。
  *
  * 输入是已存的 SigLIP2 向量。没有向量就**先算向量**再打分，这样用户点一次就能
  * 拿到结果，而不是"请稍后再试"。
@@ -202,7 +163,7 @@ function silvaOneShot(scorer: AestheticScorerName) {
     const tasks: CairnQ = await c.var.tasks.get()
     if (!vectorExists(sqlite, postId))
       await runOneShot(sqlite, tasks, embeddingSpec, [guard.item])
-    // 向量算不出来 = 这张图读不进来。和 waifu 一样报 400。（silva 的 payload 组装
+    // 向量算不出来 = 这张图读不进来。报 400。（silva 的 payload 组装
     // 在没有向量时给出空 items，`runOneShot` 据此不提交、返回 null。）
     if (await runOneShot(sqlite, tasks, silvaSpecs[scorer], [{ postId }]) === null)
       return notAnImage(postId)
@@ -228,22 +189,6 @@ commandsRoutes.openapi(
     },
   }),
   silvaOneShot('silva'),
-)
-
-commandsRoutes.openapi(
-  createRoute({
-    method: 'get',
-    path: '/v2/cmd/silva-luna-scorer/{post_id}',
-    operationId: 'v2GetSilvaLunaScorerOne',
-    summary: 'GetSilvaLunaScorerOne',
-    description: 'Compute (and persist) the SILVA-Luna score for one post from its embedding.',
-    request: { params: z.object({ post_id: postIdParam }) },
-    responses: {
-      200: { description: OK, content: { 'application/json': { schema: z.number() } } },
-      ...errors(400, 404),
-    },
-  }),
-  silvaOneShot('silva_luna'),
 )
 
 /**

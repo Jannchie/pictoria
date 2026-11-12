@@ -1,4 +1,4 @@
-"""SILVA aesthetic scorers (``Jannchie/silva-aesthetic``, ``Jannchie/silva-luna``).
+"""SILVA aesthetic scorer (``Jannchie/silva-aesthetic``).
 
 Scores the published ordinal head DIRECTLY on the SigLIP2 image embeddings
 already stored in ``post_vectors_siglip2``. The head's backbone is the same
@@ -22,11 +22,12 @@ tiny head forward over a ``[B, 1152]`` tensor of already-computed embeddings.
 
 Outputs ``[0, 1]``; the frontend multiplies by 10 for display.
 
-Two heads ship here — ``silva`` and ``silva_luna`` — identical in architecture
-and output domain but distilled from *different* judges, so they are two tastes
-rather than two quality tiers. Each is keyed by its scorer name -- the
-``post_aesthetic_scores.scorer`` value -- and cached independently, so a library
-can carry both scores and be sorted or filtered by either.
+One head ships here, ``silva``. The module is still keyed by scorer name -- the
+``post_aesthetic_scores.scorer`` value -- with each head cached independently, so
+adding another published head is one more :data:`REPO_IDS` entry. The second head
+that used to live here, ``silva_luna`` (distilled from a VLM judge), was retired in
+2026-11: on blind human grades it added nothing on top of ``silva``. Its stored
+scores were left in the table; nothing reads them.
 
 :data:`REPO_IDS` is the Python side's only list of scorer names: the worker
 validates payloads against it, and ``tests/test_task_contracts.py`` pins it to
@@ -52,13 +53,11 @@ if TYPE_CHECKING:
 
 
 SCORER_NAME = "silva"
-LUNA_SCORER_NAME = "silva_luna"
 
-#: Scorer name -> published head. Both are ~7 MB ordinal heads over the same
-#: frozen SigLIP2 backbone, so a process can hold both resident.
+#: Scorer name -> published head: a ~7 MB ordinal head over the frozen SigLIP2
+#: backbone, cheap enough that a process can hold several resident.
 REPO_IDS: dict[str, str] = {
     SCORER_NAME: "Jannchie/silva-aesthetic",
-    LUNA_SCORER_NAME: "Jannchie/silva-luna",
 }
 
 
@@ -80,7 +79,7 @@ def score_embeddings(
     ``embeddings`` is ``[N, 1152]``. The stored, L2-normalised vectors are fine
     as-is — the head's leading LayerNorm cancels the normalisation, so no
     re-scaling is needed here. ``scorer`` picks which published head to run;
-    it is a :data:`REPO_IDS` key (``silva`` / ``silva_luna``), not caller input.
+    it is a :data:`REPO_IDS` key, not caller input.
     """
     arr = np.asarray(embeddings, dtype=np.float32)
     if arr.ndim == 1:

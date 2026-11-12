@@ -37,7 +37,6 @@ const baseFilter = {
   extension: z.array(z.string()).default([]).nullable().optional().describe("Extension filter."),
   folder: z.string().nullable().optional(),
   lab: z.tuple([z.number(), z.number(), z.number()]).nullable().optional().describe("LAB color filter."),
-  waifuScoreRange: z.tuple([z.number(), z.number()]).nullable().optional().describe("Waifu score range filter."),
   ...levelsFields,
   onlyCanonical: z.boolean().default(true).optional().describe("When true (default), hide near-duplicate group *members* and return only canonical (representative) posts — those with canonical_post_id NULL. Set false to include members."),
 }

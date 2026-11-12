@@ -15,7 +15,7 @@ import { Result } from '../schemas.js'
 
 const log = createLogger('folders')
 
-/** 每个打分器一个 `<key>Avg` 字段（`silvaAvg`、`silvaLunaAvg`），由 `SCORERS` 生成。 */
+/** 每个打分器一个 `<key>Avg` 字段（如 `silvaAvg`），由 `SCORERS` 生成。 */
 type ScorerAvgFields = { [K in AestheticScorerKey as `${K}Avg`]: number | null }
 
 function avgField<K extends AestheticScorerKey>(spec: { readonly key: K }): `${K}Avg` {

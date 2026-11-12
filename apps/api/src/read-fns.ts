@@ -25,7 +25,7 @@ import {
   unratedArtistPickIds,
 } from '@pictoria/db'
 
-/** 有分档 facet 的打分器 = 能筛的打分器（waifu 走独立表，其余在 `SCORERS`）。 */
+/** 有分档 facet 的打分器 = 能筛的打分器。 */
 type BucketScorerName = typeof FILTERABLE_SCORERS[number]['name']
 
 /** `countByScorerBucket`，打分器按名字传（spec 本身带方法，过不了结构化克隆）。 */

@@ -28,7 +28,6 @@ beforeAll(() => {
     `INSERT INTO posts (id, file_path, file_name, extension, rating, score) VALUES (?, ?, ?, ?, ?, ?)`,
   )
   const insAes = sqlite.prepare(`INSERT INTO post_aesthetic_scores (post_id, scorer, score) VALUES (?, ?, ?)`)
-  const insWaifu = sqlite.prepare(`INSERT INTO post_waifu_scores (post_id, score) VALUES (?, ?)`)
   const insTag = sqlite.prepare(`INSERT OR IGNORE INTO tags (name) VALUES (?)`)
   const link = sqlite.prepare(`INSERT INTO post_has_tag (post_id, tag_name, is_auto) VALUES (?, ?, 0)`)
   sqlite.transaction(() => {
@@ -40,10 +39,10 @@ beforeAll(() => {
       insPost.run(id, `f${id % 3}`, `p${id}`, id % 7 ? 'png' : 'jpg', Math.floor(r() * 5), r() < 0.4 ? Math.floor(r() * 6) : 0)
       if (r() < 0.85)
         insAes.run(id, 'silva', q(r()))
+      // 已退役打分器的行：真实库里留着，和 silva 的行住同一张表。排序 / 过滤都不该看见它
+      // （下面拿它和老查询对拍，两边都只 join `scorer = 'silva'`）。
       if (r() < 0.8)
         insAes.run(id, 'silva_luna', q(r()))
-      if (r() < 0.75)
-        insWaifu.run(id, q(r()) * 10)
       if (r() < 0.6)
         link.run(id, 'common')
       if (r() < 0.05)
@@ -62,7 +61,7 @@ function oldQuery(f: PostFilterWithOrder, limit: number, offset: number) {
     .map(r => [r.id, r._sort_col ?? null])
 }
 
-const ORDER_BYS = ['silva_score', 'silva_luna_score', 'waifu_score', 'discrepancy']
+const ORDER_BYS = ['silva_score', 'discrepancy']
 const FILTERS: PostFilterWithOrder[] = [
   {},
   { rating: [1, 2] },
@@ -72,9 +71,8 @@ const FILTERS: PostFilterWithOrder[] = [
   { extension: ['jpg'] },
   { silvaScoreLevels: ['A', 'B'] },
   { silvaScoreLevels: ['UNSCORED'] },
-  { silvaLunaScoreLevels: ['E', 'UNSCORED'] },
-  { waifuScoreLevels: ['C'] },
-  { waifuScoreRange: [2, 7] },
+  { silvaScoreLevels: ['E', 'UNSCORED'] },
+  { silvaScoreLevels: ['C'] },
   { onlyCanonical: false },
   { score: [0, 5], tags: ['common'] },
 ]
@@ -96,13 +94,14 @@ describe('score sort plan vs the single LEFT JOIN query', () => {
         }
       }
     }
-    expect(compared).toBeGreaterThan(500)
+    // 下限只是防止循环空转；随排序列数等比缩放（4 列时是 500，现在 2 列实际 368）。
+    expect(compared).toBeGreaterThan(300)
   })
 
   it('with a tiny budget either returns the exact page or hands back to the old query', () => {
     let exact = 0
     let handedBack = 0
-    for (const orderBy of ['silva_score', 'silva_luna_score', 'waifu_score']) {
+    for (const orderBy of ['silva_score']) {
       for (const base of FILTERS) {
         const f = { ...base, orderBy, order: 'desc' as const }
         const plan = buildScoreSortPlan(f)!

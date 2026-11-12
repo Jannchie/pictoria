@@ -5,6 +5,7 @@
  * 守住的是 TS 这一侧的职责 —— 守卫顺序、命中缓存不提交、结果落库、错误的措辞 ——
  * 而不碰 GPU。
  */
+import { Buffer } from 'node:buffer'
 import path from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
 import { syncSettled } from '../sync.js'
@@ -23,10 +24,13 @@ function setup(reply?: (task: string, payload: any) => unknown) {
   return { t, tasks }
 }
 
-describe('GET /v2/cmd/waifu-scorer/{post_id}', () => {
+describe('GET /v2/cmd/silva-scorer/{post_id}', () => {
+  /** 一个 1152 维向量的 base64，embedding 任务回包里的形状。 */
+  const VECTOR_B64 = Buffer.from(new Float32Array(1152).fill(0.01).buffer).toString('base64')
+
   it('post 不存在 → 404，不提交任务', async () => {
     const { t, tasks } = setup()
-    const { status, body } = await requestJson(t.app, '/v2/cmd/waifu-scorer/42')
+    const { status, body } = await requestJson(t.app, '/v2/cmd/silva-scorer/42')
     expect(status).toBe(404)
     expect(body.error).toBe('PostNotFoundError')
     expect(tasks.calls).toEqual([])
@@ -35,7 +39,7 @@ describe('GET /v2/cmd/waifu-scorer/{post_id}', () => {
   it('不是图片 → 400 NotAnImageError，不提交任务', async () => {
     const { t, tasks } = setup()
     const id = t.insertPost('.', 'notes', 'txt')
-    const { status, body } = await requestJson(t.app, `/v2/cmd/waifu-scorer/${id}`)
+    const { status, body } = await requestJson(t.app, `/v2/cmd/silva-scorer/${id}`)
     expect(status).toBe(400)
     expect(body).toEqual({ error: 'NotAnImageError', detail: `Post ${id} is not an image.` })
     expect(tasks.calls).toEqual([])
@@ -44,24 +48,51 @@ describe('GET /v2/cmd/waifu-scorer/{post_id}', () => {
   it('已有分 → 直接回存的，不重算', async () => {
     const { t, tasks } = setup()
     const id = t.insertPost('.', 'a', 'png')
-    t.sqlite.prepare('INSERT INTO post_waifu_scores (post_id, score) VALUES (?, ?)').run(id, 6.25)
-    const { status, body } = await requestJson(t.app, `/v2/cmd/waifu-scorer/${id}`)
-    expect({ status, body }).toEqual({ status: 200, body: 6.25 })
+    t.sqlite.prepare('INSERT INTO post_aesthetic_scores (post_id, scorer, score) VALUES (?, \'silva\', ?)').run(id, 0.625)
+    const { status, body } = await requestJson(t.app, `/v2/cmd/silva-scorer/${id}`)
+    expect({ status, body }).toEqual({ status: 200, body: 0.625 })
     expect(tasks.calls).toEqual([])
   })
 
-  it('没有分 → 提交一次 waifu 任务、落库、回新分', async () => {
-    const { t, tasks } = setup((_task, payload) => ({
-      scores: payload.items.map((i: { postId: number }) => ({ postId: i.postId, score: 7.5 })),
-      failures: [],
-    }))
+  it('没有分也没有向量 → 先算向量再打分，各提交一次、落库、回新分', async () => {
+    const { t, tasks } = setup((task, payload) => task === 'embedding'
+      ? { embeddings: payload.items.map((i: { postId: number }) => ({ postId: i.postId, embedding: VECTOR_B64 })), failures: [] }
+      : { scores: payload.items.map((i: { postId: number }) => ({ postId: i.postId, score: 0.75 })) })
     const id = t.insertPost('art', 'a', 'png')
-    const { status, body } = await requestJson(t.app, `/v2/cmd/waifu-scorer/${id}`)
-    expect({ status, body }).toEqual({ status: 200, body: 7.5 })
-    expect(tasks.calls).toHaveLength(1)
-    expect(tasks.calls[0]!.task).toBe('waifu')
-    expect(tasks.calls[0]!.opts.key).toBe(`waifu:one:${id}`)
-    expect(t.sqlite.prepare('SELECT score FROM post_waifu_scores WHERE post_id = ?').pluck().get(id)).toBe(7.5)
+    // 已退役打分器留下的分不算"已有分"：照样要算 silva 的
+    t.sqlite.prepare('INSERT INTO post_aesthetic_scores (post_id, scorer, score) VALUES (?, \'silva_luna\', 0.1)').run(id)
+    const { status, body } = await requestJson(t.app, `/v2/cmd/silva-scorer/${id}`)
+    expect({ status, body }).toEqual({ status: 200, body: 0.75 })
+    expect(tasks.calls.map(c => [c.task, c.opts.key])).toEqual([
+      ['embedding', `embedding:one:${id}`],
+      ['silva', `silva:one:${id}`],
+    ])
+    expect(tasks.calls[1]!.payload.scorer).toBe('silva')
+    expect(t.sqlite.prepare('SELECT scorer, score FROM post_aesthetic_scores WHERE post_id = ? ORDER BY scorer').all(id))
+      .toEqual([{ scorer: 'silva', score: 0.75 }, { scorer: 'silva_luna', score: 0.1 }])
+  })
+
+  it('向量算不出来 → 400 NotAnImageError，不提交 silva 任务', async () => {
+    const { t, tasks } = setup((_task, payload) => ({
+      embeddings: [],
+      failures: payload.items.map((i: { postId: number }) => ({ postId: i.postId, error: 'unreadable' })),
+    }))
+    const id = t.insertPost('.', 'a', 'png')
+    const { status, body } = await requestJson(t.app, `/v2/cmd/silva-scorer/${id}`)
+    expect(status).toBe(400)
+    expect(body.error).toBe('NotAnImageError')
+    expect(tasks.calls.map(c => c.task)).toEqual(['embedding'])
+  })
+})
+
+// waifu / silva_luna 退役（2026-11）：单张打分端点不存在了。
+describe('已退役打分器的单张打分端点', () => {
+  it.each(['waifu-scorer', 'silva-luna-scorer'])('GET /v2/cmd/%s/{post_id} → 404，不提交任务', async (name) => {
+    const { t, tasks } = setup()
+    const id = t.insertPost('.', 'a', 'png')
+    const res = await t.app.request(`/v2/cmd/${name}/${id}`)
+    expect(res.status).toBe(404)
+    expect(tasks.calls).toEqual([])
   })
 })
 

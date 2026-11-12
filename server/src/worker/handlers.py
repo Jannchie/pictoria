@@ -235,43 +235,6 @@ def _resolve_items(
     return [(item["postId"], path) for item, (path,) in kept], failures
 
 
-async def handle_waifu(payload: dict[str, Any]) -> dict[str, Any]:
-    """Score images with the CLIP-backed waifu scorer.
-
-    Payload is ``{items: [{postId, path}]}`` — absolute paths, because the
-    worker has no database to look them up in (§D1). Returns
-    ``{scores: [...], failures: [...]}``; TS writes the scores and decides what
-    a failure means (for this worker: a one-shot blacklist, matching the old
-    ``blacklist_policy = "ladder"``).
-
-    Files that vanished between the pending query and the batch are dropped
-    here rather than failed — they are not bad data, they are gone, and the
-    pending query will stop offering them once the row goes too.
-    """
-    items_in = payload["items"]
-    if not items_in:
-        return {"scores": [], "failures": []}
-
-    from ai.waifu_scorer import preprocess, score_tiles, warm  # noqa: PLC0415  # lazy: defer the ML stack
-
-    items, failures = _resolve_items(items_in)
-
-    # Decode on the shared pool, then one fp32 forward over what decoded (see
-    # ``ai.waifu_scorer``). ``warm`` loads CLIP + the MLP off-loop first (see the
-    # note in handle_silva about the lease).
-    successes, ladder_failures = await run_with_fallback(
-        preprocess,
-        score_tiles,
-        items,
-        label="waifu",
-        prepare=warm,
-    )
-    return {
-        "scores": [{"postId": pid, "score": float(score)} for pid, score in successes],
-        "failures": failures + [{"postId": pid, "error": err} for pid, err in ladder_failures],
-    }
-
-
 def _no_tags(_pid: int, resp: Any) -> str | None:
     """Reject an empty tagger response so it is blacklisted, not silently dropped.
 

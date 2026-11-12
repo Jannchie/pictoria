@@ -1,9 +1,10 @@
 /**
  * post 详情读模型 —— 形状承自已退役的 Python 侧 `PostQueryService.get_detail` 及其批量取。
  *
- * 每个关联（tags / colors / waifu / aesthetic）都是**一次**批量 SQL，再在内存里
+ * 每个关联（tags / colors / aesthetic）都是**一次**批量 SQL，再在内存里
  * 缝起来。逐条 N+1 在 22 万行的库上会直接把列表页拖垮。
  */
+import { SCORERS } from '../scorers.js'
 import { placeholders } from '../sql.js'
 import type BetterSqlite3 from 'better-sqlite3'
 
@@ -171,22 +172,6 @@ export function fetchColorsByIds(
   return out
 }
 
-export function fetchWaifuByIds(
-  sqlite: BetterSqlite3.Database,
-  ids: number[],
-): Map<number, { score: number }> {
-  const out = new Map<number, { score: number }>()
-  if (!ids.length)
-    return out
-  for (const r of sqlite
-    .prepare<unknown[], { post_id: number, score: number }>(
-      `SELECT post_id, score FROM post_waifu_scores WHERE post_id IN (${placeholders(ids.length)})`,
-    )
-    .all(...ids))
-    out.set(r.post_id, { score: r.score })
-  return out
-}
-
 export function fetchAestheticByIds(
   sqlite: BetterSqlite3.Database,
   ids: number[],
@@ -197,9 +182,11 @@ export function fetchAestheticByIds(
   const rows = sqlite
     .prepare<unknown[], { post_id: number, scorer: string, score: number }>(
       `SELECT post_id, scorer, score FROM post_aesthetic_scores `
-      + `WHERE post_id IN (${placeholders(ids.length)}) ORDER BY post_id, scorer`,
+      + `WHERE post_id IN (${placeholders(ids.length)}) `
+      // 表里还留着已退役打分器的行（数据没删）；只放行注册表里还在的名字。
+      + `AND scorer IN (${placeholders(SCORERS.length)}) ORDER BY post_id, scorer`,
     )
-    .all(...ids)
+    .all(...ids, ...SCORERS.map(sc => sc.name))
   for (const r of rows) {
     const list = out.get(r.post_id) ?? []
     list.push({ scorer: r.scorer, score: r.score })
@@ -235,7 +222,6 @@ export interface PostDetail extends Record<string, unknown> {
   id: number
   tags: PostTag[]
   colors: PostColor[]
-  waifu_score: { score: number } | null
   aesthetic_scores: AestheticScore[]
   group_member_count: number
 }
@@ -264,7 +250,6 @@ export function getDetail(
     id: postId,
     tags: fetchTagsByIds(sqlite, ids, translate).get(postId) ?? [],
     colors: fetchColorsByIds(sqlite, ids).get(postId) ?? [],
-    waifu_score: fetchWaifuByIds(sqlite, ids).get(postId) ?? null,
     aesthetic_scores: fetchAestheticByIds(sqlite, ids).get(postId) ?? [],
     group_member_count: memberCounts(sqlite, ids).get(postId) ?? 0,
   } as PostDetail

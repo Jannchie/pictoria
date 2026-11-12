@@ -160,131 +160,6 @@
     "has_active_filters": false
   },
   {
-    "name": "waifu_range",
-    "filter": {
-      "waifuScoreRange": [
-        2.5,
-        8.0
-      ]
-    },
-    "where": [
-      "p.canonical_post_id IS NULL",
-      "pws.score >= ? AND pws.score <= ?"
-    ],
-    "params": [
-      2.5,
-      8.0
-    ],
-    "joins": [
-      "LEFT JOIN post_waifu_scores pws ON pws.post_id = p.id"
-    ],
-    "has_active_filters": true
-  },
-  {
-    "name": "waifu_levels",
-    "filter": {
-      "waifuScoreLevels": [
-        "A",
-        "B"
-      ]
-    },
-    "where": [
-      "p.canonical_post_id IS NULL",
-      "((pws.score >= ? AND pws.score < ?) OR (pws.score >= ? AND pws.score < ?))"
-    ],
-    "params": [
-      8.0,
-      10.001,
-      6.0,
-      8.0
-    ],
-    "joins": [
-      "LEFT JOIN post_waifu_scores pws ON pws.post_id = p.id"
-    ],
-    "has_active_filters": true
-  },
-  {
-    "name": "waifu_unscored",
-    "filter": {
-      "waifuScoreLevels": [
-        "UNSCORED"
-      ]
-    },
-    "where": [
-      "p.canonical_post_id IS NULL",
-      "(pws.post_id IS NULL)"
-    ],
-    "params": [],
-    "joins": [
-      "LEFT JOIN post_waifu_scores pws ON pws.post_id = p.id"
-    ],
-    "has_active_filters": true
-  },
-  {
-    "name": "waifu_levels_and_unscored",
-    "filter": {
-      "waifuScoreLevels": [
-        "A",
-        "UNSCORED"
-      ]
-    },
-    "where": [
-      "p.canonical_post_id IS NULL",
-      "((pws.score >= ? AND pws.score < ?) OR pws.post_id IS NULL)"
-    ],
-    "params": [
-      8.0,
-      10.001
-    ],
-    "joins": [
-      "LEFT JOIN post_waifu_scores pws ON pws.post_id = p.id"
-    ],
-    "has_active_filters": true
-  },
-  {
-    "name": "waifu_bogus_level",
-    "filter": {
-      "waifuScoreLevels": [
-        "Z"
-      ]
-    },
-    "where": [
-      "p.canonical_post_id IS NULL"
-    ],
-    "params": [],
-    "joins": [
-      "LEFT JOIN post_waifu_scores pws ON pws.post_id = p.id"
-    ],
-    "has_active_filters": true
-  },
-  {
-    "name": "waifu_range_and_levels",
-    "filter": {
-      "waifuScoreRange": [
-        1.0,
-        9.0
-      ],
-      "waifuScoreLevels": [
-        "C"
-      ]
-    },
-    "where": [
-      "p.canonical_post_id IS NULL",
-      "pws.score >= ? AND pws.score <= ?",
-      "((pws.score >= ? AND pws.score < ?))"
-    ],
-    "params": [
-      1.0,
-      9.0,
-      4.0,
-      6.0
-    ],
-    "joins": [
-      "LEFT JOIN post_waifu_scores pws ON pws.post_id = p.id"
-    ],
-    "has_active_filters": true
-  },
-  {
     "name": "silva_levels",
     "filter": {
       "silvaScoreLevels": [
@@ -308,53 +183,6 @@
     "has_active_filters": true
   },
   {
-    "name": "silva_luna_levels",
-    "filter": {
-      "silvaLunaScoreLevels": [
-        "B"
-      ]
-    },
-    "where": [
-      "p.canonical_post_id IS NULL",
-      "((pas_silva_luna.score >= ? AND pas_silva_luna.score < ?))"
-    ],
-    "params": [
-      0.6,
-      0.8
-    ],
-    "joins": [
-      "LEFT JOIN post_aesthetic_scores pas_silva_luna ON pas_silva_luna.post_id = p.id AND pas_silva_luna.scorer = 'silva_luna'"
-    ],
-    "has_active_filters": true
-  },
-  {
-    "name": "both_silva",
-    "filter": {
-      "silvaScoreLevels": [
-        "A"
-      ],
-      "silvaLunaScoreLevels": [
-        "A"
-      ]
-    },
-    "where": [
-      "p.canonical_post_id IS NULL",
-      "((pas_silva.score >= ? AND pas_silva.score < ?))",
-      "((pas_silva_luna.score >= ? AND pas_silva_luna.score < ?))"
-    ],
-    "params": [
-      0.8,
-      1.0001,
-      0.8,
-      1.0001
-    ],
-    "joins": [
-      "LEFT JOIN post_aesthetic_scores pas_silva ON pas_silva.post_id = p.id AND pas_silva.scorer = 'silva'",
-      "LEFT JOIN post_aesthetic_scores pas_silva_luna ON pas_silva_luna.post_id = p.id AND pas_silva_luna.scorer = 'silva_luna'"
-    ],
-    "has_active_filters": true
-  },
-  {
     "name": "silva_unscored",
     "filter": {
       "silvaScoreLevels": [
@@ -364,6 +192,43 @@
     "where": [
       "p.canonical_post_id IS NULL",
       "(pas_silva.post_id IS NULL)"
+    ],
+    "params": [],
+    "joins": [
+      "LEFT JOIN post_aesthetic_scores pas_silva ON pas_silva.post_id = p.id AND pas_silva.scorer = 'silva'"
+    ],
+    "has_active_filters": true
+  },
+  {
+    "name": "silva_levels_and_unscored",
+    "filter": {
+      "silvaScoreLevels": [
+        "A",
+        "UNSCORED"
+      ]
+    },
+    "where": [
+      "p.canonical_post_id IS NULL",
+      "((pas_silva.score >= ? AND pas_silva.score < ?) OR pas_silva.post_id IS NULL)"
+    ],
+    "params": [
+      0.8,
+      1.0001
+    ],
+    "joins": [
+      "LEFT JOIN post_aesthetic_scores pas_silva ON pas_silva.post_id = p.id AND pas_silva.scorer = 'silva'"
+    ],
+    "has_active_filters": true
+  },
+  {
+    "name": "silva_bogus_level",
+    "filter": {
+      "silvaScoreLevels": [
+        "Z"
+      ]
+    },
+    "where": [
+      "p.canonical_post_id IS NULL"
     ],
     "params": [],
     "joins": [
@@ -389,20 +254,8 @@
         "jpg"
       ],
       "folder": "art",
-      "waifuScoreRange": [
-        3.0,
-        7.0
-      ],
-      "waifuScoreLevels": [
-        "B",
-        "UNSCORED"
-      ],
       "silvaScoreLevels": [
         "A"
-      ],
-      "silvaLunaScoreLevels": [
-        "E",
-        "UNSCORED"
       ],
       "onlyCanonical": false
     },
@@ -413,10 +266,7 @@
       "EXISTS (SELECT 1 FROM post_has_tag pht WHERE pht.post_id = p.id AND pht.tag_name = ?)",
       "p.extension IN (?)",
       "(p.file_path = ? OR (p.file_path >= ? AND p.file_path < ?))",
-      "pws.score >= ? AND pws.score <= ?",
-      "((pws.score >= ? AND pws.score < ?) OR pws.post_id IS NULL)",
-      "((pas_silva.score >= ? AND pas_silva.score < ?))",
-      "((pas_silva_luna.score >= ? AND pas_silva_luna.score < ?) OR pas_silva_luna.post_id IS NULL)"
+      "((pas_silva.score >= ? AND pas_silva.score < ?))"
     ],
     "params": [
       2,
@@ -428,19 +278,11 @@
       "art",
       "art/",
       "art0",
-      3.0,
-      7.0,
-      6.0,
-      8.0,
       0.8,
-      1.0001,
-      0.0,
-      0.2
+      1.0001
     ],
     "joins": [
-      "LEFT JOIN post_waifu_scores pws ON pws.post_id = p.id",
-      "LEFT JOIN post_aesthetic_scores pas_silva ON pas_silva.post_id = p.id AND pas_silva.scorer = 'silva'",
-      "LEFT JOIN post_aesthetic_scores pas_silva_luna ON pas_silva_luna.post_id = p.id AND pas_silva_luna.scorer = 'silva_luna'"
+      "LEFT JOIN post_aesthetic_scores pas_silva ON pas_silva.post_id = p.id AND pas_silva.scorer = 'silva'"
     ],
     "has_active_filters": true
   }

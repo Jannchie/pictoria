@@ -53,7 +53,6 @@ from worker.handlers import (
     handle_tagger,
     handle_text_embed,
     handle_thumbnail,
-    handle_waifu,
     set_root,
 )
 from worker.importers import handle_danbooru_download, handle_danbooru_list, handle_url_download, handle_url_scan
@@ -109,15 +108,14 @@ CPU_CONCURRENCY = 2
 #: the TS side, and ``tests/test_task_contracts.py`` checks this table against
 #: them.
 #:
-#: ``silva`` serves both heads (``silva`` and ``silva_luna`` are the same code
-#: path with different learnt weights; the payload says which). ``dedup`` is
+#: ``silva`` serves every head in ``ai.silva_scorer.REPO_IDS`` (same code path,
+#: different learnt weights; the payload says which). ``dedup`` is
 #: not a backfill worker — it is one whole-library pass, kicked off by
 #: /v2/cmd/group-duplicates or by the embedding scheduler after it writes new
 #: vectors — but it shares the GPU queue on purpose: it wants the GPU
 #: exclusively.
 TASKS: dict[str, tuple[str, Handler]] = {
     "silva": (GPU_QUEUE, handle_silva),
-    "waifu": (GPU_QUEUE, handle_waifu),
     "tagger": (GPU_QUEUE, handle_tagger),
     "embedding": (GPU_QUEUE, handle_embedding),
     "dedup": (GPU_QUEUE, handle_dedup),

@@ -14,7 +14,7 @@ import type { AestheticScorerName } from './scorers.js'
 import { SCORERS } from './scorers.js'
 
 /** 一条 backfill 循环的名字。silva 家族每个打分器一条，名字就是 scorer 名。 */
-export type BackfillWorker = 'basics' | 'waifu' | 'tagger' | 'embedding' | AestheticScorerName
+export type BackfillWorker = 'basics' | 'tagger' | 'embedding' | AestheticScorerName
 
 /**
  * 全部 backfill worker，**按启动顺序**（`index.ts` 照这个顺序起循环；`/v2/queues/status`
@@ -24,7 +24,6 @@ export type BackfillWorker = 'basics' | 'waifu' | 'tagger' | 'embedding' | Aesth
 export const BACKFILL_WORKERS: readonly BackfillWorker[] = [
   'basics',
   ...SCORERS.map(s => s.name),
-  'waifu',
   'tagger',
   'embedding',
 ]
@@ -39,7 +38,6 @@ export const BACKFILL_WORKERS: readonly BackfillWorker[] = [
 export function failureKey(worker: BackfillWorker): string {
   switch (worker) {
     case 'basics':
-    case 'waifu':
     case 'tagger':
       return worker
     case 'embedding':

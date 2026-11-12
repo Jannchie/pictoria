@@ -6,12 +6,13 @@
 import type Database from 'better-sqlite3'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import { createTestDb } from '../testing.js'
-import { SILVA, SILVA_LUNA } from '../scorers.js'
+import { SILVA } from '../scorers.js'
 import { addAgg, emptyAgg, folderScoreAggregates, folderScoreAggregatesSql } from './folders.js'
 
 /**
- * 改写前手写的那条 SQL，逐字冻结；唯一的改动是两个 join 别名 `a` / `l` 换成了
- * 注册表的别名 `pas_silva` / `pas_silva_luna`（别名不影响查询计划）。
+ * 改写前手写的那条 SQL，逐字冻结；改动只有两处：join 别名 `a` 换成了注册表的别名
+ * `pas_silva`（别名不影响查询计划），以及 `silva_luna` 退役（2026-11）时删掉了它那
+ * 两列和一条 join。
  */
 const LEGACY_SQL = `SELECT
   p.file_path                                          AS file_path,
@@ -20,12 +21,9 @@ const LEGACY_SQL = `SELECT
   sum(CASE WHEN p.score > 0 THEN p.score ELSE 0 END)   AS score_total,
   sum(p.rating)                                        AS rating_total,
   sum(COALESCE(pas_silva.score, 0))                            AS silva_total,
-  sum(CASE WHEN pas_silva.score IS NOT NULL THEN 1 ELSE 0 END) AS silva_n,
-  sum(COALESCE(pas_silva_luna.score, 0))                            AS silva_luna_total,
-  sum(CASE WHEN pas_silva_luna.score IS NOT NULL THEN 1 ELSE 0 END) AS silva_luna_n
+  sum(CASE WHEN pas_silva.score IS NOT NULL THEN 1 ELSE 0 END) AS silva_n
 FROM posts p
 LEFT JOIN post_aesthetic_scores pas_silva ON pas_silva.post_id = p.id AND pas_silva.scorer = 'silva'
-LEFT JOIN post_aesthetic_scores pas_silva_luna ON pas_silva_luna.post_id = p.id AND pas_silva_luna.scorer = 'silva_luna'
 GROUP BY p.file_path`
 
 /** 空白归一：多个空白压成一个，逗号前后的空白去掉。 */
@@ -58,7 +56,8 @@ beforeAll(() => {
     [3, 'silva_luna', 0.1],
     [5, 'silva', 0.9],
     [5, 'silva_luna', 0.3],
-    // 别的打分器的分不该混进来
+    // 不在注册表里的打分器（上面的 `silva_luna` 是已退役的，真实库里还留着它的行）
+    // 的分不该混进来
     [6, 'some_other', 0.99],
   ] as const) insertScore.run(id, scorer, score)
 })
@@ -92,9 +91,20 @@ describe('folderScoreAggregates', () => {
       scored: 1,
       scoreTotal: 3,
       ratingTotal: 1,
-      scorers: { [SILVA.name]: { total: 0.75, n: 2 }, [SILVA_LUNA.name]: { total: 0.75, n: 1 } },
+      scorers: { [SILVA.name]: { total: 0.75, n: 2 } },
     })
-    expect(aggs.get('c')!.scorers).toEqual({ silva: { total: 0, n: 0 }, silva_luna: { total: 0, n: 0 } })
+    expect(aggs.get('c')!.scorers).toEqual({ silva: { total: 0, n: 0 } })
+  })
+
+  // 同一张表里住着别的 scorer 的行（已退役的 `silva_luna`、随便什么 `some_other`）：
+  // 既不能出现在结果的键里，也不能混进 silva 的合计。
+  it('不在 SCORERS 里的打分器不产生字段，也不混进 silva', () => {
+    const aggs = folderScoreAggregates(sqlite)
+    for (const agg of aggs.values()) expect(Object.keys(agg.scorers)).toEqual(['silva'])
+    // 目录 a：post 3 只有 silva_luna 分，post 4 什么都没有
+    expect(aggs.get('a')!.scorers.silva).toEqual({ total: 0, n: 0 })
+    // 目录 a/b：post 5 两个 scorer 都有分，只算 silva 的 0.9
+    expect(aggs.get('a/b')!.scorers.silva).toEqual({ total: 0.9, n: 1 })
   })
 
   it('addAgg 逐项累加，不共享嵌套对象', () => {
@@ -103,7 +113,6 @@ describe('folderScoreAggregates', () => {
     for (const a of aggs.values()) addAgg(total, a)
     expect(total.posts).toBe(6)
     expect(total.scorers.silva).toEqual({ total: 0.5 + 0.25 + 0.9, n: 3 })
-    expect(total.scorers.silva_luna.n).toBe(3)
     // 累加不能改到源
     expect(aggs.get('.')!.scorers.silva.n).toBe(2)
   })

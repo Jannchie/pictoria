@@ -32,8 +32,6 @@ import {
   TAGGER_MODEL,
   TAGGER_TASK_BATCH,
   taggerTask,
-  WAIFU_TASK_BATCH,
-  waifuTask,
   type BasicsItem,
   type BasicsPayload,
   type BasicsResult,
@@ -44,8 +42,6 @@ import {
   type SilvaResult,
   type TaggerBatchResult,
   type TaggerPayload,
-  type WaifuPayload,
-  type WaifuResult,
   type WorkerFailure,
 } from '@pictoria/contracts'
 import {
@@ -56,14 +52,12 @@ import {
   countEmbeddingPending,
   countSilvaPending,
   countTaggerPending,
-  countWaifuPending,
   embeddingBlobs,
   ensureCanonicalTagGroups,
   listBasicsPending,
   listEmbeddingPending,
   listSilvaPending,
   listTaggerPending,
-  listWaifuPending,
   type PendingImage,
   persistTaggerResults,
   SCORERS,
@@ -71,7 +65,6 @@ import {
   upsertAestheticScores,
   upsertBasics,
   upsertVectors,
-  upsertWaifuScores,
 } from '@pictoria/db'
 import { Buffer } from 'node:buffer'
 import { rebuilderFor } from './dedup.js'
@@ -147,13 +140,13 @@ export interface WorkerSpec<
   drainCooldownMs?: number
 }
 
-/** 只有图片路径的待办 → 任务里的 `ImageItem`。waifu / tagger / embedding 共用。 */
+/** 只有图片路径的待办 → 任务里的 `ImageItem`。tagger / embedding 共用。 */
 function imageItems(pending: PendingImage[]): ImageItem[] {
   return pending.map(p => ({ postId: p.postId, path: postAbsPath(p.relPath) }))
 }
 
 /**
- * SILVA / SILVA-Luna：输入是已存的向量，输出一个标量。按 `SCORERS` 每个打分器一份。
+ * SILVA：输入是已存的向量，输出一个标量。按 `SCORERS` 每个打分器一份。
  *
  * 失败不拉黑 —— 能取到向量就应该能打分，所以失败是暂时的/代码的问题，值得下一轮
  * 重试，而不是把这批数据永久跳过（与 Python 侧的 `blacklist_policy = never` 同义）。
@@ -182,28 +175,6 @@ function silvaSpec(scorer: AestheticScorerName): WorkerSpec<{ postId: number }, 
       return { done: result.scores.length, failures: [] }
     },
   }
-}
-
-/**
- * waifu：输入是图片本身。
- *
- * 与 silva 的关键差别是失败**要**拉黑：一张读不出来的图不会自己变好，不拉黑的话
- * 待办查询每一轮都会重选它，永远卡在同一批上（Python 侧的
- * `blacklist_policy = "ladder"`）。整批都失败时仍然算"干了活"：黑名单已经写下，
- * 下一轮的待办查询不会再选它们。
- */
-export const waifuSpec: WorkerSpec<PendingImage, WaifuPayload, WaifuResult> = {
-  name: 'waifu',
-  batch: WAIFU_TASK_BATCH,
-  task: waifuTask,
-  blacklist: true,
-  listPending: (sqlite, limit) => listWaifuPending(sqlite, limit),
-  countPending: (sqlite, rows) => countWaifuPending(sqlite, rows),
-  buildPayload: (_sqlite, pending) => ({ items: imageItems(pending) }),
-  persist: (sqlite, result) => {
-    upsertWaifuScores(sqlite, result.scores)
-    return { done: result.scores.length, failures: result.failures }
-  },
 }
 
 /**
@@ -333,7 +304,6 @@ export const silvaSpecs = Object.fromEntries(SCORERS.map(s => [s.name, silvaSpec
 export const BACKFILL_SPECS: readonly WorkerSpec<any, any, any>[] = [
   basicsSpec,
   ...Object.values(silvaSpecs),
-  waifuSpec,
   taggerSpec,
   embeddingSpec,
 ]

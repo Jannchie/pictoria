@@ -34,7 +34,6 @@ import {
   thumbnailTask,
   urlDownloadTask,
   urlScanTask,
-  waifuTask,
 } from './tasks.js'
 
 const FIXTURES = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../fixtures')
@@ -115,10 +114,6 @@ const CONTRACTS: Contract[] = [
     items: [{ postId: 'number', embedding: 'string' }],
   }, {
     scores: [{ postId: 'number', score: 'number' }],
-  }),
-  contract(waifuTask, { items: [imageItem] }, {
-    scores: [{ postId: 'number', score: 'number' }],
-    failures: [failure],
   }),
   contract(taggerTask, { items: [imageItem] }, {
     model: 'string',

@@ -57,13 +57,6 @@ try:
     ).fetchone()[0]
     metadata_done = total - needs_metadata
 
-    needs_waifu = con.execute(
-        "SELECT count(*) FROM posts p "
-        "LEFT JOIN post_waifu_scores pws ON pws.post_id = p.id "
-        "WHERE pws.post_id IS NULL",
-    ).fetchone()[0]
-    waifu_done = total - needs_waifu
-
     # post_vectors_siglip2 is a vec0 virtual table with post_id as its rowid
     # (migration 0006); the CLIP-era post_vectors table is gone (0007).
     needs_embedding = con.execute(
@@ -83,7 +76,6 @@ try:
 
     print(f"  total posts:        {total}")
     _row("metadata", needs_metadata, metadata_done)
-    _row("waifu score", needs_waifu, waifu_done)
     _row("siglip2 embedding", needs_embedding, embedding_done)
     _row("dominant color", needs_dom_color, dom_color_done)
 except Exception as e:

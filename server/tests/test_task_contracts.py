@@ -214,18 +214,6 @@ def _setup_silva(monkeypatch: pytest.MonkeyPatch, _root: Path) -> None:
     monkeypatch.setattr(ai.silva_scorer, "score_embeddings", lambda emb, _scorer: [0.5] * len(emb))
 
 
-def _setup_waifu(monkeypatch: pytest.MonkeyPatch, root: Path) -> None:
-    _image(root / "art/1.png")
-    _image(root / "art/2.png")
-    _stub(
-        monkeypatch,
-        "ai.waifu_scorer",
-        preprocess=_decode_failing_on("2.png"),
-        score_tiles=lambda tiles: [6.5] * len(tiles),
-        warm=lambda: None,
-    )
-
-
 def _setup_tagger(monkeypatch: pytest.MonkeyPatch, root: Path) -> None:
     _image(root / "art/1.png")
     _image(root / "art/2.png")
@@ -375,7 +363,6 @@ def _setup_url_download(monkeypatch: pytest.MonkeyPatch, _root: Path) -> None:
 
 SETUPS: dict[str, Callable[[pytest.MonkeyPatch, Path], None]] = {
     "silva": _setup_silva,
-    "waifu": _setup_waifu,
     "tagger": _setup_tagger,
     "embedding": _setup_embedding,
     "dedup": _setup_dedup,
@@ -562,9 +549,9 @@ async def test_basics_escaping_thumbnail_path_is_a_per_item_failure(library: Pat
 
 
 async def test_image_item_without_path_fails_the_task_not_the_item(library: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    _setup_waifu(monkeypatch, library)
+    _setup_tagger(monkeypatch, library)
     with pytest.raises(PayloadContractError, match="path"):
-        await handlers.handle_waifu({"items": [{"postId": 1, "path": str(library / "art/1.png")}, {"postId": 2}]})
+        await handlers.handle_tagger({"items": [{"postId": 1, "path": str(library / "art/1.png")}, {"postId": 2}]})
 
 
 def test_lpips_pair_without_post_id_fails_the_task(library: Path) -> None:

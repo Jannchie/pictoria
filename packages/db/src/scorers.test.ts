@@ -27,7 +27,10 @@ describe('SCORERS', () => {
   })
 
   it('派生名', () => {
-    expect(SCORERS.map(pascalKey)).toEqual(['Silva', 'SilvaLuna'])
-    expect(SCORERS.map(urlSlug)).toEqual(['silva', 'silva-luna'])
+    expect(SCORERS.map(pascalKey)).toEqual(['Silva'])
+    expect(SCORERS.map(urlSlug)).toEqual(['silva'])
+    // 现在没有带下划线 / 多词的打分器了，变换本身用假想的名字钉住。
+    expect(pascalKey({ key: 'silvaX' })).toBe('SilvaX')
+    expect(urlSlug({ name: 'silva_x' })).toBe('silva-x')
   })
 })

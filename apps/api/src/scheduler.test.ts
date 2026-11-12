@@ -28,7 +28,7 @@ import {
 import { afterAll, afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { runBatch, startBackfill } from './scheduler.js'
 import { restoreReturnedFiles } from './sync.js'
-import { BACKFILL_SPECS, basicsSpec, runOneShot, silvaSpecs, taggerSpec, waifuSpec, type WorkerSpec } from './workers.js'
+import { BACKFILL_SPECS, basicsSpec, runOneShot, silvaSpecs, taggerSpec, type WorkerSpec } from './workers.js'
 import { postAbsPath, targetDir, thumbnailPathFor } from './paths.js'
 
 const library = fs.mkdtempSync(path.join(os.tmpdir(), 'pictoria-scheduler-test-'))
@@ -67,6 +67,21 @@ function writeFile(id: number, extension = 'jpg'): void {
   fs.writeFileSync(abs, 'x')
 }
 
+/** tagger 对一张图的结果。通用机制的用例拿 tagger 当载体（图片路径输入、会拉黑）。 */
+function tagged(postId: number, general: string[] = ['cat']) {
+  return { postId, tags: { general, character: [], copyright: [], style: [], meta: [] }, rating: 'general' }
+}
+
+/** 一个 tagger 回包；缺省是"一条都没回"。 */
+function taggerReply(results: Array<ReturnType<typeof tagged>> = [], failures: Array<{ postId: number, error: string }> = []) {
+  return { model: TAGGER_MODEL, results, failures }
+}
+
+/** 提交了几张就给几张打上标。 */
+function tagEverything(payload: { items: Array<{ postId: number }> }) {
+  return taggerReply(payload.items.map(i => tagged(i.postId)))
+}
+
 function failures(): Array<{ post_id: number, worker: string }> {
   return sqlite.prepare<[], { post_id: number, worker: string }>('SELECT post_id, worker FROM post_process_failures ORDER BY post_id').all()
 }
@@ -90,8 +105,6 @@ describe('规格表', () => {
     expect(Object.fromEntries(BACKFILL_SPECS.map(s => [s.name, s.blacklist]))).toEqual({
       basics: true,
       silva: false,
-      silva_luna: false,
-      waifu: true,
       tagger: true,
       embedding: true,
     })
@@ -101,39 +114,40 @@ describe('规格表', () => {
 describe('runBatch', () => {
   it('待办扫空 → null，不提交任务', async () => {
     const { tasks, calls } = fakeTasks(() => { throw new Error('should not be called') })
-    expect(await runBatch(sqlite, tasks, waifuSpec, { log: quiet })).toBeNull()
+    expect(await runBatch(sqlite, tasks, taggerSpec, { log: quiet })).toBeNull()
     expect(calls).toEqual([])
   })
 
   it('worker 一条都没回 → {0, 0}，不是 null', async () => {
     insertPost(1)
-    const { tasks } = fakeTasks(() => ({ scores: [], failures: [] }))
-    expect(await runBatch(sqlite, tasks, waifuSpec, { log: quiet }))
+    const { tasks } = fakeTasks(() => taggerReply())
+    expect(await runBatch(sqlite, tasks, taggerSpec, { log: quiet }))
       .toEqual({ done: 0, failed: 0, written: 0 })
   })
 
   it('提交参数：队列、批次 key 列出全部成员、reuse-succeeded；路径是绝对路径', async () => {
     insertPost(1)
     insertPost(2)
-    const { tasks, calls } = fakeTasks(() => ({ scores: [], failures: [] }))
-    await runBatch(sqlite, tasks, waifuSpec, { log: quiet })
+    const { tasks, calls } = fakeTasks(() => taggerReply())
+    await runBatch(sqlite, tasks, taggerSpec, { log: quiet })
     expect(calls).toHaveLength(1)
-    expect(calls[0]!.task).toBe('waifu')
-    expect(calls[0]!.opts).toMatchObject({ queue: 'gpu', key: 'waifu:1,2', conflict: 'reuse-succeeded' })
+    expect(calls[0]!.task).toBe('tagger')
+    expect(calls[0]!.opts).toMatchObject({ queue: 'gpu', key: `tagger:${TAGGER_MODEL}:1,2`, conflict: 'reuse-succeeded' })
+    expect(calls[0]!.payload.items.map((i: { postId: number }) => i.postId)).toEqual([1, 2])
     for (const item of calls[0]!.payload.items)
       expect(path.isAbsolute(item.path)).toBe(true)
   })
 
-  it('失败按规格拉黑：waifu 写进自己的桶，并计入 failed', async () => {
+  it('失败按规格拉黑：tagger 写进自己的桶，并计入 failed', async () => {
     insertPost(1)
     insertPost(2)
-    const { tasks } = fakeTasks(() => ({ scores: [{ postId: 1, score: 7 }], failures: [{ postId: 2, error: 'unreadable' }] }))
-    expect(await runBatch(sqlite, tasks, waifuSpec, { log: quiet }))
+    const { tasks } = fakeTasks(() => taggerReply([tagged(1)], [{ postId: 2, error: 'unreadable' }]))
+    expect(await runBatch(sqlite, tasks, taggerSpec, { log: quiet }))
       .toEqual({ done: 1, failed: 1, written: 1 })
-    expect(failures()).toEqual([{ post_id: 2, worker: failureKey('waifu') }])
+    expect(failures()).toEqual([{ post_id: 2, worker: failureKey('tagger') }])
     // 拉黑之后下一轮不再选它（先把水位线退到 0，证明不是水位线挡住的）
-    notifyRepending(sqlite, 'waifu')
-    expect(waifuSpec.listPending(sqlite, 10)).toEqual([])
+    notifyRepending(sqlite, 'tagger')
+    expect(taggerSpec.listPending(sqlite, 10)).toEqual([])
   })
 
   it('silva 不拉黑：worker 回了失败也不写黑名单', async () => {
@@ -225,14 +239,14 @@ describe('runBatch', () => {
 
   it('不带 id 的重新待办信号当场把水位线退到 0：水位线以下的老 post 下一轮就捡得到', async () => {
     insertPost(1)
-    const { tasks } = fakeTasks(() => ({ scores: [{ postId: 1, score: 7 }], failures: [] }))
-    expect(await runBatch(sqlite, tasks, waifuSpec, { log: quiet })).toEqual({ done: 1, failed: 0, written: 1 })
-    expect(await runBatch(sqlite, tasks, waifuSpec, { log: quiet })).toBeNull() // 水位线推到 MAX(id)+1
+    const { tasks } = fakeTasks(tagEverything)
+    expect(await runBatch(sqlite, tasks, taggerSpec, { log: quiet })).toEqual({ done: 1, failed: 0, written: 1 })
+    expect(await runBatch(sqlite, tasks, taggerSpec, { log: quiet })).toBeNull() // 水位线推到 MAX(id)+1
 
-    sqlite.exec('DELETE FROM post_waifu_scores') // 让 post 1 在水位线以下重新变成待办
-    expect(await runBatch(sqlite, tasks, waifuSpec, { log: quiet })).toBeNull() // 没人喊：看不见
-    notifyRepending(sqlite, 'waifu')
-    expect(await runBatch(sqlite, tasks, waifuSpec, { log: quiet })).toEqual({ done: 1, failed: 0, written: 1 })
+    sqlite.exec('DELETE FROM post_has_tag') // 让 post 1 在水位线以下重新变成待办
+    expect(await runBatch(sqlite, tasks, taggerSpec, { log: quiet })).toBeNull() // 没人喊：看不见
+    notifyRepending(sqlite, 'tagger')
+    expect(await runBatch(sqlite, tasks, taggerSpec, { log: quiet })).toEqual({ done: 1, failed: 0, written: 1 })
   })
 })
 
@@ -241,36 +255,31 @@ describe('文件不在盘上', () => {
     insertPost(1, 'jpg', { file: false })
     insertPost(2, 'jpg', { file: false })
     insertPost(3)
-    const { tasks, calls } = fakeTasks(payload => ({
-      scores: payload.items.map((i: { postId: number }) => ({ postId: i.postId, score: 5 })),
-      failures: [],
-    }))
-    expect(await runBatch(sqlite, tasks, waifuSpec, { log: quiet })).toEqual({ done: 1, failed: 2, written: 1 })
+    const { tasks, calls } = fakeTasks(tagEverything)
+    expect(await runBatch(sqlite, tasks, taggerSpec, { log: quiet })).toEqual({ done: 1, failed: 2, written: 1 })
     expect(calls.map(c => c.payload.items.map((i: { postId: number }) => i.postId))).toEqual([[3]])
     expect(sqlite.prepare('SELECT post_id, worker, error FROM post_process_failures ORDER BY post_id').all()).toEqual([
-      { post_id: 1, worker: 'waifu', error: MISSING_FILE_ERROR },
-      { post_id: 2, worker: 'waifu', error: MISSING_FILE_ERROR },
+      { post_id: 1, worker: 'tagger', error: MISSING_FILE_ERROR },
+      { post_id: 2, worker: 'tagger', error: MISSING_FILE_ERROR },
     ])
-    notifyRepending(sqlite, 'waifu')
-    expect(await runBatch(sqlite, tasks, waifuSpec, { log: quiet })).toBeNull()
+    notifyRepending(sqlite, 'tagger')
+    expect(await runBatch(sqlite, tasks, taggerSpec, { log: quiet })).toBeNull()
   })
 
   it('整批都不在盘上：不提交，但算推进（不是 {0, 0} 的空转）', async () => {
     insertPost(1, 'jpg', { file: false })
     const { tasks, calls } = fakeTasks(() => { throw new Error('should not be called') })
-    expect(await runBatch(sqlite, tasks, waifuSpec, { log: quiet })).toEqual({ done: 0, failed: 1, written: 0 })
+    expect(await runBatch(sqlite, tasks, taggerSpec, { log: quiet })).toEqual({ done: 0, failed: 1, written: 0 })
     expect(calls).toEqual([])
   })
 
   it('文件回来了：sync 清掉这类黑名单并发重新待办信号，下一轮照常处理；真失败的不动', async () => {
     insertPost(1, 'jpg', { file: false })
     insertPost(2, 'jpg', { file: false })
-    const { tasks } = fakeTasks(payload => ({
-      scores: payload.items.map((i: { postId: number }) => ({ postId: i.postId, score: 5 })),
-      failures: [],
-    }))
-    await runBatch(sqlite, tasks, waifuSpec, { log: quiet })
-    sqlite.prepare(`INSERT INTO post_process_failures (post_id, worker, error) VALUES (2, 'tagger', 'unreadable')`).run()
+    const { tasks } = fakeTasks(tagEverything)
+    await runBatch(sqlite, tasks, taggerSpec, { log: quiet })
+    // 另一条循环（basics）在 post 2 上的真失败：不是"文件不在盘上"这一类，不该被清掉
+    sqlite.prepare(`INSERT INTO post_process_failures (post_id, worker, error) VALUES (2, 'basics', 'unreadable')`).run()
     expect(await restoreReturnedFiles(sqlite, quiet)).toBe(0) // 还没回来
 
     writeFile(1)
@@ -278,20 +287,20 @@ describe('文件不在盘上', () => {
     const off = (await import('@pictoria/db')).onRepending(sqlite, ws => heard.push([...ws]))
     expect(await restoreReturnedFiles(sqlite, quiet)).toBe(1)
     off()
-    expect(heard).toEqual([['waifu']])
+    expect(heard).toEqual([['tagger']])
     expect(sqlite.prepare('SELECT post_id, worker, error FROM post_process_failures ORDER BY post_id, worker').all()).toEqual([
-      { post_id: 2, worker: 'tagger', error: 'unreadable' },
-      { post_id: 2, worker: 'waifu', error: MISSING_FILE_ERROR },
+      { post_id: 2, worker: 'basics', error: 'unreadable' },
+      { post_id: 2, worker: 'tagger', error: MISSING_FILE_ERROR },
     ])
-    expect(await runBatch(sqlite, tasks, waifuSpec, { log: quiet })).toEqual({ done: 1, failed: 0, written: 1 })
+    expect(await runBatch(sqlite, tasks, taggerSpec, { log: quiet })).toEqual({ done: 1, failed: 0, written: 1 })
   })
 })
 
 describe('循环订阅重新待办信号', () => {
   it('只叫醒被点名的那条循环', async () => {
-    const seen: Record<string, number> = { waifu: 0, tagger: 0 }
-    const stub = (name: 'waifu' | 'tagger'): WorkerSpec<any, any, any> => ({
-      ...(name === 'waifu' ? waifuSpec : taggerSpec),
+    const seen: Record<string, number> = { basics: 0, tagger: 0 }
+    const stub = (name: 'basics' | 'tagger'): WorkerSpec<any, any, any> => ({
+      ...(name === 'basics' ? basicsSpec : taggerSpec),
       listPending: () => {
         seen[name]! += 1
         return []
@@ -299,14 +308,14 @@ describe('循环订阅重新待办信号', () => {
       countPending: () => [0],
     })
     const { tasks } = fakeTasks(() => { throw new Error('should not be called') })
-    const handles = [startBackfill(sqlite, tasks, stub('waifu'), { log: quiet }), startBackfill(sqlite, tasks, stub('tagger'), { log: quiet })]
+    const handles = [startBackfill(sqlite, tasks, stub('basics'), { log: quiet }), startBackfill(sqlite, tasks, stub('tagger'), { log: quiet })]
     try {
       await new Promise(r => setTimeout(r, 20))
-      expect(seen).toEqual({ waifu: 1, tagger: 1 }) // 各扫一次，空，进入 30 秒空等
+      expect(seen).toEqual({ basics: 1, tagger: 1 }) // 各扫一次，空，进入 30 秒空等
 
       notifyRepending(sqlite, 'tagger')
       await new Promise(r => setTimeout(r, 20))
-      expect(seen).toEqual({ waifu: 1, tagger: 2 })
+      expect(seen).toEqual({ basics: 1, tagger: 2 })
     }
     finally {
       for (const h of handles) h.stop()
@@ -317,7 +326,7 @@ describe('循环订阅重新待办信号', () => {
     let scans = 0
     let release: () => void = () => {}
     const spec: WorkerSpec<any, any, any> = {
-      ...waifuSpec,
+      ...taggerSpec,
       listPending: () => {
         scans += 1
         return scans === 1 ? [{ postId: 1, relPath: 'dir/f1.jpg' }] : []
@@ -326,12 +335,12 @@ describe('循环订阅重新待办信号', () => {
     }
     insertPost(1)
     const { tasks } = fakeTasks(() => new Promise((resolve) => {
-      release = () => resolve({ scores: [], failures: [] })
+      release = () => resolve(taggerReply())
     }))
     const handle = startBackfill(sqlite, tasks, spec, { log: quiet })
     try {
       await new Promise(r => setTimeout(r, 20))
-      notifyRepending(sqlite, 'waifu')
+      notifyRepending(sqlite, 'tagger')
       release()
       await new Promise(r => setTimeout(r, 20))
       expect(scans).toBe(2)

@@ -275,7 +275,7 @@ def main() -> int:
         f"no metadata {totals['missingMeta']}, no score {totals['missingScore']}",
     )
     if not args.dry_run and totals["rows"]:
-        print("the API's backfill will pick up embeddings / silva_luna / tags for the new posts on its next scan.")
+        print("the API's backfill will pick up embeddings / silva / tags for the new posts on its next scan.")
     return 0
 
 

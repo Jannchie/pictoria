@@ -12,11 +12,10 @@ import Database from 'better-sqlite3'
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest'
 import type { TaggerCategories } from '@pictoria/contracts'
 import { notifyRepending, onRepending } from './repending.js'
-import { clearMissingFiles, ensureCanonicalTagGroups, listTaggerPending, listWaifuPending, persistTaggerResults, recordMissingFiles, resetScanFloors } from './repositories/backfill.js'
+import { clearMissingFiles, ensureCanonicalTagGroups, listBasicsPending, listTaggerPending, persistTaggerResults, recordMissingFiles, resetScanFloors } from './repositories/backfill.js'
 import { persistPostsWithTags } from './repositories/import-persist.js'
 import { createPost, insertPostTriples, updateForRotate } from './repositories/posts.js'
 import { addTagToPost, addTagToPosts, deleteTag, deleteTags, removeTagFromPost, removeTagFromPosts, setTagSource } from './repositories/tags.js'
-import type { BackfillWorker } from './workers.js'
 import { BACKFILL_WORKERS, failureKey } from './workers.js'
 import { createTestDb } from './testing.js'
 
@@ -45,6 +44,20 @@ function taggerRow(postId: number, general: string[]) {
     rating: '',
   }
 }
+
+/** 让全部 post 在 tagger 眼里"已算完"：一条自动标签 + 当前模型的章。 */
+function tagAll(ids: number[]): void {
+  for (const id of ids) link(id, 'a', 1)
+  sqlite.prepare('UPDATE posts SET tagger = ?').run(MODEL)
+}
+
+/** 让全部 post 在 basics 眼里"已算完"。 */
+function basicsAll(): void {
+  sqlite.prepare(`UPDATE posts SET sha256 = 'h', arthash = 'a', dominant_color = x'00'`).run()
+}
+
+const taggerPending = () => listTaggerPending(sqlite, MODEL).map(p => p.postId)
+const basicsPending = () => listBasicsPending(sqlite).map(p => p.postId)
 
 /** 订阅者：记下被点名的 worker。水位线在信号里已经退好了（带 id 退到那里，不带退到 0）。 */
 function listen(): () => void {
@@ -81,19 +94,20 @@ describe('通知机制本身', () => {
 
   it('不带 id：当场把被点名循环的水位线退到 0（下一轮全扫），没点名的不动', () => {
     for (const id of [1, 2, 3]) insertPost(id)
-    expect(listWaifuPending(sqlite).map(p => p.postId)).toEqual([1, 2, 3])
-    sqlite.prepare('INSERT INTO post_waifu_scores (post_id, score) VALUES (1, 1), (2, 1), (3, 1)').run()
-    expect(listWaifuPending(sqlite)).toEqual([])
-    for (const id of [1, 2, 3]) link(id, 'a', 1)
-    sqlite.prepare('UPDATE posts SET tagger = ?').run(MODEL)
-    expect(listTaggerPending(sqlite, MODEL)).toEqual([])
+    expect(taggerPending()).toEqual([1, 2, 3])
+    tagAll([1, 2, 3])
+    expect(taggerPending()).toEqual([])
+    expect(basicsPending()).toEqual([1, 2, 3])
+    basicsAll()
+    expect(basicsPending()).toEqual([])
 
-    sqlite.prepare('DELETE FROM post_waifu_scores').run()
+    // 两条循环的老 post 都重新变成待办，但只点名 tagger
     sqlite.prepare('DELETE FROM post_has_tag').run()
-    notifyRepending(sqlite, 'waifu')
-    expect(heard).toEqual([['waifu']])
-    expect(listWaifuPending(sqlite).map(p => p.postId)).toEqual([1, 2, 3])
-    expect(listTaggerPending(sqlite, MODEL)).toEqual([])
+    sqlite.prepare('UPDATE posts SET arthash = NULL').run()
+    notifyRepending(sqlite, 'tagger')
+    expect(heard).toEqual([['tagger']])
+    expect(taggerPending()).toEqual([1, 2, 3])
+    expect(basicsPending()).toEqual([])
   })
 
   it('取消订阅之后收不到；不点名是空操作', () => {
@@ -108,22 +122,20 @@ describe('通知机制本身', () => {
   it('带 id：当场把被点名循环的水位线退到那里（不全扫）；没点名的不动', () => {
     for (const id of [1, 2, 3]) insertPost(id)
     // 两条循环的水位线都推到 MAX(id)+1
-    expect(listWaifuPending(sqlite).map(p => p.postId)).toEqual([1, 2, 3])
-    sqlite.prepare('INSERT INTO post_waifu_scores (post_id, score) VALUES (1, 1), (2, 1), (3, 1)').run()
-    expect(listWaifuPending(sqlite)).toEqual([])
-    link(1, 'a', 1)
-    link(2, 'a', 1)
-    link(3, 'a', 1)
-    sqlite.prepare('UPDATE posts SET tagger = ?').run(MODEL)
-    expect(listTaggerPending(sqlite, MODEL)).toEqual([])
+    expect(taggerPending()).toEqual([1, 2, 3])
+    tagAll([1, 2, 3])
+    expect(taggerPending()).toEqual([])
+    basicsAll()
+    expect(basicsPending()).toEqual([])
 
-    sqlite.prepare('DELETE FROM post_waifu_scores WHERE post_id >= 2').run()
-    sqlite.prepare('DELETE FROM post_has_tag WHERE post_id >= 2').run()
-    notifyRepending(sqlite, 'waifu', 2)
-    expect(heard).toEqual([['waifu']])
-    expect(listWaifuPending(sqlite).map(p => p.postId)).toEqual([2, 3])
-    // tagger 没被点名：水位线没退，不强制就看不见
-    expect(listTaggerPending(sqlite, MODEL)).toEqual([])
+    sqlite.prepare('DELETE FROM post_has_tag').run()
+    sqlite.prepare('UPDATE posts SET arthash = NULL').run()
+    notifyRepending(sqlite, 'tagger', 2)
+    expect(heard).toEqual([['tagger']])
+    // 水位线退到 2 而不是 0：post 1 也是待办，但在水位线以下，这一轮看不见
+    expect(taggerPending()).toEqual([2, 3])
+    // basics 没被点名：水位线没退，不强制就看不见
+    expect(basicsPending()).toEqual([])
   })
 })
 
@@ -333,29 +345,42 @@ describe('新建 post → 全部 worker（只叫醒，不强制全扫）', () =>
 
   it('新行在水位线之上：不需要强制就扫得到', () => {
     insertPost(1)
-    sqlite.prepare('INSERT INTO post_waifu_scores (post_id, score) VALUES (1, 1)').run()
-    expect(listWaifuPending(sqlite)).toEqual([])
+    tagAll([1])
+    expect(taggerPending()).toEqual([])
     const id = createPost(sqlite, { filePath: 'dir', fileName: 'new', extension: 'jpg' })
-    expect(listWaifuPending(sqlite).map(p => p.postId)).toEqual([id])
+    expect(taggerPending()).toEqual([id])
   })
 })
 
 describe('"文件不在盘上"的黑名单清掉 → 被记过的那几条循环', () => {
   it('只点名有这类行的 worker，水位线退到其中最小的 id；真失败的行不动、不发', () => {
     for (const id of [1, 2, 3]) insertPost(id)
-    sqlite.prepare('INSERT INTO post_waifu_scores (post_id, score) VALUES (1, 1), (2, 1), (3, 1)').run()
-    expect(listWaifuPending(sqlite)).toEqual([])
-    sqlite.prepare('DELETE FROM post_waifu_scores WHERE post_id >= 2').run()
-    recordMissingFiles(sqlite, 'waifu', [2, 3])
+    tagAll([1, 2, 3])
+    expect(taggerPending()).toEqual([])
+    sqlite.prepare('DELETE FROM post_has_tag WHERE post_id >= 2').run()
+    recordMissingFiles(sqlite, 'tagger', [2, 3])
     recordMissingFiles(sqlite, 'embedding', [3])
-    sqlite.prepare(`INSERT INTO post_process_failures (post_id, worker, error) VALUES (1, 'tagger', 'unreadable')`).run()
+    sqlite.prepare(`INSERT INTO post_process_failures (post_id, worker, error) VALUES (1, 'basics', 'unreadable')`).run()
     expect(heard).toEqual([])
 
     expect(clearMissingFiles(sqlite, [1])).toBe(0)
     expect(heard).toEqual([])
     expect(clearMissingFiles(sqlite, [3, 2])).toBe(3)
-    expect(heard).toEqual([['waifu', 'embedding']])
-    expect(listWaifuPending(sqlite).map(p => p.postId)).toEqual([2, 3])
+    expect(heard).toEqual([['tagger', 'embedding']])
+    expect(taggerPending()).toEqual([2, 3])
+    // 真失败的那行还在
+    expect(sqlite.prepare('SELECT post_id, worker FROM post_process_failures').all()).toEqual([{ post_id: 1, worker: 'basics' }])
+  })
+
+  // 真实库里留着已退役 worker（waifu、aesthetic:silva_luna）的黑名单行。它们照删，
+  // 但那两条循环已经不存在了，没有谁可点名。
+  it('已退役 worker 留下的行照删，不点名任何人', () => {
+    insertPost(1)
+    const stale = sqlite.prepare(`INSERT INTO post_process_failures (post_id, worker, error) VALUES (1, ?, 'missing-file')`)
+    stale.run('waifu')
+    stale.run('aesthetic:silva_luna')
+    expect(clearMissingFiles(sqlite, [1])).toBe(2)
+    expect(heard).toEqual([])
   })
 })
 
@@ -366,14 +391,12 @@ describe('worker 身份', () => {
     expect(Object.fromEntries(BACKFILL_WORKERS.map(w => [w, failureKey(w)]))).toEqual({
       basics: 'basics',
       silva: 'aesthetic:silva',
-      silva_luna: 'aesthetic:silva_luna',
-      waifu: 'waifu',
       tagger: 'tagger',
       embedding: 'embedding:siglip2',
     })
   })
 
   it('启动顺序：basics 最前，silva 家族按 SCORERS', () => {
-    expect(BACKFILL_WORKERS).toEqual(['basics', 'silva', 'silva_luna', 'waifu', 'tagger', 'embedding'])
+    expect(BACKFILL_WORKERS).toEqual(['basics', 'silva', 'tagger', 'embedding'])
   })
 })

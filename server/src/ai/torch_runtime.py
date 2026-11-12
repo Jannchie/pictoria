@@ -1,8 +1,8 @@
 """Shared torch runtime knobs for the model backends.
 
-``ai.clip`` and ``ai.siglip_embed`` both picked the same
-device/dtype and (for the ``transformers`` backbones) carried an identical
-copy of the 5.x feature-unwrap patch. Those bits live here once now, so a change
+The model backends (``ai.siglip_embed``, and the since-removed CLIP one) both
+picked the same device/dtype and (for the ``transformers`` backbones) carried an
+identical copy of the 5.x feature-unwrap patch. Those bits live here once now, so a change
 to "where do models run" or "how do we unwrap features" touches one place.
 """
 
@@ -51,7 +51,7 @@ def to_rgb(img: Image.Image) -> Image.Image:
 
 
 #: Decode + preprocess threads, shared by every image model on the GPU queue
-#: (SigLIP 2, PixAI, waifu). One pool, not one per model: the GPU queue is
+#: (SigLIP 2, PixAI). One pool, not one per model: the GPU queue is
 #: ``concurrency=1``, so no two of them preprocess at the same time, and three
 #: idle pools would just be 16 more threads in the process. Why 8 is measured in
 #: ``ai.siglip_embed`` and ``services.pixai_tagging``.

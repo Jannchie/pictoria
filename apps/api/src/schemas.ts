@@ -30,7 +30,6 @@ export const PostHasColorPublic = z
 /** 所有"只回一句话"的命令端点共用的响应体。 */
 export const Result = z.object({ msg: z.string() }).openapi('Result')
 
-export const WaifuScorePublic = z.object({ score: z.number() }).openapi('WaifuScorePublic')
 
 export const AestheticScorePublic = z
   .object({ scorer: z.string(), score: z.number() })
@@ -62,7 +61,6 @@ export const PostDetailPublic = z
     arthash: z.string().nullable().optional(),
     canonicalPostId: z.int().nullable().optional(),
     groupMemberCount: z.int().default(0).optional(),
-    waifuScore: z.union([WaifuScorePublic, z.null()]).optional(),
     aestheticScores: z.array(AestheticScorePublic).default([]).optional(),
     tags: z.array(PostHasTagPublic),
   })
@@ -171,7 +169,6 @@ export function toPostDetail(row: Record<string, any>) {
     arthash: row.arthash,
     canonicalPostId: row.canonical_post_id,
     groupMemberCount: row.group_member_count,
-    waifuScore: row.waifu_score,
     aestheticScores: row.aesthetic_scores,
     tags: row.tags.map(camelTag),
   }

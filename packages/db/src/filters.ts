@@ -11,7 +11,6 @@ import {
   levelsField,
   orderColumn,
   SCORE_BUCKET_UNSCORED,
-  WAIFU,
   type Buckets,
   type FilterableScorerKey,
 } from './scorers.js'
@@ -32,8 +31,6 @@ export interface PostFilter extends ScorerLevelFacets {
   folder?: string | null
   /** [L, a, b] */
   lab?: [number, number, number] | null
-  /** [min, max]，闭区间 */
-  waifuScoreRange?: [number, number] | null
   /**
    * 默认 true：隐藏近重复分组的**成员**，只返回 canonical 代表
    * （canonical_post_id IS NULL）。设 false 才包含成员。
@@ -120,7 +117,6 @@ export function hasActiveFilters(f: PostFilter): boolean {
     || f.extension?.length
     || (f.folder && f.folder !== '.')
     || f.lab
-    || f.waifuScoreRange
     || FILTERABLE_SCORERS.some(spec => f[levelsField(spec)]?.length),
   )
 }
@@ -195,21 +191,11 @@ export function buildWhere(f: PostFilter, opts: BuildWhereOptions = {}): WherePa
     params.push(f.folder, `${f.folder}/`, `${f.folder}0`)
   }
 
-  // waifu 的 join 先于分档循环，因为分数区间（只有 waifu 有）也要用它。
-  if (f.waifuScoreRange || f[levelsField(WAIFU)]?.length)
-    joins.push(WAIFU.joinSql())
-
-  if (f.waifuScoreRange) {
-    where.push(`${WAIFU.scoreCol()} >= ? AND ${WAIFU.scoreCol()} <= ?`)
-    params.push(f.waifuScoreRange[0], f.waifuScoreRange[1])
-  }
-
-  // 每个打分器贡献自己的 LEFT JOIN + 分档子句。waifu 也走这条路 —— 它的表、别名
-  // 和“不带 scorer 谓词”这三点差异全都封在 spec 里，这里看不出来，于是加一个打分
-  // 器不再是给这段再抄一份。
+  // 每个打分器贡献自己的 LEFT JOIN + 分档子句。表、别名和“带不带 scorer 谓词”
+  // 全都封在 spec 里，于是加一个打分器不再是给这段再抄一份。
   //
-  // ⚠️ 循环顺序 = `FILTERABLE_SCORERS` 的顺序 = 原来手写的顺序（waifu → silva →
-  // silva_luna）。`filters.test.ts` 对拍的是冻结的 SQL 文本，子句换个位置就不等了。
+  // ⚠️ 循环顺序 = `FILTERABLE_SCORERS` 的顺序。`filters.test.ts` 对拍的是冻结的
+  // SQL 文本，子句换个位置就不等了。
   for (const spec of FILTERABLE_SCORERS) {
     const levels = f[levelsField(spec)]
     if (!levels?.length)

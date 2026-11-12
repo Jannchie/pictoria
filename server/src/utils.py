@@ -29,7 +29,7 @@ Image.MAX_IMAGE_PIXELS = None
 
 # Allow loading partially-downloaded / interrupted images. Without this, PIL
 # raises OSError("Truncated File Read") and the post is permanently stuck in
-# the basics/embedding/tagger/waifu backlog. Personal-gallery semantics: do
+# the basics/embedding/tagger backlog. Personal-gallery semantics: do
 # the best we can with whatever bytes survived.
 ImageFile.LOAD_TRUNCATED_IMAGES = True
 

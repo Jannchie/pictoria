@@ -104,6 +104,7 @@ export const postHasTag = sqliteTable('post_has_tag', {
 
 // ---------------------------------------------------------------- 分数 / 颜色
 
+/** 已退役（2026-11）：waifu 打分器移除后不再读写，表和数据原样保留。 */
 export const postWaifuScores = sqliteTable('post_waifu_scores', {
   postId: integer('post_id').primaryKey().references(() => posts.id, { onDelete: 'cascade' }),
   score: real('score').notNull().default(0),
@@ -152,7 +153,7 @@ export const postVariantEdges = sqliteTable('post_variant_edges', {
 
 export const postProcessFailures = sqliteTable('post_process_failures', {
   postId: integer('post_id').notNull().references(() => posts.id, { onDelete: 'cascade' }),
-  /** 'basics' | 'embedding' | 'tagger' | 'waifu' | ... */
+  /** 'basics' | 'embedding' | 'tagger' | ...（另有已退役 worker 留下的 'waifu' 行） */
   worker: text('worker').notNull(),
   error: text('error').notNull(),
   failedAt: text('failed_at').notNull().default(sql`CURRENT_TIMESTAMP`),

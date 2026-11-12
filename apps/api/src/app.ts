@@ -32,7 +32,6 @@ import { postListRoutes } from './routes/post-list.js'
 import { postReadsRoutes } from './routes/post-reads.js'
 import { postWritesRoutes } from './routes/post-writes.js'
 import { queuesRoutes } from './routes/queues.js'
-import { statisticsRoutes } from './routes/statistics.js'
 import { tagsRoutes } from './routes/tags.js'
 import { tagWritesRoutes } from './routes/tag-writes.js'
 
@@ -110,7 +109,6 @@ export function createApp({
     await next()
   })
 
-  app.route('/', statisticsRoutes)
   app.route('/', queuesRoutes)
   app.route('/', foldersRoutes)
   app.route('/', tagsRoutes)

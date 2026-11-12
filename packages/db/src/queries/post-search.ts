@@ -13,7 +13,6 @@ import {
   fetchAestheticByIds,
   fetchColorsByIds,
   fetchTagsByIds,
-  fetchWaifuByIds,
   memberCounts,
   POST_COLUMNS,
   SIMPLE_BASE_COLUMNS,
@@ -70,7 +69,7 @@ function resolveVirtualSort(
 ): { extra: string[], selectExpr: string, orderExpr: string } {
   const extra: string[] = []
   // 按 `<name>_score` 排序对每个打分器都是同一件事：确保它的 join 在，然后拿它的
-  // 分数列。三个手写分支（其中 waifu 那份还用的是裸子串判 join）收成一次查表。
+  // 分数列。一次查表，不是每个打分器一个分支。
   const spec = FILTERABLE_SCORERS.find(s => orderColumn(s) === orderBy)
   if (spec) {
     if (!spec.isJoined(joins))
@@ -269,7 +268,7 @@ export function buildScoreSortPlan(
     }
   }
 
-  // 分数表的这一段：别名沿用打分器自己的别名，过滤里引用它的子句（分档、waifu 区间）
+  // 分数表的这一段：别名沿用打分器自己的别名，过滤里引用它的子句（分档）
   // 照样成立，`<alias>.post_id IS NULL` 分支在这一段里恒假，与原语义一致。
   const table = leftJoin.slice('LEFT JOIN '.length).split(' ')[0]!
   const a = spec.alias
@@ -403,7 +402,6 @@ export function listPaginated(
   const ids = page.map(p => p.id as number)
   const tags = fetchTagsByIds(sqlite, ids, translate)
   const colors = fetchColorsByIds(sqlite, ids)
-  const waifu = fetchWaifuByIds(sqlite, ids)
   const aesthetic = fetchAestheticByIds(sqlite, ids)
   const counts = memberCounts(sqlite, ids)
 
@@ -411,7 +409,6 @@ export function listPaginated(
     ...p,
     tags: tags.get(p.id as number) ?? [],
     colors: colors.get(p.id as number) ?? [],
-    waifu_score: waifu.get(p.id as number) ?? null,
     aesthetic_scores: aesthetic.get(p.id as number) ?? [],
     group_member_count: counts.get(p.id as number) ?? 0,
   })) as PostDetail[]
