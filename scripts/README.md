@@ -49,14 +49,14 @@ python scripts/load_env.py
 
 ```bash
 # 增量上传指定目录 - 默认行为
-python scripts/upload_to_s3.py ./web
+python scripts/upload_to_s3.py ./server/illustration
 python scripts/upload_to_s3.py ./dist
 
 # 完整上传（上传所有文件）
-python scripts/upload_to_s3.py ./web --full
+python scripts/upload_to_s3.py ./server/illustration --full
 
 # 强制上传（覆盖相同大小的文件）
-python scripts/upload_to_s3.py ./web --force
+python scripts/upload_to_s3.py ./server/illustration --force
 
 # 列出远程文件
 python scripts/upload_to_s3.py --list
@@ -69,14 +69,14 @@ python scripts/upload_to_s3.py ./dist -b "production/"
 
 ```bash
 # 增量下载到指定目录 - 默认行为
-python scripts/download_from_s3.py ./web
+python scripts/download_from_s3.py ./server/illustration
 python scripts/download_from_s3.py ./backup
 
 # 完整下载（下载所有文件）
-python scripts/download_from_s3.py ./web download
+python scripts/download_from_s3.py ./server/illustration download
 
 # 列出远程文件
-python scripts/download_from_s3.py ./web list
+python scripts/download_from_s3.py ./server/illustration list
 
 # 同步下载（删除本地多余文件）
 python scripts/download_from_s3.py ./backup sync
@@ -98,7 +98,7 @@ kubectl exec -it pod-name -- pip install -r /tmp/scripts/requirements.txt
 kubectl exec -it pod-name -- sh -c 'export S3_ACCESS_KEY="your_key" && export S3_SECRET_KEY="your_secret" && export S3_BUCKET="pictoria" && export S3_BASE_DIR="collections/" && export S3_ENDPOINT="s3.us-east-005.backblazeb2.com"'
 
 # 在 Pod 内执行下载（默认增量下载）
-kubectl exec -it pod-name -- python /tmp/scripts/download_from_s3.py /app/web
+kubectl exec -it pod-name -- python /tmp/scripts/download_from_s3.py /app/illustration
 ```
 
 ## 功能特性
@@ -116,20 +116,21 @@ kubectl exec -it pod-name -- python /tmp/scripts/download_from_s3.py /app/web
 
 ```bash
 # 每10分钟增量上传（默认行为）
-*/10 * * * * cd /path/to/project && python scripts/upload_to_s3.py ./web
+*/10 * * * * cd /path/to/project && python scripts/upload_to_s3.py ./server/illustration
 
 # 每小时增量下载（默认行为）
-0 * * * * cd /path/to/project && python scripts/download_from_s3.py ./web
+0 * * * * cd /path/to/project && python scripts/download_from_s3.py ./server/illustration
 
 # 每日同步（删除本地多余文件）
-0 2 * * * cd /path/to/project && python scripts/download_from_s3.py ./web sync
+0 2 * * * cd /path/to/project && python scripts/download_from_s3.py ./server/illustration sync
 ```
 
 ## 图库同步不含 `.pictoria/`
 
-`rclone_sync.ps1` / `rclone_sync.sh` / `sync_with_awscli.sh` 一律排除图库里的 `.pictoria/` 目录
+`rclone_sync.ps1` / `rclone_sync.sh` / `sync_with_awscli.sh` 和两个 boto3 脚本
+（`upload_to_s3.py` / `download_from_s3.py`）一律排除图库里的 `.pictoria/` 目录
 （rclone 用 `--exclude ".pictoria/**"`，aws 用 `--exclude ".pictoria/*" --exclude "*/.pictoria/*"`，
-传图库根 `images/` 或它的上一级 `server/illustration` 都生效）。那里面是：
+boto3 脚本按路径段判断；传图库根 `images/` 或它的上一级 `server/illustration` 都生效）。那里面是：
 
 - `pictoria.sqlite`（+ `-wal` / `-shm`）—— API 一直开着它，逐字节拷贝得到的是不一致的文件；
   下载方向还会拿远端的旧库盖掉本地的活库；

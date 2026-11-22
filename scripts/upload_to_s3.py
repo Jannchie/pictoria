@@ -26,11 +26,21 @@ SECRET_KEY = os.getenv("S3_SECRET_KEY", "")
 BUCKET_NAME = os.getenv("S3_BUCKET", "")
 BASE_DIR = os.getenv("S3_BASE_DIR", "collections")
 ENDPOINT_URL = os.getenv("S3_ENDPOINT", "")
-LOCAL_PATH = "./web"
 
 # 确保 BASE_DIR 以 / 结尾
 if BASE_DIR and not BASE_DIR.endswith("/"):
     BASE_DIR += "/"
+
+# 图库里进程私有的目录：两个 sqlite（API 一直开着，逐字节拷出来的是不一致的文件）、
+# 缩略图、gallery-dl.conf（含 cookies）。和 rclone / awscli 脚本一样永远不进同步，
+# 见 scripts/README.md。数据库用 server/scripts/backup_db.py 备份。
+PRIVATE_DIR = ".pictoria"
+
+
+def is_private(relative_parts) -> bool:
+    """相对路径的任意一段是 `.pictoria` 就算私有。"""
+    return PRIVATE_DIR in relative_parts
+
 
 
 def create_s3_client():
@@ -84,7 +94,7 @@ def get_local_files(local_path: Path, incremental: bool = False) -> List[Path]:
         print("📁 Full upload - scanning all files")
         files = [f for f in local_path.rglob("*") if f.is_file()]
     
-    return files
+    return [f for f in files if not is_private(f.relative_to(local_path).parts)]
 
 
 def upload_file(s3_client, local_path: Path, s3_key: str) -> bool:

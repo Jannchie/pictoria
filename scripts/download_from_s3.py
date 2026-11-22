@@ -26,11 +26,21 @@ SECRET_KEY = os.getenv("S3_SECRET_KEY", "")
 BUCKET_NAME = os.getenv("S3_BUCKET", "")
 BASE_DIR = os.getenv("S3_BASE_DIR", "collections")
 ENDPOINT_URL = os.getenv("S3_ENDPOINT", "")
-LOCAL_PATH = "./web"
 
 # 确保 BASE_DIR 以 / 结尾
 if BASE_DIR and not BASE_DIR.endswith("/"):
     BASE_DIR += "/"
+
+# 图库里进程私有的目录：两个 sqlite（API 一直开着，逐字节拷出来的是不一致的文件）、
+# 缩略图、gallery-dl.conf（含 cookies）。和 rclone / awscli 脚本一样永远不进同步，
+# 见 scripts/README.md。数据库用 server/scripts/backup_db.py 备份。
+PRIVATE_DIR = ".pictoria"
+
+
+def is_private(relative_parts) -> bool:
+    """相对路径的任意一段是 `.pictoria` 就算私有。"""
+    return PRIVATE_DIR in relative_parts
+
 
 
 def create_s3_client():
@@ -84,6 +94,10 @@ def get_remote_files(s3_client, base_dir: str, incremental: bool = False) -> Lis
         for page in pages:
             if 'Contents' in page:
                 for obj in page['Contents']:
+                    # 远端若留有旧脚本传上去的 .pictoria/，不能拿它盖掉本地的活库
+                    if is_private(obj['Key'].replace(base_dir, "", 1).split('/')):
+                        continue
+
                     # 增量下载检查
                     if cutoff_time:
                         obj_modified = obj['LastModified'].timestamp()
@@ -246,7 +260,8 @@ def sync_from_remote(s3_client, local_path: Path, base_dir: str) -> None:
     local_files = set()
     if local_path.exists():
         for file_path in local_path.rglob("*"):
-            if file_path.is_file():
+            # 私有目录从不上传，所以远端一定没有 —— 不排除的话 sync 会把本地的库删掉
+            if file_path.is_file() and not is_private(file_path.relative_to(local_path).parts):
                 relative_path = str(file_path.relative_to(local_path)).replace(os.sep, '/')
                 local_files.add(relative_path)
     
