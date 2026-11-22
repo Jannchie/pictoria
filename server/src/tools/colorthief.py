@@ -28,18 +28,6 @@ class ColorThief:
         """
         self.image = file if isinstance(file, Image.Image) else Image.open(file)
 
-    def get_color(self, quality: int = 10):
-        """Get the dominant color.
-
-        :param quality: quality settings, 1 is the highest quality, the bigger
-                        the number, the faster a color will be returned but
-                        the greater the likelihood that it will not be the
-                        visually most dominant color
-        :return tuple: (r, g, b)
-        """
-        palette = self.get_palette(5, quality)
-        return palette[0]
-
     def get_palette(self, color_count: int = 10, quality: int = 10):
         """Build a color palette.  We are using the median cut algorithm to
         cluster similar colors.

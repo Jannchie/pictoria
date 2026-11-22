@@ -96,7 +96,7 @@ IO_CONCURRENCY = 4
 #: ``IO_QUEUE``: thumbnails are generated *on demand* when the image route is
 #: hit, so a half-hour arbitration run sharing that queue would make image
 #: loads wait behind it. Not the GPU queue either -- the card already carries
-#: four models, and a 400x400 AlexNet is 20-40 ms on CPU.
+#: the embedding, tagger and scorer models, and a 400x400 AlexNet is 20-40 ms on CPU.
 CPU_QUEUE = "cpu"
 #: Two at a time against ``ai.lpips``'s four intra-op threads -- eight of the
 #: box's cores at full tilt, leaving the rest to the GPU worker's decoding.

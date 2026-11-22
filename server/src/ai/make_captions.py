@@ -6,9 +6,6 @@ from pathlib import Path
 import PIL.Image
 import PIL.ImageOps
 from openai import OpenAI
-from rich import get_console
-
-console = get_console()
 
 #: The upload is a thumbnail, not the original. The request asks for
 #: ``detail: "low"``, which the API serves from a 512x512 image anyway, so
@@ -73,11 +70,3 @@ class OpenAIImageAnnotator:
         if response.choices[0].message.content is None:
             return ""
         return response.choices[0].message.content
-
-
-if __name__ == "__main__":
-    api_key = ""
-    image_path = R"demo/1.jpg"
-    annotator = OpenAIImageAnnotator(api_key)
-    annotations = annotator.annotate_image(image_path)
-    console.log(annotations)

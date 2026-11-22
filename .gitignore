@@ -1,4 +1,5 @@
-tags.txt
+# run_get_artist_data.py 的 tag 池（本地数据）
+scripts/tags.txt
 .env
 __pycache__/
 *.pyc
@@ -11,6 +12,8 @@ scripts/.run_get_artist_data_state.jsonl
 node_modules/
 dist/
 *.log
+# msys bash 崩溃转储：落进 apps/web/src 会让 Vite 的 watch EBUSY 退出
+*.stackdump
 *.tsbuildinfo
 .vite/
 

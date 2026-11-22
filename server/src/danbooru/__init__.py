@@ -326,12 +326,6 @@ class DanbooruClient:
         msg = "retry loop exited without returning"
         raise RuntimeError(msg)
 
-    def get_post(self, post_id: int) -> DanbooruPost:
-        url: str = f"posts/{post_id}.json"
-        response = self._get_with_retry(url, {"api_key": self.api_key, "login": self.user_id})
-        response.raise_for_status()
-        return DanbooruPost(**response.json())
-
     def get_posts(  # noqa: PLR0913, PLR0917
         self,
         key: str | None = None,

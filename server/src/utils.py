@@ -44,7 +44,7 @@ def calculate_sha256(file: bytes) -> str:
 # that decodes to a 33-element rectangle mosaic — abstract enough to read
 # as a placeholder, detailed enough to hint at the image's layout, and
 # cheap enough on the frontend to animate 50+ tiles at once. Must match
-# the codec the frontend uses to decode (see web/src/utils/arthash.ts).
+# the codec the frontend uses to decode (see apps/web/src/utils/arthash.ts).
 ARTHASH_CODEC = Codec.rect(n=32)
 
 

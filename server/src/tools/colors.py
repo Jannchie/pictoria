@@ -29,11 +29,5 @@ def get_palette(image: ImageSource, *, colors: int = 5) -> tuple[tuple[int, int,
     return tuple(color_thief.get_palette(color_count=colors, quality=quality))
 
 
-def get_dominant_color(image: ImageSource) -> tuple[int, int, int]:
-    image, quality = _prepare_image(image)
-    color_thief = ColorThief(image)
-    return color_thief.get_color(quality=quality)
-
-
 def rgb2int(rgb: tuple[int, int, int]) -> int:
     return (rgb[0] << 16) + (rgb[1] << 8) + rgb[2]

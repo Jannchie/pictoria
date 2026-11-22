@@ -1,13 +1,12 @@
 """SigLIP 2 image/text embedding forward pass (DB-free).
 
-The image/text encoders used once the search backend migrates from CLIP
-(``ai.clip``) to SigLIP 2. Structurally a drop-in for ``ai.clip``: image
-features feed the backfill worker into ``post_vectors_siglip2``, and text
-features feed ``/search/text`` for multilingual text-to-image search.
+The library's only retrieval encoder (CLIP was removed). Image features go
+back to the API, which stores them in ``post_vectors_siglip2``; text features
+back the multilingual text-to-image search.
 
 The backbone is ``google/siglip2-so400m-patch14-384`` (1152-d, multilingual
-text tower). It shares no weights with the SigLIP **v1** so400m used by the
-aesthetic scorer, so the two load as independent models on the GPU.
+text tower). The SILVA scorer (``ai.silva_scorer``) is a small head over these
+same embeddings, so it loads no second backbone.
 """
 
 import threading
