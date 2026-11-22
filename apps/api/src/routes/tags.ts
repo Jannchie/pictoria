@@ -5,7 +5,7 @@ import { createRoute, z } from '@hono/zod-openapi'
 import { listTagGroups, listTagsWithCounts } from '@pictoria/db'
 import { newRoutes } from '../env.js'
 import { OK, errors } from '../openapi.js'
-import { TagGroupPublic } from '../schemas.js'
+import { langQuery, TagGroupPublic } from '../schemas.js'
 import { translateTag } from '../tag-i18n.js'
 import { tagTree } from '../tag-tree.js'
 
@@ -38,8 +38,7 @@ tagsRoutes.openapi(
         // 消失，于是整张 tags 表连同每行一次 translateTag 一起序列化出去。
         limit: z.coerce.number().int().positive().nullable().optional()
           .openapi({ param: { name: 'limit', in: 'query', required: false }, type: ['integer', 'null'] }),
-        lang: z.string().default('zh-Hans')
-          .openapi({ param: { name: 'lang', in: 'query', required: false } }),
+        lang: langQuery,
       }),
     },
     responses: {
@@ -84,8 +83,7 @@ tagsRoutes.openapi(
       + '(which carry the danbooru tag *type*); covers general tags only.',
     request: {
       query: z.object({
-        lang: z.string().default('zh-Hans')
-          .openapi({ param: { name: 'lang', in: 'query', required: false } }),
+        lang: langQuery,
       }),
     },
     responses: {

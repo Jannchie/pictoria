@@ -16,7 +16,7 @@ import {
 import { newRoutes } from '../env.js'
 import { PostFilterSchema as PostFilter, TagCountRequestSchema as TagCountRequest } from '../filter-schema.js'
 import { OK, errors } from '../openapi.js'
-import { searchTagsByTranslation, translateTag } from '../tag-i18n.js'
+import { DEFAULT_LANG, searchTagsByTranslation, translateTag } from '../tag-i18n.js'
 
 const CountPostsResponse = z.object({ count: z.int() }).openapi('CountPostsResponse')
 const RatingCountItem = z.object({ rating: z.int(), count: z.int() }).openapi('RatingCountItem')
@@ -159,12 +159,12 @@ postCountsRoutes.openapi(
     const rows = await c.var.reads.countByTag(filter as DbPostFilter, {
       query: query ?? '',
       limit: limit ?? 50,
-      extraNames: searchTagsByTranslation(query ?? '', lang ?? 'zh-Hans'),
+      extraNames: searchTagsByTranslation(query ?? '', lang ?? DEFAULT_LANG),
     })
     return c.json(rows.map(r => ({
       tagName: r.tag_name,
       count: r.count,
-      translatedName: translateTag(r.tag_name, lang ?? 'zh-Hans'),
+      translatedName: translateTag(r.tag_name, lang ?? DEFAULT_LANG),
     })), 200)
   },
 )

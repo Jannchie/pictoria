@@ -15,8 +15,8 @@ import type { SqliteHandle } from '@pictoria/db'
 import type { DanbooruImports } from './danbooru-imports.js'
 import type { DedupRebuilder } from './dedup.js'
 import type { AppReads } from './read-cache.js'
-import type { UrlImports } from './routes/commands.js'
-import type { FolderTree } from './routes/folders.js'
+import type { UrlImports } from './url-imports.js'
+import type { FolderTree } from './folder-tree.js'
 import { OpenAPIHono } from '@hono/zod-openapi'
 import { zodErrorHook } from './openapi.js'
 
@@ -38,7 +38,7 @@ export interface AppVariables {
   tasks: TaskSource
   /** Danbooru 导入的后台作业队列。每个 app 一个（纯内存），见 `danbooru-imports.ts`。 */
   danbooruImports: DanbooruImports
-  /** URL（gallery-dl）导入的状态机，同一时刻最多一次。每个 app 一个（纯内存），见 `routes/commands.ts`。 */
+  /** URL（gallery-dl）导入的状态机，同一时刻最多一次。每个 app 一个（纯内存），见 `url-imports.ts`。 */
   urlImports: UrlImports
   /**
    * 整库向量 KNN（相似图、文搜图）与重计数。生产是读线程池，别在主线程上跑它们 —— 一次
@@ -47,7 +47,7 @@ export interface AppVariables {
    * （`read-cache.ts`）。
    */
   reads: AppReads
-  /** `/v2/folders` 的目录树缓存与监视（`routes/folders.ts`）。每个 app 一个。 */
+  /** `/v2/folders` 的目录树缓存与监视（`folder-tree.ts`）。每个 app 一个。 */
   folderTree: FolderTree
   /** 近重复重建的串行化（`dedup.ts`）。同一个库与调度器共用一个实例。 */
   dedup: DedupRebuilder

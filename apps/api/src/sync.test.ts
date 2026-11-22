@@ -104,6 +104,23 @@ function breakDir(dirName: string): void {
   }) as typeof fs.promises.readdir)
 }
 
+// 上传端点和 sync 共用这一个拆法（`routes/post-upload.ts`）；两边不一致时上传的行会被
+// 下一次 sync 当成已删除。纯函数，不需要按库根重载模块。
+describe('splitName', () => {
+  it.each([
+    ['a.png', ['a', 'png']],
+    ['a.b.png', ['a.b', 'png']],
+    ['.png', ['.png', '']],
+    ['.gitignore', ['.gitignore', '']],
+    ['.hidden.png', ['.hidden', 'png']],
+    ['noext', ['noext', '']],
+    ['a.', ['a', '']],
+  ])('%s → %o', async (name, expected) => {
+    const { splitName } = await import('./sync.js')
+    expect(splitName(name)).toEqual(expected)
+  })
+})
+
 describe('scanLibrary', () => {
   it('走得通的库根 failedDirs 为空', async () => {
     const root = path.join(tmp, 'lib')

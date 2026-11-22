@@ -1,6 +1,6 @@
 /**
  * 导入器共用的分块循环：Danbooru 导入（`danbooru-imports.ts`）和 URL 导入
- * （`routes/commands.ts`）都是"把一长串待下载项切块，一块交给 worker 下载，回来立刻落库"。
+ * （`url-imports.ts`）都是"把一长串待下载项切块，一块交给 worker 下载，回来立刻落库"。
  *
  * 规矩只在这里写一次：
  *

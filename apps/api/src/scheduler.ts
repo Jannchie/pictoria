@@ -122,7 +122,7 @@ const scanTurn = createYieldQueue()
  *
  * 只认 ENOENT / ENOTDIR：读权限之类的错误交给 worker 去报（它会进真正的失败黑名单）。
  */
-export async function missingOnDisk(items: ReadonlyArray<{ postId: number, path?: unknown }>): Promise<number[]> {
+async function missingOnDisk(items: ReadonlyArray<{ postId: number, path?: unknown }>): Promise<number[]> {
   const checks = await Promise.all(items.map(async (item) => {
     if (typeof item.path !== 'string')
       return null
@@ -274,8 +274,8 @@ function loop(
  * embedding 有（近重复重组）。
  *
  * 触发时机是**待办清空的那一刻**，不是每一批之后 —— 一次重建是全库分块矩阵乘，
- * 分钟级；每 16 张图触发一次等于让 GPU 什么正事都干不成。Python 侧 `run_all_backfill`
- * 跑完整轮才 fire 一次，这里的"清空即一轮结束"是它的等价物。
+ * 分钟级；每 16 张图触发一次等于让 GPU 什么正事都干不成。已退役的 Python 版
+ * `run_all_backfill` 跑完整轮才 fire 一次，这里的"清空即一轮结束"是它的等价物。
  *
  * 钩子是**即发即弃**的，并按 `spec.drainCooldownMs` 合并：持续上传时待办每几十秒就
  * 清空一次，原来每次都 await 一次全库重建，循环自己停着，API 也被重建的同步段拖住。

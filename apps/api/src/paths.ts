@@ -8,7 +8,7 @@
  *
  * 只覆盖 TS 侧。Python 侧的对应物是 `server/src/paths.py`（根由 `--target_dir` 传入）；
  * 但 worker 需要的具体路径（缩略图等）一律由这里算好放进任务 payload，Python 只做
- * `_resolve_inside` 包含检查。相对的覆盖值（`PICTORIA_TARGET_DIR`/`DB_PATH`/
+ * 包含检查（`server/src/worker/handlers.py` 的 `_resolve_inside`）。相对的覆盖值（`PICTORIA_TARGET_DIR`/`DB_PATH`/
  * `TASKS_DB_PATH`）两边都锚到仓库根，与各进程的 cwd 无关。
  */
 import fs from 'node:fs'
@@ -27,6 +27,11 @@ const REPO_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..
 /** 供其它模块解析仓库内相对路径。 */
 export function repoRoot(): string {
   return REPO_ROOT
+}
+
+/** 随仓库提交的静态数据表（tag 翻译 `tag.<lang>.json`、分类树 `tag-tree.json`）所在目录。 */
+export function serverDataDir(): string {
+  return path.resolve(REPO_ROOT, 'server/data')
 }
 
 /**
@@ -51,15 +56,16 @@ export const targetDir = once(() =>
 
 /**
  * 库内的进程私有目录。下面每一样东西都由它派生 —— 这一层单独拿出来，是因为它
- * 不只是"少拼一次字符串"：watcher 的自忽略（`sync.ts`）、删目录的守卫和 walk 的
- * 跳过（`routes/folders.ts`）必须和缩略图、两个 sqlite 落在**同一个**目录，否则
+ * 不只是"少拼一次字符串"：watcher 的自忽略（`sync.ts`）、删目录的守卫
+ * （`routes/folders.ts`）和 walk 的跳过（`folder-tree.ts`）必须和缩略图、两个 sqlite
+ * 落在**同一个**目录，否则
  * 表现是"写缩略图触发自己的 watcher 形成回环"或"删完目录 sync 又把它导回来"，
  * 两种都不报错。
  */
 export const pictoriaDir = once(() => path.resolve(targetDir(), '.pictoria'))
 
 /** 缩略图根。TS 侧布局变了只改这里，不然会留下一地孤儿文件（Python worker 有自己的一份）。 */
-export const thumbnailsDir = once(() => path.resolve(pictoriaDir(), 'thumbnails'))
+const thumbnailsDir = once(() => path.resolve(pictoriaDir(), 'thumbnails'))
 
 /**
  * 一个 post 的缩略图绝对路径 —— 缩略图与原图**同相对路径**，只是换了根。
@@ -67,8 +73,8 @@ export const thumbnailsDir = once(() => path.resolve(pictoriaDir(), 'thumbnails'
  * 单独成一个导出而不是在调用点写 `path.resolve(thumbnailsDir(), rel)`：那一句在四处
  * 出现过，而布局哪天变了，漏掉一处的表现不是编译错误，是 worker 打不开文件。
  *
- * 需要顺带挡住路径逃逸时（`rel` 来自请求）用 `resolveInside(thumbnailsDir(), rel)`，
- * 不要用这个 —— 这个假设 `rel` 已经是库里的行。
+ * 这个假设 `rel` 已经是库里的行。`rel` 来自请求时先过 `resolveLibraryPath` 拿到库内
+ * 路径再换算过来（图片端点的缩略图就是这么做的），不要直接把请求参数传进来。
  */
 export function thumbnailPathFor(relPath: string): string {
   return path.resolve(thumbnailsDir(), relPath)
@@ -82,7 +88,7 @@ export function thumbnailPathFor(relPath: string): string {
  * 碰巧 worker 和 fs 都认，但"同一个文件两种写法"迟早在某次字符串比较里咬人。
  *
  * 和 `thumbnailPathFor` 一样假设 `relPath` 已经是库里的行；来自请求的路径用
- * `resolveInside(targetDir(), rel)`。
+ * `resolveLibraryPath(rel)`。
  */
 export function postAbsPath(relPath: string): string {
   return path.resolve(targetDir(), relPath)
@@ -147,12 +153,31 @@ export function isDedupMatrix(name: string): boolean {
     || (name.startsWith(DEDUP_MATRIX_PREFIX) && name.endsWith(DEDUP_MATRIX_EXT))
 }
 
+/** 前缀 / 扩展名里的正则元字符（`.f32` 的点）按字面量匹配。 */
+function escapeRegExp(s: string): string {
+  return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+}
+
+const DEDUP_MATRIX_PID = new RegExp(`^${escapeRegExp(DEDUP_MATRIX_PREFIX)}(\\d+)-\\d+${escapeRegExp(DEDUP_MATRIX_EXT)}$`)
+
+/**
+ * 一个临时矩阵文件名里写着的 pid —— `dedup.ts` 给的 tag 是 `<pid>-<时间戳>`；不是这个
+ * 形状（包括无 tag 的旧固定名）就是 `null`。`dedup.ts` 拿它判断残留是不是另一个还活着的
+ * 进程的。和 `isDedupMatrix` 一样由上面那两个常量拼出来，理由同上。
+ */
+export function dedupMatrixPid(name: string): number | null {
+  const m = DEDUP_MATRIX_PID.exec(name)
+  return m ? Number(m[1]) : null
+}
+
 /**
  * `target` 是否落在 `root` 之内（含 `root` 自身）。
  *
- * 加分隔符再比前缀：否则 `/lib-secret` 会被判定在 `/lib` 之内。两个调用方
- * （`routes/images.ts` 读文件、`routes/folders.ts` 删目录）都是安全判定，
- * 分成两份实现迟早分叉。
+ * 加分隔符再比前缀：否则 `/lib-secret` 会被判定在 `/lib` 之内。调用方：本文件的
+ * `resolveInside` / `resolvePublicInside` / `isPublicLibraryPath`（图片端点读文件、
+ * 上传写文件都经它们）、`routes/folders.ts` 删目录的守卫，以及 `sync.ts` /
+ * `folder-tree.ts` 两个文件监视器对 `.pictoria/` 的自忽略。前两类是安全判定，
+ * 分成几份实现迟早分叉。
  */
 export function isInside(target: string, root: string): boolean {
   // NTFS 不区分大小写：`.PICTORIA` 和 `.pictoria` 是同一个目录，按字节比会被绕过。

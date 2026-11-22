@@ -9,11 +9,16 @@
 import fs from 'node:fs'
 import path from 'node:path'
 import { createLogger } from './log.js'
-import { repoRoot } from './paths.js'
+import { serverDataDir } from './paths.js'
 
 const log = createLogger('tag-i18n')
 
-const DATA_DIR = 'server/data'
+/**
+ * 请求没带 `lang` 时 tag 显示名用的语言。各路由的 `lang` 查询参数（`schemas.ts` 的
+ * `langQuery`）、过滤器 body 的 `lang` 和这里的函数默认值都取它，不各写一份字面量。
+ */
+export const DEFAULT_LANG = 'zh-Hans'
+
 /** `tag.<lang>.json`。`lang` 只收字母和连字符 —— 这一条同时就是路径安全边界。 */
 const TABLE_FILE = /^tag\.([a-z]{2,3}(?:-[A-Za-z]+)*)\.json$/
 
@@ -46,14 +51,14 @@ const supportedLangs = (() => {
       return cached
     cached = new Set<string>()
     try {
-      for (const name of fs.readdirSync(path.resolve(repoRoot(), DATA_DIR))) {
+      for (const name of fs.readdirSync(serverDataDir())) {
         const m = TABLE_FILE.exec(name)
         if (m)
           cached.add(m[1]!)
       }
     }
     catch (err) {
-      log.warn(`读不到 ${DATA_DIR}，所有 tag 都不翻译：${String(err)}`)
+      log.warn(`读不到 ${serverDataDir()}，所有 tag 都不翻译：${String(err)}`)
     }
     return cached
   }
@@ -71,7 +76,7 @@ function table(lang: string): Record<string, string> {
   if (hit)
     return hit
 
-  const file = path.resolve(repoRoot(), DATA_DIR, `tag.${lang}.json`)
+  const file = path.resolve(serverDataDir(), `tag.${lang}.json`)
   let loaded: Record<string, string> = {}
   try {
     loaded = JSON.parse(fs.readFileSync(file, 'utf8')) as Record<string, string>
@@ -88,12 +93,12 @@ function table(lang: string): Record<string, string> {
  *
  * `en` 走的是"没有表"那条路（见 `supportedLangs`）：原始 tag 名就是英文显示名。
  */
-export function translateTag(name: string, lang = 'zh-Hans'): string | null {
+export function translateTag(name: string, lang = DEFAULT_LANG): string | null {
   return table(lang)[name] ?? null
 }
 
 /**
- * `IN (...)` 参数表的上限，与 Python 侧 `MAX_TRANSLATION_MATCHES` 同值。
+ * `IN (...)` 参数表的上限（值承自已退役的 Python 侧同名常量）。
  *
  * 只有单个 CJK 字符的查询才会接近它；SQLite 的变量上限是 32766，5000 给调用方的
  * 其它参数留足了余量。
@@ -123,10 +128,10 @@ function index(lang: string): Array<[string, string]> {
  * 大小写不敏感的子串匹配，线性扫 —— 10 万条表上几毫秒，躲在前端 250ms 的防抖后面
  * 完全够用。空查询返回 `[]`；`en` 也是（没有表，而用户输入的本来就是原始 tag 名）。
  *
- * 注：Python 侧用 `str.casefold()`，JS 只有 `toLowerCase()`。两者只在 'ß'→'ss'
- * 这类欧洲语言的特殊折叠上不同，而这张表里是 CJK 显示名，落不到那个差异上。
+ * 注：已退役的 Python 版用的是 `str.casefold()`，这里是 `toLowerCase()`。两者只在
+ * 'ß'→'ss' 这类欧洲语言的特殊折叠上不同，而这张表里是 CJK 显示名，落不到那个差异上。
  */
-export function searchTagsByTranslation(query: string, lang = 'zh-Hans'): string[] {
+export function searchTagsByTranslation(query: string, lang = DEFAULT_LANG): string[] {
   const q = query.trim().toLowerCase()
   if (!q)
     return []

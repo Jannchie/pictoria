@@ -10,7 +10,7 @@ import os from 'node:os'
 import path from 'node:path'
 import process from 'node:process'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
-import { isInside, resolveInside, resolvePublicInside } from './paths.js'
+import { dedupMatrixPath, dedupMatrixPid, isDedupMatrix, isInside, resolveInside, resolvePublicInside } from './paths.js'
 
 const win = process.platform === 'win32'
 
@@ -124,5 +124,26 @@ describe('resolvePublicInside', () => {
         fs.rmdirSync(link)
       }
     }
+  })
+})
+
+// 造名字（`dedupMatrixPath`）和认名字（`isDedupMatrix` / `dedupMatrixPid`）必须对得上：
+// 对不上时回收静默停摆，或者替另一个活着的进程删了它正在写的矩阵。
+describe('dedupMatrixPid', () => {
+  it('从 dedupMatrixPath 造出的名字里读回 pid', () => {
+    const name = path.basename(dedupMatrixPath('4242-1700000000000'))
+    expect(isDedupMatrix(name)).toBe(true)
+    expect(dedupMatrixPid(name)).toBe(4242)
+  })
+
+  it.each([
+    'dedup-vectors.f32',
+    'dedup-vectors-abc-1.f32',
+    'dedup-vectors-12.f32',
+    'dedup-vectors-12-3.f32.bak',
+    'dedup-vectors-12-3xf32',
+    'other-12-3.f32',
+  ])('%s → null', (name) => {
+    expect(dedupMatrixPid(name)).toBeNull()
   })
 })

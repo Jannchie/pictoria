@@ -58,11 +58,9 @@ import {
 import process from 'node:process'
 import { yieldToEventLoop } from './event-loop.js'
 import { createLogger, type Log } from './log.js'
-import { dedupMatrixPath, isDedupMatrix, pictoriaDir, thumbnailPathFor } from './paths.js'
+import { dedupMatrixPath, dedupMatrixPid, isDedupMatrix, pictoriaDir, thumbnailPathFor } from './paths.js'
 
 const defaultLog = createLogger('dedup')
-
-export { DEDUP_THRESHOLD }
 
 /**
  * 一次重建最多等多久。
@@ -72,7 +70,10 @@ export { DEDUP_THRESHOLD }
  */
 const REBUILD_TIMEOUT_MS = 30 * 60_000
 
-/** 大到值得人眼抽查一次的组。`assignFromEdges` 的上限是 40，这里只是"看一眼"的线。 */
+/**
+ * 大到值得人眼抽查一次的组。不是上限 —— `assignFromEdges` 默认不限组大小（只有手动
+ * 重建带了 `max_group_size` 才设），这里只是"看一眼"的线。
+ */
 const BIG_GROUP = 20
 
 /**
@@ -114,7 +115,7 @@ function formatSizeHistogram(sizes: Map<number, number>): string {
 }
 
 /** 灰带里的一对：已经翻译成 post id，带着召回时的 SigLIP 距离。 */
-export interface GreyPair {
+interface GreyPair {
   a: number
   b: number
   dist: number
@@ -171,7 +172,7 @@ export class DedupRebuilder {
   /** 本实例正在用的临时矩阵（绝对路径）—— 回收残留时要跳过它。 */
   readonly activeFiles = new Set<string>()
 
-  /** 端点用它做"忙不忙"的判断 —— 和 Python 侧 `rebuild_lock.locked()` 同义。 */
+  /** 端点用它做"忙不忙"的判断（已删除的 Python 版里是 `rebuild_lock.locked()`）。 */
   isRebuilding(): boolean {
     return this.inFlight !== null
   }
@@ -180,7 +181,7 @@ export class DedupRebuilder {
    * 从头重算每个 post 的分组，返回被归组的成员数。
    *
    * 已经有一次在跑时**等它**而不是跳过：触发这一次的那些新向量同样值得一次重组，
-   * 只是可以等在流程后面（Python 侧 `group_near_duplicates` 的同款选择）。
+   * 只是可以等在流程后面（承自已删除的 Python 版 `group_near_duplicates` 的同款选择）。
    */
   async rebuild(
     sqlite: SqliteHandle,
@@ -644,11 +645,8 @@ async function readEdgesByLeftYielding(
  * 只是这一轮不回收，下一轮再来。
  */
 function ownedByAnotherLiveProcess(name: string): boolean {
-  const m = /^dedup-vectors-(\d+)-\d+\.f32$/.exec(name)
-  if (!m)
-    return false
-  const pid = Number(m[1])
-  if (pid === process.pid)
+  const pid = dedupMatrixPid(name)
+  if (pid === null || pid === process.pid)
     return false
   try {
     process.kill(pid, 0)

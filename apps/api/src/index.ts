@@ -1,15 +1,16 @@
 import type { CairnQ } from 'cairnq'
 import process from 'node:process'
 import { serve } from '@hono/node-server'
+import { BACKFILL_WORKERS } from '@pictoria/db'
 import { createApp } from './app.js'
 import { getDb, migrate } from './db.js'
 import { rebuilderFor } from './dedup.js'
 import { createLogger } from './log.js'
 import { OPTIMIZE_INTERVAL_MS, optimizeDb } from './optimize.js'
-import { BACKFILL_LOOP_KEYS, setSchedulerState } from './queue-status.js'
+import { setSchedulerState } from './queue-status.js'
 import { dbPath, targetDir } from './paths.js'
 import { createReadPool, inProcessReads, readThreadsFromEnv } from './read-pool.js'
-import { FolderTree } from './routes/folders.js'
+import { FolderTree } from './folder-tree.js'
 import { startBackfills } from './scheduler.js'
 import { startAutoSync } from './sync.js'
 import { getTasks, peekTasks } from './tasks.js'
@@ -60,7 +61,7 @@ const reads = readThreads > 0
   ? createReadPool({ dbPath: dbPath(), size: readThreads })
   : inProcessReads(getDb().sqlite)
 
-// 目录树挂文件监视：之后的 `/v2/folders` 只重读变了的目录（见 `routes/folders.ts`）。
+// 目录树挂文件监视：之后的 `/v2/folders` 只重读变了的目录（见 `folder-tree.ts`）。
 // 启动时先在后台冷走一遍，第一次点开侧边栏就不用等。
 const folderTree = new FolderTree({ watch: true })
 folderTree.warm(targetDir())
@@ -115,7 +116,7 @@ if (process.env.PICTORIA_SCHEDULER !== '0') {
     // 磁盘变化和定时轮询都会触发一次对账 —— 形状承自已删除的 app.py 里的 watchdog +
     // 10 分钟 poller。建出新行时 `insertPostTriples` 自己叫醒 backfill 循环。
     startAutoSync(sqlite)
-    schedulerLog.info(`backfill 调度已启动：${BACKFILL_LOOP_KEYS.join(', ')}`)
+    schedulerLog.info(`backfill 调度已启动：${BACKFILL_WORKERS.join(', ')}`)
     createLogger('sync').info('文件监视 + 10 分钟轮询已启动')
     setSchedulerState({ kind: 'running' })
   })().catch((err: unknown) => {

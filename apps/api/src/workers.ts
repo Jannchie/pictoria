@@ -149,7 +149,7 @@ function imageItems(pending: PendingImage[]): ImageItem[] {
  * SILVA：输入是已存的向量，输出一个标量。按 `SCORERS` 每个打分器一份。
  *
  * 失败不拉黑 —— 能取到向量就应该能打分，所以失败是暂时的/代码的问题，值得下一轮
- * 重试，而不是把这批数据永久跳过（与 Python 侧的 `blacklist_policy = never` 同义）。
+ * 重试，而不是把这批数据永久跳过（即已退役的 Python 版里的 `blacklist_policy = never`）。
  */
 function silvaSpec(scorer: AestheticScorerName): WorkerSpec<{ postId: number }, SilvaPayload, SilvaResult> {
   return {

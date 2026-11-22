@@ -1,13 +1,14 @@
 /** `/v2/queues/status` —— 后台队列的完成情况、速度与剩余时间，给侧栏的同步状态区。 */
 import { createRoute, z } from '@hono/zod-openapi'
 import { CPU_QUEUE, GPU_QUEUE, INTERACTIVE_QUEUE, IO_QUEUE } from '@pictoria/contracts'
+import { BACKFILL_WORKERS } from '@pictoria/db'
 import { OK } from '../openapi.js'
-import { BACKFILL_LOOP_KEYS, schedulerStatus } from '../queue-status.js'
+import { schedulerStatus } from '../queue-status.js'
 import { newRoutes } from '../env.js'
 
 const LoopStatus = z
   .object({
-    key: z.string().openapi({ description: `循环名：${BACKFILL_LOOP_KEYS.map(k => `\`${k}\``).join(' / ')}。` }),
+    key: z.string().openapi({ description: `循环名：${BACKFILL_WORKERS.map(k => `\`${k}\``).join(' / ')}。` }),
     queue: z.string(),
     state: z.enum(['idle', 'working', 'error']),
     remaining: z.int().nullable().openapi({ description: '还剩多少条；`null` = 还没数出来（第一遍计数在后台进行中）。两次精确计数之间是估计值。' }),

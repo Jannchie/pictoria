@@ -97,7 +97,7 @@ const DOWNLOAD_TIMEOUT_MS = 20 * 60_000
  * Windows 不允许文件名里出现 `<>:"/\|?*`；`re:rin` 这种 Danbooru 标签否则会
  * mkdir 失败。控制字符一并替换掉，尾部的点和空格也要削掉（Windows 不允许）。
  */
-export function safeDirName(name: string): string {
+function safeDirName(name: string): string {
   let out = ''
   for (const ch of name)
     out += '<>:"/\\|?*'.includes(ch) || ch < ' ' ? '_' : ch
@@ -210,7 +210,7 @@ export class DanbooruImports {
    *
    * 收尾全在 `finally`：置 finishedAt、移出 `active`（这就是让出并发槽）、继续 pump。`execute` 里任何一处
    * `return`（列表为空、没有待下载）都不会跳过它 —— URL 导入第一版就是把提前退出和
-   * 收尾写在一起，结果空结果的导入永远停在 running（见 `routes/commands.ts` 的
+   * 收尾写在一起，结果空结果的导入永远停在 running（见 `url-imports.ts` 的
    * `importOnce`）。
    */
   private async run(job: DanbooruImportJob): Promise<void> {

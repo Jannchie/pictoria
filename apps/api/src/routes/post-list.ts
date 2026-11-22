@@ -7,7 +7,7 @@ import { listPaginated, listSimpleByIdsPreservingOrder, searchPosts, type PostFi
 import { newRoutes } from '../env.js'
 import { PostFilterWithOrderSchema, TextSearchRequestSchema as TextSearchRequest } from '../filter-schema.js'
 import { OK, errors } from '../openapi.js'
-import { PostDetailPublic, PostSimplePublic, toPostDetail, toPostSimple } from '../schemas.js'
+import { langQuery, PostDetailPublic, PostSimplePublic, toPostDetail, toPostSimple } from '../schemas.js'
 import { translateTag } from '../tag-i18n.js'
 
 const CursorResponse = z
@@ -34,8 +34,7 @@ postListRoutes.openapi(
           .openapi({ param: { name: 'start', in: 'query', required: false }, type: 'integer', default: 0 }),
         limit: z.coerce.number().int().min(1).default(100)
           .openapi({ param: { name: 'limit', in: 'query', required: false }, type: 'integer', default: 100 }),
-        lang: z.string().default('zh-Hans')
-          .openapi({ param: { name: 'lang', in: 'query', required: false } }),
+        lang: langQuery,
       }),
     },
     responses: {

@@ -38,7 +38,7 @@ import { afterAll } from 'vitest'
 import { createApp } from '../app.js'
 import { DanbooruImports, type DanbooruImportsOptions } from '../danbooru-imports.js'
 import { targetDir, thumbnailPathFor } from '../paths.js'
-import { UrlImports } from '../routes/commands.js'
+import { UrlImports } from '../url-imports.js'
 
 let libraryRoot: string | undefined
 

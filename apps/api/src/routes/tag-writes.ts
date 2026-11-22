@@ -23,7 +23,7 @@ import {
 } from '@pictoria/db'
 import { newRoutes } from '../env.js'
 import { CREATED, OK, errors, fail, postNotFound } from '../openapi.js'
-import { PostDetailPublic, Result, TagGroupPublic } from '../schemas.js'
+import { langQuery, PostDetailPublic, Result, TagGroupPublic } from '../schemas.js'
 import { translateTag } from '../tag-i18n.js'
 import { postDetailResponse, postIdParam } from './post-shared.js'
 
@@ -123,8 +123,7 @@ tagWritesRoutes.openapi(
         name: z.string().openapi({ param: { name: 'name', in: 'path', required: true } }),
       }),
       query: z.object({
-        lang: z.string().default('zh-Hans')
-          .openapi({ param: { name: 'lang', in: 'query', required: false } }),
+        lang: langQuery,
       }),
       body: { required: true, content: { 'application/json': { schema: TagUpdate } } },
     },

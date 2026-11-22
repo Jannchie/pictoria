@@ -93,3 +93,26 @@ describe('按路径读图：拒绝 `.pictoria/`', () => {
     expect((await t.app.request(`/v2/images/original/id/${id}`)).status).toBe(404)
   })
 })
+
+// 扩展名表要覆盖 db 包认作图片的每一种（`IS_IMAGE_EXTS`）：漏掉一种，那种图就以没有
+// content-type 的响应发出去。`.tif` 曾经就是漏掉的那个。
+describe('原图的 content-type', () => {
+  let t: TestApp | undefined
+
+  afterEach(() => {
+    t?.close()
+    t = undefined
+  })
+
+  it.each([
+    ['a.tif', 'image/tiff'],
+    ['a.tiff', 'image/tiff'],
+    ['a.JPG', 'image/jpeg'],
+  ])('%s → %s', async (name, type) => {
+    t = createTestApp()
+    t.writeFile(`art/${name}`, 'x')
+    const res = await t.app.request(`/v2/images/original/art/${name}`)
+    expect(res.status).toBe(200)
+    expect(res.headers.get('content-type')).toBe(type)
+  })
+})

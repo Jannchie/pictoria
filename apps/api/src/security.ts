@@ -20,7 +20,7 @@ import type { MiddlewareHandler } from 'hono'
 import process from 'node:process'
 import { fail } from './openapi.js'
 
-export const DEFAULT_ALLOWED_ORIGINS = ['http://localhost:4778', 'http://127.0.0.1:4778'] as const
+const DEFAULT_ALLOWED_ORIGINS = ['http://localhost:4778', 'http://127.0.0.1:4778'] as const
 
 /** 不管端口都放行的本机名字。端口对 rebinding 无关紧要，要防的是主机名。 */
 const LOOPBACK_HOSTS = ['localhost', '127.0.0.1', '[::1]']

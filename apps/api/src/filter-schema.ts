@@ -8,6 +8,7 @@
 import type { FilterableScorerKey } from '@pictoria/db'
 import { z } from '@hono/zod-openapi'
 import { FILTERABLE_SCORERS, levelsField, ORDERABLE_COLUMNS } from '@pictoria/db'
+import { DEFAULT_LANG } from './tag-i18n.js'
 
 // 排序列来自 `@pictoria/db` 的同一份 `ORDERABLE_COLUMNS`，不在这里重抄：抄的那份
 // 漂了不会有任何报错 —— `post-search.ts` 认的是 db 那份，多出来的列走到
@@ -59,7 +60,7 @@ export const TagCountRequestSchema = z
     ...baseFilter,
     query: z.string().default('').optional().describe("Substring filter on tag names."),
     limit: z.int().default(50).optional().describe("Max tags returned, by descending count."),
-    lang: z.string().default('zh-Hans').optional().describe("Locale for translated tag names (e.g. zh-Hans; en yields null)."),
+    lang: z.string().default(DEFAULT_LANG).optional().describe("Locale for translated tag names (e.g. zh-Hans; en yields null)."),
   })
   .openapi('TagCountRequest')
 

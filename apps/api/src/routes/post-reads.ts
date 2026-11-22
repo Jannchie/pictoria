@@ -5,7 +5,7 @@ import { createRoute, z } from '@hono/zod-openapi'
 import { getGroupMembers, groupHeadOf, listEdgesFor, listSimpleByIdsPreservingOrder } from '@pictoria/db'
 import { newRoutes } from '../env.js'
 import { OK, errors } from '../openapi.js'
-import { PostDetailPublic, PostSimplePublic, toPostSimple } from '../schemas.js'
+import { langQuery, PostDetailPublic, PostSimplePublic, toPostSimple } from '../schemas.js'
 import { postDetailResponse, postIdParam } from './post-shared.js'
 
 export const postReadsRoutes = newRoutes()
@@ -19,8 +19,7 @@ postReadsRoutes.openapi(
     request: {
       params: z.object({ post_id: postIdParam }),
       query: z.object({
-        lang: z.string().default('zh-Hans')
-          .openapi({ param: { name: 'lang', in: 'query', required: false } }),
+        lang: langQuery,
       }),
     },
     responses: {

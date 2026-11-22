@@ -7,7 +7,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { createApp } from '../app.js'
 import { thumbnailPathFor } from '../paths.js'
 import { createTestApp, requestJson, type TestApp } from '../testing/app.js'
-import { FolderTree } from './folders.js'
+import { FolderTree } from '../folder-tree.js'
 
 let t: TestApp
 

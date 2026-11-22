@@ -46,6 +46,7 @@ const MIME: Record<string, string> = {
   gif: 'image/gif',
   bmp: 'image/bmp',
   tiff: 'image/tiff',
+  tif: 'image/tiff',
   svg: 'image/svg+xml',
   ico: 'image/x-icon',
   heic: 'image/heic',

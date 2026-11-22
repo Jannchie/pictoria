@@ -15,11 +15,12 @@
 import fs from 'node:fs'
 import path from 'node:path'
 import { createLogger } from './log.js'
-import { repoRoot } from './paths.js'
+import { serverDataDir } from './paths.js'
+import { DEFAULT_LANG } from './tag-i18n.js'
 
 const log = createLogger('tag-tree')
 
-const TABLE_PATH = 'server/data/tag-tree.json'
+const TABLE_FILE = 'tag-tree.json'
 
 /** 表里实际带的语言。`en` 一定有（生成脚本用路径末段兜底）。 */
 const FALLBACK_LANG = 'en'
@@ -45,19 +46,19 @@ let cached: RawTable | undefined
 function table(): RawTable {
   if (cached)
     return cached
-  const file = path.resolve(repoRoot(), TABLE_PATH)
+  const file = path.resolve(serverDataDir(), TABLE_FILE)
   try {
     cached = JSON.parse(fs.readFileSync(file, 'utf8')) as RawTable
   }
   catch (err) {
     // 缺表不是致命的：分类只是展示层的组织方式，没有它前端回落到不分组。
-    log.warn(`读不到 ${TABLE_PATH}，标签分类不可用：${String(err)}`)
+    log.warn(`读不到 ${file}，标签分类不可用：${String(err)}`)
     cached = EMPTY
   }
   return cached
 }
 
-export interface TagCategory {
+interface TagCategory {
   path: string
   parent: string | null
   depth: number
@@ -72,7 +73,7 @@ export interface TagCategory {
  * 保留这个顺序是有意的：前端要按它自上而下渲染可折叠分组，重新排序会打乱上游
  * 精心安排的兄弟节点次序（比如 character 下 demographic 先于 depiction）。
  */
-export function tagTree(lang = 'zh-Hans'): TagCategory[] {
+export function tagTree(lang = DEFAULT_LANG): TagCategory[] {
   const raw = table()
   return raw.categories.map(c => ({
     path: c.path,

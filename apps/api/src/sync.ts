@@ -14,20 +14,27 @@ import path from 'node:path'
 import process from 'node:process'
 import { coalesceWithCooldown, yieldToEventLoop } from './event-loop.js'
 import { createLogger, type Log } from './log.js'
-import { pictoriaDir, postAbsPath, targetDir } from './paths.js'
+import { isInside, pictoriaDir, postAbsPath, targetDir } from './paths.js'
 import { deletePostFiles } from './post-files.js'
 
 const defaultLog = createLogger('sync')
 
 /** `(相对目录, 文件名主干, 扩展名)`，和 posts 表的三元组一一对应。 */
-export type FileTriple = PostTriple
+type FileTriple = PostTriple
 
 /** 目录绝对路径 → `(mtime_ns, 直接子文件)`。跨调用复用。 */
 type ScanCache = Map<string, { mtimeNs: bigint, files: FileTriple[] }>
 
 let scanCache: ScanCache = new Map()
 
-function splitName(name: string): [string, string] {
+/**
+ * 一个文件名 → posts 的 `(file_name, extension)`。
+ *
+ * 上传端点（`routes/post-upload.ts`）用的也是这一个：两边拆法不一样时，上传建的行和
+ * sync 扫到的文件对不上号，下一次 sync 会把那一行连同它的原图当成"已删除"抹掉、再把
+ * 文件登记成另一行。
+ */
+export function splitName(name: string): [string, string] {
   const dot = name.lastIndexOf('.')
   // `dot > 0` 而不是 `>= 0`：`.gitignore` 的主干是 `.gitignore`，不是空串。
   return dot > 0 ? [name.slice(0, dot), name.slice(dot + 1)] : [name, '']
@@ -38,7 +45,7 @@ function splitName(name: string): [string, string] {
  *
  * ⚠️ **异步**，而且必须是。同步版本实测让一次 22 万文件的扫描把事件循环占住
  * 2.5 秒 —— 期间连这个请求自己的 201 都发不出去，整个服务停摆。`await` 让每个
- * 目录之间都有让出点（Python 侧用 `asyncio.to_thread` 达到同样效果）。
+ * 目录之间都有让出点（已退役的 Python 版用 `asyncio.to_thread` 达到同样效果）。
  *
  * 跳过顶层任何以 `.` 开头的项（`.pictoria` 工作目录），以及任何位置的 `*.part`
  * —— 那是下载器的在途临时文件，不能被登记成 post。
@@ -54,7 +61,7 @@ function splitName(name: string): [string, string] {
  * 只记个数的话，一个永远读不动的目录（NAS 上的 System Volume Information、ACL
  * 受限的文件夹）会让全库的删除对账永久失效，健康目录里的删除也永远清不掉。
  */
-export interface ScanResult {
+interface ScanResult {
   files: FileTriple[]
   /** 读不动的目录的库内相对路径（根是 `'.'`）。非空意味着这次扫描不完整，删除判定按子树跳过它们。 */
   failedDirs: string[]
@@ -357,7 +364,7 @@ export async function syncSettled(): Promise<void> {
  * `startSync` 的结果：`started` = 这次调用开了一轮；`queued` = 已经有一轮在跑，记了一笔
  * 补跑 —— 两种情况下"调用之前落到磁盘上的变化"都会被某一轮同步看到。
  */
-export type SyncStart = 'started' | 'queued'
+type SyncStart = 'started' | 'queued'
 
 /**
  * 加了单飞的一次性入口：没在跑就开一轮，在跑就排一次补跑（见 `SyncState`）。
@@ -453,7 +460,7 @@ export function startAutoSync(
         return
       // 不对自己写的缩略图 / sqlite 起反应 —— 它们就在 .pictoria 下面，
       // 不排除的话同步会自己触发自己。
-      if (path.resolve(root, filename.toString()).startsWith(pictoriaDir()))
+      if (isInside(path.resolve(root, filename.toString()), pictoriaDir()))
         return
       clearTimeout(debounce)
       debounce = setTimeout(requestWatchSync, WATCH_DEBOUNCE_MS)

@@ -14,22 +14,25 @@ import { OpenAPIHono } from '@hono/zod-openapi'
 import { compress } from 'hono/compress'
 import { cors } from 'hono/cors'
 import { DanbooruImports } from './danbooru-imports.js'
+import { FolderTree } from './folder-tree.js'
 import { type DedupRebuilder, rebuilderFor } from './dedup.js'
 import { createLogger } from './log.js'
 import { fail } from './openapi.js'
 import { createAppReads, ReadCache } from './read-cache.js'
 import { inProcessReads, type Reads } from './read-pool.js'
 import { originGuard, originPolicyFromEnv } from './security.js'
+import { UrlImports } from './url-imports.js'
 import { annotationQueuesRoutes } from './routes/annotation-queues.js'
 import { annotationsRoutes } from './routes/annotations.js'
-import { commandsRoutes, UrlImports } from './routes/commands.js'
+import { commandsRoutes } from './routes/commands.js'
 import { danbooruImportsRoutes } from './routes/danbooru-imports.js'
-import { FolderTree, foldersRoutes } from './routes/folders.js'
+import { foldersRoutes } from './routes/folders.js'
 import { gradingRoutes } from './routes/grading.js'
 import { imagesRoutes } from './routes/images.js'
 import { postCountsRoutes } from './routes/post-counts.js'
 import { postListRoutes } from './routes/post-list.js'
 import { postReadsRoutes } from './routes/post-reads.js'
+import { postUploadRoutes } from './routes/post-upload.js'
 import { postWritesRoutes } from './routes/post-writes.js'
 import { queuesRoutes } from './routes/queues.js'
 import { tagsRoutes } from './routes/tags.js'
@@ -124,6 +127,7 @@ export function createApp({
   // "bulk" 会被当成 post_id 去 coerce 成 NaN。
   app.route('/', postCountsRoutes)
   app.route('/', postWritesRoutes)
+  app.route('/', postUploadRoutes)
   app.route('/', postListRoutes)
   app.route('/', postReadsRoutes)
 

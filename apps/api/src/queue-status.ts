@@ -26,14 +26,7 @@
  * 含了等卡的时间，所以"剩余 ÷ 速度"就是这条循环按当前节奏跑完要多久。
  */
 
-import { BACKFILL_WORKERS } from '@pictoria/db'
 import { yieldToEventLoop } from './event-loop.js'
-
-/**
- * 后台循环的 key，按启动顺序 —— 就是 `@pictoria/db` 的 `BACKFILL_WORKERS`（silva 家族
- * 每个打分器一条，由 `SCORERS` 生成）。`/v2/queues/status` 的字段说明和启动日志都从这里取。
- */
-export const BACKFILL_LOOP_KEYS = BACKFILL_WORKERS
 
 /** 前端可见的循环状态。`idle` = 最近一轮扫空；`working` = 正在消化积压；`error` = 最近一批抛了。 */
 export type LoopState = 'idle' | 'working' | 'error'

@@ -1,7 +1,7 @@
 /**
  * `/v2/annotations` 与 `/v2/annotation-queues` 共用的定义。
  *
- * 这两个 router 都被 `index.ts` 挂进同一个 app，所以 `.openapi(name)` 注册的是
+ * 这两个 router 都被 `app.ts` 挂进同一个 app，所以 `.openapi(name)` 注册的是
  * **同一个** 组件表。`QueueItemPostPublic` 曾在两边各定义一遍：字段今天一致所以
  * 无感，但注册表里只会留下后注册的那一份 —— 哪天只给其中一份加字段，
  * `/schema/openapi.json` 会静默取另一份，`pnpm genapi` 生成的类型对一半端点就是

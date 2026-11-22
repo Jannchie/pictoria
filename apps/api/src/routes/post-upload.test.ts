@@ -1,5 +1,6 @@
 /**
  * `POST /v2/posts/upload` 的 URL 分支：上游失败不落文件不建行，同一路径的并发上传回 409。
+ * 以及上传建的行与 sync 的拆名一致（上传之后跑一次 sync，行和文件都还在）。
  *
  * 远程下载走全局 `fetch`，这里换成假的；`app.request` 本身不经过它。
  */
@@ -7,6 +8,7 @@ import { Buffer } from 'node:buffer'
 import fs from 'node:fs'
 import path from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { syncMetadata } from '../sync.js'
 import { createTestApp, type TestApp } from '../testing/app.js'
 
 let t: TestApp
@@ -124,6 +126,39 @@ describe('POST /v2/posts/upload（文件）：目标与文件名', () => {
     const res = await uploadFile('a:b<c>.png..')
     expect(res.status).toBe(201)
     expect(fs.existsSync(path.join(t.root, 'a_b_c_.png'))).toBe(true)
+  })
+
+  // 上传建的行必须是 sync 扫盘时会得出的那个三元组，否则下一次 sync 会把行连同原图当成
+  // "已删除"抹掉。拆不出扩展名的、落在 sync 跳过的顶层点号项里的，一律 400、什么都不建。
+  it.each([
+    ['.png', { path: 'up' }],
+    ['.jpg', {}],
+    ['.hidden.png', {}],
+    ['a.png', { path: '.cache' }],
+    ['a.png', { path: '.cache/deep' }],
+  ] as Array<[string, Record<string, string>]>)('sync 对不上号的名字 %s (%o) → 400，不落文件不建行', async (name, extra) => {
+    const res = await uploadFile(name, extra)
+    expect(res.status).toBe(400)
+    expect(((await res.json()) as { error: string }).error).toBe('ValidationError')
+    expect(rows()).toBe(0)
+    expect(fs.readdirSync(t.root).filter(n => n !== '.pictoria')).toEqual([])
+  })
+
+  it.each([
+    ['a.png', {}],
+    ['.hidden.png', { path: 'up' }],
+    ['a.b.png', { path: 'up/deep' }],
+  ] as Array<[string, Record<string, string>]>)('上传 %s (%o) 之后 sync：行和文件都还在、不多不少', async (name, extra) => {
+    const res = await uploadFile(name, extra)
+    expect(res.status).toBe(201)
+    const before = t.sqlite.prepare('SELECT id, file_path, file_name, extension FROM posts').all()
+    expect(before).toHaveLength(1)
+
+    const quiet = { info: () => {}, warn: () => {} }
+    const result = await syncMetadata(t.sqlite, { log: quiet })
+    expect(result).toMatchObject({ added: 0, removed: 0 })
+    expect(t.sqlite.prepare('SELECT id, file_path, file_name, extension FROM posts').all()).toEqual(before)
+    expect(fs.existsSync(path.join(t.root, extra.path ?? '', name))).toBe(true)
   })
 
   it('url 上传的文件名取 URL 路径最后一段，不带 query', async () => {

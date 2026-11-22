@@ -42,6 +42,7 @@ import {
   ScaleSchema,
   VALID_STRATEGIES,
 } from './annotation-shared.js'
+import { postIdParam } from './post-shared.js'
 
 const VALID_FLAGS = ['love', 'hate', 'none'] as const
 
@@ -359,8 +360,7 @@ annotationsRoutes.openapi(
     description: 'Full annotation history for a post.',
     request: {
       params: z.object({
-        post_id: z.coerce.number().int()
-          .openapi({ param: { name: 'post_id', in: 'path', required: true }, type: 'integer' }),
+        post_id: postIdParam,
       }),
     },
     responses: {

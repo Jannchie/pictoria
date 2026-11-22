@@ -2,8 +2,9 @@
  * 进程级的单个 SQLite 连接。
  *
  * better-sqlite3 是同步的，不存在"连接被并发请求抢占"的问题 —— Node 的事件循环
- * 天然把查询串行化。所以这里一个连接就够，不需要连接池（Python 侧要 thread-local
- * 连接是因为它把同步调用扔进了线程池）。
+ * 天然把查询串行化。所以这里一个连接就够，不需要连接池（已退役的 Python 版要
+ * thread-local 连接，是因为它把同步调用扔进了线程池）。重的整库读另有只读连接，
+ * 跑在读线程里（`read-pool.ts`）。
  */
 import { createDb, MIGRATIONS_DIR, runMigrations } from '@pictoria/db'
 import { createLogger } from './log.js'

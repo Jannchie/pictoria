@@ -4,12 +4,17 @@
  * 字段声明顺序就是 JSON 里的键序，也是 hey-api 生成 TS 类型的顺序。
  */
 import { z } from '@hono/zod-openapi'
+import { DEFAULT_LANG } from './tag-i18n.js'
+
+/** `?lang=` —— tag 显示名的语言。所有带翻译名的路由共用这一个定义。 */
+export const langQuery = z.string().default(DEFAULT_LANG)
+  .openapi({ param: { name: 'lang', in: 'query', required: false } })
 
 export const TagGroupPublic = z
   .object({ id: z.int(), name: z.string(), color: z.string() })
   .openapi('TagGroupPublic')
 
-export const TagWithGroupPublic = z
+const TagWithGroupPublic = z
   .object({
     group: z.union([TagGroupPublic, z.null()]).optional(),
     name: z.string(),
@@ -19,11 +24,11 @@ export const TagWithGroupPublic = z
   })
   .openapi('TagWithGroupPublic')
 
-export const PostHasTagPublic = z
+const PostHasTagPublic = z
   .object({ isAuto: z.boolean(), tagInfo: TagWithGroupPublic })
   .openapi('PostHasTagPublic')
 
-export const PostHasColorPublic = z
+const PostHasColorPublic = z
   .object({ order: z.int(), color: z.int() })
   .openapi('PostHasColorPublic')
 
@@ -31,7 +36,7 @@ export const PostHasColorPublic = z
 export const Result = z.object({ msg: z.string() }).openapi('Result')
 
 
-export const AestheticScorePublic = z
+const AestheticScorePublic = z
   .object({ scorer: z.string(), score: z.number() })
   .openapi('AestheticScorePublic')
 
