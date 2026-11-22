@@ -5,6 +5,7 @@ import { useI18n } from 'vue-i18n'
 import { announce } from '@/shared/announce'
 import { shortcuts } from '@/shared/shortcuts'
 import { dismissUndoSnackbar, performRedo, performUndo, undoSnackbar } from '@/shared/undoSnackbar'
+import { PKbd } from '@/ui'
 import { focusElement } from '@/utils/focus'
 import { formatShortcut, isMac } from '@/utils/keyboard'
 
@@ -198,11 +199,14 @@ function onKeydown(e: KeyboardEvent) {
             >
               <i :class="actionIcon" aria-hidden="true" />
               {{ actionLabel }}
-              <kbd
+              <PKbd
                 v-if="shortcut"
-                class="text-2xs text-fg-subtle leading-none font-mono font-normal px-1 py-0.5 border border-border-subtle rounded-xs"
+                variant="flat"
+                class="font-normal"
                 aria-hidden="true"
-              >{{ shortcut.display }}</kbd>
+              >
+                {{ shortcut.display }}
+              </PKbd>
             </button>
           </template>
         </PToast>

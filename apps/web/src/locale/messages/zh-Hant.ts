@@ -287,7 +287,6 @@ const zhHant: MessageSchema = {
       previewAlt: '{name} 的預覽',
       openMember: '開啟相似圖片，{width} × {height}',
       tagsCopied: '已複製標籤',
-      copyFailed: '無法複製到剪貼簿',
       autoTagMarker: '（自動）',
       tagMenu: '標籤 {tag} 的操作',
       tagFilter: '加入篩選',

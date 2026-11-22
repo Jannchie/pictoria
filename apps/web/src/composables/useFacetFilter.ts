@@ -97,6 +97,28 @@ export function useFacetFilter<T extends string | number, TRow extends { count: 
   return { selected, has, toggle, filterWithoutSelf, countQuery, total, pct, opened }
 }
 
+/**
+ * Per-value lookup over a facet's count rows (`rowValue` reads the option a
+ * row counts; a repeated value keeps the last row). `count` is what the
+ * listbox's count column shows — undefined for an option with no row, which
+ * PFacetList renders exactly like 0. `optionCount` is what the option's
+ * accessible name says: undefined while the counts haven't loaded (no number
+ * spoken), 0 for an option missing from loaded rows.
+ */
+export function useFacetCounts<T, TRow extends { count: number }>(
+  rows: Ref<TRow[] | undefined>,
+  rowValue: (row: TRow) => T,
+) {
+  const byValue = computed(() => new Map((rows.value ?? []).map(row => [rowValue(row), row.count])))
+  function count(value: T): number | undefined {
+    return byValue.value.get(value)
+  }
+  function optionCount(value: T): number | undefined {
+    return rows.value ? (byValue.value.get(value) ?? 0) : undefined
+  }
+  return { count, optionCount }
+}
+
 // ---------------------------------------------------------------------------
 // Keyboard / AT model shared by every facet popover.
 //

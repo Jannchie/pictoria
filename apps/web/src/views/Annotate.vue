@@ -18,7 +18,7 @@ import { formatDateTime, formatNumber } from '@/locale'
 import { DIMENSION_META, dimensionMeta, PAIRWISE_STRATEGIES } from '@/shared/annotationTypes'
 import { deleteAnnotationQueue, generateAbsoluteQueue, generateListwiseQueue, generatePairwiseQueue } from '@/shared/mutations'
 import { queryKeys } from '@/shared/queryKeys'
-import { PSwitch } from '@/ui'
+import { PKbd, PSegmented, PSwitch } from '@/ui'
 import { useRovingFocus } from '@/ui/useRovingFocus'
 import { focusElement } from '@/utils/focus'
 
@@ -113,15 +113,11 @@ const KIND_LABEL_KEYS: Record<QueueKind, string> = {
 
 // Each option set is an APG radio group: one Tab stop, arrows move AND select (these
 // are plain settings, nothing is committed until Start), Space/Enter select too.
+// The mode cards are wired here; the segmented groups are PSegmented, which wires
+// the same roving focus itself.
 const ids = useId()
 const modeGroup = useTemplateRef<HTMLElement>('modeGroup')
-const pairingGroup = useTemplateRef<HTMLElement>('pairingGroup')
-const sizeGroup = useTemplateRef<HTMLElement>('sizeGroup')
-const scaleGroup = useTemplateRef<HTMLElement>('scaleGroup')
-const samplingGroup = useTemplateRef<HTMLElement>('samplingGroup')
-for (const container of [modeGroup, pairingGroup, sizeGroup, scaleGroup, samplingGroup]) {
-  useRovingFocus({ container, itemSelector: '[role=radio]', orientation: 'horizontal', onMove: el => el.click() })
-}
+useRovingFocus({ container: modeGroup, itemSelector: '[role=radio]', orientation: 'horizontal', onMove: el => el.click() })
 
 // ── 会话进 URL ───────────────────────────────────────────────────
 // 会话是 query 的投影：开始 = push 一条历史，Esc / 返回 = 后退，刷新回到同一种会话。
@@ -407,27 +403,12 @@ async function generateQueue() {
           {{ $t('annotate.pairing.title') }}
           <span class="annotate-section-note">{{ $t('annotate.pairing.note') }}</span>
         </div>
-        <div
-          ref="pairingGroup"
-          role="radiogroup"
+        <PSegmented
+          v-model="form.pairwiseStrategy"
+          :options="PAIRWISE_STRATEGIES.map(s => ({ value: s.value, label: $t(s.labelKey), title: $t(s.hintKey) }))"
           :aria-labelledby="`${ids}-pairing`"
           :aria-describedby="`${ids}-pairing-hint`"
-          class="annotate-segment"
-        >
-          <button
-            v-for="s in PAIRWISE_STRATEGIES"
-            :key="s.value"
-            type="button"
-            role="radio"
-            :aria-checked="form.pairwiseStrategy === s.value"
-            class="annotate-segment__item"
-            :class="{ 'annotate-segment__item--active': form.pairwiseStrategy === s.value }"
-            :title="$t(s.hintKey)"
-            @click="form.pairwiseStrategy = s.value"
-          >
-            {{ $t(s.labelKey) }}
-          </button>
-        </div>
+        />
         <p :id="`${ids}-pairing-hint`" class="text-xs text-fg-subtle leading-relaxed mt-2">
           {{ $t(PAIRWISE_STRATEGIES.find(s => s.value === form.pairwiseStrategy)?.hintKey ?? 'annotate.pairing.closeHint') }}
         </p>
@@ -439,27 +420,12 @@ async function generateQueue() {
           {{ $t('annotate.groupSize.title') }}
           <span class="annotate-section-note">{{ $t('annotate.groupSize.note') }}</span>
         </div>
-        <div
-          ref="sizeGroup"
-          role="radiogroup"
+        <PSegmented
+          v-model="form.listwiseSize"
+          :options="LISTWISE_SIZES.map(s => ({ value: s.value, label: $t('annotate.groupSize.option', { n: s.value }), title: $t(s.hintKey) }))"
           :aria-labelledby="`${ids}-size`"
           :aria-describedby="`${ids}-size-hint`"
-          class="annotate-segment"
-        >
-          <button
-            v-for="s in LISTWISE_SIZES"
-            :key="s.value"
-            type="button"
-            role="radio"
-            :aria-checked="form.listwiseSize === s.value"
-            class="annotate-segment__item"
-            :class="{ 'annotate-segment__item--active': form.listwiseSize === s.value }"
-            :title="$t(s.hintKey)"
-            @click="form.listwiseSize = s.value"
-          >
-            {{ $t('annotate.groupSize.option', { n: s.value }) }}
-          </button>
-        </div>
+        />
         <p :id="`${ids}-size-hint`" class="text-xs text-fg-subtle leading-relaxed mt-2">
           {{ $t(LISTWISE_SIZES.find(s => s.value === form.listwiseSize)?.hintKey ?? 'annotate.groupSize.hint4') }}
         </p>
@@ -504,41 +470,21 @@ async function generateQueue() {
           <div :id="`${ids}-scale`" class="annotate-section-title">
             {{ $t('annotate.scale.title') }}
           </div>
-          <div ref="scaleGroup" role="radiogroup" :aria-labelledby="`${ids}-scale`" class="annotate-segment">
-            <button
-              v-for="s in SCALES"
-              :key="s.value"
-              type="button"
-              role="radio"
-              :aria-checked="form.scale === s.value"
-              class="annotate-segment__item"
-              :class="{ 'annotate-segment__item--active': form.scale === s.value }"
-              :title="$t(s.hintKey)"
-              @click="form.scale = s.value"
-            >
-              {{ $t(s.labelKey) }}
-            </button>
-          </div>
+          <PSegmented
+            v-model="form.scale"
+            :options="SCALES.map(s => ({ value: s.value, label: $t(s.labelKey), title: $t(s.hintKey) }))"
+            :aria-labelledby="`${ids}-scale`"
+          />
         </div>
         <div>
           <div :id="`${ids}-sampling`" class="annotate-section-title">
             {{ $t('annotate.sampling.title') }}
           </div>
-          <div ref="samplingGroup" role="radiogroup" :aria-labelledby="`${ids}-sampling`" class="annotate-segment">
-            <button
-              v-for="s in STRATEGIES"
-              :key="s.value"
-              type="button"
-              role="radio"
-              :aria-checked="form.strategy === s.value"
-              class="annotate-segment__item"
-              :class="{ 'annotate-segment__item--active': form.strategy === s.value }"
-              :title="$t(s.hintKey)"
-              @click="form.strategy = s.value"
-            >
-              {{ $t(s.labelKey) }}
-            </button>
-          </div>
+          <PSegmented
+            v-model="form.strategy"
+            :options="STRATEGIES.map(s => ({ value: s.value, label: $t(s.labelKey), title: $t(s.hintKey) }))"
+            :aria-labelledby="`${ids}-sampling`"
+          />
         </div>
       </section>
 
@@ -547,12 +493,18 @@ async function generateQueue() {
         <i class="i-tabler-player-play" aria-hidden="true" />
         {{ $t('annotate.start') }}
       </PButton>
+      <!-- Key names as interpolations: the linter puts an attributed element's
+           content on its own line, and plain text there would gain spaces. -->
       <i18n-t keypath="annotate.startHint" tag="p" scope="global" class="text-xs text-fg-subtle mt-2.5 text-center">
         <template #esc>
-          <kbd class="annotate-kbd">Esc</kbd>
+          <PKbd size="md" class="annotate-kbd">
+            {{ 'Esc' }}
+          </PKbd>
         </template>
         <template #space>
-          <kbd class="annotate-kbd">Space</kbd>
+          <PKbd size="md" class="annotate-kbd">
+            {{ 'Space' }}
+          </PKbd>
         </template>
       </i18n-t>
 
@@ -748,44 +700,9 @@ async function generateQueue() {
   color: var(--p-fg-subtle);
 }
 
-/* segmented control */
-.annotate-segment {
-  display: inline-flex;
-  padding: 3px;
-  gap: 2px;
-  border: 1px solid var(--p-border);
-  border-radius: var(--p-radius-md);
-  background: var(--p-surface-1);
-}
-.annotate-segment__item {
-  padding: 6px 14px;
-  font-size: var(--p-text-sm);
-  border-radius: calc(var(--p-radius-md) - 3px);
-  color: var(--p-fg-muted);
-  background: transparent;
-  border: none;
-  cursor: pointer;
-  transition:
-    background-color var(--p-transition-fast),
-    color var(--p-transition-fast);
-}
-.annotate-segment__item:hover {
-  color: var(--p-fg);
-}
-.annotate-segment__item--active {
-  color: var(--p-fg);
-  background: rgb(var(--p-primary-rgb) / 0.22);
-}
-
 /* misc */
+/* The start hint's caps read one step stronger than the subtle sentence around them. */
 .annotate-kbd {
-  display: inline-block;
-  padding: 1px 6px;
-  font-family: var(--p-font-mono);
-  font-size: 11px;
-  border: 1px solid var(--p-border);
-  border-bottom-width: 2px;
-  border-radius: var(--p-radius-xs);
   color: var(--p-fg-muted);
 }
 .annotate-queue-row {

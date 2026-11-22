@@ -6,10 +6,8 @@ import { computed, ref, useId, useTemplateRef, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { v2NextAbsolute, v2SampleAbsolute } from '@/api'
 import AnnotationChoiceGroup from '@/components/annotate/AnnotationChoiceGroup.vue'
-import AnnotationFinished from '@/components/annotate/AnnotationFinished.vue'
-import AnnotationKeyHints from '@/components/annotate/AnnotationKeyHints.vue'
-import AnnotationLoadError from '@/components/annotate/AnnotationLoadError.vue'
 import AnnotationReviewBanner from '@/components/annotate/AnnotationReviewBanner.vue'
+import AnnotationSessionShell from '@/components/annotate/AnnotationSessionShell.vue'
 import { choiceBindings, KEY_ROWS, noLayerOpen } from '@/composables/useAnnotationKeymap'
 import { useAnnotationReview } from '@/composables/useAnnotationReview'
 import { useAnnotationSessionFrame, useAnnotationStream } from '@/composables/useAnnotationStream'
@@ -45,10 +43,6 @@ const dimensions = computed(() => props.queue?.dimensions ?? props.config?.dimen
 const scale = computed(() => props.queue?.scale ?? props.config?.scale ?? 2)
 const rubricVersions = computed(() => Object.fromEntries(dimensions.value.map(d => [d, `${d}-v1`])))
 
-function postURL(p: QueueItemPostPublic) {
-  return getPostImageURL(p)
-}
-
 // stream 模式：本会话内跳过/已出过的图不再入 buffer（key = post id）。
 function keyOf(item: BufferItem): string {
   return item.position == null ? `p${item.post.id}` : `q${item.position}`
@@ -77,7 +71,7 @@ const stream = useAnnotationStream<BufferItem>({
   emptyLimit: 1,
   // 预热 buffer 中接下来几张的原图：标注当前图的几秒钟里，下一张已进
   // 浏览器缓存，切图即显示（同 useAdjacentPostPrefetch 的思路）。
-  preload: { ahead: 3, item: item => preloadImage(postURL(item.post)) },
+  preload: { ahead: 3, item: item => preloadImage(getPostImageURL(item.post)) },
   onLoadError: error => handleAPIError(error, t('annotate.error.loadImages')),
   streamProgress: { labelKey: 'annotate.progress.absolute', announceKey: 'annotate.progress.absoluteAnnounce' },
   postIdsOf: item => [item.post.id],
@@ -207,7 +201,8 @@ function selectChoice(dimension: string, value: number) {
 // Every session key goes through useHotkey: exact modifiers (Ctrl+Z is undo, never
 // the 'z' rating), nothing while typing, nothing while a layer (palette, help,
 // dialog) is open, and nothing while focus is in someone else's composite widget.
-const root = useTemplateRef<HTMLElement>('root')
+const shell = useTemplateRef('shell')
+const root = computed(() => shell.value?.root ?? null)
 // Esc leaves the review first, the session only when there is no review to leave.
 // Layers (palette, help) swallow Escape before it gets here.
 const { notForeign } = useAnnotationSessionFrame({
@@ -335,8 +330,6 @@ function choiceOptions(row: number) {
 }
 const idBase = useId()
 
-const finished = computed(() => exhausted.value && !shownPost.value)
-
 const hints = computed(() => [
   { keys: ['Space'], label: t('annotate.keys.skip') },
   { keys: ['0'], label: t('annotate.keys.flag') },
@@ -346,112 +339,72 @@ const hints = computed(() => [
 </script>
 
 <template>
-  <div ref="root" class="annotate-session flex flex-col h-full" tabindex="-1" role="region" :aria-label="title">
-    <!-- 顶栏 -->
-    <div class="text-sm px-4 py-2.5 p-divider flex shrink-0 items-center justify-between">
-      <div class="flex gap-3 min-w-0 items-center">
-        <button
-          type="button"
-          class="annotate-exit"
-          :aria-label="$t('annotate.session.exit')"
-          :title="$t('annotate.session.exitHint', { key: 'Esc' })"
-          aria-keyshortcuts="Escape"
-          @click="emit('exit')"
-        >
-          <i class="i-tabler-arrow-left" aria-hidden="true" />
-        </button>
-        <h2 class="text-fg font-medium truncate">
-          {{ title }}
-        </h2>
-        <span role="status" class="text-xs shrink-0">
-          <template v-if="flagState !== 'none'">
-            <span aria-hidden="true">{{ flagGlyph(flagState) }}</span>
-            {{ flagState === 'love' ? $t('annotate.absolute.flagLove') : $t('annotate.absolute.flagHate') }}
-          </template>
-        </span>
-      </div>
-      <div class="text-xs text-fg-muted flex shrink-0 gap-4 items-center">
-        <span class="text-fg font-medium tabular-nums">{{ totalLabel }}</span>
-        <AnnotationKeyHints v-if="!finished" :hints="hints" />
-      </div>
-    </div>
+  <AnnotationSessionShell
+    ref="shell"
+    :title="title"
+    :progress="totalLabel"
+    :hints="hints"
+    kind="absolute"
+    :done="doneCount"
+    :load-state="loadState"
+    :active="!!shownPost"
+    @exit="emit('exit')"
+    @retry="stream.refill()"
+  >
+    <template #after-title>
+      <span role="status" class="text-xs shrink-0">
+        <template v-if="flagState !== 'none'">
+          <span aria-hidden="true">{{ flagGlyph(flagState) }}</span>
+          {{ flagState === 'love' ? $t('annotate.absolute.flagLove') : $t('annotate.absolute.flagHate') }}
+        </template>
+      </span>
+    </template>
 
-    <div class="flex flex-1 flex-col min-h-0 min-w-0">
+    <template #header>
       <!-- 复判横幅：正在改哪一条 -->
       <AnnotationReviewBanner v-if="review" :verdict="`${review.value} / ${review.scale}`" @exit="endReview()" />
+    </template>
 
-      <div v-if="shownPost" class="flex flex-1 min-h-0">
-        <!-- 图片区 -->
-        <div class="bg-bg flex flex-1 min-w-0 items-center justify-center">
-          <img
-            :key="shownPost.id"
-            :src="postURL(shownPost)"
-            :alt="shownPost.fileName"
-            class="max-h-full max-w-full object-contain"
-            decoding="async"
-          >
-        </div>
-
-        <!-- 判断面板 -->
-        <div class="px-4 py-5 border-l border-border-subtle flex shrink-0 flex-col gap-4 w-72 overflow-y-auto">
-          <div
-            v-for="(dim, row) in shownDimensions"
-            :key="dim"
-            class="annotate-judge-card"
-            :class="{ 'annotate-judge-card--done': !review && choices[dim] != null }"
-          >
-            <div class="flex gap-2 items-center">
-              <i :class="dimensionMeta(dim)?.icon" class="annotate-judge-card__icon" aria-hidden="true" />
-              <span :id="`${idBase}-dim-${row}`" class="text-sm text-fg font-medium">{{ dimensionLabel(dim) }}</span>
-            </div>
-            <p v-if="dimensionMeta(dim)" class="text-xs text-fg-muted leading-relaxed mt-1">
-              {{ $t(dimensionMeta(dim)!.promptKey) }}
-            </p>
-            <AnnotationChoiceGroup
-              :labelledby="`${idBase}-dim-${row}`"
-              :options="choiceOptions(row)"
-              :checked="review ? Number(review.value) : choices[dim]"
-              @select="selectChoice(dim, $event)"
-            />
-          </div>
-        </div>
+    <div v-if="shownPost" class="flex flex-1 min-h-0">
+      <!-- 图片区 -->
+      <div class="bg-bg flex flex-1 min-w-0 items-center justify-center">
+        <img
+          :key="shownPost.id"
+          :src="getPostImageURL(shownPost)"
+          :alt="shownPost.fileName"
+          class="max-h-full max-w-full object-contain"
+          decoding="async"
+        >
       </div>
 
-      <!-- 空态 / 完成态 -->
-      <div v-else class="flex flex-1 items-center justify-center">
-        <AnnotationFinished v-if="exhausted" kind="absolute" :done="doneCount" @home="emit('exit')" />
-        <AnnotationLoadError v-else-if="loadState === 'error'" @retry="stream.refill()" />
-        <div v-else role="status" class="text-sm text-fg-muted flex gap-2 items-center">
-          <span class="annotate-spinner" aria-hidden="true" />{{ $t('common.loading') }}
+      <!-- 判断面板 -->
+      <div class="px-4 py-5 border-l border-border-subtle flex shrink-0 flex-col gap-4 w-72 overflow-y-auto">
+        <div
+          v-for="(dim, row) in shownDimensions"
+          :key="dim"
+          class="annotate-judge-card"
+          :class="{ 'annotate-judge-card--done': !review && choices[dim] != null }"
+        >
+          <div class="flex gap-2 items-center">
+            <i :class="dimensionMeta(dim)?.icon" class="annotate-judge-card__icon" aria-hidden="true" />
+            <span :id="`${idBase}-dim-${row}`" class="text-sm text-fg font-medium">{{ dimensionLabel(dim) }}</span>
+          </div>
+          <p v-if="dimensionMeta(dim)" class="text-xs text-fg-muted leading-relaxed mt-1">
+            {{ $t(dimensionMeta(dim)!.promptKey) }}
+          </p>
+          <AnnotationChoiceGroup
+            :labelledby="`${idBase}-dim-${row}`"
+            :options="choiceOptions(row)"
+            :checked="review ? Number(review.value) : choices[dim]"
+            @select="selectChoice(dim, $event)"
+          />
         </div>
       </div>
     </div>
-  </div>
+  </AnnotationSessionShell>
 </template>
 
 <style scoped>
-.annotate-exit {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 26px;
-  height: 26px;
-  border: none;
-  border-radius: var(--p-radius-sm);
-  background: transparent;
-  color: var(--p-fg-muted);
-  cursor: pointer;
-  transition: background-color var(--p-transition-fast), color var(--p-transition-fast);
-}
-.annotate-exit:hover {
-  background: rgb(var(--p-primary-rgb) / 0.12);
-  color: var(--p-fg);
-}
-
-.annotate-session:focus {
-  outline: none;
-}
-
 /* 判断卡片 */
 .annotate-judge-card {
   padding: 13px 14px;
@@ -468,17 +421,5 @@ const hints = computed(() => [
 .annotate-judge-card__icon {
   color: var(--p-primary);
   font-size: 15px;
-}
-
-.annotate-spinner {
-  width: 14px;
-  height: 14px;
-  border: 2px solid var(--p-border);
-  border-top-color: var(--p-primary);
-  border-radius: 50%;
-  animation: annotate-spin 0.7s linear infinite;
-}
-@keyframes annotate-spin {
-  to { transform: rotate(360deg); }
 }
 </style>

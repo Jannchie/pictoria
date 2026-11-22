@@ -5,10 +5,8 @@ import { useQueryClient } from '@tanstack/vue-query'
 import { computed, ref, useTemplateRef, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { v2CountPairwise, v2NextPairwise, v2SamplePairwise } from '@/api'
-import AnnotationFinished from '@/components/annotate/AnnotationFinished.vue'
-import AnnotationKeyHints from '@/components/annotate/AnnotationKeyHints.vue'
-import AnnotationLoadError from '@/components/annotate/AnnotationLoadError.vue'
 import AnnotationReviewBanner from '@/components/annotate/AnnotationReviewBanner.vue'
+import AnnotationSessionShell from '@/components/annotate/AnnotationSessionShell.vue'
 import { noLayerOpen } from '@/composables/useAnnotationKeymap'
 import { useAnnotationReview } from '@/composables/useAnnotationReview'
 import { useAnnotationSessionFrame, useAnnotationStream } from '@/composables/useAnnotationStream'
@@ -17,6 +15,7 @@ import { preloadImage } from '@/composables/usePostPrefetch'
 import { formatNumber } from '@/locale'
 import { endReview, prependEntry, submitPairwise, winnerLabel } from '@/shared'
 import { dimensionMeta, PAIRWISE_STRATEGIES } from '@/shared/annotationTypes'
+import { PKbd } from '@/ui'
 import { useHotkey } from '@/ui/useHotkey'
 import { getPostImageURL } from '@/utils'
 import { shortcutKeys } from '@/utils/keyboard'
@@ -48,10 +47,6 @@ const dimension = computed(() => props.queue?.dimensions[0] ?? props.dimension ?
 // 采样和提交读同一个值，两边的默认值不会漂。
 const strategy = computed(() => props.queue?.strategy ?? props.strategy ?? 'close')
 
-function imgURL(p: QueueItemPostPublic) {
-  return getPostImageURL(p)
-}
-
 const stream = useAnnotationStream<BufferItem>({
   kind: 'pairwise',
   queryClient,
@@ -79,8 +74,8 @@ const stream = useAnnotationStream<BufferItem>({
   preload: {
     ahead: 2,
     item: (item) => {
-      preloadImage(imgURL(item.postA))
-      preloadImage(imgURL(item.postB))
+      preloadImage(getPostImageURL(item.postA))
+      preloadImage(getPostImageURL(item.postB))
     },
   },
   onLoadError: error => handleAPIError(error, t('annotate.error.loadImages')),
@@ -189,7 +184,8 @@ function judge(winner: PairwiseWinner) {
 // useHotkey: exact modifiers, nothing while typing or while a layer is open. The
 // arrows also fire from a plain button (a clicked history row, the refresh button)
 // because none of those use arrows — but not from someone else's composite widget.
-const root = useTemplateRef<HTMLElement>('root')
+const shell = useTemplateRef('shell')
+const root = computed(() => shell.value?.root ?? null)
 // Esc backs out one level at a time: out of the review first, out of the session
 // only when there is no review to leave. Layers swallow Escape before it gets here.
 const { notForeign } = useAnnotationSessionFrame({
@@ -239,125 +235,75 @@ const hints = computed(() => [
 </script>
 
 <template>
-  <div ref="root" class="pairwise-session flex flex-col h-full" tabindex="-1" role="region" :aria-label="title">
-    <!-- 顶栏 -->
-    <div class="text-sm px-4 py-2.5 p-divider flex shrink-0 items-center justify-between">
-      <div class="flex gap-3 min-w-0 items-center">
-        <button
-          type="button"
-          class="pairwise-exit"
-          :aria-label="$t('annotate.session.exit')"
-          :title="$t('annotate.session.exitHint', { key: 'Esc' })"
-          aria-keyshortcuts="Escape"
-          @click="emit('exit')"
-        >
-          <i class="i-tabler-arrow-left" aria-hidden="true" />
-        </button>
-        <h2 class="text-fg font-medium truncate">
-          {{ title }}
-        </h2>
-      </div>
-      <div class="text-xs text-fg-muted flex shrink-0 gap-4 items-center">
-        <span class="text-fg font-medium tabular-nums">{{ totalLabel }}</span>
-        <AnnotationKeyHints v-if="!finished" :hints="hints" />
-      </div>
-    </div>
-
-    <div class="flex flex-1 flex-col min-h-0 min-w-0">
+  <AnnotationSessionShell
+    ref="shell"
+    :title="title"
+    :progress="totalLabel"
+    :hints="hints"
+    kind="pairwise"
+    :done="doneCount"
+    :load-state="loadState"
+    :active="!!shown"
+    @exit="emit('exit')"
+    @retry="stream.refill()"
+  >
+    <template #header>
       <!-- 维度问题横幅；复判时换成"在改哪一条" -->
       <AnnotationReviewBanner v-if="review" :verdict="reviewVerdict" @exit="endReview()" />
       <div v-else-if="!finished" :id="`${sessionId}-q`" class="text-sm text-fg font-medium px-4 py-2 text-center p-divider shrink-0">
         {{ question }}
       </div>
-      <!-- @mousedown.prevent: a click judges and moves on; it must not leave focus on
-           the button, where the next Space would activate it instead of skipping. -->
-      <div v-if="shown" class="flex flex-1 gap-1 min-h-0" role="group" :aria-labelledby="review ? undefined : `${sessionId}-q`">
-        <button
-          type="button"
-          class="pairwise-side group"
-          :class="{ 'pairwise-side--was': review?.winner === 'a' }"
-          :aria-label="$t('annotate.pairwise.pickLeft')"
-          :title="`${$t('annotate.pairwise.pickLeft')} (←)`"
-          aria-keyshortcuts="ArrowLeft"
-          @mousedown.prevent
-          @click="decide('a')"
-        >
-          <img :key="shown.postA.id" :src="imgURL(shown.postA)" :alt="shown.postA.fileName" class="max-h-full max-w-full object-contain" decoding="async">
-          <span class="pairwise-side__pick" aria-hidden="true"><kbd>←</kbd> {{ $t('annotate.pairwise.pickThis') }}</span>
-        </button>
-        <button
-          type="button"
-          class="pairwise-side group"
-          :class="{ 'pairwise-side--was': review?.winner === 'b' }"
-          :aria-label="$t('annotate.pairwise.pickRight')"
-          :title="`${$t('annotate.pairwise.pickRight')} (→)`"
-          aria-keyshortcuts="ArrowRight"
-          @mousedown.prevent
-          @click="decide('b')"
-        >
-          <img :key="shown.postB.id" :src="imgURL(shown.postB)" :alt="shown.postB.fileName" class="max-h-full max-w-full object-contain" decoding="async">
-          <span class="pairwise-side__pick" aria-hidden="true"><kbd>→</kbd> {{ $t('annotate.pairwise.pickThis') }}</span>
-        </button>
-      </div>
+    </template>
 
-      <!-- 空态 / 完成态 -->
-      <div v-else class="flex flex-1 items-center justify-center">
-        <AnnotationFinished v-if="exhausted" kind="pairwise" :done="doneCount" @home="emit('exit')">
-          <PButton
-            v-for="s in otherStrategies"
-            :key="s.value"
-            size="sm"
-            :variant="s === otherStrategies[0] ? 'primary' : 'subtle'"
-            @click="emit('switchStrategy', s.value)"
-          >
-            <i class="i-tabler-arrows-shuffle" aria-hidden="true" />
-            {{ $t('annotate.finished.switchPairing', { name: $t(s.labelKey) }) }}
-          </PButton>
-        </AnnotationFinished>
-        <AnnotationLoadError v-else-if="loadState === 'error'" @retry="stream.refill()" />
-        <div v-else role="status" class="text-sm text-fg-muted flex gap-2 items-center">
-          <span class="pairwise-spinner" aria-hidden="true" />{{ $t('common.loading') }}
-        </div>
-      </div>
+    <!-- @mousedown.prevent: a click judges and moves on; it must not leave focus on
+         the button, where the next Space would activate it instead of skipping. -->
+    <div v-if="shown" class="flex flex-1 gap-1 min-h-0" role="group" :aria-labelledby="review ? undefined : `${sessionId}-q`">
+      <button
+        type="button"
+        class="pairwise-side group"
+        :class="{ 'pairwise-side--was': review?.winner === 'a' }"
+        :aria-label="$t('annotate.pairwise.pickLeft')"
+        :title="`${$t('annotate.pairwise.pickLeft')} (←)`"
+        aria-keyshortcuts="ArrowLeft"
+        @mousedown.prevent
+        @click="decide('a')"
+      >
+        <img :key="shown.postA.id" :src="getPostImageURL(shown.postA)" :alt="shown.postA.fileName" class="max-h-full max-w-full object-contain" decoding="async">
+        <span class="pairwise-side__pick" aria-hidden="true"><PKbd>←</PKbd> {{ $t('annotate.pairwise.pickThis') }}</span>
+      </button>
+      <button
+        type="button"
+        class="pairwise-side group"
+        :class="{ 'pairwise-side--was': review?.winner === 'b' }"
+        :aria-label="$t('annotate.pairwise.pickRight')"
+        :title="`${$t('annotate.pairwise.pickRight')} (→)`"
+        aria-keyshortcuts="ArrowRight"
+        @mousedown.prevent
+        @click="decide('b')"
+      >
+        <img :key="shown.postB.id" :src="getPostImageURL(shown.postB)" :alt="shown.postB.fileName" class="max-h-full max-w-full object-contain" decoding="async">
+        <span class="pairwise-side__pick" aria-hidden="true"><PKbd>→</PKbd> {{ $t('annotate.pairwise.pickThis') }}</span>
+      </button>
     </div>
-  </div>
+
+    <!-- Always passed (even with no other pairing to offer): the finished screen's
+         Home button is subtle here and primary in the other two sessions. -->
+    <template #finished>
+      <PButton
+        v-for="s in otherStrategies"
+        :key="s.value"
+        size="sm"
+        :variant="s === otherStrategies[0] ? 'primary' : 'subtle'"
+        @click="emit('switchStrategy', s.value)"
+      >
+        <i class="i-tabler-arrows-shuffle" aria-hidden="true" />
+        {{ $t('annotate.finished.switchPairing', { name: $t(s.labelKey) }) }}
+      </PButton>
+    </template>
+  </AnnotationSessionShell>
 </template>
 
 <style scoped>
-.pairwise-exit {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 26px;
-  height: 26px;
-  border: none;
-  border-radius: var(--p-radius-sm);
-  background: transparent;
-  color: var(--p-fg-muted);
-  cursor: pointer;
-  transition: background-color var(--p-transition-fast), color var(--p-transition-fast);
-}
-.pairwise-exit:hover {
-  background: rgb(var(--p-primary-rgb) / 0.12);
-  color: var(--p-fg);
-}
-
-.pairwise-session:focus {
-  outline: none;
-}
-
-.pairwise-side__pick kbd {
-  display: inline-block;
-  padding: 1px 5px;
-  margin: 0 1px;
-  font-family: var(--p-font-mono);
-  font-size: 10px;
-  border: 1px solid var(--p-border);
-  border-bottom-width: 2px;
-  border-radius: var(--p-radius-xs);
-  color: inherit;
-}
-
 .pairwise-side {
   position: relative;
   display: flex;
@@ -396,7 +342,7 @@ const hints = computed(() => [
   font-size: var(--p-text-xs);
   border-radius: var(--p-radius-full);
   background: rgb(var(--p-scrim-rgb) / 0.55);
-  color: white;
+  color: rgb(var(--p-on-scrim-rgb));
   opacity: 0;
   pointer-events: none;
   transition: opacity var(--p-transition-fast);
@@ -404,17 +350,5 @@ const hints = computed(() => [
 }
 .pairwise-side:hover .pairwise-side__pick {
   opacity: 1;
-}
-
-.pairwise-spinner {
-  width: 14px;
-  height: 14px;
-  border: 2px solid var(--p-border);
-  border-top-color: var(--p-primary);
-  border-radius: 50%;
-  animation: pairwise-spin 0.7s linear infinite;
-}
-@keyframes pairwise-spin {
-  to { transform: rotate(360deg); }
 }
 </style>

@@ -1,11 +1,12 @@
 <script setup lang="ts">
 import type { PostFilterValue } from '@/composables/useFacetFilter'
 import type { ScorerUi } from '@/shared/scorers'
-import { computed, useTemplateRef } from 'vue'
+import { computed } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { v2GetSilvaBucketCount } from '@/api'
-import { facetOptionLabel, facetTriggerLabel, initialOptionIndex, useFacetFilter, useFacetListbox } from '@/composables/useFacetFilter'
+import { useFacetCounts, useFacetFilter } from '@/composables/useFacetFilter'
 import { bucketRows, MODEL_LEVEL_RGB } from '@/shared'
+import FacetFilterPopover from './FacetFilterPopover.vue'
 
 /**
  * One scorer's A–E bucket filter. Everything scorer-specific comes from its
@@ -46,111 +47,72 @@ const { selected: selectedLevels, has: hasLevel, toggle, countQuery, pct, opened
   countKind: props.scorer.countKind,
   fetchCounts: FETCH_COUNTS[props.scorer.name],
 })
-
-const bucketCounts = computed<Record<string, number>>(() => {
-  const out: Record<string, number> = Object.fromEntries(buckets.value.map(b => [b.level, 0]))
-  const data = countQuery.data
-  if (data.value) {
-    for (const d of data.value) {
-      out[d.bucket] = d.count
-    }
-  }
-  return out
-})
+const { count: bucketCount, optionCount } = useFacetCounts(countQuery.data, d => d.bucket)
 
 const { t } = useI18n()
 
 /** Button label while nothing is selected. */
 const label = computed(() => t(props.scorer.filterLabelKey))
 
-const btnText = computed(() => {
-  const item = selectedLevels.value
-  return item.length === 0 ? label.value : `${props.scorer.chipPrefix}: ${item.join(', ')}`
-})
-
-/** Short spoken name of a level: the letter, or "Unscored". */
+/**
+ * Short spoken name of a level: the letter, or "Unscored". Also the typeahead
+ * text ("b" jumps to bucket B). The trigger text shows the bare levels after
+ * the scorer's chip prefix instead (`String`).
+ */
 function levelName(level: string): string {
   return level === 'UNSCORED' ? t('common.unscored') : level
 }
 
-const listbox = useTemplateRef<{ el: HTMLElement | null }>('listbox')
-useFacetListbox(() => listbox.value?.el)
-const autofocusIndex = computed(() => initialOptionIndex(buckets.value.map(b => b.level), hasLevel))
-const triggerLabel = computed(() => facetTriggerLabel(t, label.value, selectedLevels.value.map(levelName)))
-function bucketKey(bucket: BucketDef): string {
+function bucketLevel(bucket: BucketDef): string {
   return bucket.level
 }
-function bucketSelected(bucket: BucketDef): boolean {
-  return hasLevel(bucket.level)
-}
-function bucketTypeahead(bucket: BucketDef): string {
-  return levelName(bucket.level)
-}
-function bucketCount(bucket: BucketDef): number | undefined {
-  return bucketCounts.value[bucket.level]
-}
-function toggleBucket(bucket: BucketDef): void {
-  toggle(bucket.level)
-}
-function optionLabel(bucket: BucketDef) {
-  const name = bucket.range
+function bucketOptionName(bucket: BucketDef): string {
+  return bucket.range
     ? t('filter.bucketOption', { level: bucket.level, name: t(bucket.labelKey), range: bucket.range })
     : levelName(bucket.level)
-  return facetOptionLabel(t, name, countQuery.data.value ? bucketCounts.value[bucket.level] : undefined)
 }
 </script>
 
 <template>
-  <div class="relative">
-    <PPopover v-model="opened" position="bottom-start">
-      <PButton
-        size="sm"
-        :variant="selectedLevels.length > 0 ? 'subtle' : 'secondary'"
-        :active="opened"
-        :aria-label="triggerLabel"
-      >
-        <i :class="icon" aria-hidden="true" />
-        <span>{{ btnText }}</span>
-      </PButton>
-      <template #content>
-        <!-- Typeahead on the letter: "b" jumps to bucket B. -->
-        <PFacetList
-          ref="listbox"
-          :aria-label="label"
-          class="p-popover-panel max-w-sm w-max"
-          :items="buckets"
-          :item-key="bucketKey"
-          :selected="bucketSelected"
-          :option-label="optionLabel"
-          :typeahead="bucketTypeahead"
-          :autofocus-index="autofocusIndex"
-          :count="bucketCount"
-          :share="pct"
-          @toggle="toggleBucket"
+  <FacetFilterPopover
+    v-model:opened="opened"
+    :label="label"
+    :items="buckets"
+    :item-key="bucketLevel"
+    :item-value="bucketLevel"
+    :selection="selectedLevels"
+    :has="hasLevel"
+    :value-name="levelName"
+    :value-text="String"
+    :chip-prefix="scorer.chipPrefix"
+    :option-name="bucketOptionName"
+    :count="bucketCount"
+    :option-count="optionCount"
+    :share="pct"
+    :icon="icon"
+    panel-class="max-w-sm w-max"
+    @toggle="toggle"
+  >
+    <template #default="{ item: bucket }">
+      <div class="flex flex-grow gap-2 items-center">
+        <span
+          class="rounded-full flex-shrink-0 h-3 w-3"
+          aria-hidden="true"
+          :style="{ backgroundColor: `rgb(${LEVEL_DOT_RGB[bucket.level]})` }"
+        />
+        <span
+          class="font-bold"
+          :class="{ 'text-fg-subtle italic font-normal': bucket.level === 'UNSCORED' }"
         >
-          <template #default="{ item: bucket }">
-            <div class="flex flex-grow gap-2 items-center">
-              <span
-                class="rounded-full flex-shrink-0 h-3 w-3"
-                aria-hidden="true"
-                :style="{ backgroundColor: `rgb(${LEVEL_DOT_RGB[bucket.level]})` }"
-              />
-              <span
-                class="font-bold"
-                :class="{ 'text-fg-subtle italic font-normal': bucket.level === 'UNSCORED' }"
-              >
-                {{ bucket.level === 'UNSCORED' ? $t('common.unscored') : bucket.level }}
-              </span>
-              <span
-                v-if="bucket.range"
-                class="text-fg-muted whitespace-nowrap"
-              >
-                {{ $t(bucket.labelKey) }} ({{ bucket.range }})
-              </span>
-            </div>
-          </template>
-        </PFacetList>
-      </template>
-    </PPopover>
-  </div>
+          {{ bucket.level === 'UNSCORED' ? $t('common.unscored') : bucket.level }}
+        </span>
+        <span
+          v-if="bucket.range"
+          class="text-fg-muted whitespace-nowrap"
+        >
+          {{ $t(bucket.labelKey) }} ({{ bucket.range }})
+        </span>
+      </div>
+    </template>
+  </FacetFilterPopover>
 </template>

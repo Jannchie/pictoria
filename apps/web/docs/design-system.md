@@ -13,7 +13,7 @@ is the single source of truth for the actual values.
    parent background.
 3. **Shadows are for floating layers only**, and only `shadow-sm` / `shadow-md`.
    `shadow-lg` exists in tokens as a reserved slot — application code must not
-   use it (guard-tested in `components/` and `views/`).
+   use it (`shadow-lg` / `-xl` / `-2xl` are guard-tested everywhere outside `src/ui`).
 4. **No gradients.** Flat fills only.
 5. **No nested panels.** Cards do not sit inside cards. Group the inside of a
    floating layer with a `p-divider`, never a second surface level.
@@ -160,6 +160,9 @@ reference in `PSelectArea`.
 | `PTooltip`         | Tooltip (hover after 400 ms, keyboard focus immediately; hoverable; Escape hides; never takes focus; `aria-describedby` on the trigger) | `content` or `#content` slot, `position`, `openDelay`, `closeDelay`, `disabled`, `as` |
 | `POverlay`         | Purely visual scrim, teleported to `<body>` (so the modal inside it can inert the page) | `opacity`, `inline` (render in place — loses inert) |
 | `PDialog`          | Modal dialog: `modal` layer (Escape → `cancel`, page inert when wrapped in `POverlay`), focus trap + return, `aria-labelledby`/`aria-describedby`; `danger` → `role=alertdialog` with Cancel focused first; Enter confirms only from non-interactive content; `busy` blocks Escape/Enter/Cancel and shows the confirm button loading — drive it from `useConfirmAction().isRunning` | `title`, `confirmLabel`, `cancelLabel`, `variant` (primary/danger), `busy`, `#header` / `#footer` slots |
+| `PDisclosure`      | Collapsible section with the panel section-heading look (chevron + optional icon + small uppercase title): `aria-expanded` / `aria-controls` toggle button, body kept mounted (`v-show`); open state persisted in localStorage under `pictoria.disclosure.<storageKey>` | `title`, `icon`, `storageKey` (omit = not persisted), `defaultOpen` (default true), `summary` (right-aligned text shown only while collapsed, e.g. a count) |
+| `PKbd`             | Key cap (`<kbd>`, monospace). `raised` = keycap with a 2px bottom edge, colour inherited from the sentence (key legends, inline hints); `flat` = small hairline subtle cap inside a button (search field, undo snackbar). Pass `aria-hidden="true"` when the key is announced elsewhere | `variant` (raised/flat), `size` (sm/md, raised only: md = the annotate launcher's larger cap) |
+| `PSegmented`       | Segmented single choice (APG radio group, roving focus): one Tab stop, arrows / Home / End move **and select** (automatic activation — for plain settings that commit later), Space / Enter / click select | generic `options` (`{ value, label, title? }`, labels already translated), `v-model`; `aria-labelledby` / `aria-describedby` fall through to the radiogroup |
 | `PFloatWindow`     | Non-modal draggable floating window: opens at the cursor, or below the focused element after a key press; Escape always closes, outside click closes unless pinned; focus in on open, back on close; drag from `[data-drag-handle]` (whole window if none) | `v-model`, `pinned` (provided as `'pinned'`), `role` (default dialog), `ariaLabel`, `safeMargin`; exposes `toggle()` |
 | `PSurface`         | Surface container                    | `level` (base/1/2/3), `bordered`, `rounded`, `padded`, `shadow` (none/sm/md/lg) |
 | `PAspectRatio`     | Aspect-ratio box                     | ratio props                                                 |
@@ -220,18 +223,34 @@ primitives:
 | Reference tokens for every color, radius, space                     | Use raw `z-index > 10` — wrap in `z-[var(--p-z-*)]` |
 | Put new reusable primitives in `src/ui` with a `P` prefix + `index.ts` export | Add gradients                                     |
 | Size controls in scoped CSS via `--p-control-*`                     | Nest panels / use a second surface level inside a layer |
-| Keep shadows on floating layers only (`sm` / `md`)                  | Use `shadow-lg` in `components/` or `views/`      |
+| Keep shadows on floating layers only (`sm` / `md`)                  | Use `shadow-lg` (or `-xl` / `-2xl`) outside `src/ui` |
 | Let `<PButton icon>` size itself — square box, button-sized glyph    | Give an icon-only button a filled variant or a call-site `w-*`/`h-*` |
 | Separate detail-panel groups with `p-divider`; render numbers with `tabular-nums` in the body font (`font-mono` is only for code, kbd, paths/URLs, extensions, hex) | Lean on bare spacing alone to group metadata rows |
 
 ## 7. Guard tests
 
-`src/test/design.test.ts` enforces the rules above (lints source, not runtime):
+`src/test/design.test.ts` enforces the rules above by sweeping source text, not
+the runtime. Unless noted, the sweep is every `.vue` under `src/` except `test/`
+and `api/` (a sentinel fails if it matches fewer than 40 files):
 
-- **No hardcoded hex** — a small allowlist covers genuine data values.
-- **No gradients** — `linear-gradient` / `radial-gradient` are rejected.
-- **Token z-index** — raw `z-index > 10` must use a `--p-z-*` token.
-- **No reserved shadow** — `shadow-lg` is banned in `components/` and `views/`.
+- **No hardcoded hex** — any `#rgb`…`#rrggbbaa` literal fails; a per-file
+  allowlist covers genuine data values (the no-colour fallback in
+  `PostDetailPanel`, the default swatch in `PostSorter`).
+- **No gradients** — `bg-gradient-*`, `linear-gradient(`, `radial-gradient(`
+  and `conic-gradient(` are rejected.
+- **Token z-index** — a raw `z-N` utility or `z-index: N` above 10 must use a
+  `--p-z-*` token; allowlisted: the `App.vue` skip link (9999) and the
+  comment-only reference in `PSelectArea` (40).
+- **Reserved shadows stay in `src/ui`** — `shadow-lg` / `shadow-xl` /
+  `shadow-2xl` anywhere outside `src/ui/` (components, views, `App.vue`) fails.
+- **Every `var(--p-*)` is defined** — over `.vue`, `.ts`, `.css` and
+  `uno.config.ts`, each referenced token must be declared somewhere (a CSS /
+  scoped / inline / arbitrary-property declaration, a `setProperty('--p-…')`, or
+  a `'--p-…':` key in a `:style` binding). Catches theme *keys* mistaken for
+  variables (`--p-border-default`).
+- **No literal colour functions** — over `.vue`, `.ts` and `.css` except
+  `styles/tokens.css`, an `rgb()` / `rgba()` / `hsl()` / `hsla()` whose first
+  argument is a number fails; write `var(--p-*)` or `rgb(var(--p-*-rgb) / α)`.
 
 ## 8. Keyboard & a11y infrastructure
 

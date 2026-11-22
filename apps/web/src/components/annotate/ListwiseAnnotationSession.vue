@@ -6,15 +6,16 @@ import { useQueryClient } from '@tanstack/vue-query'
 import { computed, nextTick, ref, useId, useTemplateRef, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { v2NextListwise, v2SampleListwise } from '@/api'
-import AnnotationFinished from '@/components/annotate/AnnotationFinished.vue'
 import AnnotationKeyHints from '@/components/annotate/AnnotationKeyHints.vue'
-import AnnotationLoadError from '@/components/annotate/AnnotationLoadError.vue'
+import AnnotationSessionShell from '@/components/annotate/AnnotationSessionShell.vue'
+import AnnotationSpinner from '@/components/annotate/AnnotationSpinner.vue'
 import { gateOnSubmit, moveItem, noLayerOpen, sortableIntent, sortableTarget } from '@/composables/useAnnotationKeymap'
 import { useAnnotationSessionFrame, useAnnotationStream } from '@/composables/useAnnotationStream'
 import { useAPIError } from '@/composables/useAPIError'
 import { preloadImage } from '@/composables/usePostPrefetch'
 import { formatNumber } from '@/locale'
 import { announce, prependEntry, submitListwise } from '@/shared'
+import { PKbd } from '@/ui'
 import { useLayer } from '@/ui/layers'
 import { useFocusTrap } from '@/ui/useFocusTrap'
 import { useHotkey } from '@/ui/useHotkey'
@@ -65,7 +66,7 @@ const stream = useAnnotationStream<BufferItem>({
     ahead: 1,
     item: (item) => {
       for (const p of item.posts) {
-        preloadImage(imgURL(p))
+        preloadImage(getPostImageURL(p))
       }
     },
   },
@@ -136,10 +137,6 @@ function applyAgreement(item: BufferItem, ranking: number[], sign: 1 | -1) {
 /** 组的身份 = 成员 id 序列。既用于批次去重，也进卡片的 :key（换组必须重建 <img>）。 */
 function groupKeyOf(posts: QueueItemPostPublic[]): string {
   return posts.map(p => p.id).join('-')
-}
-
-function imgURL(p: QueueItemPostPublic) {
-  return getPostImageURL(p)
 }
 
 // ── 忙碌态 ──────────────────────────────────────────────────────
@@ -341,7 +338,8 @@ function submit(ranking: number[]) {
 // Alt+↑/↓ move without picking up, V enlarges. Every move is announced. While a card
 // has focus, Enter/Space belong to it, so the order is submitted with Mod+Enter (or
 // the Submit button); from anywhere else plain Enter still submits.
-const root = useTemplateRef<HTMLElement>('root')
+const shell = useTemplateRef('shell')
+const root = computed(() => shell.value?.root ?? null)
 const row = useTemplateRef<HTMLElement>('row')
 const { notForeign } = useAnnotationSessionFrame({
   root,
@@ -529,47 +527,38 @@ const submitKeyAria = isMac ? 'Meta+Enter' : 'Control+Enter'
 </script>
 
 <template>
-  <div ref="root" class="listwise-session flex flex-col h-full" tabindex="-1" role="region" :aria-label="title">
-    <!-- 顶栏 -->
-    <div class="text-sm px-4 py-2.5 p-divider flex shrink-0 gap-4 items-center justify-between">
-      <div class="flex shrink-0 gap-3 max-w-1/3 min-w-0 items-center">
-        <button
-          type="button"
-          class="listwise-exit"
-          :aria-label="$t('annotate.session.exit')"
-          :title="$t('annotate.session.exitHint', { key: 'Esc' })"
-          aria-keyshortcuts="Escape"
-          @click="emit('exit')"
-        >
-          <i class="i-tabler-arrow-left" aria-hidden="true" />
-        </button>
-        <h2 class="text-fg font-medium truncate">
-          {{ title }}
-        </h2>
-      </div>
-      <!-- 键位说明较长：窄窗口下让它换行，而不是把标题和返回按钮挤出屏幕。 -->
-      <div class="text-xs text-fg-muted flex gap-4 min-w-0 items-center justify-end">
-        <span class="text-fg font-medium shrink-0 whitespace-nowrap tabular-nums">{{ totalLabel }}</span>
-        <span
-          v-if="agreeLabel"
-          class="tabular-nums"
-          :title="$t('annotate.listwise.agreementTitle', { n: formatNumber(agreeTotal) })"
-        >{{ $t('annotate.listwise.agreement') }} <span class="text-fg font-medium">{{ agreeLabel }}</span></span>
-        <AnnotationKeyHints v-if="!finished" :hints="hints" />
-      </div>
-    </div>
+  <AnnotationSessionShell
+    ref="shell"
+    :title="title"
+    :progress="totalLabel"
+    :hints="hints"
+    kind="listwise"
+    :done="doneCount"
+    :load-state="loadState"
+    :active="!!current"
+    wrap-hints
+    @exit="emit('exit')"
+    @retry="stream.refill()"
+  >
+    <template #after-progress>
+      <span
+        v-if="agreeLabel"
+        class="tabular-nums"
+        :title="$t('annotate.listwise.agreementTitle', { n: formatNumber(agreeTotal) })"
+      >{{ $t('annotate.listwise.agreement') }} <span class="text-fg font-medium">{{ agreeLabel }}</span></span>
+    </template>
 
-    <div class="flex flex-1 flex-col min-h-0 min-w-0">
+    <template #header>
       <div v-if="!finished" class="text-sm font-medium px-4 py-2 text-center p-divider shrink-0" :class="gate === 'armed' ? 'listwise-confirm' : 'text-fg'">
         <i18n-t v-if="gate === 'armed'" keypath="annotate.listwise.confirm" tag="span" scope="global">
           <template #enter>
-            <kbd class="listwise-kbd">Enter</kbd>
+            <PKbd>Enter</PKbd>
           </template>
         </i18n-t>
         <template v-else>
           {{ $t('annotate.listwise.instructions') }}<i18n-t v-if="gate === 'adjusted'" keypath="annotate.listwise.submitHint" tag="span" scope="global">
             <template #enter>
-              <kbd class="listwise-kbd">Enter</kbd>
+              <PKbd>Enter</PKbd>
             </template>
           </i18n-t>
         </template>
@@ -582,171 +571,136 @@ const submitKeyAria = isMac ? 'Meta+Enter' : 'Control+Enter'
           </PButton>
         </span>
       </div>
+    </template>
 
+    <div
+      v-if="current"
+      ref="row"
+      class="listwise-row flex-1 min-h-0"
+      :class="{ 'listwise-row--submitting': submitting }"
+      role="group"
+      :aria-label="$t('annotate.listwise.listLabel')"
+    >
+      <!-- @mousedown.prevent: a click never parks focus on a card, so Enter after a
+           mouse drag still submits instead of picking the card up. -->
       <div
-        v-if="current"
-        ref="row"
-        class="listwise-row flex-1 min-h-0"
-        :class="{ 'listwise-row--submitting': submitting }"
-        role="group"
-        :aria-label="$t('annotate.listwise.listLabel')"
+        v-for="(pid, idx) in order"
+        :key="`${groupKey}:${pid}`"
+        data-sort-card
+        :data-pid="pid"
+        role="button"
+        :aria-roledescription="$t('annotate.listwise.sortable')"
+        :aria-label="$t('annotate.listwise.cardLabel', { pos: idx + 1, total: order.length, name: postById.get(pid)?.fileName ?? '' })"
+        :aria-describedby="helpId"
+        class="listwise-card"
+        :class="{ 'listwise-card--drag': (drag?.moved && drag.id === pid) || grabbed?.id === pid }"
+        :style="cardStyle(pid, idx)"
+        @mousedown.prevent
+        @pointerdown="onPointerDown($event, pid)"
+        @pointermove="onPointerMove"
+        @pointerup="onPointerUp"
+        @pointercancel="onPointerCancel"
+        @dragstart.prevent
+        @keydown="onCardKeydown($event, pid)"
+        @focusout="onCardFocusout(pid)"
       >
-        <!-- @mousedown.prevent: a click never parks focus on a card, so Enter after a
-             mouse drag still submits instead of picking the card up. -->
-        <div
-          v-for="(pid, idx) in order"
-          :key="`${groupKey}:${pid}`"
-          data-sort-card
-          :data-pid="pid"
-          role="button"
-          :aria-roledescription="$t('annotate.listwise.sortable')"
-          :aria-label="$t('annotate.listwise.cardLabel', { pos: idx + 1, total: order.length, name: postById.get(pid)?.fileName ?? '' })"
-          :aria-describedby="helpId"
-          class="listwise-card"
-          :class="{ 'listwise-card--drag': (drag?.moved && drag.id === pid) || grabbed?.id === pid }"
-          :style="cardStyle(pid, idx)"
-          @mousedown.prevent
-          @pointerdown="onPointerDown($event, pid)"
-          @pointermove="onPointerMove"
-          @pointerup="onPointerUp"
-          @pointercancel="onPointerCancel"
-          @dragstart.prevent
-          @keydown="onCardKeydown($event, pid)"
-          @focusout="onCardFocusout(pid)"
+        <img
+          v-if="postById.get(pid)"
+          :src="getPostImageURL(postById.get(pid)!)"
+          alt=""
+          class="max-h-full max-w-full object-contain"
+          decoding="async"
+          draggable="false"
+          @load="markLoaded(pid)"
+          @error="markLoaded(pid)"
         >
-          <img
-            v-if="postById.get(pid)"
-            :src="imgURL(postById.get(pid)!)"
-            alt=""
-            class="max-h-full max-w-full object-contain"
-            decoding="async"
-            draggable="false"
-            @load="markLoaded(pid)"
-            @error="markLoaded(pid)"
-          >
-          <span class="listwise-card__rank" :class="{ 'listwise-card__rank--best': displayIndex(idx) === 0 }" aria-hidden="true">{{ displayIndex(idx) + 1 }}</span>
-        </div>
-        <div :id="helpId" class="sr-only">
-          {{ $t('annotate.listwise.sortHelp', { submitKey: formatShortcut('Mod+Enter') }) }}
-        </div>
-
-        <!-- 提交/解码快的时候不该闪一下：动画带 160ms 延迟，短等待里它根本不出现 -->
-        <div v-if="busy" class="listwise-busy">
-          <span class="listwise-spinner" aria-hidden="true" />{{ busyLabel }}
-        </div>
+        <span class="listwise-card__rank" :class="{ 'listwise-card__rank--best': displayIndex(idx) === 0 }" aria-hidden="true">{{ displayIndex(idx) + 1 }}</span>
+      </div>
+      <div :id="helpId" class="sr-only">
+        {{ $t('annotate.listwise.sortHelp', { submitKey: formatShortcut('Mod+Enter') }) }}
       </div>
 
-      <!-- 空态 / 完成态 -->
-      <div v-else class="flex flex-1 items-center justify-center">
-        <AnnotationFinished v-if="exhausted" kind="listwise" :done="doneCount" @home="emit('exit')" />
-        <AnnotationLoadError v-else-if="loadState === 'error'" @retry="stream.refill()" />
-        <!-- 首组：采样要跑分数窗口查询，可能要一两秒 —— 用与真卡片同形的骨架占住行，
-             不让屏幕空着只剩一个转圈。 -->
-        <div v-else role="status" class="flex flex-col gap-3 h-full w-full">
-          <div class="listwise-row flex-1 min-h-0" aria-hidden="true">
-            <div
-              v-for="i in groupSize"
-              :key="i"
-              class="listwise-card listwise-card--skeleton p-skeleton"
-              :style="{ '--i': i - 1 }"
-            />
-          </div>
-          <div class="text-sm text-fg-muted pb-4 flex gap-2 items-center justify-center">
-            <span class="listwise-spinner" aria-hidden="true" />{{ $t('annotate.listwise.sampling') }}
-          </div>
-        </div>
+      <!-- 提交/解码快的时候不该闪一下：动画带 160ms 延迟，短等待里它根本不出现 -->
+      <div v-if="busy" class="listwise-busy">
+        <AnnotationSpinner />{{ busyLabel }}
       </div>
     </div>
 
-    <!-- 大图查看：点击（非拖拽）或卡片上按 V 打开，←/→ 按当前行序切换 -->
-    <Teleport to="body">
-      <div
-        v-if="lightboxPost"
-        ref="lightboxEl"
-        class="listwise-lightbox"
-        role="dialog"
-        aria-modal="true"
-        :aria-label="$t('annotate.listwise.viewTitle')"
-        tabindex="-1"
-        @click.self="closeLightbox"
-      >
-        <img :src="imgURL(lightboxPost)" :alt="lightboxPost.fileName" class="listwise-lightbox__img" draggable="false">
-        <div class="listwise-lightbox__bar">
-          <span class="text-fg font-medium tabular-nums">{{ $t('annotate.listwise.viewPosition', { pos: lightboxIndex + 1, total: order.length }) }}</span>
-          <AnnotationKeyHints class="text-fg-muted" :hints="lightboxHints" />
+    <!-- 首组：采样要跑分数窗口查询，可能要一两秒 —— 用与真卡片同形的骨架占住行，
+         不让屏幕空着只剩一个转圈。 -->
+    <template #loading>
+      <div role="status" class="flex flex-col gap-3 h-full w-full">
+        <div class="listwise-row flex-1 min-h-0" aria-hidden="true">
+          <div
+            v-for="i in groupSize"
+            :key="i"
+            class="listwise-card listwise-card--skeleton p-skeleton"
+            :style="{ '--i': i - 1 }"
+          />
         </div>
-        <button
-          type="button"
-          class="listwise-lightbox__btn listwise-lightbox__close"
-          :aria-label="$t('annotate.listwise.viewClose')"
-          :title="$t('annotate.listwise.viewClose')"
-          aria-keyshortcuts="Escape"
-          @click="closeLightbox"
-        >
-          <i class="i-tabler-x" aria-hidden="true" />
-        </button>
-        <button
-          type="button"
-          class="listwise-lightbox__btn listwise-lightbox__nav listwise-lightbox__nav--left"
-          :aria-label="$t('annotate.listwise.viewPrev')"
-          :title="$t('annotate.listwise.viewPrev')"
-          :aria-disabled="lightboxIndex <= 0"
-          aria-keyshortcuts="ArrowLeft"
-          @click="lightboxStep(-1)"
-        >
-          <i class="i-tabler-chevron-left" aria-hidden="true" />
-        </button>
-        <button
-          type="button"
-          class="listwise-lightbox__btn listwise-lightbox__nav listwise-lightbox__nav--right"
-          :aria-label="$t('annotate.listwise.viewNext')"
-          :title="$t('annotate.listwise.viewNext')"
-          :aria-disabled="lightboxIndex >= order.length - 1"
-          aria-keyshortcuts="ArrowRight"
-          @click="lightboxStep(1)"
-        >
-          <i class="i-tabler-chevron-right" aria-hidden="true" />
-        </button>
+        <div class="text-sm text-fg-muted pb-4 flex gap-2 items-center justify-center">
+          <AnnotationSpinner />{{ $t('annotate.listwise.sampling') }}
+        </div>
       </div>
-    </Teleport>
-  </div>
+    </template>
+
+    <!-- 大图查看：点击（非拖拽）或卡片上按 V 打开，←/→ 按当前行序切换 -->
+    <template #outside>
+      <Teleport to="body">
+        <div
+          v-if="lightboxPost"
+          ref="lightboxEl"
+          class="listwise-lightbox"
+          role="dialog"
+          aria-modal="true"
+          :aria-label="$t('annotate.listwise.viewTitle')"
+          tabindex="-1"
+          @click.self="closeLightbox"
+        >
+          <img :src="getPostImageURL(lightboxPost)" :alt="lightboxPost.fileName" class="listwise-lightbox__img" draggable="false">
+          <div class="listwise-lightbox__bar">
+            <span class="text-fg font-medium tabular-nums">{{ $t('annotate.listwise.viewPosition', { pos: lightboxIndex + 1, total: order.length }) }}</span>
+            <AnnotationKeyHints class="text-fg-muted" :hints="lightboxHints" />
+          </div>
+          <button
+            type="button"
+            class="listwise-lightbox__btn listwise-lightbox__close"
+            :aria-label="$t('annotate.listwise.viewClose')"
+            :title="$t('annotate.listwise.viewClose')"
+            aria-keyshortcuts="Escape"
+            @click="closeLightbox"
+          >
+            <i class="i-tabler-x" aria-hidden="true" />
+          </button>
+          <button
+            type="button"
+            class="listwise-lightbox__btn listwise-lightbox__nav listwise-lightbox__nav--left"
+            :aria-label="$t('annotate.listwise.viewPrev')"
+            :title="$t('annotate.listwise.viewPrev')"
+            :aria-disabled="lightboxIndex <= 0"
+            aria-keyshortcuts="ArrowLeft"
+            @click="lightboxStep(-1)"
+          >
+            <i class="i-tabler-chevron-left" aria-hidden="true" />
+          </button>
+          <button
+            type="button"
+            class="listwise-lightbox__btn listwise-lightbox__nav listwise-lightbox__nav--right"
+            :aria-label="$t('annotate.listwise.viewNext')"
+            :title="$t('annotate.listwise.viewNext')"
+            :aria-disabled="lightboxIndex >= order.length - 1"
+            aria-keyshortcuts="ArrowRight"
+            @click="lightboxStep(1)"
+          >
+            <i class="i-tabler-chevron-right" aria-hidden="true" />
+          </button>
+        </div>
+      </Teleport>
+    </template>
+  </AnnotationSessionShell>
 </template>
 
 <style scoped>
-.listwise-exit {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 26px;
-  height: 26px;
-  border: none;
-  border-radius: var(--p-radius-sm);
-  background: transparent;
-  color: var(--p-fg-muted);
-  cursor: pointer;
-  transition: background-color var(--p-transition-fast), color var(--p-transition-fast);
-}
-.listwise-exit:hover {
-  background: rgb(var(--p-primary-rgb) / 0.12);
-  color: var(--p-fg);
-}
-
-.listwise-session:focus {
-  outline: none;
-}
-
-.listwise-kbd {
-  display: inline-block;
-  padding: 1px 5px;
-  margin: 0 1px;
-  font-family: var(--p-font-mono);
-  font-size: 10px;
-  border: 1px solid var(--p-border);
-  border-bottom-width: 2px;
-  border-radius: var(--p-radius-xs);
-  color: inherit;
-}
-
 .listwise-confirm {
   color: var(--p-warning);
 }
@@ -888,7 +842,7 @@ const submitKeyAria = isMac ? 'Meta+Enter' : 'Control+Enter'
   font-size: var(--p-text-xs);
   border-radius: var(--p-radius-full);
   background: rgb(var(--p-scrim-rgb) / 0.55);
-  color: white;
+  color: rgb(var(--p-on-scrim-rgb));
 }
 .listwise-lightbox__bar .text-fg,
 .listwise-lightbox__bar .text-fg-muted {
@@ -905,7 +859,7 @@ const submitKeyAria = isMac ? 'Meta+Enter' : 'Control+Enter'
   border: none;
   border-radius: var(--p-radius-full);
   background: rgb(var(--p-scrim-rgb) / 0.45);
-  color: white;
+  color: rgb(var(--p-on-scrim-rgb));
   cursor: pointer;
   transition: background-color var(--p-transition-fast);
 }
@@ -929,17 +883,5 @@ const submitKeyAria = isMac ? 'Meta+Enter' : 'Control+Enter'
 }
 .listwise-lightbox__nav--right {
   right: 18px;
-}
-
-.listwise-spinner {
-  width: 14px;
-  height: 14px;
-  border: 2px solid var(--p-border);
-  border-top-color: var(--p-primary);
-  border-radius: 50%;
-  animation: listwise-spin 0.7s linear infinite;
-}
-@keyframes listwise-spin {
-  to { transform: rotate(360deg); }
 }
 </style>

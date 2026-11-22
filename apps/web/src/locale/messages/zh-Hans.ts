@@ -287,7 +287,6 @@ const zhHans: MessageSchema = {
       previewAlt: '{name} 的预览',
       openMember: '打开相似图片，{width} × {height}',
       tagsCopied: '已复制标签',
-      copyFailed: '无法复制到剪贴板',
       autoTagMarker: '（自动）',
       tagMenu: '标签 {tag} 的操作',
       tagFilter: '加入筛选',

@@ -6,6 +6,7 @@ import { useI18n } from 'vue-i18n'
 import { useActiveFilters } from '@/composables/useActiveFilters'
 import { announce, openCommandPalette, SCORERS, textSearchQuery, waterfallRowCount } from '@/shared'
 import { shortcuts } from '@/shared/shortcuts'
+import { PKbd } from '@/ui'
 import { focusElement } from '@/utils/focus'
 import { formatShortcut, isMac } from '@/utils/keyboard'
 
@@ -96,7 +97,9 @@ async function onClearAll() {
           <span v-if="!compact" class="text-left flex-grow truncate" :class="{ 'text-fg': textSearchQuery }">
             {{ textSearchQuery || $t('filter.semanticPlaceholder') }}
           </span>
-          <kbd v-if="!compact" class="text-2xs text-fg-subtle leading-none font-mono px-1 py-0.5 border border-border-subtle rounded-xs shrink-0" aria-hidden="true">{{ paletteShortcut }}</kbd>
+          <PKbd v-if="!compact" variant="flat" class="shrink-0" aria-hidden="true">
+            {{ paletteShortcut }}
+          </PKbd>
         </button>
         <PostSorter />
         <div

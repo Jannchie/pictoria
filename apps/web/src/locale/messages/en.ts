@@ -290,7 +290,6 @@ const en = {
       previewAlt: 'Preview of {name}',
       openMember: 'Open similar image, {width} × {height}',
       tagsCopied: 'Tags copied',
-      copyFailed: 'Could not copy to the clipboard',
       autoTagMarker: '(auto)',
       tagMenu: 'Actions for tag {tag}',
       tagFilter: 'Filter by this tag',

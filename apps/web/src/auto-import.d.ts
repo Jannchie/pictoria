@@ -242,6 +242,7 @@ declare global {
   const useEventListener: typeof import('@vueuse/core').useEventListener
   const useEventSource: typeof import('@vueuse/core').useEventSource
   const useEyeDropper: typeof import('@vueuse/core').useEyeDropper
+  const useFacetCounts: typeof import('./composables/useFacetFilter').useFacetCounts
   const useFacetFilter: typeof import('./composables/useFacetFilter').useFacetFilter
   const useFacetListbox: typeof import('./composables/useFacetFilter').useFacetListbox
   const useFavicon: typeof import('@vueuse/core').useFavicon
@@ -349,6 +350,7 @@ declare global {
   const useTemplateRefsList: typeof import('@vueuse/core').useTemplateRefsList
   const useTemporalNow: typeof import('@vueuse/core').useTemporalNow
   const useTextDirection: typeof import('@vueuse/core').useTextDirection
+  const useTextField: typeof import('./composables/useTextField').useTextField
   const useTextSelection: typeof import('@vueuse/core').useTextSelection
   const useTextareaAutosize: typeof import('@vueuse/core').useTextareaAutosize
   const useThrottle: typeof import('@vueuse/core').useThrottle
