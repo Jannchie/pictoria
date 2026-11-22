@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { formatNumber } from '@/locale'
 import { modelLevel } from '@/shared'
 
 interface Props {
@@ -43,6 +44,6 @@ const levelStyle = computed(() => {
     <span class="font-bold">{{ currentLevel.level }}</span>
     <span class="opacity-80 w-[6ch] inline-block">{{ $t(currentLevel.labelKey) }}</span>
     <span class="opacity-40" aria-hidden="true">·</span>
-    <span class="opacity-70 tabular-nums">{{ score.toFixed(2) }}</span>
+    <span class="opacity-70 tabular-nums">{{ formatNumber(score, { fractionDigits: 2 }) }}</span>
   </span>
 </template>

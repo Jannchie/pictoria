@@ -1,6 +1,6 @@
 import { formatNumber, i18n } from '@/locale'
 import { router } from '@/router'
-import { announce } from './announce'
+import { copyToClipboard } from './clipboard'
 import { showPostDetail } from './state'
 
 interface PostPathParts {
@@ -25,18 +25,14 @@ export function postRelativePath(p: PostPathParts): string {
  * panel's "Copy paths".
  */
 export async function copyPostPaths(posts: readonly PostPathParts[]): Promise<void> {
-  const t = i18n.global.t
   const paths = posts.map(postRelativePath)
   if (paths.length === 0) {
     return
   }
-  try {
-    await navigator.clipboard.writeText(paths.join('\n'))
-    announce(t('multiSelect.pathsCopied', { n: formatNumber(paths.length) }, paths.length))
-  }
-  catch {
-    announce(t('multiSelect.copyFailed'), 'assertive')
-  }
+  await copyToClipboard(
+    paths.join('\n'),
+    i18n.global.t('multiSelect.pathsCopied', { n: formatNumber(paths.length) }, paths.length),
+  )
 }
 
 /** A post's folder as the `/dir/…` route spells it: the path, or `@` for the root. */

@@ -15,22 +15,6 @@ export const KEY_ROWS: readonly string[][] = [
 
 export interface KeyChoice { dimension: string, value: number }
 
-export function keyToChoice(key: string, dimensions: string[], scale: number): KeyChoice | null {
-  const k = key.toLowerCase()
-  for (let row = 0; row < dimensions.length && row < KEY_ROWS.length; row++) {
-    const idx = KEY_ROWS[row].indexOf(k)
-    if (idx !== -1 && idx < scale) {
-      return { dimension: dimensions[row], value: idx + 1 }
-    }
-  }
-  return null
-}
-
-/** All keys the absolute annotator listens to. */
-export function activeKeys(dimensions: string[], scale: number): string[] {
-  return dimensions.flatMap((_, row) => KEY_ROWS[row]?.slice(0, scale) ?? [])
-}
-
 export interface ChoiceBinding extends KeyChoice {
   /** A `useHotkey` shortcut: a bare key, so Ctrl+Z / Ctrl+C / Ctrl+A never match it. */
   key: string

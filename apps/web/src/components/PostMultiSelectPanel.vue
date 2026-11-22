@@ -9,7 +9,7 @@ import { useConfirmAction } from '@/composables/useConfirmAction'
 import { focusGalleryGrid } from '@/composables/useGalleryGrid'
 import { useSelectedPostStats } from '@/composables/useSelectedPostStats'
 import { useThumbPile } from '@/composables/useThumbPile'
-import { formatNumber } from '@/locale'
+import { formatNumber, resolvedLocale } from '@/locale'
 import {
   announce,
   clear,
@@ -271,7 +271,7 @@ function pct(n: number) {
         </div>
         <div class="text-fg-subtle flex flex-wrap gap-x-2 gap-y-0.5 items-center">
           <span v-if="totalSize > 0" class="tabular-nums">
-            {{ filesize(totalSize) }}
+            {{ filesize(totalSize, { locale: resolvedLocale }) }}
           </span>
           <span v-if="totalSize > 0 && extensionDist.length > 0" class="op50" aria-hidden="true">·</span>
           <span v-if="extensionDist.length > 0" class="font-mono">

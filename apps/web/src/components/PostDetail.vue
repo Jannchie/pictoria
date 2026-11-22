@@ -7,12 +7,13 @@ import { useEdgeProximity } from '@/composables/useEdgeProximity'
 import { useKeyScope } from '@/composables/useKeyScope'
 import { usePostNavAnnounce, usePostNavigation } from '@/composables/usePostNavigation'
 import { useAdjacentPostPrefetch } from '@/composables/usePostPrefetch'
+import { formatNumber } from '@/locale'
 import { isAnyDialogOpen, lastViewedPostId, showPostDetail } from '@/shared'
 import { useLayer } from '@/ui/layers'
 import { useFocusReturn } from '@/ui/useFocusTrap'
 import { useHotkey } from '@/ui/useHotkey'
 import { getPostImageURL, getPostThumbnailURL } from '@/utils'
-import { focusElement } from '@/utils/focus'
+import { focusElement, isFocusLost } from '@/utils/focus'
 import { isValueWidgetTarget } from '@/utils/keyboard'
 import { allowsViewKeys, clampScale, PAN_SHORTCUTS, panOffset } from '@/utils/postViewerKeys'
 
@@ -65,7 +66,7 @@ watchEffect(() => {
   scale.value = Math.round(initScale.value * 100) / 100
 })
 const scaleStr = computed(() => {
-  return Number(scale.value * 100).toFixed(0)
+  return formatNumber(scale.value * 100, { fractionDigits: 0, grouping: false })
 })
 
 const scaledInitWidth = computed(() => {
@@ -296,8 +297,7 @@ function navigateDetail(delta: -1 | 1) {
   // 翻到头时对应那侧的竖条会被 v-if 拿掉；焦点若正停在它上面会掉回 <body>，
   // 这里把它接回画布。
   nextTick(() => {
-    const active = document.activeElement
-    if (!active || active === document.body || !active.isConnected) {
+    if (isFocusLost()) {
       focusElement(imgWrapperRef.value, { preventScroll: true })
     }
   })

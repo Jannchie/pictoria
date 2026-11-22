@@ -18,7 +18,7 @@ import { useHotkey } from '@/ui/useHotkey'
 import { formatShortcut } from '@/utils/keyboard'
 import { routeTitle, shouldAnnounceRoute, shouldFocusMain } from '@/utils/routeAnnounce'
 import FolderTree from './components/FolderTree.vue'
-import { announce, commandPaletteOpen, isAnyDialogOpen, shortcutHelpOpen, useSyncFilterWithUrl } from './shared'
+import { announce, isAnyDialogOpen, openCommandPalette, shortcutHelpOpen, toggleCommandPalette, useSyncFilterWithUrl } from './shared'
 import 'splitpanes/dist/splitpanes.css'
 
 const { t } = useI18n()
@@ -39,15 +39,11 @@ const route = useRoute()
 // ── Global hotkeys ──────────────────────────────────────────────────────────
 // ⌘K / Ctrl+K opens the palette from anywhere, including from inside an input
 // (that's the point — it's the one key that always works).
-useHotkey('Mod+K', () => {
-  commandPaletteOpen.value = !commandPaletteOpen.value
-}, { allowInTyping: true, allowInWidgets: true })
+useHotkey('Mod+K', toggleCommandPalette, { allowInTyping: true, allowInWidgets: true })
 
 // '/' is the quick way in (the search-box convention), but it's a character:
 // never while typing, and not over another dialog.
-useHotkey('/', () => {
-  commandPaletteOpen.value = true
-}, { allowInWidgets: true, when: () => !isAnyDialogOpen.value })
+useHotkey('/', openCommandPalette, { allowInWidgets: true, when: () => !isAnyDialogOpen.value })
 
 // '?' opens the shortcut sheet, but only when not typing — otherwise it would
 // swallow the character in the folder filter or a caption field.

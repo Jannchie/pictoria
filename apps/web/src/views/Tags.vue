@@ -15,8 +15,9 @@ import {
   visibleNodes,
 } from '@/composables/useTagTree'
 import { formatNumber } from '@/locale'
-import { announce, postFilter } from '@/shared'
-import { naturalizeTagName, tagLabel } from '@/utils/tagName'
+import { copyToClipboard } from '@/shared'
+import { filterByTag, runTagFilterAction, tagMenuHead } from '@/shared/tagMenu'
+import { tagLabel } from '@/utils/tagName'
 
 /**
  * 一个虚拟滚动项：要么是分类行，要么是一行 tag（分类直属的，或搜索结果）。
@@ -272,12 +273,6 @@ function collapseSticky() {
 }
 
 // ── 标签：点击看图，右键 / Shift+F10 菜单 ────────────────────────────
-function filterByTag(name: string, only: boolean) {
-  const current = postFilter.value.tags
-  postFilter.value.tags = only ? [name] : current.includes(name) ? current : [...current, name]
-  void router.push('/')
-}
-
 const activeTag = ref<TagWithCountPublic | null>(null)
 function tagFromEvent(e: Event): TagWithCountPublic | null {
   const el = (e.target as Element | null)?.closest<HTMLElement>('[data-tag-name]')
@@ -305,9 +300,7 @@ const tagMenuData = computed<PMenuItem[]>(() => {
     return []
   }
   return [
-    { role: 'label', title: tag.translatedName ?? naturalizeTagName(tag.name) },
-    { title: t('post.panel.tagFilter'), icon: 'i-tabler-filter-plus', value: 'filter' },
-    { title: t('post.panel.tagFilterOnly'), icon: 'i-tabler-filter', value: 'filterOnly' },
+    ...tagMenuHead(tag),
     { role: 'divider' },
     { title: t('tagsView.copyName'), icon: 'i-tabler-copy', value: 'copy' },
   ]
@@ -318,25 +311,11 @@ async function onTagMenuSelect(value: string | number | symbol) {
   if (!tag) {
     return
   }
-  switch (value) {
-    case 'filter': {
-      filterByTag(tag.name, false)
-      break
-    }
-    case 'filterOnly': {
-      filterByTag(tag.name, true)
-      break
-    }
-    case 'copy': {
-      try {
-        await navigator.clipboard.writeText(tag.name)
-        announce(t('tagsView.nameCopied', { name: tag.name }))
-      }
-      catch {
-        announce(t('post.panel.copyFailed'), 'assertive')
-      }
-      break
-    }
+  if (runTagFilterAction(value, tag.name)) {
+    return
+  }
+  if (value === 'copy') {
+    await copyToClipboard(tag.name, t('tagsView.nameCopied', { name: tag.name }))
   }
 }
 

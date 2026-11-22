@@ -19,7 +19,6 @@ declare global {
   const THUMBNAIL_WIDTH: typeof import('./composables/useViewportHiRes').THUMBNAIL_WIDTH
   const UNCATEGORISED: typeof import('./composables/useTagTree').UNCATEGORISED
   const activateOptionOnKey: typeof import('./composables/useFacetFilter').activateOptionOnKey
-  const activeKeys: typeof import('./composables/useAnnotationKeymap').activeKeys
   const asyncComputed: typeof import('@vueuse/core').asyncComputed
   const autoResetRef: typeof import('@vueuse/core').autoResetRef
   const browserLanguages: typeof import('./locale/initial').browserLanguages
@@ -55,7 +54,6 @@ declare global {
   const extendRef: typeof import('@vueuse/core').extendRef
   const facetOptionLabel: typeof import('./composables/useFacetFilter').facetOptionLabel
   const facetTriggerLabel: typeof import('./composables/useFacetFilter').facetTriggerLabel
-  const filterTagTree: typeof import('./composables/useTagTree').filterTagTree
   const firstRovingIndex: typeof import('./composables/useRovingIndex').firstRovingIndex
   const focusGalleryGrid: typeof import('./composables/useGalleryGrid').focusGalleryGrid
   const formatAverage: typeof import('./composables/usePostsStatsQuery').formatAverage
@@ -88,7 +86,6 @@ declare global {
   const isRef: typeof import('vue').isRef
   const isShallow: typeof import('vue').isShallow
   const isTypeaheadKey: typeof import('./composables/useTypeahead').isTypeaheadKey
-  const keyToChoice: typeof import('./composables/useAnnotationKeymap').keyToChoice
   const lastRovingIndex: typeof import('./composables/useRovingIndex').lastRovingIndex
   const loadLocaleMessages: typeof import('./locale/index').loadLocaleMessages
   const localeReady: typeof import('./locale/index').localeReady
@@ -469,6 +466,9 @@ declare global {
   // @ts-ignore
   export type { HiResPost } from './composables/useViewportHiRes'
   import('./composables/useViewportHiRes')
+  // @ts-ignore
+  export type { FormatNumberOptions } from './locale/index'
+  import('./locale/index')
   // @ts-ignore
   export type { AppLocale, LocaleSetting } from './locale/initial'
   import('./locale/initial')

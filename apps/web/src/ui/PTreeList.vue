@@ -5,6 +5,7 @@ import { useVirtualList } from '@vueuse/core'
 import { computed, defineComponent, nextTick, onBeforeUpdate, onUpdated, ref, watch, watchEffect } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { formatNumber } from '@/locale'
+import { isFocusLost } from '@/utils/focus'
 import { splitHighlight } from '@/utils/highlight'
 import { flattenTree, hasChildren, isFocusableRow, resolveTreeKey } from './treeListModel'
 import { isTypeaheadKey, matchTypeahead, useTypeahead } from './useTypeahead'
@@ -351,9 +352,7 @@ export default defineComponent({
       if (!el) {
         return
       }
-      const active = document.activeElement
-      const lost = !active || active === document.body || !active.isConnected
-      if (rowHadFocus && lost) {
+      if (rowHadFocus && isFocusLost()) {
         const row = rowEl(activeValue.value)
         if (row) {
           row.focus({ preventScroll: true })
@@ -364,7 +363,7 @@ export default defineComponent({
           parking = false
         }
       }
-      else if (active === el) {
+      else if (document.activeElement === el) {
         rowEl(activeValue.value)?.focus({ preventScroll: true })
       }
       rowHadFocus = false

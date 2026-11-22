@@ -2,7 +2,7 @@
 import { computed } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { formatNumber } from '@/locale'
-import { modelLevelRgb } from '@/shared'
+import { modelLevelRgb, SCORERS } from '@/shared'
 
 // Per-directory aggregate stats, shown as the second line of a folder tree row:
 // the recursive file count first, then the score averages. SILVA stores raw
@@ -18,6 +18,11 @@ const props = defineProps<{
 
 const { t } = useI18n()
 
+// SILVA is a product name, not translated — the same prefix as its filter chip.
+const SILVA_LABEL = SCORERS.find(s => s.name === 'silva')!.chipPrefix
+/** An average: one fraction digit, in the current locale. */
+const avg = (v: number) => formatNumber(v, { fractionDigits: 1 })
+
 // Colour each score by its own high→low value (green→amber→red) via the shared
 // MODEL_LEVEL_RGB ramp (ratio ×10 = its 0–10 scale). Each metric is normalised by
 // its own max (SILVA 0-1, Score 0-5, Rating 0-4). `scored` is a coverage
@@ -29,9 +34,9 @@ function gradeColor(ratio: number): string {
 const metrics = computed<{ key: string, label: string, icon?: string, value: string, color: string | null }[]>(() =>
   [
     { key: 'count', label: '', icon: 'i-tabler-files', raw: null as number | null, max: 1, value: formatNumber(props.count ?? 0) },
-    { key: 'silva', label: 'SILVA', raw: props.silvaAvg, max: 1, value: props.silvaAvg == null ? '—' : (props.silvaAvg * 10).toFixed(1) },
-    { key: 'score', label: t('filter.score'), raw: props.scoreAvg, max: 5, value: props.scoreAvg == null ? '—' : props.scoreAvg.toFixed(1) },
-    { key: 'rating', label: 'R', raw: props.ratingAvg, max: 4, value: props.ratingAvg == null ? '—' : props.ratingAvg.toFixed(1) },
+    { key: 'silva', label: SILVA_LABEL, raw: props.silvaAvg, max: 1, value: props.silvaAvg == null ? '—' : avg(props.silvaAvg * 10) },
+    { key: 'score', label: t('filter.score'), raw: props.scoreAvg, max: 5, value: props.scoreAvg == null ? '—' : avg(props.scoreAvg) },
+    { key: 'rating', label: t('sidebar.stats.ratingShort'), raw: props.ratingAvg, max: 4, value: props.ratingAvg == null ? '—' : avg(props.ratingAvg) },
     { key: 'scored', label: '', raw: null, max: 1, value: props.scoredRatio == null ? '—' : `${Math.round(props.scoredRatio * 100)}%` },
   ].map(m => ({
     key: m.key,
@@ -47,13 +52,13 @@ const metrics = computed<{ key: string, label: string, icon?: string, value: str
 const spoken = computed(() => {
   const parts = [t('sidebar.stats.files', { n: formatNumber(props.count ?? 0) }, props.count ?? 0)]
   if (props.silvaAvg != null) {
-    parts.push(t('sidebar.stats.silva', { v: (props.silvaAvg * 10).toFixed(1) }))
+    parts.push(t('sidebar.stats.silva', { v: avg(props.silvaAvg * 10) }))
   }
   if (props.scoreAvg != null) {
-    parts.push(t('sidebar.stats.score', { v: props.scoreAvg.toFixed(1) }))
+    parts.push(t('sidebar.stats.score', { v: avg(props.scoreAvg) }))
   }
   if (props.ratingAvg != null) {
-    parts.push(t('sidebar.stats.rating', { v: props.ratingAvg.toFixed(1) }))
+    parts.push(t('sidebar.stats.rating', { v: avg(props.ratingAvg) }))
   }
   if (props.scoredRatio != null) {
     parts.push(t('sidebar.stats.scored', { v: `${Math.round(props.scoredRatio * 100)}%` }))

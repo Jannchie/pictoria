@@ -99,8 +99,37 @@ export const localeReady: Promise<void> = loadLocaleMessages(resolvedLocale.valu
 
 const numberFormat = computed(() => new Intl.NumberFormat(resolvedLocale.value))
 
-export function formatNumber(n: number): string {
-  return numberFormat.value.format(n)
+export interface FormatNumberOptions {
+  /**
+   * Exactly this many fraction digits — the locale-aware `n.toFixed(d)`. Rounds
+   * the way `toFixed` does (on the binary value: 0.15 → "0.1"), so swapping a
+   * `toFixed` for this changes only the separators, never a digit.
+   */
+  fractionDigits?: number
+  /** Thousands separators (default on). Off where the text used to be a bare `toFixed`. */
+  grouping?: boolean
+}
+
+// Memoised per (locale, options), like numberFormat.
+const fixedFormats = new Map<string, Intl.NumberFormat>()
+
+export function formatNumber(n: number, options: FormatNumberOptions = {}): string {
+  const { fractionDigits, grouping = true } = options
+  if (fractionDigits === undefined && grouping) {
+    return numberFormat.value.format(n)
+  }
+  const locale = resolvedLocale.value
+  const key = `${locale}|${fractionDigits ?? ''}|${grouping}`
+  let format = fixedFormats.get(key)
+  if (!format) {
+    format = new Intl.NumberFormat(locale, {
+      minimumFractionDigits: fractionDigits,
+      maximumFractionDigits: fractionDigits,
+      useGrouping: grouping,
+    })
+    fixedFormats.set(key, format)
+  }
+  return format.format(fractionDigits === undefined ? n : Number(n.toFixed(fractionDigits)))
 }
 
 // Memoised like numberFormat: `toLocaleString`/`toLocaleDateString` construct a fresh

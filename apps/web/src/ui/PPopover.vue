@@ -4,11 +4,8 @@ import { computed, nextTick, onMounted, ref, useId, useTemplateRef, watch } from
 import { focusElement, getFocusable } from '@/utils/focus'
 import { useLayer } from './layers'
 import { nextInOrder } from './overlay'
-import PTooltip from './PTooltip.vue'
 
-// Anchored popover.
-//
-// trigger="click" — a non-modal disclosure popover (Radix Popover, non-modal):
+// Anchored popover — a non-modal disclosure popover (Radix Popover, non-modal):
 // - The trigger is the first focusable element in the default slot (callers
 //   pass a PButton). It gets aria-haspopup / aria-expanded / aria-controls
 //   (and an id) via the DOM, so callers need no changes. It toggles on
@@ -23,12 +20,10 @@ import PTooltip from './PTooltip.vue'
 //   Tab order after the trigger; Shift+Tab before the first closes and lands
 //   on the trigger.
 //
-// trigger="hover" — kept for backwards compatibility; it is a PTooltip
-// (hover AND keyboard focus, delays, role=tooltip, aria-describedby).
+// For hover / focus hints use PTooltip.
 type Position = 'top-start' | 'top-end' | 'bottom-start' | 'bottom-end' | 'left-start' | 'left-end' | 'right-start' | 'right-end' | 'top' | 'bottom' | 'left' | 'right'
 
 const props = withDefaults(defineProps<{
-  trigger?: 'hover' | 'click'
   position?: Position
   zIndex?: number | string
   offset?: number
@@ -38,7 +33,6 @@ const props = withDefaults(defineProps<{
   /** Accessible name of the content (role=dialog). Defaults to the trigger's name. */
   ariaLabel?: string
 }>(), {
-  trigger: 'click',
   position: 'bottom',
   zIndex: 'var(--p-z-popup)',
   offset: 4,
@@ -59,8 +53,7 @@ const contentId = useId()
 const wrapperRef = useTemplateRef<HTMLElement>('wrapperRef')
 const triggerBox = useTemplateRef<HTMLElement>('triggerBox')
 const contentRef = useTemplateRef<HTMLElement>('contentRef')
-const isClick = computed(() => props.trigger === 'click')
-const open = computed(() => isClick.value && active.value)
+const open = computed(() => active.value)
 
 // ---- trigger --------------------------------------------------------------
 const triggerEl = ref<HTMLElement | null>(null)
@@ -74,9 +67,6 @@ function resolveTrigger(): HTMLElement | null {
 }
 
 function syncTriggerAria() {
-  if (!isClick.value) {
-    return
-  }
   const el = resolveTrigger() ?? triggerEl.value
   triggerEl.value = el
   if (!el) {
@@ -234,21 +224,7 @@ defineExpose({ close })
 </script>
 
 <template>
-  <PTooltip
-    v-if="!isClick"
-    as="div"
-    class="relative"
-    :position="position"
-    :offset="offset"
-    :z-index="zIndex"
-  >
-    <slot />
-    <template #content>
-      <slot name="content" />
-    </template>
-  </PTooltip>
   <div
-    v-else
     ref="wrapperRef"
     class="relative"
   >

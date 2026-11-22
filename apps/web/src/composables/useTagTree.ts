@@ -158,23 +158,6 @@ export function buildTagTree(
   return nodes.filter(n => n.total > 0)
 }
 
-/** 只保留命中搜索的 tag，以及还剩下 tag 的那些分类（计数同步重算）。 */
-export function filterTagTree(nodes: TagTreeNode[], match: (tag: TagWithCountPublic) => boolean): TagTreeNode[] {
-  const filtered = nodes.map(n => ({ ...n, own: n.own.filter(match), total: 0 }))
-  const byPath = new Map(filtered.map(n => [n.path, n]))
-  for (let i = filtered.length - 1; i >= 0; i--) {
-    const node = filtered[i]
-    node.total += node.own.length
-    if (node.parent) {
-      const parent = byPath.get(node.parent)
-      if (parent) {
-        parent.total += node.total
-      }
-    }
-  }
-  return filtered.filter(n => n.total > 0)
-}
-
 /**
  * 可见的节点 —— 一个分类可见，当且仅当它的父分类既可见又展开。
  *

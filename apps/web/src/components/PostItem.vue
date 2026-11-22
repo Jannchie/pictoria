@@ -6,6 +6,7 @@ import { useRoute } from 'vue-router'
 import ArthashPlaceholder from '@/components/ArthashPlaceholder.vue'
 import { galleryGridKey } from '@/composables/useGalleryGrid'
 import { useViewportHiRes } from '@/composables/useViewportHiRes'
+import { formatNumber } from '@/locale'
 import { addToSelection, collapseSelectionTo, commitPendingSelection, enableArthash, enableFancyPlaceholder, gridCursorId, hideNSFW, isCommittedSelected, isSelected, postSort, ratingName, selectOnly, setGridCursor, toggle, togglePendingAt } from '@/shared'
 import { effectiveSort } from '@/shared/galleryView'
 import { isImageExtension } from '@/utils'
@@ -211,14 +212,14 @@ const sortBadgeStyle = computed(() => {
         />
         <div
           v-if="post.matchProb != null"
-          class="p-thumb-badge bg-black/60 right-1.5 top-1.5 absolute"
+          class="p-thumb-badge bg-scrim/60 right-1.5 top-1.5 absolute"
         >
-          {{ (post.matchProb * 100).toFixed(1) }}%
+          {{ formatNumber(post.matchProb * 100, { fractionDigits: 1 }) }}%
         </div>
         <div
           v-else-if="sortBadge"
           class="p-thumb-badge flex items-center right-1.5 top-1.5 absolute"
-          :class="sortBadgeStyle ? undefined : 'bg-black/60'"
+          :class="sortBadgeStyle ? undefined : 'bg-scrim/60'"
           :style="sortBadgeStyle"
         >
           <i
@@ -232,7 +233,7 @@ const sortBadgeStyle = computed(() => {
         </div>
         <div
           v-if="(post.groupMemberCount ?? 0) > 0"
-          class="p-thumb-badge bg-black/60 flex gap-0.5 items-center bottom-1.5 right-1.5 absolute"
+          class="p-thumb-badge bg-scrim/60 flex gap-0.5 items-center bottom-1.5 right-1.5 absolute"
           :title="$t('post.groupBadgeTitle', { n: post.groupMemberCount }, post.groupMemberCount ?? 0)"
         >
           <i class="i-tabler-stack-2" />+{{ post.groupMemberCount }}
@@ -240,7 +241,7 @@ const sortBadgeStyle = computed(() => {
         <!-- Dimensions on demand: visible on hover / keyboard focus only. -->
         <div
           v-if="post.width && post.height"
-          class="dims-badge p-thumb-badge bg-black/60 opacity-0 transition-opacity bottom-1.5 left-1.5 absolute group-hover/post:opacity-100"
+          class="dims-badge p-thumb-badge bg-scrim/60 opacity-0 transition-opacity bottom-1.5 left-1.5 absolute group-hover/post:opacity-100"
         >
           {{ post.width }}×{{ post.height }}
         </div>

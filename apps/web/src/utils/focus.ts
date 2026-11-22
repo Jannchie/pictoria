@@ -108,6 +108,16 @@ export function focusElement(el: HTMLElement | null | undefined, options: { prev
   return el.ownerDocument.activeElement === el
 }
 
+/**
+ * Whether focus has been lost: nothing focused, focus fell back to `<body>`, or
+ * the focused element was just removed from the DOM. Callers that swap content
+ * under focus check this before putting focus somewhere sensible again.
+ */
+export function isFocusLost(doc: Document = document): boolean {
+  const active = doc.activeElement
+  return !active || active === doc.body || !active.isConnected
+}
+
 /** Focuses the first tabbable element inside `container`. Returns whether it did. */
 export function focusFirst(container: HTMLElement | null | undefined, options: { preventScroll?: boolean } = {}): boolean {
   const [first] = getFocusable(container)

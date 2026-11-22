@@ -20,7 +20,7 @@ import { useToast } from '@/shared/toast'
 import { useHotkey } from '@/ui/useHotkey'
 import { getPostImageURL } from '@/utils'
 import { colorNumToHex } from '@/utils/color'
-import { focusElement } from '@/utils/focus'
+import { focusElement, isFocusLost } from '@/utils/focus'
 import { allowsViewKeys, isInteractiveTarget } from '@/utils/postViewerKeys'
 
 const { t } = useI18n()
@@ -270,8 +270,7 @@ function navigatePost(delta: -1 | 1) {
   announceNav(next, position, total.value)
   // 翻到头时那一侧的竖条被 v-if 拿掉，停在它上面的焦点会掉回 <body>；接回主图。
   nextTick(() => {
-    const active = document.activeElement
-    if (!active || active === document.body || !active.isConnected) {
+    if (isFocusLost()) {
       focusMainImage()
     }
   })
@@ -369,8 +368,7 @@ async function confirmDelete() {
     // 被删的缩略图带着焦点一起没了；等对话框自己的焦点归还（微任务）结束后，
     // 焦点若仍无处可去就落回主图。
     setTimeout(() => {
-      const active = document.activeElement
-      if (!active || active === document.body || !active.isConnected) {
+      if (isFocusLost()) {
         focusMainImage()
       }
     }, 0)

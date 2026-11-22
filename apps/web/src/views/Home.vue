@@ -5,7 +5,6 @@ import { useRoute } from 'vue-router'
 import { showPostDetail, waterfallRowCount } from '@/shared'
 import { galleryViewNameKey } from '@/shared/galleryView'
 import PostDetail from '../components/PostDetail.vue'
-import 'splitpanes/dist/splitpanes.css'
 
 const { t } = useI18n()
 const route = useRoute()

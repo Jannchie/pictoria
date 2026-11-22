@@ -254,7 +254,8 @@ useIntersectionObserver(
   height: 34px;
   object-fit: cover;
   border-radius: var(--p-radius-xs);
-  background: var(--p-bg-subtle);
+  /* Placeholder fill until the thumbnail loads. */
+  background: var(--p-skeleton);
   /* Transparent by default so the winning side's ring does not shift layout. */
   outline: 2px solid transparent;
   outline-offset: -2px;

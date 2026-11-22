@@ -9,8 +9,9 @@ import { useRoute, useRouter } from 'vue-router'
 import { useAPIError } from '@/composables/useAPIError'
 import { useFolderTree } from '@/composables/useFolderTree'
 import { formatNumber } from '@/locale'
-import { announce, deleteFolder, RATING_ICON, SCORE_ICON, scorerIcon } from '@/shared'
+import { announce, copyToClipboard, deleteFolder, RATING_ICON, SCORE_ICON, scorerIcon } from '@/shared'
 import PTreeList, { CHEVRON_SLOT, LEVEL_INDENT } from '@/ui/PTreeList.vue'
+import { isFocusLost } from '@/utils/focus'
 import { findFolderNode, folderTreeItemHeight, parentFolder, ROOT_FOLDER } from '@/utils/folderTree'
 import ConfirmActionDialog from './ConfirmActionDialog.vue'
 import FolderTreeRow from './FolderTreeRow.vue'
@@ -108,16 +109,6 @@ function onTreeKeydownCapture(e: KeyboardEvent) {
   }
 }
 
-async function copyPath(path: string) {
-  try {
-    await navigator.clipboard.writeText(path)
-    announce(t('sidebar.pathCopied'))
-  }
-  catch {
-    announce(t('sidebar.copyPathFailed'), 'assertive')
-  }
-}
-
 function onTreeMenuSelect(action: string | number | symbol) {
   const path = contextTarget.value?.value
   if (!path) {
@@ -129,7 +120,7 @@ function onTreeMenuSelect(action: string | number | symbol) {
       break
     }
     case 'copy': {
-      copyPath(path)
+      void copyToClipboard(path, t('sidebar.pathCopied'))
       break
     }
     case 'delete': {
@@ -149,8 +140,7 @@ const { handle: handleAPIError } = useAPIError()
 function refocusTreeAfterDelete(path: string) {
   const parent = parentFolder(path)
   setTimeout(() => {
-    const active = document.activeElement
-    if (!active || active === document.body || !active.isConnected) {
+    if (isFocusLost()) {
       tree.value?.focusValue(parent)
     }
   }, 50)

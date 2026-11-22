@@ -64,11 +64,6 @@ export const SCORERS = [
   },
 ] as const satisfies readonly ScorerUi[]
 
-/** 排序列名，例如 `silva_score`。 */
-export function scorerOrderColumn(spec: ScorerUi): string {
-  return `${spec.name}_score`
-}
-
 /** A scorer's `countKind` — also the key the detail panel's on-demand scorers use. */
 export type ScorerKind = typeof SCORERS[number]['countKind']
 

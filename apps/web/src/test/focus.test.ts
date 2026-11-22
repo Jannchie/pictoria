@@ -2,7 +2,7 @@
 import { describe, expect, it } from 'vitest'
 import { effectScope, nextTick, ref } from 'vue'
 import { useFocusReturn, useFocusTrap } from '@/ui/useFocusTrap'
-import { focusElement, focusFirst, getFocusable } from '@/utils/focus'
+import { focusElement, focusFirst, getFocusable, isFocusLost } from '@/utils/focus'
 
 function byId(id: string): HTMLElement {
   return document.querySelector<HTMLElement>(`#${id}`)!
@@ -58,6 +58,15 @@ describe('getfocusable', () => {
     const c = mount('<div id="c"><button id="b">b</button></div>')
     expect(focusElement(c.querySelector('button'))).toBe(true)
     expect(focusElement(null)).toBe(false)
+  })
+
+  it('isfocuslost is true on body, false on a focused element', () => {
+    mount('<div id="c"><button id="b">b</button></div>')
+    const b = byId('b')
+    b.focus()
+    expect(isFocusLost()).toBe(false)
+    b.blur()
+    expect(isFocusLost()).toBe(true)
   })
 })
 

@@ -26,6 +26,20 @@ function baseName(file: string): string {
   return file.split('/').pop() ?? file
 }
 
+// Vitest hands every CSS module over as an empty string — `?raw` included — so a
+// glob of .css files would sweep nothing. Read those from disk instead (the glob
+// keys are paths relative to this file). `fs` comes from getBuiltinModule rather
+// than `import 'node:fs'`: the app's tsconfig has no Node types, and a
+// `/// <reference types="node" />` here would leak them into the whole program.
+const { readFileSync } = (globalThis as unknown as {
+  process: { getBuiltinModule: (id: 'node:fs') => { readFileSync: (path: URL, encoding: 'utf8') => string } }
+}).process.getBuiltinModule('node:fs')
+
+function withCssFromDisk(globbed: Record<string, string>): Record<string, string> {
+  return Object.fromEntries(Object.entries(globbed).map(([file, text]) =>
+    [file, file.endsWith('.css') ? readFileSync(new URL(file, import.meta.url), 'utf8') : text]))
+}
+
 // Collect "<short file> — <matched snippet>" lines for every match of
 // `pattern` not excused by `isAllowed(file, matchText)`.
 function findViolations(
@@ -140,16 +154,59 @@ describe('reserved shadows stay in the ui/ elevation primitives', () => {
   })
 })
 
-// 5. No references to `--p-border-default` — it is a UnoCSS theme *key name*
-//    (theme.colors['border-default']), not a CSS variable. tokens.css only
-//    defines --p-border / --p-border-strong / --p-border-subtle, so
-//    var(--p-border-default) resolves to empty and the border silently drops.
-describe('no phantom --p-border-default token', () => {
-  const PHANTOM = /var\(--p-border-default\)/g
+// 5. Every `var(--p-*)` names a token that is defined somewhere. An undefined
+//    custom property resolves to nothing, so the declaration silently drops
+//    (e.g. `--p-border-default` is a UnoCSS theme *key*, not a variable, and
+//    `--p-bg-subtle` never existed). "Defined" means any of:
+//    - a declaration `--p-x: …` in CSS / a scoped <style> / an inline style
+//      string / a UnoCSS arbitrary property `[--p-x:…]`;
+//    - `el.style.setProperty('--p-x', …)` from script;
+//    - an object key `'--p-x': …` in a `:style` binding.
+describe('every referenced --p-* token is defined', () => {
+  const tokenSources = withCssFromDisk(import.meta.glob([
+    '../**/*.vue',
+    '../**/*.ts',
+    '../**/*.css',
+    '../../uno.config.ts',
+    '!../**/*.d.ts',
+    '!../test/**',
+    '!../api/**',
+  ], { query: '?raw', import: 'default', eager: true }) as Record<string, string>)
 
-  it('no var(--p-border-default) (use --p-border)', () => {
-    const violations = findViolations(PHANTOM, () => false)
-    expect(violations, 'var(--p-border-default) is not a token (use var(--p-border))').toEqual([])
+  const DECLARED = /(--p-[\w-]+)\s*:/g
+  const SET_PROPERTY = /setProperty\(\s*['"`](--p-[\w-]+)['"`]/g
+  const STYLE_KEY = /['"`](--p-[\w-]+)['"`]\s*:/g
+  const REFERENCED = /var\(\s*(--p-[\w-]+)/g
+
+  it('scans the token file and uno.config.ts', () => {
+    const files = Object.keys(tokenSources)
+    expect(files.some(f => f.endsWith('styles/tokens.css'))).toBe(true)
+    expect(files.some(f => f.endsWith('uno.config.ts'))).toBe(true)
+  })
+
+  it('no var(--p-*) without a definition', () => {
+    const defined = new Set<string>()
+    for (const text of Object.values(tokenSources)) {
+      for (const pattern of [DECLARED, SET_PROPERTY, STYLE_KEY]) {
+        for (const m of text.matchAll(pattern)) {
+          defined.add(m[1])
+        }
+      }
+    }
+    // Sanity: the token file was actually read.
+    expect(defined.has('--p-bg')).toBe(true)
+
+    const violations: string[] = []
+    for (const [file, text] of Object.entries(tokenSources)) {
+      for (const m of text.matchAll(REFERENCED)) {
+        const name = m[1]
+        if (defined.has(name)) {
+          continue
+        }
+        violations.push(`${shortName(file)} — ${name}`)
+      }
+    }
+    expect(violations.sort(), 'var(--p-*) references an undefined token').toEqual([])
   })
 })
 
@@ -163,7 +220,7 @@ describe('no phantom --p-border-default token', () => {
 describe('no literal rgb()/hsl() colours', () => {
   const COLOR_FN = /\b(?:rgba?|hsla?)\(\s*[\d.]/gi
 
-  const styleSources = import.meta.glob([
+  const styleSources = withCssFromDisk(import.meta.glob([
     '../**/*.vue',
     '../**/*.ts',
     '../**/*.css',
@@ -171,7 +228,7 @@ describe('no literal rgb()/hsl() colours', () => {
     '!../test/**',
     '!../api/**',
     '!../styles/tokens.css',
-  ], { query: '?raw', import: 'default', eager: true }) as Record<string, string>
+  ], { query: '?raw', import: 'default', eager: true }) as Record<string, string>)
 
   it('scans .vue, .ts and .css', () => {
     const files = Object.keys(styleSources)

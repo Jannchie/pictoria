@@ -18,6 +18,12 @@ export default defineConfig({
         'src/utils/fileIcon.ts',
         // Each scorer's one icon (scorerIcon), used by sort / filter / panels.
         'src/shared/scorers.ts',
+        // Each annotation type's icon (annotate mode cards / session headers).
+        'src/shared/annotationTypes.ts',
+        // Filter-chip icons (chipIcon / active-filter summary).
+        'src/shared/postFilter.ts',
+        // Shared tag context-menu items (tag manager, detail panel).
+        'src/shared/tagMenu.ts',
       ],
     },
   },
@@ -74,6 +80,10 @@ export default defineConfig({
       'on-warning': color('on-warning'),
       'on-danger': color('on-danger'),
       'on-info': color('on-info'),
+
+      // Chrome laid over images (thumbnail badges): same in both schemes.
+      'scrim': color('scrim'),
+      'on-scrim': color('on-scrim'),
     },
     radius: {
       'xs': 'var(--p-radius-xs)',
@@ -116,9 +126,6 @@ export default defineConfig({
     'p-border': 'border border-border-default',
     'p-divider': 'border-b border-border-subtle',
     'p-popover-panel': 'p-1 border border-border-default rounded bg-surface shadow-md',
-    // Badge overlaid on a thumbnail image — white tabular-nums text on a translucent
-    // black scim. Used by the match-prob / sort / group badges in PostItem.
-    // Position (absolute offsets) and exact bg opacity stay on the caller.
     // Key–value metadata grid (detail / multi-select panels): odd children are
     // keys, even are values. Keys keep one line at their own width; values
     // shrink and break anywhere, so a long path can't squeeze the key column.
@@ -129,6 +136,10 @@ export default defineConfig({
     'p-skeleton': 'bg-skeleton animate-pulse [animation-delay:calc(var(--i,0)*60ms)]',
     // Small uppercase section heading with a leading icon (side panels).
     'p-section-title': 'flex items-center gap-1.5 text-fg-subtle text-[11px] font-semibold uppercase tracking-wider',
-    'p-thumb-badge': 'text-2xs text-white tracking-wide font-bold px-1.5 py-0.5 rounded pointer-events-none tabular-nums',
+    // Badge overlaid on a thumbnail image — on-scrim tabular-nums text on a
+    // translucent scrim. Used by the match-prob / sort / group badges in PostItem.
+    // Position (absolute offsets) and the scrim background (`bg-scrim/60`) stay
+    // on the caller.
+    'p-thumb-badge': 'text-2xs text-on-scrim tracking-wide font-bold px-1.5 py-0.5 rounded pointer-events-none tabular-nums',
   },
 })
