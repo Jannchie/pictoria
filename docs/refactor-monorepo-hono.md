@@ -2,6 +2,14 @@
 
 > 状态：**已全部完成**（2026-08-13 Litestar 与 Python db 层退役，2026-08-14 分支并入 main）。本文档保留作为决策记录 —— 代码内多处注释引用这里的 §D1/§D2/§4.8 论证与 Phase 6/7 的对拍记录，进度类内容不再更新。
 >
+> 此后与正文不符的几处（正文不改，以这里和 `CLAUDE.md` 为准）：
+> - Phase 7 说 `pnpm dev` 是 `trap 'kill 0'` 的 POSIX 一行 —— 实测根脚本下 `trap` / `wait` 不可用，
+>   现在是 `concurrently -k`；`ref:litestar` 脚本已随 Litestar 一起删除。
+> - 「`server/` 保留清单」里的 `ai/{waifu_scorer,clip}.py`、`services/wd_tagging.py`、`scorers.py`
+>   已随 waifu / CLIP / WDTagger 退役而删除；`services/danbooru_import.py` 并入了 `worker/importers.py`。
+> - 同一节标为「未处理」的三个写库脚本（`calculate_color.py`、两个 `clean_*.py`）已删，
+>   `sqlite3` 在 `server/src` 下由 ruff 的 `banned-api`（TID251）禁用。
+>
 > 贯穿全局的一条原则（D1 + D3 的共同结论）：**所有计算在 Python worker，所有数据库写入在 TS，没有例外。**
 > 前提：前端 `web/` 不改（除路径移动），API 契约逐字保持
 

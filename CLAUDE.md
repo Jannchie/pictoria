@@ -40,7 +40,8 @@ and one Ctrl+C stops all of them.
 any of those three trees restarts the API. A half-written edit that crashes it on boot
 makes `concurrently -k` take the worker and Vite down with it — so editing API/db code
 while someone's `pnpm dev` is running interrupts their session. `pnpm dev:api-quiet`
-(`PICTORIA_SCHEDULER=0`) starts an API without the backfill loops, e.g. for `pnpm genapi`.
+(`PICTORIA_SCHEDULER=0`) starts an API without the backfill loops and without the sync
+file watcher, e.g. for `pnpm genapi`.
 
 ⚠️ Do **not** rewrite it as a POSIX `(trap 'kill 0' SIGINT; a & b & wait)` one-liner.
 `pnpm config get script-shell` reports msys bash on this machine, but root scripts
@@ -73,7 +74,7 @@ pnpm lint         # ESLint with auto-fix (lint:check = no fix)
 
 # Backend
 cd server
-uv run ruff check src  # Lint Python code
+uv run ruff check src scripts tests  # Lint Python code
 uv run ruff format src # Format Python code
 ```
 
@@ -115,14 +116,14 @@ uv run python scripts/inspect_db.py
 #### `apps/api` — the HTTP server (Hono, port 4777)
 
 - **src/app.ts**: `createApp({ db, tasks })` — app assembly (CORS, compression, route mounting, `/schema/openapi.json`, the 404 shape); routes read the injected handles as `c.var.db` / `c.var.tasks` (`src/env.ts`'s `AppEnv`, build route modules with `newRoutes()`), never `getDb()`. **src/index.ts**: boot side effects only (migrate, serve, scheduler, sync watcher)
-- **Route tests**: `createTestApp()` (`src/testing/app.ts`) gives an in-memory migrated DB (`createTestDb()` from `@pictoria/db`), a temp library dir and a recording `fakeTasks`; hit routes with `app.request()`
-- **src/paths.ts**: single source of truth for *where things are* (`targetDir`, `pictoriaDir`, `thumbnailsDir`, `dbPath`, `tasksDbPath`, `migrationsDir`) plus the `isInside`/`resolveInside` containment primitives. Any concrete path a worker needs (image, thumbnail) is computed here and sent in the task payload; the Python side (`server/src/paths.py`) only knows the root and checks containment with `_resolve_inside`. Relative `PICTORIA_TARGET_DIR` / `DB_PATH` / `TASKS_DB_PATH` resolve against the repo root on both sides; `postAbsPath(relPath)` is the one way to build a post's absolute path
-- **src/db.ts**: the process-wide SQLite handle; **runs `runMigrations` on first open**
-- **src/routes/**: one file per resource — `post-reads` / `post-writes` / `post-list` / `post-counts` (+ `post-shared`), `tags` / `tag-writes`, `images`, `folders`, `annotations` / `annotation-queues` (+ `annotation-shared`), `commands`, `queues` (`/v2/queues/status`), `danbooru-imports` (`/v2/danbooru-imports` jobs)
+- **Route tests**: `createTestApp()` (`src/testing/app.ts`) gives an in-memory migrated DB (`createTestDb()` from `@pictoria/db/testing`), a temp library dir and a recording `fakeTasks`; hit routes with `app.request()`
+- **src/paths.ts**: single source of truth for *where things are* (`targetDir`, `pictoriaDir`, `dbPath`, `tasksDbPath`, `serverDataDir`, `thumbnailPathFor`, the dedup temp-matrix name; the migrations directory is `MIGRATIONS_DIR` in `@pictoria/db`) plus the `isInside`/`resolveInside` containment primitives. Any concrete path a worker needs (image, thumbnail) is computed here and sent in the task payload; the Python side (`server/src/paths.py`) only knows the root, and the handlers check containment with `_resolve_inside` (`server/src/worker/handlers.py`). Relative `PICTORIA_TARGET_DIR` / `DB_PATH` / `TASKS_DB_PATH` resolve against the repo root on both sides; `postAbsPath(relPath)` is the one way to build a post's absolute path
+- **src/db.ts**: the process-wide SQLite handle (`getDb()`) and `migrate()`, which `index.ts` calls once before `serve()`. Deliberately **not** run inside `getDb()`: schema changes must be an explicit boot step, not a side effect of whoever touches the database first
+- **src/routes/**: one file per resource — `post-reads` / `post-writes` / `post-upload` / `post-list` / `post-counts` (+ `post-shared`), `tags` / `tag-writes`, `images`, `folders`, `annotations` / `annotation-queues` (+ `annotation-shared`), `grading`, `commands`, `queues` (`/v2/queues/status`), `danbooru-imports` (`/v2/danbooru-imports` jobs). Route files hold routes and their zod schemas only; stateful per-app objects live beside them in `src/` and are injected through `c.var`
 - **src/security.ts**: the three browser gates — CORS allowlist, `Host` check (DNS rebinding), `Origin` check on writes (CSRF); policy from `PICTORIA_ALLOWED_ORIGINS` / `PICTORIA_ALLOWED_HOSTS`
 - **src/read-pool.ts** / **src/read-worker.ts** / **src/read-fns.ts**: a `worker_threads` pool, each thread with its own `SQLITE_OPEN_READONLY` connection, that runs the heavy whole-library reads (vec0 KNN for similar / text search, facet counts) off the event loop. Only functions registered in `read-fns.ts` can be called — it is a whitelist, not a SQL executor; routes get it as `c.var.reads`. `PICTORIA_READ_THREADS=0` runs the same functions in-process
 - **src/optimize.ts**: `PRAGMA optimize` (with `analysis_limit = 0`) at boot and hourly, so planner stats track table growth
-- **src/danbooru-imports.ts**: in-memory Danbooru import job queue behind `/v2/danbooru-imports` — one job per tag set, imported ids read when the job starts, chunked download + persist
+- **src/danbooru-imports.ts**: in-memory Danbooru import job queue behind `/v2/danbooru-imports` — one job per tag set, imported ids read when the job starts, chunked download + persist. **src/url-imports.ts**: the gallery-dl URL import state machine (`c.var.urlImports`, at most one at a time). **src/folder-tree.ts**: the `/v2/folders` directory-tree cache and watcher (`c.var.folderTree`)
 - **src/s3.ts**: hand-written SigV4 presigned URLs — the S3 fallback for `GET /v2/images/original/...` when the local file is missing; credentials read from `server/.env`
 - **src/workers.ts**: one `WorkerSpec` per backfill worker (queue, batch, pending scan, payload builder, persist, blacklist policy); worker names live once in `packages/db/src/workers.ts`. **src/scheduler.ts**: the loop skeleton + one generic `runBatch` over those specs; single-post recompute in `routes/commands.ts` reuses the same spec (`runOneShot`). A repository write that makes an old post pending again calls `notifyRepending(sqlite, worker)` (`packages/db/src/repending.ts`) itself — routes never wake loops by hand, and each new such write gets an assertion in `repending.test.ts`; **src/sync.ts**: disk↔`posts` reconciliation + file watching; **src/dedup.ts**: near-duplicate grouping
 - **src/queue-status.ts**: per-loop progress bookkeeping behind `GET /v2/queues/status` (the sidebar's sync-status area). Remaining counts come from `packages/db`'s `count*Pending` generators (chunked from the scan water-level), run in the background on one serial chain that yields between chunks — a one-shot count of a whole-library backlog blocks the event loop for ~1.6 s
@@ -132,13 +133,15 @@ uv run python scripts/inspect_db.py
 
 #### `packages/db` — data access (the only writer)
 
-- `connection.ts` (sqlite-vec + WAL + FK pragma), `schema.ts`, `migrate.ts`, `filters.ts` (`buildWhere` + column allowlists), `scorers.ts`, `repositories/`, `queries/`
+- `connection.ts` (sqlite-vec + WAL + FK pragma), `migrate.ts`, `filters.ts` (`buildWhere` + column allowlists), `scorers.ts`, `workers.ts` (backfill worker names), `repending.ts` / `scan-floor.ts` (re-pending signal and the pending-scan water level), `sql.ts` (`placeholders`, `chunked`, `serializeFloat32`), `repositories/`, `queries/`
+- `index.ts` is the production surface. `schema.ts` + `verify-schema.ts` (the only files that import `drizzle-orm`, a devDependency) are reachable only from tests; test helpers (`createTestDb`, `insertPost`, …) are imported from the `@pictoria/db/testing` subpath, never from the barrel
+- In `repositories/`: `posts.ts` is post CRUD; near-duplicate grouping is split by concern — `grouping.ts` (user actions: make canonical / group together / mark different), `dedup.ts` (the full rebuild), `variant-edges.ts` (per-pair evidence and verdicts); annotations are `annotations.ts` (events + timeline), `annotation-queues.ts` (queue tables), `post-rows.ts` (the post rows both attach), `sampling*.ts` / `pair-graph.ts` (what to ask next)
 
 #### `server/` — the Python worker, and nothing else
 
 - **src/worker/**: cairnq entry point (`main.py`), task handlers, the vector codec, the OOM fallback ladder, and the importers
-- **src/ai/**: SigLIP 2 embedding, the SILVA scorer, captioning
-- **src/services/**: `gallery_dl_import`, `silva_dataset_import`, `pixai_tagging` (the Danbooru helpers live in `worker/importers.py`) — fetch/parse helpers only; the worker returns rows and TS writes them.
+- **src/ai/**: SigLIP 2 embedding, the SILVA scorer, LPIPS (variant arbitration), captioning, plus `hf_loader` / `torch_runtime`
+- **src/services/**: `gallery_dl_import`, `silva_dataset_import`, `pixai_tagging` — fetch/parse helpers only; the worker returns rows and TS writes them. The Danbooru import handlers live in `worker/importers.py`, on top of the API client in `src/danbooru/`.
   `pixai_tagging` is the auto-tagger (`pixai-labs/pixai-tagger-v1.0`, replaced WDTagger 2026-09-22): it returns tags under the *model's* five categories (`style` = artist) and TS maps them to groups. Its per-category sigmoid thresholds are the one thing that stays in Python — they ship inside the checkpoint's `config.json`. ⚠️ Load it with `from_pretrained(dtype=...)`, never `.to(dtype=...)`: the latter casts the complex RoPE buffers and silently returns wrong tags
 - **src/paths.py**: the Python side's root / `.pictoria` / db-path resolution (no per-file layout — that arrives in payloads)
 - Task payload/result shapes are pinned by `packages/contracts/fixtures/tasks/*.json`, read by both `packages/contracts/src/tasks.test.ts` and `server/tests/test_task_contracts.py`; a field renamed on one side fails both suites. `sqlite3` is banned under `server/src` by ruff (TID251)
@@ -150,11 +153,12 @@ uv run python scripts/inspect_db.py
 - **src/App.vue**: Root component with 3-panel splitpanes layout
 - **src/views/**: Page components (Home, Post, Settings, etc.)
 - **src/components/**: Reusable feature components and mixed-boundary wrappers (`ToastSystem`, `UndoSnackbar`, `TagSelectorWindow`, …) that bind a primitive to global app state
-- **src/ui/**: the in-house design-system primitives (`P*.vue`) (`PButton`, `PInput`, `PMenu`, `PSwitch`, `PDialog`, `PPopover`, `PToast`/`PToastContainer`, the virtualised `PTreeList` powering the sidebar folder tree, …) plus `modal.ts` (shared `openDialogCount`), all styled with `--p-*` CSS variables + scoped styles and exported from `index.ts` (these replaced the former `@roku-ui` dependency). See `apps/web/docs/design-system.md`
+- **src/ui/**: the in-house design-system primitives (`P*.vue`) (`PButton`, `PInput`, `PMenu`, `PSwitch`, `PDialog`, `PPopover`, `PToast`/`PToastContainer`, the virtualised `PTreeList` powering the sidebar folder tree, …) plus `modal.ts` (`isAnyDialogOpen`, an alias of the layer stack's `hasModalLayer`), all styled with `--p-*` CSS variables + scoped styles and exported from `index.ts` (these replaced the former `@roku-ui` dependency). See `apps/web/docs/design-system.md`
 - **src/api/**: Auto-generated API client from OpenAPI schema
 - **src/composables/**: Vue composables for shared logic
-- **src/shared/**: Global state and utilities
-- **src/locale/**: i18n — vue-i18n instance + locale state (`localeSetting`/`resolvedLocale`, persisted as `pictoria.locale`, `auto` follows the browser) and locale-aware `formatNumber`/`formatDateTime`; message catalogues in `messages/en.ts` (schema source) and `messages/zh-Hans.ts` (typed as `MessageSchema` so key drift fails vue-tsc)
+- **src/shared/**: Global state and domain modules (filter model, selection, mutations, scorers, clipboard, tag menu, …)
+- **src/utils/**: pure helpers with no app state (grid geometry, keyboard, focus, filter DSL, …)
+- **src/locale/**: i18n — vue-i18n instance + locale state (`localeSetting`/`resolvedLocale`, persisted as `pictoria.locale`, `auto` follows the browser) and locale-aware `formatNumber`/`formatDateTime`; message catalogues in `messages/en.ts` (schema source), `messages/zh-Hans.ts` and `messages/zh-Hant.ts` (typed as `MessageSchema` so key drift fails vue-tsc)
 
 ### Key Patterns
 
@@ -176,6 +180,8 @@ uv run python scripts/inspect_db.py
 - **Retired scorers (2026-11)**: the waifu scorer (`post_waifu_scores` table, CLIP backbone) and the `silva_luna` head were removed from filters, sorting, the detail panel and the backfill loops, because on blind human grades neither added anything on top of `silva` (held-out Spearman vs. the user's grades: silva 0.74, waifu 0.65, luna 0.41). **Their rows are still in the database on purpose** (`post_waifu_scores`, and `silva_luna` / other legacy names in `post_aesthetic_scores`); nothing reads or writes them, and score reads are restricted to names in `SCORERS` so they never reach the API. Don't drop them without asking
 - **post_has_color**: Dominant color palette (per-post `INT` colors with order)
 - **post_process_failures**: per-(post, worker) one-shot failure blacklist
+- **post_group_overrides** (migration `0018`): the user's manual grouping decisions (`standalone` / `canonical`) that the full rebuild must respect. **post_variant_edges** (migration `0019`): per-pair evidence for "is this the same picture" — SigLIP distance, cached LPIPS distance, and the user's verdict; automatic writes never overwrite a verdict
+- **Annotations**: `absolute_annotations`, `pairwise_annotations`, `listwise_annotations` (append-only judgements), `annotation_queues` + `absolute_queue_items` / `pairwise_queue_items` / `listwise_queue_items` (pre-generated work lists), `content_flag_events`
 - **_schema_versions**: internal table used by `packages/db`'s `runMigrations` to track applied migrations
 
 ## Development Guidelines

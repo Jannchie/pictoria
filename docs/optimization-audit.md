@@ -6,6 +6,15 @@
 > W7(worker 认 `PICTORIA_TARGET_DIR`/`TASKS_DB_PATH`, 与 paths.ts 同锚)、F1(limit 1000→200)、
 > H4(git rm 跟踪的 .pyc)、H7(stackdump)。其余条目仍为待办。
 
+> **状态 (2026-11-22)**: 这是 2026-08-14 的一次快照,不是活的待办清单。此后 CLIP / waifu 打分器 /
+> WDTagger 相继退役,下文引用的行号与部分文件(`ai/clip.py`、`scorers.py`、`wd_tagging.py`)已不存在。
+> 已知的后续变化: W5(caption 改为 512px JPEG 上传)、W12(`get_post`、`get_dominant_color`、
+> `make_captions` 的 demo 已删;`sqlite-vec` 已在 dev 组)、F15(`Home.vue` 重复的 css import)、
+> H6(CI 已有,见 `.github/workflows/ci.yml`)已落地; W6、W8 随被审计的模块退役而失效;
+> H11 的 baseline 文件已被 `pnpm contract:check` 取代; H10 的路径应为 `server/data/`,其中
+> `tag_group_gt_100.json` 唯一的读者(`translate_tags.py`)已删,文件随之移除。
+> 其余未打勾的条目未重新核实 —— 动手前先对着当前代码确认。
+
 - **日期**: 2026-08-14
 - **范围**: apps/api、packages/db、apps/web、server/src(worker)、仓库卫生与构建配置
 - **方法**: 四个并行子代理逐文件审计(全部结论经阅读源码核实)+ 本报告作者在**真实生产库**(223,063 张图、post_has_tag 1,188 万行、DB 2.18 GB)上对热点查询做了 EXPLAIN QUERY PLAN 与耗时实测
