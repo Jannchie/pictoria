@@ -1,5 +1,5 @@
 /**
- * tags / tag_groups 的读取 —— 形状承自已退役的 Python 侧 `db/repositories/tags.py`。
+ * tags / tag_groups / post_has_tag 的读写 —— 形状承自已退役的 Python 侧 `db/repositories/tags.py`。
  */
 import { placeholders } from '../sql.js'
 import type BetterSqlite3 from 'better-sqlite3'
@@ -160,7 +160,7 @@ export function addTagToPost(
   tagName: string,
   isAuto = false,
 ): boolean {
-  sqlite.prepare('INSERT INTO tags(name) VALUES(?) ON CONFLICT DO NOTHING').run(tagName)
+  ensureTag(sqlite, tagName)
   const row = sqlite
     .prepare(
       'INSERT INTO post_has_tag(post_id, tag_name, is_auto) VALUES(?, ?, ?) ON CONFLICT DO NOTHING RETURNING post_id',
@@ -195,7 +195,7 @@ export function addTagToPosts(
   if (!ids.length)
     return out
   sqlite.transaction(() => {
-    sqlite.prepare('INSERT INTO tags(name) VALUES(?) ON CONFLICT DO NOTHING').run(tagName)
+    ensureTag(sqlite, tagName)
     for (const id of ids)
       (insert.get(id, tagName, isAuto ? 1 : 0) === undefined ? out.already : out.added).push(id)
   })()
@@ -219,9 +219,7 @@ export function removeTagFromPosts(
   const del = sqlite.prepare<[number, string], { is_auto: number }>(
     'DELETE FROM post_has_tag WHERE post_id = ? AND tag_name = ? RETURNING is_auto',
   )
-  const anyAutoLeft = sqlite
-    .prepare<[number], number>('SELECT 1 FROM post_has_tag WHERE post_id = ? AND is_auto = 1 LIMIT 1')
-    .pluck()
+  const anyAutoLeft = anyAutoTagStmt(sqlite)
   const out = { removed: [] as number[], absent: [] as number[] }
   let firstStranded: number | undefined
   sqlite.transaction(() => {
@@ -308,12 +306,21 @@ export function setTagSource(
   return true
 }
 
-/** 这张图刚失去一行 `is_auto = 1`：若那是最后一行，它重新是 tagger 待办。 */
-function notifyIfAutoTagsGone(sqlite: BetterSqlite3.Database, postId: number): void {
-  const anyLeft = sqlite
+/** tag 名不存在就建（幂等）。单张和批量加标签共用。 */
+function ensureTag(sqlite: BetterSqlite3.Database, tagName: string): void {
+  sqlite.prepare('INSERT INTO tags(name) VALUES(?) ON CONFLICT DO NOTHING').run(tagName)
+}
+
+/** 「这张图还剩 `is_auto = 1` 的行吗」—— 有返回 1，没有返回 undefined。 */
+function anyAutoTagStmt(sqlite: BetterSqlite3.Database) {
+  return sqlite
     .prepare<[number], number>('SELECT 1 FROM post_has_tag WHERE post_id = ? AND is_auto = 1 LIMIT 1')
     .pluck()
-    .get(postId)
+}
+
+/** 这张图刚失去一行 `is_auto = 1`：若那是最后一行，它重新是 tagger 待办。 */
+function notifyIfAutoTagsGone(sqlite: BetterSqlite3.Database, postId: number): void {
+  const anyLeft = anyAutoTagStmt(sqlite).get(postId)
   if (anyLeft === undefined)
     notifyRepending(sqlite, 'tagger', postId)
 }

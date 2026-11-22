@@ -1,5 +1,5 @@
 /**
- * 近重复分组的数据侧 —— 对应 Python 的 `services/dedup.py` 里除矩阵乘之外的一切。
+ * 近重复分组的数据侧 —— 矩阵乘在 Python worker（`server/src/worker/dedup.py`），除此之外的一切在这里。
  *
  * 检测完全由 SigLIP 2 驱动：余弦距离在 `threshold` 以内的两个 post 被当成同一张图
  * （覆盖不同分辨率 / 编码，以及近似差分）。分组是**非破坏性**的：成员的行原封不动，

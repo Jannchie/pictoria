@@ -5,8 +5,10 @@
  * PairGraph 与并查集在 `pair-graph.ts`，它们的 SQL 在 `sampling-queries.ts`。
  */
 import type BetterSqlite3 from 'better-sqlite3'
-import type { MutableKind, QueueItemPost } from './annotations.js'
-import { aliasedPostCols, ITEM_TABLES, MIN_PRESENTABLE_GROUP, postsById } from './annotations.js'
+// 只取类型：annotations.ts 在运行时引用这里（advanceQueue），反过来只能是 type import。
+import type { MutableKind } from './annotations.js'
+import type { QueueItemPost } from './post-rows.js'
+import { aliasedPostCols, MIN_PRESENTABLE_GROUP, postsById } from './post-rows.js'
 
 /** 图片列加前缀：一行里带两张图的查询（pairwise 的 `a_` / `b_`）用。 */
 export type PrefixedPost<P extends string> = { [K in keyof QueueItemPost as `${P}${K}`]: QueueItemPost[K] }
@@ -14,7 +16,7 @@ export type PrefixedPost<P extends string> = { [K in keyof QueueItemPost as `${P
 export type AbsoluteQueueItemRow = { position: number } & QueueItemPost
 export type PairwiseQueueItemRow = { position: number } & PrefixedPost<'a_'> & PrefixedPost<'b_'>
 
-export const QUEUE_COLUMNS = 'id, name, kind, dimensions, scale, created_at, strategy'
+const QUEUE_COLUMNS = 'id, name, kind, dimensions, scale, created_at, strategy'
 
 export interface AnnotationQueueRow {
   id: number
@@ -26,6 +28,53 @@ export interface AnnotationQueueRow {
   created_at: string
   /** pairwise 队列的采样策略；其余形态为 NULL。 */
   strategy: string | null
+}
+
+/**
+ * 队列项表 —— 代码级白名单，值会进 SQL。`annotations.ts` 的 advanceQueue 也用它。
+ *
+ * `Record<MutableKind, …>`：与 annotations.ts 的 `MUTABLE` 同理，种类多一个少一个都编译不过。
+ */
+export const ITEM_TABLES: Record<MutableKind, string> = {
+  absolute: 'absolute_queue_items',
+  pairwise: 'pairwise_queue_items',
+  listwise: 'listwise_queue_items',
+}
+
+/**
+ * 翻转一个队列项的 done 标记，返回是否真的翻了。`done=false` 是 undo 放回去用的。
+ *
+ * 带前置条件（`done` 必须是相反值）：改到 0 行既可能是项不存在，也可能是它本来就在
+ * 目标状态 —— 调用方（advanceQueue）需要分清这两种情况。
+ */
+export function markQueueItemDone(
+  sqlite: BetterSqlite3.Database,
+  queueId: number,
+  { kind, position, done = true }: { kind: string, position: number, done?: boolean },
+): boolean {
+  const table = (ITEM_TABLES as Partial<Record<string, string>>)[kind]
+  if (!table)
+    throw new Error(`unknown queue kind: ${kind}`)
+  return (
+    sqlite
+      .prepare(`UPDATE ${table} SET done = ? WHERE queue_id = ? AND position = ? AND done = ?`)
+      .run(done ? 1 : 0, queueId, position, done ? 0 : 1).changes > 0
+  )
+}
+
+/**
+ * 删掉一个队列，返回它是否存在过。
+ *
+ * 删队列和它的**全部项**（done 与否都删 —— 项表对 annotation_queues 有外键且不级联，
+ * 留着已完成的项，队列行就删不掉）。判决事件不动：事件表不引用队列，标过的就是标过的，
+ * 与它出自哪个队列无关；项上的 done 只是进度条用的标记。
+ */
+export function deleteQueue(sqlite: BetterSqlite3.Database, queueId: number): boolean {
+  return sqlite.transaction(() => {
+    for (const table of Object.values(ITEM_TABLES))
+      sqlite.prepare(`DELETE FROM ${table} WHERE queue_id = ?`).run(queueId)
+    return sqlite.prepare('DELETE FROM annotation_queues WHERE id = ?').run(queueId).changes > 0
+  })()
 }
 
 export function createAbsoluteQueue(

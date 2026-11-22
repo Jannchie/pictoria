@@ -27,8 +27,8 @@ export type GradingReason = typeof GRADING_REASONS[number]
 export type GradingSource = `grade:${GradingReason}`
 export const GRADING_SOURCES = GRADING_REASONS.map(r => `grade:${r}`) as [GradingSource, ...GradingSource[]]
 
-export const GRADING_MIX: Record<GradingReason, number> = { new: 0.8, random: 0.1, suspect: 0.1 }
-export const RETEST_COOLDOWN_DAYS = 7
+const GRADING_MIX: Record<GradingReason, number> = { new: 0.8, random: 0.1, suspect: 0.1 }
+const RETEST_COOLDOWN_DAYS = 7
 /** 人工分与模型连续分差到这个数以内不算分歧：正好是"四舍五入后同档"的半径。 */
 const AGREE_RADIUS = 0.5
 
@@ -45,7 +45,7 @@ export interface GradingPick {
  * SILVA 的 [0,1] 分 → 1~5 的连续档位。校准后的分数按训练标签分布铺开，所以是线性的。
  * 映射本身在 `SILVA.scale` / `SILVA.offset`，SQL 里同一个式子是 `SILVA.scoreExpr()`。
  */
-export function modelGrade(silva: number): number {
+function modelGrade(silva: number): number {
   return silva * SILVA.scale + SILVA.offset
 }
 
@@ -216,7 +216,7 @@ export function gradingStats(sqlite: BetterSqlite3.Database, days = 30): Grading
 }
 
 export const ANCHOR_GRADES = [5, 4, 3, 2, 1] as const
-export const ANCHORS_PER_GRADE = 3
+const ANCHORS_PER_GRADE = 3
 /** 参照图常驻屏幕，只从这些 rating 里选（1 = general，2 = sensitive）。 */
 const ANCHOR_RATINGS = '(1, 2)'
 

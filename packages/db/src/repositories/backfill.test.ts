@@ -15,7 +15,7 @@ import * as sqliteVec from 'sqlite-vec'
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest'
 import { MIGRATIONS_DIR, runMigrations } from '../migrate.js'
 import { notifyRepending } from '../repending.js'
-import { scanIncomplete } from '../scan-floor.js'
+import { resetFloors, scanIncomplete } from '../scan-floor.js'
 import { failureKey } from '../workers.js'
 import {
   CANONICAL_TAG_GROUPS,
@@ -31,7 +31,6 @@ import {
   persistTaggerResults,
   ratingToInt,
   recordFailures,
-  resetScanFloors,
   SCAN_WINDOW_ROWS,
   upsertAestheticScores,
   upsertBasics,
@@ -77,8 +76,8 @@ beforeEach(() => {
   for (const t of ['post_aesthetic_scores', 'post_process_failures', 'post_vectors_siglip2', 'posts'])
     sqlite.exec(`DELETE FROM ${t}`)
   // 水位线是连接级的，清表清不掉它。不清的话上一个用例留下的 `MAX(id)+1`
-  // 会让这个用例插进去的低 id 行整批看不见 —— 见 `resetScanFloors` 的注释。
-  resetScanFloors(sqlite)
+  // 会让这个用例插进去的低 id 行整批看不见 —— 见 `resetFloors` 的注释。
+  resetFloors(sqlite)
 })
 
 describe('silva 待办查询', () => {
@@ -590,7 +589,7 @@ describe('embedding 待办扫描的水位线', () => {
     sqlite.exec('DELETE FROM post_vectors_siglip2')
     expect(listEmbeddingPending(sqlite)).toEqual([])
 
-    resetScanFloors(sqlite)
+    resetFloors(sqlite)
     expect(listEmbeddingPending(sqlite).map(p => p.postId)).toEqual([1])
   })
 

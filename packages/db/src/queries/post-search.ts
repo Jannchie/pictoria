@@ -1,7 +1,7 @@
 /**
  * 列表与搜索 —— 形状承自已退役的 Python 侧 `PostQueryService.list_paginated` / `search`。
  */
-import { placeholders, whereSql } from '../sql.js'
+import { placeholders, serializeFloat32, whereSql } from '../sql.js'
 import type BetterSqlite3 from 'better-sqlite3'
 import { Buffer } from 'node:buffer'
 import { buildWhere, type BuildWhereOptions, ORDERABLE_COLUMNS, type PostFilter } from '../filters.js'
@@ -50,11 +50,6 @@ function seededShuffleKey(orderSeed: number | null | undefined): string {
   // 先乘 A 把 x 撒满 [0, P)：否则种子很小时 id+seed 的立方还不到 P，排出来就是 id 序。
   const x = `(((p.id % ${P}) * ${SHUFFLE_MULTIPLIER} + ${seed}) % ${P})`
   return `(((${x} * ${x}) % ${P}) * ${x} % ${P})`
-}
-
-/** sqlite-vec 的 serialize_float32：小端 float32 blob。 */
-function serializeFloat32(values: number[]): Buffer {
-  return Buffer.from(new Float32Array(values).buffer)
 }
 
 /**

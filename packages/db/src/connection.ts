@@ -1,7 +1,8 @@
 /**
- * SQLite 连接 —— 逐条复刻 Python 侧 `db/connection.py` 的配置。
+ * SQLite 连接 —— 每条连接都从这里开、按同一套 PRAGMA 配好（这套配置承自已退役的
+ * Python 侧 `db/connection.py`，那边已经没有对应物要同步）。
  *
- * 这里的每一个 PRAGMA 都对应那边的一行。少一条就是行为漂移：少了
+ * 这里的每一个 PRAGMA 都是有意的。少一条就是行为漂移：少了
  * `foreign_keys = ON`，级联删除会静默失效（子表留下孤儿行，且没有任何报错）；
  * 少了 `journal_mode = WAL`，读会被写阻塞。
  */
@@ -47,7 +48,7 @@ export function createDb({ path, readonly = false }: OpenOptions) {
   // 连接级，且不持久 —— 每条新连接都要重设，否则 ON DELETE CASCADE 静默失效。
   sqlite.pragma('foreign_keys = ON')
 
-  // 拿不到写锁时等 30 秒再报错，对齐 Python 侧 `sqlite3.connect(timeout=30.0)`。
+  // 拿不到写锁时等 30 秒再报错（沿用已退役的 Python 侧 `sqlite3.connect(timeout=30.0)`）。
   // better-sqlite3 默认只等 5 秒 —— 一次全库对账加上一批 backfill 落库就能超过它，
   // 而外部脚本（对拍、分析）撞上这个窗口拿到的是 SQLITE_BUSY 而不是稍等一下。
   sqlite.pragma('busy_timeout = 30000')

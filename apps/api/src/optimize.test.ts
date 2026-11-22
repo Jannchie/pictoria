@@ -2,7 +2,7 @@
  * `optimizeDb`：表从空长大之后会被重新分析，而且分析是全量的（写 stat4）——
  * 哪怕这条连接上之前有人设过 `analysis_limit`。
  */
-import { createTestDb } from '@pictoria/db'
+import { createTestDb } from '@pictoria/db/testing'
 import { expect, it } from 'vitest'
 import { optimizeDb } from './optimize.js'
 

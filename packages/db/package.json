@@ -5,7 +5,7 @@
   "private": true,
   "exports": {
     ".": "./src/index.ts",
-    "./schema": "./src/schema.ts"
+    "./testing": "./src/testing.ts"
   },
   "scripts": {
     "typecheck": "tsc --noEmit",
@@ -14,12 +14,12 @@
   "dependencies": {
     "@pictoria/contracts": "workspace:*",
     "better-sqlite3": "^13.0.3",
-    "drizzle-orm": "^0.45.3",
     "sqlite-vec": "^0.1.9"
   },
   "devDependencies": {
     "@types/better-sqlite3": "^9.6.0",
     "@types/node": "^26.6.2",
+    "drizzle-orm": "^0.45.3",
     "typescript": "^6.0.3",
     "vitest": "^5.0.1"
   }

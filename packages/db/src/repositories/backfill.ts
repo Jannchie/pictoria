@@ -5,18 +5,18 @@
  * （见 `docs/refactor-monorepo-hono.md` §D1）。这个文件是那条原则里"所有数据库
  * 写入在 TS"的那一半：待办查询挑出要算什么，结果函数把算完的东西写回去。
  */
-import { placeholders } from '../sql.js'
+import { chunked, placeholders, serializeFloat32 } from '../sql.js'
 import type { TaggerResult, WorkerFailure } from '@pictoria/contracts'
 import type BetterSqlite3 from 'better-sqlite3'
 import { Buffer } from 'node:buffer'
 import { notifyRepending } from '../repending.js'
-import { readFloor, resetFloors, writeFloor } from '../scan-floor.js'
+import { readFloor, writeFloor } from '../scan-floor.js'
 import type { AestheticScorerName } from '../scorers.js'
 import { AESTHETIC_SCORES_TABLE } from '../scorers.js'
 import type { BackfillWorker } from '../workers.js'
 import { BACKFILL_WORKERS, failureKey } from '../workers.js'
 import { postExists } from './posts.js'
-import { SIGLIP2_TABLE } from './vectors.js'
+import { SIGLIP2_ROWIDS_TABLE, SIGLIP2_TABLE } from './vectors.js'
 
 /**
  * 排除某个 worker 桶下被拉黑的 post。带一个 `?`，调用方追加 `failureKey(worker)`。
@@ -34,14 +34,15 @@ function notFailedClause(alias = 'p'): string {
  * `scanFloor` —— 「这个 id 以下已经确认没有待办了」的水位线，按**连接**、按**循环**存
  * （存取在 `../scan-floor.ts`）。
  *
- * 五个 `list*Pending` 的形状都是"按 `p.id` 升序、扫到够数为止"，而待办**总是在库尾**
+ * 每个 `list*Pending` 的形状都是"按 `p.id` 升序、扫到够数为止"，而待办**总是在库尾**
  * （新 post 的 id 最大，老 post 早就算完了）。没有下界的话，每一批都要从 id=1 开始
  * 把整张 `posts` 逐行探一遍才碰到第一个候选：真实库（`posts` 232,240 行、
  * `post_has_tag` 12,373,331 行）实测一批的代价是 basics 214 ms、
- * embedding 531 ms、silva ×2 各 ~440 ms、tagger 1,811 ms —— 六条循环一轮**约 3.7 秒**
+ * embedding 531 ms、silva 家族每条 ~440 ms、tagger 1,811 ms —— 测量时的六条循环（现在
+ * 是 `BACKFILL_WORKERS` 的四条：basics、silva、tagger、embedding）一轮**约 3.7 秒**
  * 的同步阻塞。better-sqlite3 是同步的，所以那 3.7 秒里事件循环上的一切都停着。
  *
- * 空闲时这还只是每 30 秒一次，但大规模导入期间待办**持续非空**，六条循环各自
+ * 空闲时这还只是每 30 秒一次，但大规模导入期间待办**持续非空**，每条循环各自
  * "算完一批立刻扫下一批"，于是这 3.7 秒变成几乎连续的 —— 这就是导入时其它 API
  * 请求会卡住的原因。
  *
@@ -78,7 +79,7 @@ function notFailedClause(alias = 'p'): string {
  * 而两个库的 id 空间不同，表现是一个库的待办被另一个库的进度永久跳过。`WeakMap`
  * 让它跟着连接一起消失。
  *
- * 按**循环**存（`Map<key, floor>`）而不是一个共用值：六条循环各自消化待办的进度不同，
+ * 按**循环**存（`Map<key, floor>`）而不是一个共用值：各条循环消化待办的进度不同，
  * 共用一条水位线会让跑得快的那条把还有活的那条一起推过头。
  */
 
@@ -92,7 +93,7 @@ function maxPostId(sqlite: BetterSqlite3.Database): number {
 
 interface FloorScan {
   /**
-   * 哪条循环。既是水位线的键（六条循环各存各的，见 `scanFloor`），也经
+   * 哪条循环。既是水位线的键（每条循环各存各的，见 `scanFloor`），也经
    * `failureKey()` 推出 `post_process_failures` 的 worker 列值。
    */
   key: BackfillWorker
@@ -160,9 +161,9 @@ function scanByFloor<R extends { id: number }>(
 /**
  * 一次待办扫描最多判定多少行 posts。
  *
- * 水位线让稳态的扫描只碰表尾，但它是**按连接存在内存里**的：进程一重启，六条循环全部
+ * 水位线让稳态的扫描只碰表尾，但它是**按连接存在内存里**的：进程一重启，每条循环全部
  * 从 id=0 起扫，而老 post 早就算完了，于是每条都要把整张表判定一遍才碰到第一个候选。
- * 真实库（23 万行）上 tagger 那一条就是 2.1 秒的同步查询，六条加起来约 4 秒 —— 启动后
+ * 真实库（23 万行）上 tagger 那一条就是 2.1 秒的同步查询，当时的六条加起来约 4 秒 —— 启动后
  * 那几秒里 API 一个请求都不回。按窗口切开之后，一次查询只判定这么多行（tagger 约
  * 45 ms），扫空一个窗口就把水位线推到窗口上界并报 `scanIncomplete`，调用方
  * （`apps/api/src/scheduler.ts` 的 `runBatch`）让出事件循环再扫下一个窗口。
@@ -242,7 +243,7 @@ function* countByFloor(sqlite: BetterSqlite3.Database, scan: FloorScan, chunkRow
  * ⚠️ 影子表是 sqlite-vec 的内部结构。`backfill.test.ts` 的"影子表 _rowids 与 vec0 逐行一致"
  * 直接拿两者对拍，换 sqlite-vec 版本时那里会先红。
  */
-const HAS_VECTOR = `EXISTS (SELECT 1 FROM ${SIGLIP2_TABLE}_rowids r WHERE r.rowid = p.id)`
+const HAS_VECTOR = `EXISTS (SELECT 1 FROM ${SIGLIP2_ROWIDS_TABLE} r WHERE r.rowid = p.id)`
 
 /**
  * 有 SigLIP2 向量、但还没有 `scorer` 分数的 post id，按 id 升序。
@@ -330,7 +331,8 @@ export function upsertAestheticScores(
 }
 
 /**
- * worker 会处理的图片扩展名。与 Python 侧 `processors/common.py` 的 `IMAGE_EXTS` 同集合。
+ * worker 会处理的图片扩展名。backfill 的扩展名过滤只在这里：Python worker 不再筛一遍，
+ * 给它什么它算什么（`server/src/utils.py` 的 `SUPPORTED_IMAGE_EXTS` 更宽，是导入器用的）。
  *
  * 待办查询就带上它，而不是等批处理器逐张过滤 —— 后者会让 `.txt` / `.zip` 白占一个
  * 批次的名额。
@@ -348,6 +350,11 @@ const IMAGE_EXT_WHERE = `LOWER(p.extension) IN (${IMAGE_EXTS.map(e => `'${e}'`).
 export interface PendingImage {
   postId: number
   relPath: string
+}
+
+/** 一行 `p.id, p.full_path` → `PendingImage`。 */
+function toPendingImage(r: { id: number, full_path: string }): PendingImage {
+  return { postId: r.id, relPath: r.full_path }
 }
 
 /**
@@ -398,7 +405,7 @@ export function listMissingFilePosts(sqlite: BetterSqlite3.Database): Array<{ po
       `SELECT DISTINCT p.id, p.full_path FROM post_process_failures f JOIN posts p ON p.id = f.post_id WHERE f.error = ? ORDER BY p.id`,
     )
     .all(MISSING_FILE_ERROR)
-    .map(r => ({ postId: r.id, relPath: r.full_path }))
+    .map(toPendingImage)
 }
 
 /**
@@ -431,12 +438,6 @@ export function clearMissingFiles(sqlite: BetterSqlite3.Database, postIds: reado
   return removed
 }
 
-function chunked<T>(xs: readonly T[], n: number): T[][] {
-  const out: T[][] = []
-  for (let i = 0; i < xs.length; i += n) out.push(xs.slice(i, i + n))
-  return out
-}
-
 // ─── tagger ───────────────────────────────────────────────────────────
 
 /**
@@ -446,7 +447,7 @@ function chunked<T>(xs: readonly T[], n: number): T[][] {
  * `CANONICAL_TAG_GROUPS`），它没有专属颜色，取黑色兜底 —— PixAI Tagger 会产出 meta
  * 标签（WDTagger 不会），所以这一行差别现在也影响 tagger 而不只是导入器。
  */
-export const TAG_GROUP_COLORS: Record<string, string> = {
+const TAG_GROUP_COLORS: Record<string, string> = {
   general: '#006192',
   character: '#8243ca',
   artist: '#f30000',
@@ -471,7 +472,7 @@ export const TAG_GROUP_COLORS: Record<string, string> = {
  */
 export const CANONICAL_TAG_GROUPS: readonly string[] = ['artist', 'character', 'copyright', 'general', 'meta']
 
-/** 规范组的颜色；`meta` 不在 tagger 的颜色表里，取 Python 侧同款的黑色兜底。 */
+/** 规范组的颜色；`meta` 不在 tagger 的颜色表里，取黑色兜底（Python 时代就是这个值）。 */
 const CANONICAL_GROUP_COLOR = '#000000'
 
 /**
@@ -490,7 +491,7 @@ const CANONICAL_GROUP_COLOR = '#000000'
  * 会一张都选不出来，而表现是"重标一声不响地什么也没做"。
  *
  * 带水位线（见 `scanFloor`），而且这里最值钱：那条 `NOT EXISTS` 打在
- * `post_has_tag` 的 1237 万行上，没有下界时一批要 1,811 ms —— 六条循环那 3.7 秒
+ * `post_has_tag` 的 1237 万行上，没有下界时一批要 1,811 ms —— 上面那 3.7 秒
  * 的一轮里它一个人占了一半。`p.id >= ?` 之后是 2.1 ms。
  *
  * ⚠️ 手工摘掉一张图最后一个 `is_auto = 1` 标签会让它重新变成待办，而它的 id 在
@@ -506,7 +507,7 @@ export function listTaggerPending(
     columns: 'p.id, p.full_path',
     limit,
   })
-  return rows.map(r => ({ postId: r.id, relPath: r.full_path }))
+  return rows.map(toPendingImage)
 }
 
 function taggerScan(model: string): FloorScan {
@@ -705,7 +706,7 @@ export function listEmbeddingPending(
     columns: 'p.id, p.full_path',
     limit,
   })
-  return rows.map(r => ({ postId: r.id, relPath: r.full_path }))
+  return rows.map(toPendingImage)
 }
 
 const EMBEDDING_SCAN: FloorScan = {
@@ -724,18 +725,6 @@ export function countEmbeddingPending(sqlite: BetterSqlite3.Database, chunkRows?
  */
 export function countSilvaPending(sqlite: BetterSqlite3.Database, scorer: AestheticScorerName, chunkRows?: number): Generator<number, void, undefined> {
   return countByFloor(sqlite, silvaScan(scorer, { withVector: true }), chunkRows)
-}
-
-/**
- * 把这条连接上**所有**循环的水位线清零。
- *
- * 生产路径不走这里 —— 那边是 `notifyRepending` 当场退水位。这个函数是给测试用的：水位线是**连接级**状态，而测试套件共用一条
- * 连接、每个用例之间只 `DELETE FROM` 清表，清不掉水位线。不在 `beforeEach` 里调它
- * 的话，前一个用例把水位推到 `MAX(id)+1` 会让后一个用例插进去的低 id 行整批看不见 ——
- * 表现是一堆"待办查询返回空"的失败，而查询本身没有任何问题。
- */
-export function resetScanFloors(sqlite: BetterSqlite3.Database): void {
-  resetFloors(sqlite)
 }
 
 /**
@@ -877,7 +866,7 @@ export function upsertBasics(
       main.run(r.width, r.height, r.sha256, r.sha256, r.size, r.arthash, r.postId)
     for (const r of rows) {
       if (r.dominantLab)
-        dom.run(Buffer.from(new Float32Array(r.dominantLab).buffer), r.postId)
+        dom.run(serializeFloat32(r.dominantLab), r.postId)
     }
     // 两条 UPDATE 碰到已删的 post 只是 0 行，post_has_color 的 INSERT 才有外键。
     for (const r of livePosts(sqlite, rows)) {

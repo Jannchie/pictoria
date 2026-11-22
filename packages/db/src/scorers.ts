@@ -103,7 +103,7 @@ function defineScorer<N extends string, K extends string>(
  * SILVA 原生分域是 [0, 1]，A–E 五档。半开区间 [lo, hi)；'A' 实际是 [0.8, 1.0] ——
  * 上边界由源域保证（分数会 clamp 到 [0, 1]），这里用 1.0001 把闭区间表达出来。
  */
-export const SILVA_SCORE_BUCKETS: Buckets = {
+const SILVA_SCORE_BUCKETS: Buckets = {
   E: [0, 0.2],
   D: [0.2, 0.4],
   C: [0.4, 0.6],

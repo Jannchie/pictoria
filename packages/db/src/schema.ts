@@ -5,8 +5,8 @@
  * 让它静默返回 0 张表，view 让它直接中止，而生成列的表达式会在第一个右括号处被
  * 截断成语法错误的 SQL 却不报错。所以这里逐列对着 sqlite_master 的 DDL 抄。
  *
- * 改这个文件时记住：server/migrations/ 里的 SQL 才是真理 —— 现有 15 个迁移已经
- * 在生产库跑完，这里只是把那个结果表达成 TypeScript。
+ * 改这个文件时记住：server/migrations/ 里的 SQL 才是真理 —— 这里只是把迁移全部跑完
+ * 之后的结果表达成 TypeScript（`schema.test.ts` 逐列对拍两者）。
  */
 import { sql } from 'drizzle-orm'
 import {
@@ -18,18 +18,19 @@ import {
   sqliteTable,
   text,
 } from 'drizzle-orm/sqlite-core'
+import { serializeFloat32 } from './sql.js'
 
 /**
  * sqlite-vec 的 float32 blob。
  *
- * 字节表示和 Python 侧 `sqlite_vec.serialize_float32` 完全一致（小端 float32，
- * 已逐字节对拍）。不引第三方包：社区那个 `@aeriondyseti/drizzle-sqlite-vec` 只有
+ * 字节表示和 `sqlite_vec.serialize_float32` 完全一致（小端 float32，已逐字节对拍；
+ * 编码在 `sql.ts` 的 `serializeFloat32`）。不引第三方包：社区那个 `@aeriondyseti/drizzle-sqlite-vec` 只有
  * 0.1.0 一个版本、无仓库链接、周下载个位数，而它做的就是下面这几行。
  */
 export const float32Blob = customType<{ data: Float32Array, driverData: Buffer }>({
   dataType: () => 'blob',
   fromDriver: v => new Float32Array(v.buffer, v.byteOffset, v.length / 4),
-  toDriver: v => Buffer.from(new Float32Array(v).buffer),
+  toDriver: v => serializeFloat32(v),
 })
 
 // ---------------------------------------------------------------- posts
@@ -58,7 +59,10 @@ export const posts = sqliteTable('posts', {
   size: integer('size').notNull().default(0),
   source: text('source').notNull().default(''),
   caption: text('caption').notNull().default(''),
-  /** 序列化的 FLOAT[3]（Lab）。没有索引 —— 3 维暴力扫 22 万行是亚毫秒级。 */
+  /**
+   * 序列化的 FLOAT[3]（Lab）。没有索引：颜色搜索是 `vec_distance_L2` 全表暴力扫
+   * （`post-search.ts`），37.5 万行实测约 450 ms（2026-11-10）。
+   */
   dominantColor: blob('dominant_color'),
   arthash: text('arthash'),
   createdAt: text('created_at').notNull().default(sql`CURRENT_TIMESTAMP`),

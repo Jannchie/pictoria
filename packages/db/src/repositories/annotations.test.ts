@@ -7,9 +7,8 @@
  */
 import { afterAll, beforeAll, beforeEach, expect, it } from 'vitest'
 import { createTempDb, insertPost } from '../__fixtures__/testdb.js'
-import { createAbsoluteQueue, createListwiseQueue, createPairwiseQueue, nextPresentableListwiseItems } from './annotation-queues.js'
+import { createAbsoluteQueue, createListwiseQueue, createPairwiseQueue, deleteQueue, nextPresentableListwiseItems } from './annotation-queues.js'
 import {
-  deleteQueue,
   editAnnotation,
   encodeTimelineCursor,
   insertPairwise,

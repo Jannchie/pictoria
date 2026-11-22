@@ -50,7 +50,14 @@ export function lowerFloor(sqlite: BetterSqlite3.Database, key: BackfillWorker, 
     entry.floor = id
 }
 
-/** 清掉这条连接上全部水位线 —— 只给测试用。 */
+/**
+ * 把这条连接上**所有**循环的水位线清零。
+ *
+ * 生产路径不走这里 —— 那边是 `notifyRepending` 当场退水位。这个函数是给测试用的：水位线是**连接级**状态，而测试套件共用一条
+ * 连接、每个用例之间只 `DELETE FROM` 清表，清不掉水位线。不在 `beforeEach` 里调它
+ * 的话，前一个用例把水位推到 `MAX(id)+1` 会让后一个用例插进去的低 id 行整批看不见 ——
+ * 表现是一堆"待办查询返回空"的失败，而查询本身没有任何问题。
+ */
 export function resetFloors(sqlite: BetterSqlite3.Database): void {
   floors.delete(sqlite)
 }

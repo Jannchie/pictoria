@@ -4,7 +4,7 @@
  * 每个关联（tags / colors / aesthetic）都是**一次**批量 SQL，再在内存里
  * 缝起来。逐条 N+1 在 22 万行的库上会直接把列表页拖垮。
  */
-import { SCORERS } from '../scorers.js'
+import { AESTHETIC_SCORES_TABLE, SCORERS } from '../scorers.js'
 import { placeholders } from '../sql.js'
 import type BetterSqlite3 from 'better-sqlite3'
 
@@ -181,7 +181,7 @@ export function fetchAestheticByIds(
     return out
   const rows = sqlite
     .prepare<unknown[], { post_id: number, scorer: string, score: number }>(
-      `SELECT post_id, scorer, score FROM post_aesthetic_scores `
+      `SELECT post_id, scorer, score FROM ${AESTHETIC_SCORES_TABLE} `
       + `WHERE post_id IN (${placeholders(ids.length)}) `
       // 表里还留着已退役打分器的行（数据没删）；只放行注册表里还在的名字。
       + `AND scorer IN (${placeholders(SCORERS.length)}) ORDER BY post_id, scorer`,

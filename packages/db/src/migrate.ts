@@ -1,9 +1,9 @@
 /**
- * 迁移执行器 —— 和 Python 侧 `db/migrator.py` 同语义。
+ * 迁移执行器 —— 唯一应用迁移的地方（`apps/api` 启动时调；Python worker 从不打开这个库）。
  *
  * 迁移文件是 `server/migrations/NNNN_*.sql`，按文件名排序执行，已应用的版本记在
- * `_schema_versions` 里。**这里不生成 SQL，只执行现成的** —— 15 个迁移已经在生产库
- * 跑完，两侧必须看到同一套文件，否则就会有两套 schema 真理。
+ * `_schema_versions` 里。**这里不生成 SQL，只执行现成的** —— 那些文件是 schema 的唯一
+ * 真理，已经在生产库跑过的不能再改，只能追加新的。
  */
 import fs from 'node:fs'
 import path from 'node:path'
@@ -17,7 +17,7 @@ import type BetterSqlite3 from 'better-sqlite3'
  * 此前它散在 `apps/api/src/paths.ts` 和三个测试各自手写的 `../../../../server/migrations`
  * 里，共四份相对路径，挪窝时 API 正常启动而三个测试同时失效。
  *
- * 仍在 `server/` 下：15 个迁移是按文件名记在生产库 `_schema_versions` 里的，改名等于
+ * 仍在 `server/` 下：已应用的迁移是按文件名记在生产库 `_schema_versions` 里的，改名等于
  * 重跑。目录归属和文件位置是两件事，这里只统一前者。
  */
 export const MIGRATIONS_DIR = path.resolve(
@@ -37,7 +37,7 @@ function versionOf(file: string): string {
   return path.basename(file, '.sql')
 }
 
-export function listMigrations(dir: string): string[] {
+function listMigrations(dir: string): string[] {
   return fs
     .readdirSync(dir)
     .filter(f => f.endsWith('.sql'))

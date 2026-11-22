@@ -11,12 +11,8 @@ import type Database from 'better-sqlite3'
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest'
 import { createTempDb, insertPost } from '../__fixtures__/testdb.js'
 import { assignFromEdges, replaceAllGroups } from './dedup.js'
-import {
-  clearCanonical,
-  deleteManyReturningPaths,
-  listGroupOverrides,
-  makeCanonical,
-} from './posts.js'
+import { clearCanonical, listGroupOverrides, makeCanonical } from './grouping.js'
+import { deleteManyReturningPaths } from './posts.js'
 
 let sqlite: Database.Database
 let cleanup: () => void

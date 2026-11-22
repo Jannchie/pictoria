@@ -91,8 +91,9 @@ export function persistPostsWithTags(
   // 新行只有路径三元组和手工标签，其余列等 backfill 去填：叫醒空转的循环（见
   // `../repending.ts`）。冲突那一支补的是已有行的 source / 手工标签，不制造待办，
   // 带上它们的 id 只是让水位线多退一点。
+  // reduce 而不是 `Math.min(...ids)`：一批可以很大，展开成实参会撞上引擎的参数个数上限。
   if (ids.length)
-    notifyRepending(sqlite, BACKFILL_WORKERS, Math.min(...ids))
+    notifyRepending(sqlite, BACKFILL_WORKERS, ids.reduce((a, b) => Math.min(a, b)))
   return ids
 }
 

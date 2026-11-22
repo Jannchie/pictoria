@@ -440,11 +440,11 @@ export class Sampler {
    * —— 三个点几乎重合在同一条正比于边数的直线上；于是每 PL 对当量 4 张 2.77 s 便宜过
    * 6 张 3.64 s 和 8 张 4.91 s。
    *
-   * 4 张同时让度数记账最诚实：judgedGraph 给每个成员记 n−1 = 3 度，而有效当量是
-   * (4/n)(n − H_n) = 1.92，虚高 1.56 倍；6 张是 5 度对 2.37（2.11 倍），8 张 7 对
-   * 2.64（2.68 倍）。于是 CLOSE_PAIR_DEGREE = 3 大致回到「两次出场才退役」，接近它在
-   * 成对时代被校准时的本意 —— 一次 6 张排序 +5 度直接跨过阈值、成员再不被重访，正是
-   * 那条校准在 listwise 上失效的地方。
+   * 度数记账与组大小无关：judgedGraph 每次出场给每个成员记 LISTWISE_APPEARANCE_DEGREE = 2
+   * 度（不是 n−1，理由见那个常量），而有效当量 (4/n)(n − H_n) 在 4 张是 1.92、6 张 2.37、
+   * 8 张 2.64 —— 4 张离那个常数最近。CLOSE_PAIR_DEGREE = 3 因此是「两次出场才退役」，
+   * 接近它在成对时代被校准时的本意；早先按 n−1 记时一次 6 张排序 +5 度直接跨过阈值、
+   * 成员再不被重访，正是那条校准在 listwise 上失效的地方。
    *
    * 两条 close 没有的约束，理由分别在标注者和下游身上：
    *
@@ -576,8 +576,9 @@ export class Sampler {
    * 含种子自己；丢掉近重复（近乎相同的一对是必然的平局）、`exclude` 里的 id，以及成对资格
    * 不过的 id。种子没有 embedding 时返回 `[]`。
    *
-   * `exclude` 是各策略各自认定的"已花费"：similar 传已配过对的 id（严格不相交），close 只传
-   * 已达到 CLOSE_PAIR_DEGREE 的 id，于是一张图可以跨邻域复现并把它们缝成一张比较图。
+   * `exclude` 是调用方认定的"已花费"：唯一的调用方 similar 传已配过对的 id（严格不相交）。
+   * close 以前也走这里（只排除已达到 CLOSE_PAIR_DEGREE 的 id），现在它按 silva 窗口取成员，
+   * 不再用 KNN 邻域（见 CLOSE_BLOCK_MEMBERS / CLOSE_WINDOW_CANDIDATES 那段注释）。
    */
   private similarCluster(seed: number, exclude: Set<number>): IdScoreRow[] {
     const rows = knn(this.sqlite, seed, SIMILAR_KNN_K)
@@ -823,7 +824,8 @@ export class Sampler {
    * 不展开的代价是实测过的：到 2026-08-20，44 个已排的组里 post 8884 出现了 11 次、8848
    * 出现 10 次，两者同组 9 次；它们在这张图里的度数却始终是 1，因为排序没有产生任何
    * pairwise 行。于是 revisitSeeds 每次都把这两张当"比较不足"重新征召，谁都排不空。展开之后
-   * 一次 6 张的排序就让每个成员 +5，直接越过 CLOSE_PAIR_DEGREE，它们才会正常退役。
+   * 这些边进了 emitted / wins / losses；度数则按出场记（每次 +LISTWISE_APPEARANCE_DEGREE，
+   * 见那个常量），两次出场越过 CLOSE_PAIR_DEGREE，它们才会正常退役。
    */
   private judgedGraph(dimension: string): PairGraph {
     const graph = new PairGraph(CLOSE_PAIR_DEGREE)

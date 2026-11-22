@@ -3,12 +3,12 @@
  */
 import type BetterSqlite3 from 'better-sqlite3'
 import { placeholders } from '../sql.js'
-import { SILVA } from '../scorers.js'
+import { AESTHETIC_SCORES_TABLE, SILVA } from '../scorers.js'
 
 /**
  * 不代表任何具体画师的占位 artist 标签 —— 给它们打分没有意义，永远不进列表。
  */
-export const PLACEHOLDER_ARTIST_TAGS = [
+const PLACEHOLDER_ARTIST_TAGS = [
   'anonymous_artist',
   'unknown_artist',
   'banned_artist',
@@ -50,7 +50,7 @@ export function unratedArtistPickIds(sqlite: BetterSqlite3.Database): number[] {
          SELECT (
            SELECT pht.post_id
            FROM post_has_tag pht
-           LEFT JOIN post_aesthetic_scores s ON s.post_id = pht.post_id AND s.scorer = ?
+           LEFT JOIN ${AESTHETIC_SCORES_TABLE} s ON s.post_id = pht.post_id AND s.scorer = ?
            WHERE pht.tag_name = u.name
            ORDER BY s.score DESC NULLS LAST, pht.post_id
            LIMIT 1
@@ -59,7 +59,7 @@ export function unratedArtistPickIds(sqlite: BetterSqlite3.Database): number[] {
        )
        SELECT k.post_id
        FROM (SELECT DISTINCT post_id FROM picks WHERE post_id IS NOT NULL) k
-       LEFT JOIN post_aesthetic_scores s ON s.post_id = k.post_id AND s.scorer = ?
+       LEFT JOIN ${AESTHETIC_SCORES_TABLE} s ON s.post_id = k.post_id AND s.scorer = ?
        ORDER BY s.score DESC NULLS LAST, k.post_id`,
     )
     .pluck()

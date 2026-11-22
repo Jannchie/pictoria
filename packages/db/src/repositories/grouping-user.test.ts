@@ -9,7 +9,8 @@
 import { afterAll, beforeEach, describe, expect, it } from 'vitest'
 import { createTempDb, insertPost } from '../__fixtures__/testdb.js'
 import { assignFromEdges } from './dedup.js'
-import { bulkUpdateField, clearCanonical, groupTogether, listGroupOverrides, markDifferent, updateField } from './posts.js'
+import { clearCanonical, groupTogether, listGroupOverrides, markDifferent } from './grouping.js'
+import { bulkUpdateField, updateField } from './posts.js'
 import { listEdgesFor, listUserVerdicts } from './variant-edges.js'
 
 const { sqlite, cleanup } = createTempDb()

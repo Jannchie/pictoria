@@ -12,7 +12,8 @@ import Database from 'better-sqlite3'
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest'
 import type { TaggerCategories } from '@pictoria/contracts'
 import { notifyRepending, onRepending } from './repending.js'
-import { clearMissingFiles, ensureCanonicalTagGroups, listBasicsPending, listTaggerPending, persistTaggerResults, recordMissingFiles, resetScanFloors } from './repositories/backfill.js'
+import { resetFloors } from './scan-floor.js'
+import { clearMissingFiles, ensureCanonicalTagGroups, listBasicsPending, listTaggerPending, persistTaggerResults, recordMissingFiles } from './repositories/backfill.js'
 import { persistPostsWithTags } from './repositories/import-persist.js'
 import { createPost, insertPostTriples, updateForRotate } from './repositories/posts.js'
 import { addTagToPost, addTagToPosts, deleteTag, deleteTags, removeTagFromPost, removeTagFromPosts, setTagSource } from './repositories/tags.js'
@@ -75,7 +76,7 @@ afterAll(() => {
 beforeEach(() => {
   for (const t of ['post_process_failures', 'post_has_tag', 'tags', 'posts'])
     sqlite.exec(`DELETE FROM ${t}`)
-  resetScanFloors(sqlite)
+  resetFloors(sqlite)
   heard = []
   unsubscribe = listen()
 })

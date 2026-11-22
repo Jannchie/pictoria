@@ -18,13 +18,13 @@ import process from 'node:process'
 import { TAGGER_MODEL } from '@pictoria/contracts'
 import {
   BACKFILL_WORKERS,
-  createTestDb,
   failureKey,
   MISSING_FILE_ERROR,
   notifyRepending,
   type SqliteHandle,
   upsertVectors,
 } from '@pictoria/db'
+import { createTestDb } from '@pictoria/db/testing'
 import { afterAll, afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { runBatch, startBackfill } from './scheduler.js'
 import { restoreReturnedFiles } from './sync.js'

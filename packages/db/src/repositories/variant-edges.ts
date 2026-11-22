@@ -11,7 +11,7 @@
  * `post_group_overrides` 是同一条原则的两半。
  */
 import type BetterSqlite3 from 'better-sqlite3'
-import { placeholders } from '../sql.js'
+import { chunked, placeholders } from '../sql.js'
 
 /** 一对 post 的全部证据。`postA < postB` 恒成立（SQL 侧有 CHECK）。 */
 export interface VariantEdgeRow {
@@ -59,11 +59,6 @@ function toEdge(row: EdgeSqlRow): VariantEdgeRow {
  */
 const CHUNK = 900
 
-function* chunks<T>(items: readonly T[]): Generator<T[]> {
-  for (let i = 0; i < items.length; i += CHUNK)
-    yield items.slice(i, i + CHUNK)
-}
-
 /** `(a, b)` 规整成 `a < b` —— 表里一对只有一行，方向没有意义。 */
 export function orderPair(x: number, y: number): [number, number] {
   return x < y ? [x, y] : [y, x]
@@ -90,7 +85,7 @@ export function readEdgesByLeft(
   if (leftIds.length === 0)
     return out
 
-  for (const batch of chunks(leftIds)) {
+  for (const batch of chunked(leftIds, CHUNK)) {
     const rows = sqlite
       .prepare<number[], EdgeSqlRow>(
         `SELECT ${EDGE_COLS} FROM post_variant_edges WHERE post_a IN (${placeholders(batch.length)})`,
@@ -117,7 +112,7 @@ export function listEdgesFor(
 
 function livePosts(sqlite: BetterSqlite3.Database, ids: readonly number[]): Set<number> {
   const live = new Set<number>()
-  for (const batch of chunks(ids)) {
+  for (const batch of chunked(ids, CHUNK)) {
     const rows = sqlite
       .prepare<number[], { id: number }>(
         `SELECT id FROM posts WHERE id IN (${placeholders(batch.length)})`,
@@ -229,7 +224,7 @@ export function listFullPaths(
   ids: readonly number[],
 ): Map<number, string> {
   const out = new Map<number, string>()
-  for (const batch of chunks(ids)) {
+  for (const batch of chunked(ids, CHUNK)) {
     const rows = sqlite
       .prepare<number[], { id: number, full_path: string }>(
         `SELECT id, full_path FROM posts WHERE id IN (${placeholders(batch.length)})`,

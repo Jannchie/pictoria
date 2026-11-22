@@ -6,24 +6,28 @@
  * latest-wins 聚合。重复行顺带就是免费的评分者内重测数据。
  *
  * 两个操作打破了这条规则，理由相同且都是有意的：`undo` 直接 DELETE、`edit` 原地
- * UPDATE。`scripts/export_annotations.py` 对 pairwise 是一行一条判决、没有
- * latest-wins 环节，而 `AnnotationQueueRepo._judged_graph` 认为一对问过就永远问过 ——
- * 所以撤回或更正后仍留在表里的判决会留在训练集里。改成打标记而不是重写，等于把过滤
- * 义务摊派给每一个读者，漏掉一个会在训练数据里静默出错。
+ * UPDATE。pairwise 的读者按一行一条判决读、没有 latest-wins 环节（训练侧的导出，
+ * 以及 `sampling.ts` 的 `judgedGraph` —— 它认为一对问过就永远问过）—— 所以撤回或
+ * 更正后仍留在表里的判决会留在训练集里。改成打标记而不是重写，等于把过滤义务摊派给
+ * 每一个读者，漏掉一个会在训练数据里静默出错。
+ *
+ * 队列表（`*_queue_items`、`annotation_queues`）归 `annotation-queues.ts`；timeline /
+ * 采样 / 取件共用的图片行在 `post-rows.ts`。
  */
 import { placeholders } from '../sql.js'
-import { SILVA } from '../scorers.js'
+import { ITEM_TABLES, markQueueItemDone } from './annotation-queues.js'
+import type { QueueItemPost } from './post-rows.js'
+import { postsById } from './post-rows.js'
 import { isRepeatMeasurement } from './sampling-queries.js'
-import { scorerValuesFor } from './scores.js'
 import type BetterSqlite3 from 'better-sqlite3'
 
-export const ABSOLUTE_COLUMNS
+const ABSOLUTE_COLUMNS
   = 'id, created_at, post_id, dimension, scale, value, rubric_version, session_id, elapsed_ms, edited_at'
-export const PAIRWISE_COLUMNS
+const PAIRWISE_COLUMNS
   = 'id, created_at, post_a, post_b, dimension, winner, rubric_version, session_id, elapsed_ms, edited_at'
-export const LISTWISE_COLUMNS
+const LISTWISE_COLUMNS
   = 'id, created_at, post_ids, ranking, dimension, rubric_version, session_id, elapsed_ms, edited_at'
-export const FLAG_COLUMNS = 'id, created_at, post_id, flag, session_id'
+const FLAG_COLUMNS = 'id, created_at, post_id, flag, session_id'
 
 /**
  * 评分者可以撤回或更正的事件种类，代码级白名单 —— 这些值会变成表名和列名，
@@ -558,145 +562,4 @@ export function countPairwise(
   const decisive = (by.get('a') ?? 0) + (by.get('b') ?? 0)
   const tie = by.get('tie') ?? 0
   return { total: decisive + tie, decisive, tie, skip: by.get('skip') ?? 0 }
-}
-
-/** 队列项表 —— 代码级白名单，值会进 SQL。`annotation-queues.ts` 也用它。 */
-export const ITEM_TABLES: Record<string, string> = {
-  absolute: 'absolute_queue_items',
-  pairwise: 'pairwise_queue_items',
-  listwise: 'listwise_queue_items',
-}
-
-/**
- * 翻转一个队列项的 done 标记，返回是否真的翻了。`done=false` 是 undo 放回去用的。
- *
- * 带前置条件（`done` 必须是相反值）：改到 0 行既可能是项不存在，也可能是它本来就在
- * 目标状态 —— 调用方（advanceQueue）需要分清这两种情况。
- */
-export function markQueueItemDone(
-  sqlite: BetterSqlite3.Database,
-  queueId: number,
-  { kind, position, done = true }: { kind: string, position: number, done?: boolean },
-): boolean {
-  const table = ITEM_TABLES[kind]
-  if (!table)
-    throw new Error(`unknown queue kind: ${kind}`)
-  return (
-    sqlite
-      .prepare(`UPDATE ${table} SET done = ? WHERE queue_id = ? AND position = ? AND done = ?`)
-      .run(done ? 1 : 0, queueId, position, done ? 0 : 1).changes > 0
-  )
-}
-
-/**
- * 删掉一个队列，返回它是否存在过。
- *
- * 删队列和它的**全部项**（done 与否都删 —— 项表对 annotation_queues 有外键且不级联，
- * 留着已完成的项，队列行就删不掉）。判决事件不动：事件表不引用队列，标过的就是标过的，
- * 与它出自哪个队列无关；项上的 done 只是进度条用的标记。
- */
-export function deleteQueue(sqlite: BetterSqlite3.Database, queueId: number): boolean {
-  return sqlite.transaction(() => {
-    for (const table of Object.values(ITEM_TABLES))
-      sqlite.prepare(`DELETE FROM ${table} WHERE queue_id = ?`).run(queueId)
-    return sqlite.prepare('DELETE FROM annotation_queues WHERE id = ?').run(queueId).changes > 0
-  })()
-}
-
-/** timeline / 采样 / 队列取件共用的七个图片列。 */
-const POST_COLS = ['id', 'file_path', 'file_name', 'extension', 'sha256', 'width', 'height'] as const
-
-/** `pa.id AS a_post_id, pa.file_path AS a_file_path, …` —— 一行 `QueueItemPost`（可带前缀）。 */
-export function aliasedPostCols(tableAlias: string, outPrefix: string): string {
-  return [
-    `${tableAlias}.id AS ${outPrefix}post_id`,
-    ...POST_COLS.slice(1).map(c => `${tableAlias}.${c} AS ${outPrefix}${c}`),
-  ].join(', ')
-}
-
-export interface QueueItemPost {
-  post_id: number
-  file_path: string
-  file_name: string
-  extension: string
-  sha256: string
-  width: number
-  height: number
-}
-
-/**
- * `post_id -> 图片行`，只含仍然存在的 id，重复自动收敛。
- *
- * 每个调用方都是"手里有一批 id 要渲染"（采样批、历史页），都需要同样这七列和同样的
- * "post 可能已经被删了"处理，所以查询只写一处。
- */
-export function postsById(
-  sqlite: BetterSqlite3.Database,
-  ids: number[],
-): Map<number, QueueItemPost> {
-  const unique = [...new Set(ids)]
-  const out = new Map<number, QueueItemPost>()
-  if (!unique.length)
-    return out
-  for (const row of sqlite
-    .prepare<unknown[], QueueItemPost>(
-      `SELECT ${aliasedPostCols('p', '')} FROM posts p WHERE p.id IN (${placeholders(unique.length)})`,
-    )
-    .all(...unique))
-    out.set(row.post_id, row)
-  return out
-}
-
-/**
- * 按 `ids` 的顺序取图片行，已删除的静默跳过。
- *
- * 顺序是吃重的：采样顺序就是呈现顺序，所以从 `ids` 重建，而不是从 `IN (...)` 返回的行序。
- */
-export function postsInOrder(sqlite: BetterSqlite3.Database, ids: number[]): QueueItemPost[] {
-  const byId = postsById(sqlite, ids)
-  return ids.flatMap(pid => byId.get(pid) ?? [])
-}
-
-/**
- * 一批对的图片行，整批一次取图再在 JS 里拼对。任一端被删了（采样和取图之间）的对丢掉。
- *
- * 对的**顺序**是吃重的（interleaveWithBridges 保证每个前缀都连通），所以从 `pairs` 重建。
- */
-export function pairsWithPosts(
-  sqlite: BetterSqlite3.Database,
-  pairs: Array<[number, number]>,
-): Array<[QueueItemPost, QueueItemPost]> {
-  const byId = postsById(sqlite, pairs.flat())
-  const out: Array<[QueueItemPost, QueueItemPost]> = []
-  for (const [a, b] of pairs) {
-    const rowA = byId.get(a)
-    const rowB = byId.get(b)
-    if (rowA && rowB)
-      out.push([rowA, rowB])
-  }
-  return out
-}
-
-/** 一组少于这么多张就不值得排了（成员被删后剩下的）。 */
-export const MIN_PRESENTABLE_GROUP = 3
-
-/**
- * 一批 listwise 组的图片行与同序的 silva 分。被删的成员静默消失，剩不到
- * MIN_PRESENTABLE_GROUP 张的组整组丢掉。
- *
- * 缺分为 `null` 而不是 `0`：`0` 会被下游当成「最差」而不是「不知道」。
- */
-export function groupsWithSilva(
-  sqlite: BetterSqlite3.Database,
-  groups: number[][],
-): Array<{ posts: QueueItemPost[], silva: Array<number | null> }> {
-  const flat = groups.flat()
-  const byId = postsById(sqlite, flat)
-  const silvaById = scorerValuesFor(sqlite, flat, SILVA.name)
-  return groups
-    .map((g) => {
-      const ids = g.filter(pid => byId.has(pid))
-      return { posts: ids.map(pid => byId.get(pid)!), silva: ids.map(pid => silvaById.get(pid) ?? null) }
-    })
-    .filter(g => g.posts.length >= MIN_PRESENTABLE_GROUP)
 }
