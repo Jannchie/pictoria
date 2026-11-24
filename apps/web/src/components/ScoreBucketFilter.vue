@@ -4,7 +4,7 @@ import type { ScorerUi } from '@/shared/scorers'
 import { computed } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { v2GetSilvaBucketCount } from '@/api'
-import { useFacetCounts, useFacetFilter } from '@/composables/useFacetFilter'
+import { useFacetFilter } from '@/composables/useFacetFilter'
 import { bucketRows, MODEL_LEVEL_RGB } from '@/shared'
 import FacetFilterPopover from './FacetFilterPopover.vue'
 
@@ -42,12 +42,12 @@ const LEVEL_DOT_RGB: Record<string, string> = {
 
 // The scorer is fixed for a mounted instance (FilterRow keys by name), so it
 // is read once, like the field/countKind props it replaced.
-const { selected: selectedLevels, has: hasLevel, toggle, countQuery, pct, opened } = useFacetFilter<string, { bucket: string, count: number }>({
+const { selected: selectedLevels, toggle, count: bucketCount, optionCount, pct, opened } = useFacetFilter<string, { bucket: string, count: number }>({
   field: props.scorer.levelsField,
   countKind: props.scorer.countKind,
   fetchCounts: FETCH_COUNTS[props.scorer.name],
+  rowValue: d => d.bucket,
 })
-const { count: bucketCount, optionCount } = useFacetCounts(countQuery.data, d => d.bucket)
 
 const { t } = useI18n()
 
@@ -78,10 +78,8 @@ function bucketOptionName(bucket: BucketDef): string {
     v-model:opened="opened"
     :label="label"
     :items="buckets"
-    :item-key="bucketLevel"
     :item-value="bucketLevel"
     :selection="selectedLevels"
-    :has="hasLevel"
     :value-name="levelName"
     :value-text="String"
     :chip-prefix="scorer.chipPrefix"

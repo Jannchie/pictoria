@@ -2,20 +2,20 @@
 import { computed } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { v2GetExtensionCount } from '@/api'
-import { useFacetCounts, useFacetFilter } from '@/composables/useFacetFilter'
+import { useFacetFilter } from '@/composables/useFacetFilter'
 import FacetFilterPopover from './FacetFilterPopover.vue'
 
 const { t } = useI18n()
 
-const { selected: selectedExtensions, has: hasExt, toggle, countQuery, pct, opened } = useFacetFilter<string, { extension: string, count: number }>({
+const { selected: selectedExtensions, toggle, countQuery, count: extensionCount, optionCount, pct, opened } = useFacetFilter<string, { extension: string, count: number }>({
   field: 'extension',
   countKind: 'extension',
   fetchCounts: async (filter) => {
     const resp = await v2GetExtensionCount({ body: filter })
     return resp.data
   },
+  rowValue: d => d.extension,
 })
-const { count: extensionCount, optionCount } = useFacetCounts(countQuery.data, d => d.extension)
 
 // 确保已选择的扩展名选项始终显示在列表中
 const extensions = computed(() => {
@@ -41,7 +41,6 @@ function extensionLabel(extension: string): string {
     :label="$t('filter.extension')"
     :items="extensions"
     :selection="selectedExtensions"
-    :has="hasExt"
     :value-name="extensionLabel"
     :value-text="String"
     :count="extensionCount"

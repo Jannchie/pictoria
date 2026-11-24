@@ -30,7 +30,6 @@ function mountFacet(opts: { rows?: Row[], selected?: string[], props?: Record<st
       'label': 'Letter',
       'items': ['a', 'b', 'c'],
       'selection': selected.value,
-      'has': (v: string) => selected.value.includes(v),
       'valueName': (v: string) => NAMES[v]!,
       'count': counts.count,
       'optionCount': counts.optionCount,
@@ -153,7 +152,6 @@ describe('facetfilterpopover listbox', () => {
       rows: [{ key: 'b', count: 2 }],
       props: {
         items: [{ level: 'a' }, { level: 'b' }],
-        itemKey: (i: { level: string }) => i.level,
         itemValue: (i: { level: string }) => i.level,
         optionName: (i: { level: string }) => `Level ${i.level}`,
       },

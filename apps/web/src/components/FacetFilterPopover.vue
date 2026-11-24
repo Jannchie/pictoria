@@ -7,24 +7,21 @@ import { facetOptionLabel, facetTriggerLabel, initialOptionIndex, useFacetListbo
  * The shell every popover facet filter (rating / score / extension / scorer
  * bucket) shares: a trigger button that shows the selection, opening a
  * multi-select listbox of options with counts. The filter owns its state
- * (`useFacetFilter` + `useFacetCounts`) and passes in only what is its own —
- * the options, how a value is named, the trigger icon and each row's content.
+ * (`useFacetFilter`) and passes in only what is its own — the options, how a
+ * value is named, the trigger icon and each row's content.
  *
  * Items are the popover rows; `itemValue` maps one to the value it filters by
- * (the item itself for a plain list of values).
+ * (the item itself for a plain list of values). That value is also the row's key.
  */
 const props = defineProps<{
   /** Facet name: the trigger text at rest, and the accessible name of the trigger and the listbox. */
   label: string
   /** Popover rows, in display order. */
   items: readonly I[]
-  /** `:key` per row; defaults to the item itself (primitive items). */
-  itemKey?: (item: I) => string | number
   /** The filter value of a row; defaults to the item itself. */
   itemValue?: (item: I) => V
   /** Selected values, in the order the trigger lists them. */
   selection: readonly V[]
-  has: (value: V) => boolean
   /** Spoken name of a value: the trigger's accessible name, and the default option name / typeahead text. */
   valueName: (value: V) => string
   /** Visible text of a selected value on the trigger; defaults to `valueName`. */
@@ -35,9 +32,9 @@ const props = defineProps<{
   optionName?: (item: I) => string
   /** Typeahead text of an option; defaults to `valueName`. */
   typeahead?: (item: I) => string
-  /** Count column per value (`useFacetCounts().count`). */
+  /** Count column per value (`useFacetFilter().count`). */
   count: (value: V) => number | undefined
-  /** Count in the option's accessible name (`useFacetCounts().optionCount`). */
+  /** Count in the option's accessible name (`useFacetFilter().optionCount`). */
   optionCount: (value: V) => number | undefined
   share: (count: number) => string
   /** Trigger icon, unless the `icon` slot replaces it. */
@@ -65,7 +62,7 @@ const opened = defineModel<boolean>('opened', { required: true })
 const { t } = useI18n()
 
 const itemValueOf = (item: I): V => props.itemValue ? props.itemValue(item) : item as unknown as V
-const itemSelected = (item: I) => props.has(itemValueOf(item))
+const itemSelected = (item: I) => props.selection.includes(itemValueOf(item))
 const itemCount = (item: I) => props.count(itemValueOf(item))
 const itemTypeahead = (item: I) => props.typeahead ? props.typeahead(item) : props.valueName(itemValueOf(item))
 function optionLabel(item: I) {
@@ -115,7 +112,7 @@ const triggerLabel = computed(() => facetTriggerLabel(t, props.label, props.sele
           class="p-popover-panel"
           :class="panelClass"
           :items="items"
-          :item-key="itemKey"
+          :item-key="itemValueOf"
           :selected="itemSelected"
           :option-label="optionLabel"
           :typeahead="itemTypeahead"

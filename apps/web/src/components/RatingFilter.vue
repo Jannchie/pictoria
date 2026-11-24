@@ -2,21 +2,21 @@
 import { computed } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { v2GetRatingCount } from '@/api'
-import { useFacetCounts, useFacetFilter } from '@/composables/useFacetFilter'
+import { useFacetFilter } from '@/composables/useFacetFilter'
 import { RATING_ICON, ratingName, ratingVisual } from '@/shared/ratings'
 import FacetFilterPopover from './FacetFilterPopover.vue'
 
 const { t } = useI18n()
 
-const { selected: ratingFilterData, has: hasRating, toggle, countQuery, pct, opened } = useFacetFilter<number, { rating: number, count: number }>({
+const { selected: ratingFilterData, toggle, count: ratingCount, optionCount, pct, opened } = useFacetFilter<number, { rating: number, count: number }>({
   field: 'rating',
   countKind: 'rating',
   fetchCounts: async (filter) => {
     const resp = await v2GetRatingCount({ body: filter })
     return resp.data
   },
+  rowValue: d => Number(d.rating),
 })
-const { count: ratingCount, optionCount } = useFacetCounts(countQuery.data, d => Number(d.rating))
 
 // Same order as the popover rows: real levels first, unrated last.
 const DISPLAY_ORDER = [1, 2, 3, 4, 0]
@@ -42,7 +42,6 @@ function getRatingName(rating: number) {
     :label="$t('filter.rating')"
     :items="DISPLAY_ORDER"
     :selection="sortedSelection"
-    :has="hasRating"
     :value-name="getRatingName"
     :count="ratingCount"
     :option-count="optionCount"

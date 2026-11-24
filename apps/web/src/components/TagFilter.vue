@@ -5,7 +5,7 @@ import { useDebounce } from '@vueuse/core'
 import { computed, ref, useId, useTemplateRef } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { v2GetPostsCount, v2GetTagCount } from '@/api'
-import { facetOptionLabel, facetTriggerLabel, formatPct, gatedCountOptions, useFacetListbox } from '@/composables/useFacetFilter'
+import { facetOptionLabel, facetTriggerLabel, formatPct, gatedCountOptions, useFacetCounts, useFacetListbox } from '@/composables/useFacetFilter'
 import { resolvedLocale } from '@/locale'
 import { postFilter, queryKeys } from '@/shared'
 import { naturalizeTagName } from '@/utils'
@@ -74,13 +74,7 @@ const postTotalQuery = useQuery({
   ...gatedCountOptions(opened),
 })
 
-const countMap = computed(() => {
-  const map: Record<string, number> = {}
-  for (const d of countQuery.data.value ?? []) {
-    map[d.tagName] = d.count
-  }
-  return map
-})
+const { count: tagCount, optionCount } = useFacetCounts(countQuery.data, d => d.tagName)
 
 // 本地化显示名（来自 count 响应）；搜索/筛选仍以原始下划线名为准。
 const translationMap = computed(() => {
@@ -108,16 +102,12 @@ const isLoading = computed(() => countQuery.isLoading.value)
 const btnText = computed(() => (selected.value.length === 0 ? t('filter.tags') : selected.value.map(naturalizeTagName).join(', ')))
 const triggerLabel = computed(() => facetTriggerLabel(t, t('filter.tags'), selected.value.map(naturalizeTagName)))
 
-function tagCount(tag: string): number | undefined {
-  return countMap.value[tag]
-}
-
 function tagDisplayName(tag: string): string {
   const translated = translationMap.value[tag]
   return translated ? `${naturalizeTagName(tag)} ${translated}` : naturalizeTagName(tag)
 }
 function optionLabel(tag: string): string {
-  return facetOptionLabel(t, tagDisplayName(tag), countQuery.data.value ? (countMap.value[tag] ?? 0) : undefined)
+  return facetOptionLabel(t, tagDisplayName(tag), optionCount(tag))
 }
 
 // Keyboard model: the search box takes initial focus; ArrowDown enters the

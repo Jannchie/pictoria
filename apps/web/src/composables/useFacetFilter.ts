@@ -48,6 +48,8 @@ export function useFacetFilter<T extends string | number, TRow extends { count: 
   field: ArrayFilterField
   countKind: CountKind
   fetchCounts: (filter: PostFilterValue) => Promise<TRow[] | undefined>
+  /** The option a count row counts (see `useFacetCounts`). */
+  rowValue: (row: TRow) => T
 }) {
   // postFilter mixes array facets with a scalar one (folder),
   // so narrow to "the array facets" before indexing by the chosen field. Read
@@ -94,7 +96,9 @@ export function useFacetFilter<T extends string | number, TRow extends { count: 
     return formatPct(count, total.value)
   }
 
-  return { selected, has, toggle, filterWithoutSelf, countQuery, total, pct, opened }
+  const { count, optionCount } = useFacetCounts(countQuery.data, opts.rowValue)
+
+  return { selected, has, toggle, filterWithoutSelf, countQuery, count, optionCount, total, pct, opened }
 }
 
 /**

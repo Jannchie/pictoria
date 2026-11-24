@@ -1,20 +1,20 @@
 <script setup lang="ts">
 import { useI18n } from 'vue-i18n'
 import { v2GetScoreCount } from '@/api'
-import { useFacetCounts, useFacetFilter } from '@/composables/useFacetFilter'
+import { useFacetFilter } from '@/composables/useFacetFilter'
 import FacetFilterPopover from './FacetFilterPopover.vue'
 
 const { t } = useI18n()
 
-const { selected: scoreFilterData, has: hasScore, toggle, countQuery, pct, opened } = useFacetFilter<number, { score: number, count: number }>({
+const { selected: scoreFilterData, toggle, count: scoreCount, optionCount, pct, opened } = useFacetFilter<number, { score: number, count: number }>({
   field: 'score',
   countKind: 'score',
   fetchCounts: async (filter) => {
     const resp = await v2GetScoreCount({ body: filter })
     return resp.data
   },
+  rowValue: d => Number(d.score),
 })
-const { count: scoreCount, optionCount } = useFacetCounts(countQuery.data, d => Number(d.score))
 
 // Popover rows, best first; 0 = not scored yet. Typeahead is on the digit
 // (`String`): "3" jumps to three stars, "0" to unscored.
@@ -31,7 +31,6 @@ function scoreName(score: number): string {
     :label="$t('filter.score')"
     :items="DISPLAY_ORDER"
     :selection="scoreFilterData"
-    :has="hasScore"
     :value-name="scoreName"
     :typeahead="String"
     :count="scoreCount"
