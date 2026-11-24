@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import type { PostDetailPublic, PostHasTagPublic, PostSimplePublic } from '@/api'
+import type { PostDetailPublic, PostHasTagPublic } from '@/api'
 import type { PMenuItem } from '@/ui'
 import { useQueryClient } from '@tanstack/vue-query'
 import { computed, shallowRef, useId, useTemplateRef } from 'vue'
@@ -15,15 +15,14 @@ import { isMac } from '@/utils/keyboard'
 // and each tag's own menu. The gallery row standing in for the detail has no
 // tags, so the section is a skeleton until the detail lands.
 const props = defineProps<{
-  post: PostDetailPublic | PostSimplePublic
+  postId: number
+  /** Undefined while the gallery row stands in for the detail. */
+  detail?: PostDetailPublic
 }>()
 
 const { t } = useI18n()
 const queryClient = useQueryClient()
 const { handle: handleAPIError } = useAPIError()
-const post = computed(() => props.post)
-// `tags` is detail-only: the discriminant between the two shapes.
-const detail = computed(() => 'tags' in props.post ? props.post : undefined)
 // Fixed widths: a skeleton that changes shape on every render reads as noise.
 const TAG_SKELETON_WIDTHS = [64, 88, 48, 72, 56, 96, 40, 68]
 
@@ -51,13 +50,13 @@ let seatsFor: number | undefined
 let seats = new Map<string, number>()
 const seat = (tag: PostHasTagPublic) => seats.get(tag.tagInfo.name) ?? Number.POSITIVE_INFINITY
 const tagSorted = computed(() => {
-  const tags = detail.value?.tags
+  const tags = props.detail?.tags
   if (!tags) {
     return []
   }
   const sorted = tags.toSorted(sortByGroup)
-  if (seatsFor !== post.value.id) {
-    seatsFor = post.value.id
+  if (seatsFor !== props.postId) {
+    seatsFor = props.postId
     seats = new Map(sorted.map((tag, i) => [tag.tagInfo.name, i]))
     return sorted
   }
@@ -90,7 +89,7 @@ async function onCopyTags() {
 const activeTag = shallowRef<PostHasTagPublic | null>(null)
 const tagMenu = useTemplateRef<{ openFor: (el: HTMLElement) => void }>('tagMenu')
 
-const confirmTag = (tag: PostHasTagPublic) => commitTagSource(queryClient, post.value.id, tag.tagInfo.name, false)
+const confirmTag = (tag: PostHasTagPublic) => commitTagSource(queryClient, props.postId, tag.tagInfo.name, false)
 
 const tagMenuData = computed<PMenuItem[]>(() => {
   const tag = activeTag.value
@@ -114,7 +113,7 @@ async function onTagMenuSelect(value: string | number | symbol) {
   if (!tag) {
     return
   }
-  const id = post.value.id
+  const id = props.postId
   const name = tag.tagInfo.name
   if (runTagFilterAction(value, name)) {
     return

@@ -101,6 +101,19 @@ const MODES: { value: QueueKind, labelKey: string, hintKey: string, icon: string
   { value: 'pairwise', labelKey: 'annotate.mode.pairwise', hintKey: 'annotate.mode.pairwiseHint', icon: 'i-tabler-layout-columns' },
   { value: 'listwise', labelKey: 'annotate.mode.listwise', hintKey: 'annotate.mode.listwiseHint', icon: 'i-tabler-layout-grid' },
 ]
+// PSegmented options as computeds: mapped inline in the template they are a fresh
+// array per render (every keystroke in the queue-size box), re-rendering each group.
+function segmentOptions<V>(list: readonly { value: V, labelKey: string, hintKey: string }[]) {
+  return list.map(s => ({ value: s.value, label: t(s.labelKey), title: t(s.hintKey) }))
+}
+const pairwiseStrategyOptions = computed(() => segmentOptions(PAIRWISE_STRATEGIES))
+const listwiseSizeOptions = computed(() => LISTWISE_SIZES.map(s => ({
+  value: s.value,
+  label: t('annotate.groupSize.option', { n: s.value }),
+  title: t(s.hintKey),
+})))
+const scaleOptions = computed(() => segmentOptions(SCALES))
+const strategyOptions = computed(() => segmentOptions(STRATEGIES))
 function dimensionLabel(d: string) {
   const meta = dimensionMeta(d)
   return meta ? t(meta.labelKey) : d
@@ -405,7 +418,7 @@ async function generateQueue() {
         </div>
         <PSegmented
           v-model="form.pairwiseStrategy"
-          :options="PAIRWISE_STRATEGIES.map(s => ({ value: s.value, label: $t(s.labelKey), title: $t(s.hintKey) }))"
+          :options="pairwiseStrategyOptions"
           :aria-labelledby="`${ids}-pairing`"
           :aria-describedby="`${ids}-pairing-hint`"
         />
@@ -422,7 +435,7 @@ async function generateQueue() {
         </div>
         <PSegmented
           v-model="form.listwiseSize"
-          :options="LISTWISE_SIZES.map(s => ({ value: s.value, label: $t('annotate.groupSize.option', { n: s.value }), title: $t(s.hintKey) }))"
+          :options="listwiseSizeOptions"
           :aria-labelledby="`${ids}-size`"
           :aria-describedby="`${ids}-size-hint`"
         />
@@ -472,7 +485,7 @@ async function generateQueue() {
           </div>
           <PSegmented
             v-model="form.scale"
-            :options="SCALES.map(s => ({ value: s.value, label: $t(s.labelKey), title: $t(s.hintKey) }))"
+            :options="scaleOptions"
             :aria-labelledby="`${ids}-scale`"
           />
         </div>
@@ -482,7 +495,7 @@ async function generateQueue() {
           </div>
           <PSegmented
             v-model="form.strategy"
-            :options="STRATEGIES.map(s => ({ value: s.value, label: $t(s.labelKey), title: $t(s.hintKey) }))"
+            :options="strategyOptions"
             :aria-labelledby="`${ids}-sampling`"
           />
         </div>

@@ -309,10 +309,10 @@ function onComputeScore(kind: ScorerKind) {
       </PDisclosure>
 
       <!-- Tags: stays a plain always-open section — tagging is high-frequency. -->
-      <PostTagsSection :post="post" />
+      <PostTagsSection :post-id="post.id" :detail="detail" />
 
       <!-- Caption / source -->
-      <PostTextFields :post="post" />
+      <PostTextFields :post-id="post.id" :detail="detail" />
 
       <!-- Commands -->
       <PDisclosure
