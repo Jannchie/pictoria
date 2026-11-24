@@ -157,7 +157,7 @@ uv run python scripts/inspect_db.py
 - **src/api/**: Auto-generated API client from OpenAPI schema
 - **src/composables/**: Vue composables for shared logic
 - **src/shared/**: Global state and domain modules (filter model, selection, mutations, scorers, clipboard, tag menu, …)
-- **src/utils/**: pure helpers with no app state (grid geometry, keyboard, focus, filter DSL, …)
+- **src/utils/**: helpers that hold no state of their own (grid geometry, keyboard, focus, filter DSL, …). Most are pure; a few read `@/shared` / `@/locale` (`sortBadge`, the palette helpers, `routeAnnounce`, `index.ts`'s `baseURL`)
 - **src/locale/**: i18n — vue-i18n instance + locale state (`localeSetting`/`resolvedLocale`, persisted as `pictoria.locale`, `auto` follows the browser) and locale-aware `formatNumber`/`formatDateTime`; message catalogues in `messages/en.ts` (schema source), `messages/zh-Hans.ts` and `messages/zh-Hant.ts` (typed as `MessageSchema` so key drift fails vue-tsc)
 
 ### Key Patterns
