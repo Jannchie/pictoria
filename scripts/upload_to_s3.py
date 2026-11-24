@@ -13,6 +13,8 @@ from typing import List
 import boto3
 from botocore.exceptions import ClientError, NoCredentialsError
 
+from library_files import iter_library_files
+
 # 加载环境变量
 try:
     from load_env import load_env
@@ -30,17 +32,6 @@ ENDPOINT_URL = os.getenv("S3_ENDPOINT", "")
 # 确保 BASE_DIR 以 / 结尾
 if BASE_DIR and not BASE_DIR.endswith("/"):
     BASE_DIR += "/"
-
-# 图库里进程私有的目录：两个 sqlite（API 一直开着，逐字节拷出来的是不一致的文件）、
-# 缩略图、gallery-dl.conf（含 cookies）。和 rclone / awscli 脚本一样永远不进同步，
-# 见 scripts/README.md。数据库用 server/scripts/backup_db.py 备份。
-PRIVATE_DIR = ".pictoria"
-
-
-def is_private(relative_parts) -> bool:
-    """相对路径的任意一段是 `.pictoria` 就算私有。"""
-    return PRIVATE_DIR in relative_parts
-
 
 
 def create_s3_client():
@@ -84,17 +75,17 @@ def get_local_files(local_path: Path, incremental: bool = False) -> List[Path]:
             last_sync = marker_file.stat().st_mtime
             print(f"🔄 Incremental upload - finding files newer than {time.ctime(last_sync)}")
             
-            for file_path in local_path.rglob("*"):
-                if file_path.is_file() and file_path.stat().st_mtime > last_sync:
+            for file_path in iter_library_files(local_path):
+                if file_path.stat().st_mtime > last_sync:
                     files.append(file_path)
         else:
             print("🔄 First time incremental upload - uploading all files")
-            files = [f for f in local_path.rglob("*") if f.is_file()]
+            files = list(iter_library_files(local_path))
     else:
         print("📁 Full upload - scanning all files")
-        files = [f for f in local_path.rglob("*") if f.is_file()]
+        files = list(iter_library_files(local_path))
     
-    return [f for f in files if not is_private(f.relative_to(local_path).parts)]
+    return files
 
 
 def upload_file(s3_client, local_path: Path, s3_key: str) -> bool:

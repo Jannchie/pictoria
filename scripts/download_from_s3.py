@@ -13,6 +13,8 @@ from typing import List, Dict
 import boto3
 from botocore.exceptions import ClientError, NoCredentialsError
 
+from library_files import is_private, iter_library_files
+
 # 加载环境变量
 try:
     from load_env import load_env
@@ -30,17 +32,6 @@ ENDPOINT_URL = os.getenv("S3_ENDPOINT", "")
 # 确保 BASE_DIR 以 / 结尾
 if BASE_DIR and not BASE_DIR.endswith("/"):
     BASE_DIR += "/"
-
-# 图库里进程私有的目录：两个 sqlite（API 一直开着，逐字节拷出来的是不一致的文件）、
-# 缩略图、gallery-dl.conf（含 cookies）。和 rclone / awscli 脚本一样永远不进同步，
-# 见 scripts/README.md。数据库用 server/scripts/backup_db.py 备份。
-PRIVATE_DIR = ".pictoria"
-
-
-def is_private(relative_parts) -> bool:
-    """相对路径的任意一段是 `.pictoria` 就算私有。"""
-    return PRIVATE_DIR in relative_parts
-
 
 
 def create_s3_client():
@@ -259,11 +250,9 @@ def sync_from_remote(s3_client, local_path: Path, base_dir: str) -> None:
     # 查找本地多余的文件
     local_files = set()
     if local_path.exists():
-        for file_path in local_path.rglob("*"):
-            # 私有目录从不上传，所以远端一定没有 —— 不排除的话 sync 会把本地的库删掉
-            if file_path.is_file() and not is_private(file_path.relative_to(local_path).parts):
-                relative_path = str(file_path.relative_to(local_path)).replace(os.sep, '/')
-                local_files.add(relative_path)
+        # 私有目录从不上传，所以远端一定没有 —— 不排除的话 sync 会把本地的库删掉
+        for file_path in iter_library_files(local_path):
+            local_files.add(file_path.relative_to(local_path).as_posix())
     
     # 删除本地多余的文件
     extra_files = local_files - remote_files
