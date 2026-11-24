@@ -1,4 +1,4 @@
-import { formatDate, formatRelativeTime, formatShortDateTime } from '@/locale'
+import { formatDate, formatNumber, formatRelativeTime, formatShortDateTime } from '@/locale'
 import { modelLevelRgb, RATING_LEVEL_COLORS, RATING_LEVEL_ICONS, SCORE_LEVEL_COLORS } from '@/shared/ratings'
 
 /** The top-right value badge on a gallery tile: text or an icon, optionally in a level colour. */
@@ -41,12 +41,12 @@ export function formatSortValue(sort: string, v: number | string, now: number = 
     // ramp) as the detail panel's ModelScoreLevel chip.
     case 'silva_score': {
       const n = Number(v) * 10
-      return { text: n.toFixed(2), color: `rgb(${modelLevelRgb(n)})` }
+      return { text: formatNumber(n, { fractionDigits: 2 }), color: `rgb(${modelLevelRgb(n)})` }
     }
     // |silva − manual| on the 1-5 scale: bigger means model & human disagree
     // more. Flagged in the danger colour so the worst offenders pop in the grid.
     case 'discrepancy': {
-      return { text: Number(v).toFixed(2), color: 'var(--p-danger)' }
+      return { text: formatNumber(Number(v), { fractionDigits: 2 }), color: 'var(--p-danger)' }
     }
     case 'created_at':
     case 'published_at':

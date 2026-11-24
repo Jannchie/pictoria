@@ -118,6 +118,30 @@ describe('catalogue covers every key used in source', () => {
   })
 })
 
+// Numbers and dates a person reads go through `@/locale` (formatNumber,
+// formatDateTime, …): a bare `toFixed` / `toLocaleString` / `Intl.*` formatter
+// pins them to one locale. The only `toFixed` left outside `locale/` builds a
+// CSS value, where the fixed "C" format is the point — recognised by the unit
+// right after the interpolation (`${x.toFixed(1)}px`).
+describe('numbers and dates are formatted through @/locale', () => {
+  const sources = import.meta.glob([
+    '../**/*.vue',
+    '../**/*.ts',
+    '!../test/**',
+    '!../api/**',
+    '!../locale/**',
+  ], { query: '?raw', import: 'default', eager: true }) as Record<string, string>
+
+  const BARE = /\.toFixed\((?!\d*\)\}(?:px|ms|deg)\b)|\.toLocale(?:Date|Time)?String\(|\bIntl\.\w+Format\b/
+
+  it('no bare number or date formatter outside locale/', () => {
+    const violations = Object.entries(sources).flatMap(([file, text]) =>
+      text.split('\n').flatMap((line, i) => (BARE.test(line) ? [`${file}:${i + 1}: ${line.trim()}`] : [])))
+    expect(Object.keys(sources).length).toBeGreaterThan(50)
+    expect(violations).toEqual([])
+  })
+})
+
 describe('picklocale', () => {
   it('maps simplified zh variants to zh-hans', () => {
     expect(pickLocale(['zh-CN'])).toBe('zh-Hans')

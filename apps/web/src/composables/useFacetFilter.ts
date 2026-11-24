@@ -29,7 +29,7 @@ type ArrayFilterField = Exclude<FacetField, 'tags'>
  * rather than the sum of its facet rows.
  */
 export function formatPct(count: number, total: number): string {
-  return total > 0 ? ((count / total) * 100).toFixed(1) : '0.0'
+  return formatNumber(total > 0 ? (count / total) * 100 : 0, { fractionDigits: 1 })
 }
 
 /**

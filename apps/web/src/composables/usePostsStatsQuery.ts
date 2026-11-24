@@ -2,6 +2,7 @@ import type { MaybeRefOrGetter } from 'vue'
 import { keepPreviousData, useQuery } from '@tanstack/vue-query'
 import { computed, toValue } from 'vue'
 import { v2GetPostsStats } from '@/api'
+import { formatNumber } from '@/locale'
 import { postFilter, queryKeys } from '@/shared'
 
 /**
@@ -31,5 +32,5 @@ export function usePostsStatsQuery(options: { enabled: MaybeRefOrGetter<boolean>
 
 /** An average score for display: two decimals, "—" when there is none. */
 export function formatAverage(value: number | null | undefined): string {
-  return value === null || value === undefined ? '—' : value.toFixed(2)
+  return value === null || value === undefined ? '—' : formatNumber(value, { fractionDigits: 2 })
 }
