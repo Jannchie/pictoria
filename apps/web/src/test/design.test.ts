@@ -6,16 +6,6 @@ import { describe, expect, it } from 'vitest'
 // hard-coded colour, gradient, raw z-index or oversized shadow can't quietly
 // drift back in. Mirrors the static-scan approach of locale.test.ts.
 
-// Components carry their styling, so the sweep is scoped to .vue files only.
-// Pulling in .ts would add false positives (hex literals in non-style code,
-// data values, etc.) without catching anything the .vue scan misses, because
-// every style rule and utility class lives in a component template/<style>.
-const sources = import.meta.glob([
-  '../**/*.vue',
-  '!../test/**',
-  '!../api/**',
-], { query: '?raw', import: 'default', eager: true }) as Record<string, string>
-
 // Normalise the glob's import.meta keys ("../components/Foo.vue") to a stable
 // short name ("components/Foo.vue") for allowlists and error messages.
 function shortName(file: string): string {
@@ -39,6 +29,21 @@ function withCssFromDisk(globbed: Record<string, string>): Record<string, string
   return Object.fromEntries(Object.entries(globbed).map(([file, text]) =>
     [file, file.endsWith('.css') ? readFileSync(new URL(file, import.meta.url), 'utf8') : text]))
 }
+
+// Everything that can carry a style: components, the .ts modules that hold class
+// names and colour tables (shared/ratings.ts, the UnoCSS shortcuts), and the
+// stylesheets. The token definition file (styles/tokens.css) is the one place
+// literal values belong, so it is left out.
+const sources = withCssFromDisk(import.meta.glob([
+  '../**/*.vue',
+  '../**/*.ts',
+  '../**/*.css',
+  '../../uno.config.ts',
+  '!../**/*.d.ts',
+  '!../test/**',
+  '!../api/**',
+  '!../styles/tokens.css',
+], { query: '?raw', import: 'default', eager: true }) as Record<string, string>)
 
 // Collect "<short file> — <matched snippet>" lines for every match of
 // `pattern` not excused by `isAllowed(file, matchText)`.
@@ -66,8 +71,12 @@ function findViolations(
 // Sentinel against the glob silently matching nothing (which would make every
 // test below pass vacuously): the app has dozens of components.
 describe('design-system source sweep', () => {
-  it('scans the component tree', () => {
-    expect(Object.keys(sources).length).toBeGreaterThan(40)
+  it('scans components, .ts modules, stylesheets and uno.config.ts', () => {
+    const files = Object.keys(sources)
+    expect(files.filter(f => f.endsWith('.vue')).length).toBeGreaterThan(40)
+    expect(files.some(f => f.endsWith('shared/ratings.ts'))).toBe(true)
+    expect(files.some(f => f.endsWith('.css'))).toBe(true)
+    expect(files.some(f => f.endsWith('uno.config.ts'))).toBe(true)
   })
 })
 
@@ -84,6 +93,9 @@ describe('no hard-coded hex colours', () => {
     'PostDetailPanel.vue': new Set(['#000000']),
     // Default colour swatch before the user picks a sort colour.
     'PostSorter.vue': new Set(['#ffffff']),
+    // RATING_LEVEL_COLORS / SCORE_LEVEL_COLORS: the per-level ramps, still
+    // hard-coded. Known debt, listed so the next hex in this file is not free.
+    'ratings.ts': new Set(['#22c55e', '#84cc16', '#eab308', '#f97316', '#ef4444']),
   }
 
   it('every hex literal is a token or an allowlisted data value', () => {
@@ -101,7 +113,7 @@ describe('no hard-coded hex colours', () => {
 describe('no gradients', () => {
   const GRADIENT = /bg-gradient-|linear-gradient\(|radial-gradient\(|conic-gradient\(/g
 
-  it('no .vue uses a gradient background', () => {
+  it('nothing uses a gradient background', () => {
     const violations = findViolations(GRADIENT, () => false)
     expect(violations, 'gradients are not part of the design system').toEqual([])
   })
@@ -147,14 +159,15 @@ describe('reserved shadows stay in the ui/ elevation primitives', () => {
 
   it('no reserved shadow outside src/ui', () => {
     const violations = findViolations(SHADOW, (file) => {
-      // Only ui/ primitives (e.g. PSurface) may define the shadow-lg tier.
-      return shortName(file).startsWith('ui/')
+      // Only ui/ primitives (e.g. PSurface) may use the shadow-lg tier;
+      // uno.config.ts is where the scale maps onto its `--p-shadow-*` tokens.
+      return shortName(file).startsWith('ui/') || file.endsWith('uno.config.ts')
     })
     expect(violations, 'reserved shadow (lg/xl/2xl) outside src/ui (use sm/md)').toEqual([])
   })
 })
 
-// 5. Every `var(--p-*)` names a token that is defined somewhere. An undefined
+// 5. Every `var(--p-*)` names a token that is defined. An undefined
 //    custom property resolves to nothing, so the declaration silently drops
 //    (e.g. `--p-border-default` is a UnoCSS theme *key*, not a variable, and
 //    `--p-bg-subtle` never existed). "Defined" means any of:
@@ -184,23 +197,26 @@ describe('every referenced --p-* token is defined', () => {
     expect(files.some(f => f.endsWith('uno.config.ts'))).toBe(true)
   })
 
+  function definedIn(text: string): Set<string> {
+    return new Set([DECLARED, SET_PROPERTY, STYLE_KEY].flatMap(pattern => [...text.matchAll(pattern)].map(m => m[1])))
+  }
+
+  // A token is defined in the token file, or — a component's private one
+  // (PButton's `--p-btn-h`) — in the file that reads it. A declaration anywhere
+  // else does not count: it would let one stray `--p-x:` (even in a comment)
+  // excuse every `var(--p-x)` in the app.
   it('no var(--p-*) without a definition', () => {
-    const defined = new Set<string>()
-    for (const text of Object.values(tokenSources)) {
-      for (const pattern of [DECLARED, SET_PROPERTY, STYLE_KEY]) {
-        for (const m of text.matchAll(pattern)) {
-          defined.add(m[1])
-        }
-      }
-    }
+    const tokenFile = Object.entries(tokenSources).find(([file]) => file.endsWith('styles/tokens.css'))![1]
+    const tokens = definedIn(tokenFile)
     // Sanity: the token file was actually read.
-    expect(defined.has('--p-bg')).toBe(true)
+    expect(tokens.has('--p-bg')).toBe(true)
 
     const violations: string[] = []
     for (const [file, text] of Object.entries(tokenSources)) {
+      const local = definedIn(text)
       for (const m of text.matchAll(REFERENCED)) {
         const name = m[1]
-        if (defined.has(name)) {
+        if (tokens.has(name) || local.has(name)) {
           continue
         }
         violations.push(`${shortName(file)} — ${name}`)
@@ -214,38 +230,29 @@ describe('every referenced --p-* token is defined', () => {
 //    just like `#f87171`. Colours go through tokens: `var(--p-*)`, or
 //    `rgb(var(--p-*-rgb) / α)` for an alpha step. Only a numeric first
 //    argument counts as a literal, so `rgb(var(…))` and runtime-built
-//    `rgb(${…})` strings pass. Swept wider than the .vue-only rules above —
-//    .ts and .css can carry style strings too — with the token definition
-//    file itself (styles/tokens.css) as the one place literals belong.
+//    `rgb(${…})` strings pass.
 describe('no literal rgb()/hsl() colours', () => {
   const COLOR_FN = /\b(?:rgba?|hsla?)\(\s*[\d.]/gi
 
-  const styleSources = withCssFromDisk(import.meta.glob([
-    '../**/*.vue',
-    '../**/*.ts',
-    '../**/*.css',
-    '!../**/*.d.ts',
-    '!../test/**',
-    '!../api/**',
-    '!../styles/tokens.css',
-  ], { query: '?raw', import: 'default', eager: true }) as Record<string, string>)
-
-  it('scans .vue, .ts and .css', () => {
-    const files = Object.keys(styleSources)
-    expect(files.some(f => f.endsWith('.ts'))).toBe(true)
-    expect(files.some(f => f.endsWith('.css'))).toBe(true)
-  })
-
   it('every colour function takes a token', () => {
-    const violations: string[] = []
-    for (const [file, text] of Object.entries(styleSources)) {
-      for (const m of text.matchAll(COLOR_FN)) {
-        const lineStart = text.lastIndexOf('\n', m.index ?? 0) + 1
-        const lineEndRaw = text.indexOf('\n', m.index ?? 0)
-        const line = text.slice(lineStart, lineEndRaw === -1 ? text.length : lineEndRaw).trim()
-        violations.push(`${shortName(file)} — ${line}`)
-      }
-    }
-    expect(violations.sort(), 'literal rgb()/hsl() colours (use var(--p-*) or rgb(var(--p-*-rgb) / α))').toEqual([])
+    const violations = findViolations(COLOR_FN, () => false)
+    expect(violations, 'literal rgb()/hsl() colours (use var(--p-*) or rgb(var(--p-*-rgb) / α))').toEqual([])
+  })
+})
+
+// 7. UnoCSS only extracts class names from the files in `content.pipeline.include`,
+//    and plain .ts is not in its default set. An icon class that lives in a .ts
+//    module (an option table's `icon: 'i-tabler-…'`) renders as nothing unless
+//    that file is listed in uno.config.ts — silently, with no build error.
+describe('every .ts carrying icon classes is in the unocss pipeline', () => {
+  const ICON = /\bi-tabler-[a-z0-9-]+/
+
+  it('uno.config.ts includes each such file', () => {
+    const unoConfig = Object.entries(sources).find(([file]) => file.endsWith('uno.config.ts'))![1]
+    const carriers = Object.entries(sources)
+      .filter(([file, text]) => file.endsWith('.ts') && !file.endsWith('uno.config.ts') && ICON.test(text))
+      .map(([file]) => `src/${shortName(file)}`)
+    expect(carriers.length).toBeGreaterThan(0)
+    expect(carriers.filter(file => !unoConfig.includes(`'${file}'`)), 'add to content.pipeline.include in uno.config.ts').toEqual([])
   })
 })
