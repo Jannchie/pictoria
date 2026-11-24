@@ -251,7 +251,7 @@ export function createPost(
  * 会让每一轮都去解码一个模型读不了的文件；而这里收窄则会让一张 bmp 从 400 变成
  * 一次真实计算 —— 都是可见的行为漂移。
  */
-const IS_IMAGE_EXTS = ['jpg', 'jpeg', 'png', 'gif', 'webp', 'avif', 'bmp', 'tiff', 'tif', 'svg']
+export const IS_IMAGE_EXTS = ['jpg', 'jpeg', 'png', 'gif', 'webp', 'avif', 'bmp', 'tiff', 'tif', 'svg']
 
 /** 路径看起来是不是一张图（大小写不敏感的后缀判断）。`/v2/cmd/*` 的单张命令拿它判 400。 */
 export function isImagePath(filePath: string): boolean {

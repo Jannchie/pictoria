@@ -6,6 +6,7 @@
  * 没有人接住它 —— 于是浏览一张中文命名的图就让整个进程退出一次。实测代价：一次
  * 跑到 59% 的全库差分仲裁被连带杀掉。
  */
+import { IS_IMAGE_EXTS } from '@pictoria/db'
 import { afterEach, describe, expect, it } from 'vitest'
 import { createTestApp, fakeTasks, type TestApp } from '../testing/app.js'
 import { contentDisposition } from './images.js'
@@ -114,5 +115,13 @@ describe('原图的 content-type', () => {
     const res = await t.app.request(`/v2/images/original/art/${name}`)
     expect(res.status).toBe(200)
     expect(res.headers.get('content-type')).toBe(type)
+  })
+
+  it.each(IS_IMAGE_EXTS)('.%s 有 image/* 的 content-type', async (ext) => {
+    t = createTestApp()
+    t.writeFile(`art/a.${ext}`, 'x')
+    const res = await t.app.request(`/v2/images/original/art/a.${ext}`)
+    expect(res.status).toBe(200)
+    expect(res.headers.get('content-type')).toMatch(/^image\//)
   })
 })
