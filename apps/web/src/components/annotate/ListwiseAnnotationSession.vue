@@ -339,10 +339,9 @@ function submit(ranking: number[]) {
 // has focus, Enter/Space belong to it, so the order is submitted with Mod+Enter (or
 // the Submit button); from anywhere else plain Enter still submits.
 const shell = useTemplateRef('shell')
-const root = computed(() => shell.value?.root ?? null)
 const row = useTemplateRef<HTMLElement>('row')
-const { notForeign } = useAnnotationSessionFrame({
-  root,
+const { root, notForeign } = useAnnotationSessionFrame({
+  shell,
   onEscape: () => emit('exit'),
   finished: () => exhausted.value && !current.value,
 })
@@ -505,7 +504,6 @@ watch(() => [props.queue?.id, props.dimension] as const, () => {
 
 const title = computed(() => props.queue?.name ?? t('annotate.listwise.streamTitle'))
 
-const finished = computed(() => exhausted.value && !current.value)
 // The keyboard sorting model (see the Keyboard section) is listed too: without it
 // the cards look mouse-only. Space on a focused card picks it up; elsewhere it skips.
 const hints = computed(() => [
@@ -548,7 +546,7 @@ const submitKeyAria = isMac ? 'Meta+Enter' : 'Control+Enter'
       >{{ $t('annotate.listwise.agreement') }} <span class="text-fg font-medium">{{ agreeLabel }}</span></span>
     </template>
 
-    <template #header>
+    <template #header="{ finished }">
       <div v-if="!finished" class="text-sm font-medium px-4 py-2 text-center p-divider shrink-0" :class="gate === 'armed' ? 'listwise-confirm' : 'text-fg'">
         <i18n-t v-if="gate === 'armed'" keypath="annotate.listwise.confirm" tag="span" scope="global">
           <template #enter>
@@ -645,58 +643,56 @@ const submitKeyAria = isMac ? 'Meta+Enter' : 'Control+Enter'
     </template>
 
     <!-- 大图查看：点击（非拖拽）或卡片上按 V 打开，←/→ 按当前行序切换 -->
-    <template #outside>
-      <Teleport to="body">
-        <div
-          v-if="lightboxPost"
-          ref="lightboxEl"
-          class="listwise-lightbox"
-          role="dialog"
-          aria-modal="true"
-          :aria-label="$t('annotate.listwise.viewTitle')"
-          tabindex="-1"
-          @click.self="closeLightbox"
-        >
-          <img :src="getPostImageURL(lightboxPost)" :alt="lightboxPost.fileName" class="listwise-lightbox__img" draggable="false">
-          <div class="listwise-lightbox__bar">
-            <span class="text-fg font-medium tabular-nums">{{ $t('annotate.listwise.viewPosition', { pos: lightboxIndex + 1, total: order.length }) }}</span>
-            <AnnotationKeyHints class="text-fg-muted" :hints="lightboxHints" />
-          </div>
-          <button
-            type="button"
-            class="listwise-lightbox__btn listwise-lightbox__close"
-            :aria-label="$t('annotate.listwise.viewClose')"
-            :title="$t('annotate.listwise.viewClose')"
-            aria-keyshortcuts="Escape"
-            @click="closeLightbox"
-          >
-            <i class="i-tabler-x" aria-hidden="true" />
-          </button>
-          <button
-            type="button"
-            class="listwise-lightbox__btn listwise-lightbox__nav listwise-lightbox__nav--left"
-            :aria-label="$t('annotate.listwise.viewPrev')"
-            :title="$t('annotate.listwise.viewPrev')"
-            :aria-disabled="lightboxIndex <= 0"
-            aria-keyshortcuts="ArrowLeft"
-            @click="lightboxStep(-1)"
-          >
-            <i class="i-tabler-chevron-left" aria-hidden="true" />
-          </button>
-          <button
-            type="button"
-            class="listwise-lightbox__btn listwise-lightbox__nav listwise-lightbox__nav--right"
-            :aria-label="$t('annotate.listwise.viewNext')"
-            :title="$t('annotate.listwise.viewNext')"
-            :aria-disabled="lightboxIndex >= order.length - 1"
-            aria-keyshortcuts="ArrowRight"
-            @click="lightboxStep(1)"
-          >
-            <i class="i-tabler-chevron-right" aria-hidden="true" />
-          </button>
+    <Teleport to="body">
+      <div
+        v-if="lightboxPost"
+        ref="lightboxEl"
+        class="listwise-lightbox"
+        role="dialog"
+        aria-modal="true"
+        :aria-label="$t('annotate.listwise.viewTitle')"
+        tabindex="-1"
+        @click.self="closeLightbox"
+      >
+        <img :src="getPostImageURL(lightboxPost)" :alt="lightboxPost.fileName" class="listwise-lightbox__img" draggable="false">
+        <div class="listwise-lightbox__bar">
+          <span class="text-fg font-medium tabular-nums">{{ $t('annotate.listwise.viewPosition', { pos: lightboxIndex + 1, total: order.length }) }}</span>
+          <AnnotationKeyHints class="text-fg-muted" :hints="lightboxHints" />
         </div>
-      </Teleport>
-    </template>
+        <button
+          type="button"
+          class="listwise-lightbox__btn listwise-lightbox__close"
+          :aria-label="$t('annotate.listwise.viewClose')"
+          :title="$t('annotate.listwise.viewClose')"
+          aria-keyshortcuts="Escape"
+          @click="closeLightbox"
+        >
+          <i class="i-tabler-x" aria-hidden="true" />
+        </button>
+        <button
+          type="button"
+          class="listwise-lightbox__btn listwise-lightbox__nav listwise-lightbox__nav--left"
+          :aria-label="$t('annotate.listwise.viewPrev')"
+          :title="$t('annotate.listwise.viewPrev')"
+          :aria-disabled="lightboxIndex <= 0"
+          aria-keyshortcuts="ArrowLeft"
+          @click="lightboxStep(-1)"
+        >
+          <i class="i-tabler-chevron-left" aria-hidden="true" />
+        </button>
+        <button
+          type="button"
+          class="listwise-lightbox__btn listwise-lightbox__nav listwise-lightbox__nav--right"
+          :aria-label="$t('annotate.listwise.viewNext')"
+          :title="$t('annotate.listwise.viewNext')"
+          :aria-disabled="lightboxIndex >= order.length - 1"
+          aria-keyshortcuts="ArrowRight"
+          @click="lightboxStep(1)"
+        >
+          <i class="i-tabler-chevron-right" aria-hidden="true" />
+        </button>
+      </div>
+    </Teleport>
   </AnnotationSessionShell>
 </template>
 

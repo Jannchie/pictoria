@@ -202,11 +202,10 @@ function selectChoice(dimension: string, value: number) {
 // the 'z' rating), nothing while typing, nothing while a layer (palette, help,
 // dialog) is open, and nothing while focus is in someone else's composite widget.
 const shell = useTemplateRef('shell')
-const root = computed(() => shell.value?.root ?? null)
 // Esc leaves the review first, the session only when there is no review to leave.
 // Layers (palette, help) swallow Escape before it gets here.
 const { notForeign } = useAnnotationSessionFrame({
-  root,
+  shell,
   onEscape: () => (review.value ? endReview() : emit('exit')),
   finished: () => exhausted.value && !current.value,
 })

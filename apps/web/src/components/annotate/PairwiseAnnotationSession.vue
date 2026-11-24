@@ -185,11 +185,10 @@ function judge(winner: PairwiseWinner) {
 // arrows also fire from a plain button (a clicked history row, the refresh button)
 // because none of those use arrows — but not from someone else's composite widget.
 const shell = useTemplateRef('shell')
-const root = computed(() => shell.value?.root ?? null)
 // Esc backs out one level at a time: out of the review first, out of the session
 // only when there is no review to leave. Layers swallow Escape before it gets here.
 const { notForeign } = useAnnotationSessionFrame({
-  root,
+  shell,
   onEscape: () => (review.value ? endReview() : emit('exit')),
   finished: () => exhausted.value && !current.value,
 })
@@ -217,8 +216,6 @@ const question = computed(() => {
   return meta ? t(meta.questionKey) : t('annotate.dimension.questionFallback', { dimension: dimension.value })
 })
 
-// Ran dry with nothing on screen: the banner and the key legend have nothing to act on.
-const finished = computed(() => exhausted.value && !shown.value)
 // 流式对比跑干了：另外两种配对方式就是最近的出路。
 const otherStrategies = computed(() => (props.queue
   ? []
@@ -247,7 +244,7 @@ const hints = computed(() => [
     @exit="emit('exit')"
     @retry="stream.refill()"
   >
-    <template #header>
+    <template #header="{ finished }">
       <!-- 维度问题横幅；复判时换成"在改哪一条" -->
       <AnnotationReviewBanner v-if="review" :verdict="reviewVerdict" @exit="endReview()" />
       <div v-else-if="!finished" :id="`${sessionId}-q`" class="text-sm text-fg font-medium px-4 py-2 text-center p-divider shrink-0">

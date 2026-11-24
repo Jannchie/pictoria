@@ -427,12 +427,14 @@ export function useAnnotationStream<T extends StreamItem>(options: AnnotationStr
  * session hotkeys out of other components' composite widgets.
  */
 export function useAnnotationSessionFrame(options: {
-  root: Readonly<Ref<HTMLElement | null>>
+  /** The session's `AnnotationSessionShell` (template ref); its `root` is the session region. */
+  shell: Readonly<Ref<{ root: HTMLElement | null } | null | undefined>>
   onEscape: () => void
   /** True once the stream is exhausted and nothing is left on screen. */
   finished: () => boolean
-}): { notForeign: (e: KeyboardEvent) => boolean } {
-  const { root, onEscape, finished } = options
+}): { root: ComputedRef<HTMLElement | null>, notForeign: (e: KeyboardEvent) => boolean } {
+  const { shell, onEscape, finished } = options
+  const root = computed(() => shell.value?.root ?? null)
   const notForeign = (e: KeyboardEvent) => isForeignComposite(e.target, root.value)
 
   useHotkey('Escape', onEscape, { when: noLayerOpen, allowInWidgets: true, ignore: notForeign })
@@ -452,5 +454,5 @@ export function useAnnotationSessionFrame(options: {
     }
   })
 
-  return { notForeign }
+  return { root, notForeign }
 }

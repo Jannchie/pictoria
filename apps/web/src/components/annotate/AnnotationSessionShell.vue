@@ -16,13 +16,13 @@ import AnnotationSpinner from '@/components/annotate/AnnotationSpinner.vue'
 // Slots, in DOM order:
 // - `after-title`  — inline next to the title (absolute: the content-flag status)
 // - `after-progress` — next to the progress count (listwise: model agreement)
-// - `header`       — the strip above the body (question, review banner)
+// - `header`       — the strip above the body (question, review banner); gets
+//                    `finished` (ran dry, nothing on screen) as a slot prop
 // - default        — the judging surface, rendered while `active`
 // - `finished`     — extra actions on the finished screen. Only forwarded when the
 //                    session provides it: AnnotationFinished styles its Home button
 //                    by whether it got any slot at all.
 // - `loading`      — replaces the default spinner + "Loading…" line
-// - `outside`      — after the body, inside the region (listwise: its lightbox)
 const props = defineProps<{
   title: string
   /** The top bar's progress text. */
@@ -88,7 +88,7 @@ defineExpose({ root })
     </div>
 
     <div class="flex flex-1 flex-col min-h-0 min-w-0">
-      <slot name="header" />
+      <slot name="header" :finished="finished" />
       <slot v-if="active" />
 
       <!-- 空态 / 完成态 -->
@@ -106,8 +106,6 @@ defineExpose({ root })
         </slot>
       </div>
     </div>
-
-    <slot name="outside" />
   </div>
 </template>
 

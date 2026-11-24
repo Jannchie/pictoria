@@ -148,13 +148,10 @@ describe('annotation session shell', () => {
       'after-title': () => h('span', { 'data-test': 'flag' }),
       'after-progress': () => h('span', { 'data-test': 'agree' }),
       'header': () => h('div', { 'data-test': 'question' }),
-      'outside': () => h('div', { 'data-test': 'outside' }),
     })
-    const region = host.querySelector('[role=region]')!
     expect((host.querySelector('h2')!.nextElementSibling as HTMLElement | null)?.dataset.test).toBe('flag')
     expect(host.querySelector('[data-test=agree]')).not.toBeNull()
     // The header strip sits directly above the body.
     expect(host.querySelector('[data-test=question]')!.nextElementSibling).toBe(body(host))
-    expect((region.lastElementChild as HTMLElement | null)?.dataset.test).toBe('outside')
   })
 })
