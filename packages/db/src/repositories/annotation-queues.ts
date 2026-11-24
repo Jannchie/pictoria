@@ -50,14 +50,11 @@ export const ITEM_TABLES: Record<MutableKind, string> = {
 export function markQueueItemDone(
   sqlite: BetterSqlite3.Database,
   queueId: number,
-  { kind, position, done = true }: { kind: string, position: number, done?: boolean },
+  { kind, position, done = true }: { kind: MutableKind, position: number, done?: boolean },
 ): boolean {
-  const table = (ITEM_TABLES as Partial<Record<string, string>>)[kind]
-  if (!table)
-    throw new Error(`unknown queue kind: ${kind}`)
   return (
     sqlite
-      .prepare(`UPDATE ${table} SET done = ? WHERE queue_id = ? AND position = ? AND done = ?`)
+      .prepare(`UPDATE ${ITEM_TABLES[kind]} SET done = ? WHERE queue_id = ? AND position = ? AND done = ?`)
       .run(done ? 1 : 0, queueId, position, done ? 0 : 1).changes > 0
   )
 }

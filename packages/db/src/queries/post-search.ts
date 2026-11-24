@@ -3,7 +3,6 @@
  */
 import { placeholders, serializeFloat32, whereSql } from '../sql.js'
 import type BetterSqlite3 from 'better-sqlite3'
-import { Buffer } from 'node:buffer'
 import { buildWhere, type BuildWhereOptions, ORDERABLE_COLUMNS, type PostFilter } from '../filters.js'
 import { LIST_DRIVE_MAX_POSTS, pickDrivingTag } from './tag-drive.js'
 import { FILTERABLE_SCORERS, orderColumn, SILVA } from '../scorers.js'
@@ -467,7 +466,7 @@ export function searchByTextVector(
   { limit = 100, offset = 0 }: { limit?: number, offset?: number } = {},
 ): Array<Record<string, unknown>> {
   const { where, params, joins } = buildWhere(f)
-  const vecBlob = Buffer.from(vec.buffer, vec.byteOffset, vec.byteLength)
+  const vecBlob = serializeFloat32(vec)
   const want = limit + offset
   // 超采，让后置过滤器有足够候选凑满 limit。
   //

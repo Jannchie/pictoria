@@ -23,6 +23,7 @@
  */
 import type BetterSqlite3 from 'better-sqlite3'
 import { open } from 'node:fs/promises'
+import { chunked } from '../sql.js'
 import { SIGLIP2_TABLE } from './vectors.js'
 
 /**
@@ -202,8 +203,8 @@ function edgeOrder(x: VariantEdge, y: VariantEdge): number {
 /** 分块排序 + 两两归并，每 `ASSIGN_STEP` 条交出一次控制权。 */
 function* sortedSteps(items: VariantEdge[]): Generator<void, VariantEdge[]> {
   let runs: VariantEdge[][] = []
-  for (let i = 0; i < items.length; i += ASSIGN_STEP) {
-    runs.push(items.slice(i, i + ASSIGN_STEP).sort(edgeOrder))
+  for (const run of chunked(items, ASSIGN_STEP)) {
+    runs.push(run.sort(edgeOrder))
     yield
   }
   while (runs.length > 1) {
